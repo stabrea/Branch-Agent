@@ -34,16 +34,19 @@ function keyed(tag, key, className = "") {
 }
 const say = (message) => { const node = $("usage-report-status"); if (node) node.textContent = message; };
 
-function picker(id, labelKey, values, prefix) {
+/* DG-170: each choice carries its English words, so it has a key to be drawn again by once the words arrive;
+   with the key alone it kept showing "usage.report.range.7d" when it was drawn before they loaded. */
+const RANGE_WORDS = { "7d": "The last 7 days", "30d": "The last 30 days", "90d": "The last 90 days" };
+
+function picker(id, labelKey, values, prefix, words = {}) {
   const label = keyed("label", labelKey);
   label.htmlFor = id;
   // Detect three-way switch vs multi-option dropdown
   if (JSON.stringify(values) === JSON.stringify(["off", "when-needed", "on"])) {
-    const options = values.map((v) => [v, `${prefix}.${v}`]);
-    const control = segmented({ id, options, value: "" });
+    const control = segmented({ id, value: "" }); // the shared Off · When needed · On
     return [label, control];
   } else {
-    const options = values.map((v) => [v, `${prefix}.${v}`]);
+    const options = values.map((v) => [v, `${prefix}.${v}`, words[v]]);
     const control = dropdown({ id, options, value: "" });
     return [label, control];
   }
@@ -88,7 +91,7 @@ function buildCountersCard() {
   card.className = "card";
   card.id = "counters-card";
   card.dataset.home = "settings:advanced";
-  const [modeLabel, mode] = picker("counters-mode", "field.counters-mode", ["off", "when-needed", "on"], "counters.mode");
+  const [modeLabel, mode] = picker("counters-mode", "field.counters-mode", ["off", "when-needed", "on"]);
   mode.addEventListener("change", async () => {
     try { showCounters((await api("usage/counters", { mode: mode.value })).counters); sayCounters(""); }
     catch (error) { sayCounters(error.message); }
@@ -105,7 +108,7 @@ function buildCountersCard() {
   status.id = "counters-status";
   status.className = "subtle";
   status.setAttribute("role", "status");
-  card.append(keyed("h2", "counters.title"), keyed("p", "counters.lead"), modeLabel, mode,
+  card.append(keyed("h3", "counters.title", "settings-card-title"), keyed("p", "counters.lead"), modeLabel, mode,
     keyed("p", "counters.note", "subtle"), send, status);
   return card;
 }
@@ -126,8 +129,8 @@ function buildCard() {
   card.className = "card";
   card.id = "usage-report-card";
   card.dataset.home = "settings:data";
-  const [modeLabel, mode] = picker("usage-report-mode", "field.usage-report-mode", ["off", "when-needed", "on"], "usage.report.mode");
-  const [rangeLabel, range] = picker("usage-report-range", "field.usage-report-range", ["7d", "30d", "90d"], "usage.report.range");
+  const [modeLabel, mode] = picker("usage-report-mode", "field.usage-report-mode", ["off", "when-needed", "on"]);
+  const [rangeLabel, range] = picker("usage-report-range", "field.usage-report-range", ["7d", "30d", "90d"], "usage.report.range", RANGE_WORDS);
   mode.addEventListener("change", () => save({ mode: mode.value }));
   range.addEventListener("change", () => save({ range: range.value }));
   const body = document.createElement("div");

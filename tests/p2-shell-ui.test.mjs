@@ -123,10 +123,10 @@ test("on a phone the strip is a row across the top, a tablet's a row at the foot
   assert.ok(prompt.y + prompt.height <= places.y, "the message box stays above the places bar at the foot");
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
   assert.ok(await f.page.locator("#send").isVisible());
-  await f.page.setViewportSize({ width: 820, height: 1180 });
+  await f.page.setViewportSize({ width: 740, height: 1180 });
   await f.page.waitForTimeout(100);
   const tablet = await f.page.locator("#trunk-strip").boundingBox(), tabletPrompt = await f.page.locator("#prompt").boundingBox();
-  assert.ok(tablet.y > 1100 && tablet.width > 780, "a tablet: a row at the foot");
+  assert.ok(tablet.y > 1100 && tablet.width > 700, "a tablet: a row at the foot");
   assert.ok(tabletPrompt.y + tabletPrompt.height <= tablet.y, "the message box stays above it");
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
   assert.deepEqual(f.errors, []);
@@ -165,15 +165,15 @@ test("Change look… edits a Trunk after it is made: face, emoji, colour, shape 
   assert.equal(await dialog.locator(".studio-tabs").count(), 0, "changing one has no Add tabs");
   await dialog.getByRole("button", { name: "Emoji", exact: true }).click();
   await dialog.locator('.studio-emoji-pick[data-emoji="🦉"]').click();
-  await dialog.getByRole("button", { name: "Colour 5" }).click();
+  await dialog.getByRole("button", { name: "Colour #FF6B8A" }).click();
   await dialog.getByRole("button", { name: "Hexagon" }).click();
   await dialog.getByRole("button", { name: "Breathe" }).click();
   assert.equal(await dialog.locator("#studio-preview .studio-big .fc-emoji").getAttribute("data-text"), "🦉", "the preview follows");
   assert.deepEqual(await untranslated(f.page), []);
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
-  const look = (await f.call(`/api/trunks/${trunk.id}`)).trunk.look;
-  assert.deepEqual([look.face, look.emoji, look.colour, look.shape, look.motion], ["emoji", "🦉", 5, "hexagon", "breathe"]);
+  const { look, chosenColour } = (await f.call(`/api/trunks/${trunk.id}`)).trunk;
+  assert.deepEqual([look.face, look.emoji, look.colour, chosenColour, look.shape, look.motion], ["emoji", "🦉", null, "#ff6b8a", "hexagon", "breathe"]);
   await f.page.waitForFunction((id) => document.querySelector(`#trunk-strip [data-strip-id="trunk:${id}"] .fc-emoji`)?.dataset.text === "🦉", trunk.id);
   assert.deepEqual(f.errors, []);
 });
@@ -356,7 +356,7 @@ test("replies show the assistant's own face, and a Trunk set to 3D is a 3D stand
   assert.deepEqual(f.errors, []);
 });
 
-test("every name gives a face with one of the eight colours and a whole mouth", async (t) => {
+test("every name gives a face with one of the eight colours: a Trunk its pixel pattern, the assistant a whole mouth", async (t) => {
   const f = await fixture(t);
   await f.open();
   const broken = await f.page.evaluate(async () => {
@@ -364,11 +364,12 @@ test("every name gives a face with one of the eight colours and a whole mouth", 
     const bad = [];
     for (let n = 0; n < 300; n++) {
       const name = `Name ${n} ${String.fromCharCode(65 + (n % 26))}`;
-      for (const spec of [trunkSpec({ name }), assistantSpec(name)]) {
-        const drawn = face(spec, 28);
-        const mouth = drawn.querySelector(".fc-mouth")?.getAttribute("d") ?? "";
-        if (!/^var\(--series-[1-8]\)$/.test(spec.colour) || !/^M\d/.test(mouth)) bad.push(`${name}: ${spec.colour} ${mouth}`);
-      }
+      // DG-108: a Trunk's face made from its name is the pixel pattern; the assistant keeps its drawn face.
+      const trunk = trunkSpec({ name }), pixels = face(trunk, 28).querySelector("canvas.fc-pattern");
+      if (!/^var\(--series-[1-8]\)$/.test(trunk.colour) || !pixels) bad.push(`${name}: ${trunk.colour} no pattern`);
+      const spec = assistantSpec(name), drawn = face(spec, 28);
+      const mouth = drawn.querySelector(".fc-mouth")?.getAttribute("d") ?? "";
+      if (!/^var\(--series-[1-8]\)$/.test(spec.colour) || !/^M\d/.test(mouth)) bad.push(`${name}: ${spec.colour} ${mouth}`);
     }
     return bad;
   });

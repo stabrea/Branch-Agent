@@ -10,6 +10,7 @@ input[type="checkbox"][role="switch"] {
   border: 1px solid var(--line-2);
   border-radius: 12px;
   margin: 0;
+  padding: 0; /* a switch never takes a text field's padding, wherever it sits */
   background: var(--press);
   cursor: pointer;
   transition: background 0.15s;
@@ -84,8 +85,14 @@ input[type="checkbox"][role="switch"]:disabled {
   color: var(--text-2);
   font: inherit;
   font-size: 12.5px;
+  box-shadow: none;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* The sample's options keep their look under the pointer: the page's own button hover must not reach them. */
+.segmented-option:hover {
+  background: none;
 }
 
 .segmented-option[aria-pressed="true"] {
@@ -105,7 +112,8 @@ input[type="checkbox"][role="switch"]:disabled {
   opacity: 0.45;
 }
 
-.segmented-control[data-disabled] .segmented-option {
+.segmented-control[data-disabled] .segmented-option,
+.segmented-control:has(> .segmented-source:disabled) .segmented-option {
   cursor: not-allowed;
   opacity: 0.45;
 }

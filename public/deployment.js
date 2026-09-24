@@ -12,6 +12,36 @@ export const opensWhenSignedIn = (platform, quietly = false) =>
   `Branch will open${quietly ? " quietly" : ""} when you sign in to ${signInPlace[signInSystem(platform)]}.`;
 const signInLabels = ["field.open-branch-when-i-sign", "field.start-branch-when-i-sign"];
 
+/** mac7/bind: the words of the line about where Branch's own door listens, in English; {address} is where. */
+const doorWords = {
+  "deployment.door.every": "Branch listens beyond this computer, on every address it answers on ({address}).",
+  "deployment.door.ipv4-only": "Branch listens beyond this computer, on private IPv4 networks only ({address}).",
+  "deployment.door.here": "Branch listens on this computer only ({address}).",
+  "deployment.door.closed": "Its door to the private network was closed while Branch was running.",
+  "deployment.door.restart": "Its door to the private network was closed while Branch was running. This computer's"
+    + " addresses would let it open again: start Branch again to open it.",
+};
+/**
+ * mac7/bind: the one line the card shows about where Branch's own door listens, from what
+ * `GET /api/listen` says: the keys of its words, the address, and why the door is on this computer
+ * when Branch says why. That reason is Branch's own sentence and follows the words as it is.
+ */
+export function doorLine(view) {
+  const line = (keys, reason = null) => ({ keys, address: view.listeningOn, reason });
+  if (view.beyondThisComputer) return line([view.ipv4Only ? "deployment.door.ipv4-only" : "deployment.door.every"]);
+  // Once a start would open it again, why it closed is history, and the line says what to do instead.
+  if (view.restartOpens) return line(["deployment.door.here", "deployment.door.restart"]);
+  return line(["deployment.door.here", ...(view.closedWhileRunning ? ["deployment.door.closed"] : [])], view.refusal ?? null);
+}
+/** The line in the chosen language, or in English before the words have loaded. */
+export function doorText(line, words = t) {
+  const said = line.keys.map((key) => {
+    const text = words(key, { address: line.address });
+    return text === key ? doorWords[key].replace("{address}", line.address) : text;
+  });
+  return [...said, ...(line.reason ? [line.reason] : [])].join(" ");
+}
+
 const card = typeof document === "undefined" ? null : document.getElementById("deployment-card");
 if (card) {
   let platform = "";
@@ -61,6 +91,15 @@ if (card) {
         if (word !== node.dataset.t) node.textContent = word;
       }
   }
+  /** Written from the last state each time the language changes, so it never keeps the old words. */
+  let restorePoints = null;
+  function sayRestorePoints() {
+    if (!restorePoints) return;
+    pick("restore-points").textContent = restorePoints.length
+      ? t("settings.deployment.safety-copies-kept", { copies: restorePoints.map((p) => `${p.version} (${p.savedAt.slice(0, 10)})`).join(", ") })
+      : t("settings.deployment.no-safety-copy");
+  }
+  document.addEventListener("branch-language", sayRestorePoints);
   function render(state) {
     platform = state.platform ?? "";
     nameTheSystem();
@@ -71,17 +110,26 @@ if (card) {
     pick("phone-switch").checked = state.remote.enabled;
     say("phone-status", state.remote.message);
     pick("phone-invite").hidden = !state.remote.enabled;
-    const points = pick("restore-points");
-    points.textContent = state.restorePoints.length
-      ? `Safety copies kept: ${state.restorePoints.map((p) => `${p.version} (${p.savedAt.slice(0, 10)})`).join(", ")}.`
-      : "No safety copy has been taken yet. One is taken automatically before each update.";
+    restorePoints = state.restorePoints;
+    sayRestorePoints();
     const unhealthy = state.firstStart && !state.firstStart.healthy && state.firstStart.previousVersion;
     pick("restore-offer").hidden = !(unhealthy && state.restorePoints.length);
     if (unhealthy && state.restorePoints.length)
       say("restore-offer-note", `Version ${state.firstStart.version} did not start cleanly. You can put back the saved work from just before the update to ${state.firstStart.version}.`);
     if (!state.installed) say("deployment-note", "These switches need Branch installed on this computer. They do nothing while it runs from a folder of source code.");
   }
+  /** mac7/bind: where Branch's own door listens. Only the owner may be told, so a refusal hides the line. */
+  async function showDoor() {
+    const line = pick("listen-door-status");
+    try {
+      const response = await fetch("/api/listen", { headers: { authorization: "Bearer " + token() } });
+      if (!response.ok) throw new Error(`GET /api/listen answered ${response.status}`);
+      line.textContent = doorText(doorLine(await response.json()));
+      line.hidden = false;
+    } catch { line.hidden = true; }
+  }
   async function refresh() {
+    void showDoor();
     try { render(await call("")); } catch (error) { say("deployment-note", error.message, true); }
   }
   pick("start-with-windows").addEventListener("change", async (event) => {
@@ -142,4 +190,5 @@ if (card) {
   if (token() || desktop) void refresh();
   // phase2/settings: in a browser the page signs in after this runs, so read the real state when Settings opens.
   document.addEventListener("branch-place", (event) => { if (String(event.detail?.view ?? "").startsWith("settings") && token()) void refresh(); });
+  document.addEventListener("branch-language", () => { if (token()) void showDoor(); });
 }

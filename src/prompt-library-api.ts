@@ -6,6 +6,7 @@ import {
 } from "./prompt-library.js";
 import { EXAMPLES, addExamples, exampleMcpConfig } from "./prompt-examples.js";
 import { takenByCatalog } from "./commands/saved.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * Bucket 12: the routes behind "Your saved prompts" (Automations › Procedures).
@@ -71,7 +72,8 @@ async function change(app: Branch, path: string, body: unknown): Promise<unknown
   const { store } = app, owner = app.runtime.owner;
   app.store.profiles.requireOwner("Your saved prompts");
   if (path === "/api/prompts") return savePrompt(store, owner, body, takenByCatalog);
-  if (path === "/api/prompts/settings") return savePromptLibrarySettings(store, owner, body);
+  if (path === "/api/prompts/settings")
+    return recordedWrite(store, owner, byCard("prompt-library"), ["prompt-library"], () => savePromptLibrarySettings(store, owner, body));
   if (path === "/api/prompts/remove") return removePrompt(store, owner, z.object({ id: z.string().uuid() }).strict().parse(body).id);
   if (path === "/api/prompts/import") return importPrompts(store, owner, body, takenByCatalog);
   if (path === "/api/prompts/examples") { assertLibraryOn(store, owner); return addExamples(store, owner, takenByCatalog); }

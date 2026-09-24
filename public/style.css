@@ -467,6 +467,12 @@ summary {
 .update-channel-choices { display: flex; flex-wrap: wrap; gap: 10px; border: 0; padding: 0; margin: 16px 0 8px; }
 .update-channel-choices legend { font-weight: 650; margin-bottom: 8px; }
 .update-channel-choices label { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+/* Q55: the installed build and the offered release's own notes. Layout only. */
+.update-build { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0; }
+.update-build dt { font-weight: 650; }
+.update-build dd { margin: 0; overflow-wrap: anywhere; }
+.update-notes h3 { margin: 12px 0 4px; font-size: 1em; }
+.update-notes-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow-y: auto; margin: 0; }
 .update-channel-choices label:has(input:checked) { background: var(--panel); border-color: var(--accent); }
 .update-channel-choices label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 #identity-fields { border: 0; padding: 0; margin: 0; }
@@ -619,6 +625,14 @@ summary {
 .attachment button:hover { color: var(--text); }
 .composer.dropping { outline: 2px dashed var(--copper); outline-offset: 2px; }
 .made-thumb { display: block; width: 100%; max-width: 14rem; height: auto; border-radius: 0.4rem; margin-bottom: 0.4rem; }
+
+/* ---------- FQ-surfaces.playback: an attached sound or video file, playable in place ---------- */
+.clip-chip { max-width: 20rem; }
+.clip-chip audio { height: 1.9rem; max-width: 11rem; }
+.clip-chip video.clip-video { width: 4rem; height: 1.9rem; object-fit: cover; border-radius: 0.25rem; }
+.message-clips { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.message-clips audio { width: 100%; max-width: 20rem; }
+.message-clips video.clip-video { width: 100%; max-width: 20rem; height: auto; border-radius: 0.4rem; }
 
 /* Wave 5: how Branch runs on this computer. */
 #deployment-card h2 { margin-top: 0; }
@@ -785,6 +799,13 @@ label > input[type="radio"] {
   resize: vertical; background: transparent; color: var(--text); font: 0.8125rem/1.5 var(--font-mono); tab-size: 2; overflow: auto; }
 .wsedit-text:focus-visible { outline: 2px solid var(--copper); outline-offset: -2px; }
 #wsedit-unsaved { color: var(--warn); }
+/* FQ-collaboration: a video opened from the Files tab, and the comments pinned to a moment in it. */
+.wsedit-media { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); min-width: 0; }
+.wsedit-media-video { width: 100%; max-height: 20rem; border-radius: var(--r2); background: var(--well); }
+.media-comments-list { display: flex; flex-direction: column; gap: var(--s1); margin: 0; padding: 0; list-style: none; max-height: 10rem; overflow-y: auto; }
+.media-comments-time { font: 0.8125rem/1.5 var(--font-mono); color: var(--accent); }
+.wsedit-media-comment-form { display: flex; gap: var(--s1); }
+.wsedit-media-comment-form input { flex: 1; min-width: 0; }
 
 /* mac7/clean-uninstall: the danger zone, last in Settings. Marked with the warning colour from
    tokens only, so it reads the same in both themes and at 400 px. */

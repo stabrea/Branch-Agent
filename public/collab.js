@@ -45,9 +45,11 @@ function onClick(helpers, node, handler) {
 function smallButton(helpers, label, handler) {
   return onClick(helpers, helpers.el("button", label, "collab-btn-small"), handler);
 }
-function section(helpers, title, description) {
+function section(helpers, title, description, titleKey) {
   const node = helpers.el("div", undefined, "collab-section");
-  node.appendChild(helpers.el("h3", title));
+  const h3 = helpers.el("h3", titleKey ? t(titleKey) : title);
+  if (titleKey) h3.dataset.t = titleKey;
+  node.appendChild(h3);
   node.appendChild(helpers.el("p", description, "collab-desc"));
   return node;
 }
@@ -148,34 +150,48 @@ function queueSection(queue, helpers) {
   return wrap;
 }
 
+/* DG-184: one row per setting, each named by its own words, in the order the approved sample shows them (Hold
+   messages overnight first: it is the one on show at Regular), and saved the moment one changes, as the sample
+   saves (DG-025). Each control has the id Settings knows it by (public/settings-index.js), so its row is leveled. */
 function daysOffSection(calendar, helpers) {
   const { el, api, toast, refresh } = helpers;
   const settings = calendar.settings ?? {};
-  const wrap = section(helpers, "Days off and quiet hours",
-    "Holidays and your own days off, and the hours when messages should wait until morning. The holiday list is ordinary data you can correct.");
+  const wrap = section(helpers, t("days-off.title"), t("days-off.intro"));
+  wrap.querySelector("h3").dataset.t = "days-off.title";
+  wrap.querySelector(".collab-desc").dataset.t = "days-off.intro";
+  const words = (tag, key) => { const node = el(tag, t(key)); node.dataset.t = key; return node; };
+  const row = (id, key, control) => {
+    control.id = id;
+    const label = words("label", key);
+    label.htmlFor = id;
+    const line = el("div", undefined, "collab-row");
+    line.append(label, control);
+    return line;
+  };
   const country = el("select");
-  country.appendChild(new Option("No holiday list", ""));
+  country.appendChild(new Option(t("days-off.no-list"), ""));
   for (const item of calendar.countries ?? [])
-    country.appendChild(new Option(`${item.name} (${item.days} days listed)`, item.code));
+    country.appendChild(new Option(t("days-off.country", { name: item.name, days: item.days }), item.code));
   country.value = settings.country ?? "";
-  /* Wave 8: every control says what it is, so the row reads the same to the eye and to a
-     screen reader, and the tick box sits beside its words instead of on a line of its own. */
-  country.setAttribute("aria-label", "Which country's holidays to follow");
   const quiet = el("input"); quiet.type = "checkbox"; quiet.checked = Boolean(settings.quietHours?.enabled);
-  const from = el("input"); from.type = "time"; from.value = settings.quietHours?.from ?? "21:00";
-  from.setAttribute("aria-label", "Hold messages from");
-  const to = el("input"); to.type = "time"; to.value = settings.quietHours?.to ?? "07:00";
-  to.setAttribute("aria-label", "Hold messages until");
+  quiet.id = "hold-overnight";
   const quietLabel = el("label", undefined, "check");
-  quietLabel.append(quiet, document.createTextNode(" Hold messages overnight"));
-  const row = el("div", undefined, "collab-row");
-  row.append(el("span", "Holidays for"), country, quietLabel, el("span", "between"), from, el("span", "and"), to);
-  wrap.appendChild(row);
-  wrap.appendChild(smallButton(helpers, "Save", async () => {
-    await api("/api/calendar", { ...settings, country: country.value,
-      quietHours: { ...(settings.quietHours ?? {}), enabled: quiet.checked, from: from.value, to: to.value } });
-    toast("Saved"); await refresh();
-  }));
+  quietLabel.append(quiet, " ", words("span", "days-off.hold"));
+  const from = el("input"); from.type = "time"; from.value = settings.quietHours?.from ?? "21:00";
+  const to = el("input"); to.type = "time"; to.value = settings.quietHours?.to ?? "07:00";
+  const quietRow = el("div", undefined, "collab-row");
+  quietRow.append(quietLabel);
+  wrap.append(quietRow, row("hold-from", "days-off.from", from), row("hold-until", "days-off.until", to),
+    row("holidays", "days-off.holidays", country));
+  const save = async () => {
+    try {
+      await api("/api/calendar", { ...settings, country: country.value,
+        quietHours: { ...(settings.quietHours ?? {}), enabled: quiet.checked, from: from.value, to: to.value } });
+      toast(t("days-off.saved"));
+    } catch (error) { toast(error.message); }
+    await refresh();
+  };
+  for (const control of [country, quiet, from, to]) control.addEventListener("change", () => { void save(); });
   return wrap;
 }
 
@@ -197,7 +213,7 @@ function sharesSection(shares, helpers) {
 function peopleSection(profile, helpers) {
   const { el, api, toast, refresh } = helpers;
   const wrap = section(helpers, "People who share this computer",
-    "Someone else can have their own name and PIN. Their conversations and saved facts are kept apart from yours, and they cannot reach your secrets or projects. This is separation on one computer, not separate accounts.");
+    "Someone else can have their own name and PIN. Their conversations and saved facts are kept apart from yours, and they cannot reach your secrets or projects. This is separation on one computer, not separate accounts.", "people.share.title");
   wrap.appendChild(el("p", profile.active ? `Signed in as ${profile.active.name}` : "Signed in as the owner", "collab-meta"));
   for (const person of profile.all ?? []) {
     const card = el("div", undefined, "collab-card");
@@ -207,9 +223,11 @@ function peopleSection(profile, helpers) {
     if (held) {
       const words = profile.roleLabels?.[held.grant.role];
       card.appendChild(el("p", `${words?.label ?? held.grant.role}: ${words?.description ?? ""}`, "collab-meta"));
+      // Q75: what Branch really holds them to (narrowed by their groups), not only what was saved.
+      const holds = held.effective ?? held.grant;
       const limits = [
-        held.grant.projects.length ? `Only in: ${held.grant.projects.join(", ")}` : "",
-        held.grant.dailySpendLimit > 0 ? `Up to ${held.grant.dailySpendLimit.toFixed(2)} a day` : "",
+        holds.projects.length ? `Only in: ${holds.projects.join(", ")}` : "",
+        holds.dailySpendLimit > 0 ? `Up to ${holds.dailySpendLimit.toFixed(2)} a day` : "",
       ].filter(Boolean);
       if (limits.length) card.appendChild(el("p", limits.join(" · "), "collab-meta"));
       if (profile.isOwner)

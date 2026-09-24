@@ -5,7 +5,7 @@
    settings:computer         Other computers side by side; using apps in the background; USB devices
    customize:specialists     Trunks on other computers
    settings:models:media     Making videos
-   customize:channels        The chat relay; sending and pausing chat apps
+   settings:channels         The chat relay; sending and pausing chat apps
    customize:skills          Sharing the assistant through git; skill bundles
    library:documents         Notes
    settings:models:second    Model arena */
@@ -70,12 +70,12 @@ function row(...children) {
 const act = (status, work) => async () => { try { await work(); await drawCards(); } catch (error) { tell(status, error); } };
 const attempt = (status, work) => async () => { try { await work(); } catch (error) { tell(status, error); } };
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 
 function switchFor(part, modes, status) {
   const select = choice(POSITIONS, modes[part]);
   select.addEventListener("change", act(status, () => api("reach/switch", { part, mode: select.value })));
-  return control(`reach-switch-${part}`, `reach.part.${part}`, part, "reach.switch.hint", "Off: nothing of this runs. On: it is ready from the start. Only when it is needed: it is offered when the work calls for it.", select);
+  return control(`reach-switch-${part}`, `reach.part.${part}`, part, "reach.switch.hint", "Off: nothing of this runs. On: it is ready from the start. When needed: it is offered when the work calls for it.", select);
 }
 
 function card(id, home, titleKey, title, purposeKey, purpose) {
@@ -245,9 +245,9 @@ async function videoCard(state) {
   return node;
 }
 
-/* ---------- customize:channels — the relay ---------- */
+/* ---------- settings:channels — the relay ---------- */
 async function relayCard(state) {
-  const { node, status } = card("reach-relay-card", "customize:channels", "reach.relay.title", "A relay that holds your chat app accounts",
+  const { node, status } = card("reach-relay-card", "settings:channels", "reach.relay.title", "A relay that holds your chat app accounts",
     "reach.relay.purpose", "Your chat app accounts live on a relay you run; every message between it and Branch is sealed end to end. Branch only answers chats that wrote to it first.");
   node.append(...switchFor("relay", state.modes, status));
   if (state.modes.relay !== "off") {
@@ -268,7 +268,7 @@ async function relayCard(state) {
   return node;
 }
 
-/* ---------- customize:channels — sending and pausing ---------- */
+/* ---------- settings:channels — sending and pausing ---------- */
 function ownerRow(account, accounts, status) {
   const item = plain("li", `${account.channel}: ${account.sender}`);
   const [remove, hint] = button(`reach-owner-remove-${account.channel}-${account.sender}`.replace(/[^\w-]/g, "_"), "reach.usb.remove", "Remove",
@@ -279,7 +279,7 @@ function ownerRow(account, accounts, status) {
 }
 
 async function chatsCard(state) {
-  const { node, status } = card("reach-chats-card", "customize:channels", "reach.chats.title", "Sending and pausing chat apps",
+  const { node, status } = card("reach-chats-card", "settings:channels", "reach.chats.title", "Sending and pausing chat apps",
     "reach.chats.purpose", "Send a script's output to a chat with: branch send <chat app> <chat>. Pause a chat app here, or from your own account with /platform pause.");
   node.append(...switchFor("send", state.modes, status), ...switchFor("platform-pause", state.modes, status));
   if (state.modes["platform-pause"] !== "off") {

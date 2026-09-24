@@ -59,7 +59,7 @@ function button(id, key, english, hintKey, hint, handler, primary = false) {
 
 const POSITIONS = [
   ["off", "vault-autofill.switch.off", "Off"],
-  ["when-needed", "vault-autofill.switch.when-needed", "Only when I ask for it"],
+  ["when-needed", "field.switch-when-needed", "When needed"],
   ["on", "vault-autofill.switch.on", "On"],
 ];
 const SERVICES = [
@@ -69,20 +69,16 @@ const SERVICES = [
 
 let settings = { mode: "off", logins: [], timeoutMs: 10000 };
 
-/** The card itself: the switch, what it means, and the owner's list of sign-ins. */
+/**
+ * The card itself: the switch, what it means, and the owner's list of sign-ins. DG-189: in the sample it is part of
+ * "Passwords and keys", with no heading of its own (the switch's label names it); the list of sign-ins, with the
+ * card's longer explanation, is one row that shows at Technical (public/settings-row-levels.js "signins-list").
+ */
 function card() {
   const node = make("section", "card");
   node.id = "vault-autofill";
   node.dataset.home = HOME;
   node.style.maxWidth = "400px";
-  node.append(
-    make("h2", "", "vault-autofill.title", "Filling a saved sign-in"),
-    make("p", "subtle", "vault-autofill.intro",
-      "Branch can type a password you already keep in your password manager straight into a page you are on, "
-      + "when you ask it to by name. It never shows you or the assistant the password, keeps no copy of its own, "
-      + "and only ever fills a page on the exact website you saved the sign-in for. While a recording of the browser "
-      + "is being kept, it fills nothing at all."),
-  );
   const status = make("p", "subtle");
   status.id = "vault-autofill-status";
   status.setAttribute("role", "status");
@@ -91,12 +87,14 @@ function card() {
 
 function switchRow() {
   const control = chooser("vault-autofill-mode", POSITIONS, settings.mode);
-  return described("vault-autofill-mode", "vault-autofill.field.switch", "Filling a saved sign-in",
+  const row = described("vault-autofill-mode", "vault-autofill.field.switch", "Filling a saved sign-in",
     "vault-autofill.hint.switch",
-    "Off, Branch refuses and the assistant is not offered the tool at all. Only when I ask for it, and On, "
+    "Off, Branch refuses and the assistant is not offered the tool at all. When needed, and On, "
     + "it fills one of the sign-ins below when you ask for it by name. It is yours alone: a message from a chat app, "
     + "a short-lived key, another computer, someone else on this computer and a Trunk are all refused, and so is "
     + "everything while Lockdown is on.", control);
+  row[0].id = "vault-autofill-mode-label";
+  return row;
 }
 
 /** One line of the owner's book, shown as words, never as anything that could hold a password. */
@@ -132,7 +130,7 @@ function adder() {
     + "such as accounts.example.com. Branch never works one out for itself: if signing in happens on a different name "
     + "from the one above, write that name here.", also));
   parts.push(...described("vault-autofill-service", "vault-autofill.field.service", "Where it is saved",
-    "vault-autofill.hint.service", "Which password manager holds it. Branch reads it through the password-manager connection you switched on under “Reading passwords out of your password manager”, using that manager's own command line, and can only read. A one-time code is read from Bitwarden only.",
+    "vault-autofill.hint.service", "Which password manager holds it. Branch reads it only from a password manager you set up under “Where Branch reads saved sign-ins from” above, and can only read. A one-time code is read from Bitwarden only.",
     chooser("vault-autofill-service", SERVICES, "bitwarden")));
   parts.push(...described("vault-autofill-item", "vault-autofill.field.item", "The item in your password manager",
     "vault-autofill.hint.item", "The item's name, exactly as it appears in your password manager. Branch never "
@@ -148,6 +146,77 @@ function adder() {
   parts.push(button("vault-autofill-add", "vault-autofill.action.add", "Add this sign-in",
     "vault-autofill.hint.add", "Saves the names above. No password is read, asked for or kept by this.", add, true));
   return parts;
+}
+
+/* DG-053: "Where Branch reads saved sign-ins from", the first thing under "Passwords and keys". Each password manager
+   Branch can read from, and whether it may: Bitwarden and 1Password as switched on in the password-manager connection
+   (/api/credentials/settings), the Keychain as this computer has it. Nothing here claims a vault is unlocked or signed
+   in, because nothing checks that until a password is asked for; and no password, key or master password is ever
+   asked for or shown. Setting one up or turning it off saves at once. */
+let sources = { enabled: false, services: [] };
+let keychainHere = null;
+
+function managersCard() {
+  const node = make("section", "card secret-managers");
+  node.id = "secret-managers";
+  node.dataset.home = HOME;
+  const title = make("p", "secret-managers-title", "vault-autofill.managers.title", "Where Branch reads saved sign-ins from");
+  title.id = "secret-managers-title";
+  node.setAttribute("aria-labelledby", title.id);
+  const grid = make("div", "secret-managers-grid");
+  grid.id = "secret-managers-grid";
+  const status = make("p", "subtle");
+  status.id = "secret-managers-status";
+  status.setAttribute("role", "status");
+  node.append(title, grid, make("p", "subtle secret-managers-note", "vault-autofill.managers.note",
+    "Branch never shows you or the assistant a password. It fills one item at a time, only the ones you list."), status);
+  return node;
+}
+
+/** One password manager: its name, whether Branch may read from it, a line more, and the button that changes it. */
+function managerTile(name, [tone, key, english], detail, action) {
+  const tile = make("div", "secret-manager");
+  tile.dataset.state = tone;
+  const pill = make("span", `secret-manager-pill ${tone}`, key, english);
+  tile.append(make("b", "", ...name), pill);
+  if (detail) tile.append(make("small", "secret-manager-detail", ...detail));
+  if (action) tile.append(action);
+  return tile;
+}
+
+function drawManagers() {
+  const grid = $("secret-managers-grid");
+  if (!grid) return;
+  const tiles = [];
+  if (keychainHere !== null) tiles.push(managerTile(["vault-autofill.managers.keychain", "Your Mac's Keychain"],
+    keychainHere ? ["ok", "vault-autofill.managers.available", "Available"] : ["idle", "vault-autofill.managers.mac-only", "Only on a Mac"],
+    keychainHere ? ["vault-autofill.managers.keychain-detail", "Branch reads only the passwords you list for it."] : null, null));
+  for (const [service, key, english] of SERVICES) {
+    const on = sources.enabled && sources.services.includes(service);
+    const action = on
+      ? button(`secret-managers-${service}`, "vault-autofill.managers.turn-off", "Turn off", "vault-autofill.managers.hint.turn-off",
+        "Branch stops reading from it. Nothing in your password manager is changed.", () => setSource(service, false))
+      : button(`secret-managers-${service}`, "vault-autofill.managers.set-up", "Set up", "vault-autofill.managers.hint.set-up",
+        "Lets Branch read the items you list from it, through its own command line on this computer. Branch never sees your master password.",
+        () => setSource(service, true), true);
+    tiles.push(managerTile([key, english], on ? ["ok", "vault-autofill.managers.on", "On"] : ["idle", "vault-autofill.managers.off", "Not set up"],
+      on ? ["vault-autofill.managers.on-detail", "Branch reads only the items you list, one at a time."] : null, action));
+  }
+  grid.replaceChildren(...tiles);
+}
+
+async function setSource(service, on) {
+  const status = $("secret-managers-status");
+  const services = on ? [...new Set([...sources.services, service])] : sources.services.filter((one) => one !== service);
+  try {
+    sources = await api("credentials/settings", { enabled: services.length > 0, services });
+    status.dataset.t = "vault-autofill.saved";
+    status.textContent = say("vault-autofill.saved", "Saved.");
+  } catch (error) {
+    delete status.dataset.t;
+    status.textContent = error.message ?? String(error);
+  }
+  drawManagers();
 }
 
 async function add() {
@@ -198,12 +267,25 @@ async function start() {
   const list = make("div", "card-list");
   list.id = "vault-autofill-list";
   list.setAttribute("aria-live", "polite");
-  node.append(...switchRow(), status, list,
-    make("h3", "", "vault-autofill.add", "Add a sign-in"), ...adder());
-  document.body.append(node);
+  /* One row, the sample's "Saved sign-ins Branch may fill": what filling means, the list, and adding one. */
+  const signins = make("div", "vault-autofill-signins");
+  signins.id = "signins-list";
+  signins.append(
+    make("p", "vault-autofill-list-label", "vault-autofill.list", "Saved sign-ins Branch may fill"),
+    make("p", "subtle", "vault-autofill.intro",
+      "Branch can type a password you already keep in your password manager straight into a page you are on, "
+      + "when you ask it to by name. It never shows you or the assistant the password, keeps no copy of its own, "
+      + "and only ever fills a page on the exact website you saved the sign-in for. While a recording of the browser "
+      + "is being kept, it fills nothing at all."),
+    list, make("p", "vault-autofill-list-label", "vault-autofill.add", "Add a sign-in"), ...adder());
+  node.append(...switchRow(), status, signins);
+  document.body.append(managersCard(), node);
   $("vault-autofill-mode").addEventListener("change", (event) => save({ mode: event.target.value }));
   try { settings = await api("vault-autofill/settings"); } catch { /* shown as empty until it answers */ }
   draw();
+  try { sources = await api("credentials/settings"); } catch { /* shown as not set up until it answers */ }
+  try { keychainHere = Boolean((await api("keychain/settings")).available); } catch { /* no Keychain tile */ }
+  drawManagers();
 }
 
 /** The window is rebuilt by the last script on the page, so the card waits for it. */

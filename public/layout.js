@@ -11,8 +11,9 @@
 import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.js";
 import { openPalette } from "/shell.js";
 import { t } from "/i18n.js";
+import { changeAppearance, currentAppearance } from "/appearance.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
-import { DEFAULT_THEME, solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
+import { DEFAULT_THEME, solid, surfaceOf, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { paint as paintGrove, seasonToday } from "/grove.js";
 import { popover } from "/popover.js";
 import { installGrownComposer } from "/composer-grown.js";
@@ -47,6 +48,7 @@ function button(className, key, english) {
 }
 const ICONS = {
   inbox: "M4 13l2.5-7h11L20 13v5H4zM4 13h4.5l1 2h5l1-2H20",
+  overview: "M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-5h4v5", // DG-092
   up: "M12 19V5M6 11l6-6 6 6",
   plus: "M12 5v14M5 12h14",
   stop: "M7 7h10v10H7z",
@@ -96,16 +98,17 @@ const look = {
   season: store.get("branch-season") || "",
   contrast: store.get("branch-contrast") === "more" ? "more" : "standard",
 };
-const SEASONS = [["", "look.season.today", "Today"], ["spring", "look.season.spring", "Spring"],
+const SEASONS = [["", "look.season.auto", "Auto"], ["spring", "look.season.spring", "Spring"],
   ["summer", "look.season.summer", "Summer"], ["autumn", "look.season.autumn", "Autumn"], ["winter", "look.season.winter", "Winter"]];
+const CONTRASTS = [["standard", "look.contrast.standard", "Standard"], ["more", "look.contrast.more", "High contrast"]];
+const WIDTHS = [["comfortable", "onscreen.width.comfortable", "Comfortable"], ["wide", "onscreen.width.wide", "Wide"], ["full", "onscreen.width.full", "Full width"]];
 const QUICK = ["slate", "forest", "nocturne", "cherry", "ocean", "lavender", "sepia", "mono"];
 const modeNow = () => (root.dataset.theme === "daylight" ? "light" : "dark");
 function applyLook() {
   const family = themeById(look.family), mode = modeNow();
   const tokens = tokensFor(family, mode, look.contrast);
   wearTokens(root, family, tokens);
-  const surface = solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.07 : 0.55);
-  root.style.setProperty("--surface", surface);
+  root.style.setProperty("--surface", surfaceOf(tokens, mode));
   paintGrove({ mode, season: look.season || seasonToday() });
   drawLookControls();
   /* DG-176: the desktop window's own minimise, maximise and close are drawn to read on this light. */
@@ -125,24 +128,54 @@ function setLook(patch) {
   store.set("branch-contrast", look.contrast === "more" ? "more" : null);
   applyLook();
 }
-/** A small picture of a theme: its ground, a pane, a line of text and its accent. */
+/**
+ * DG-037: the sample's theme tile (its live `tilesHTML`): a window in miniature, with the theme's rail, a surface
+ * holding a strong and a quiet line of text, and its accent, drawn with the sample's own blends. Under it, the name
+ * and the sample's words: Default on Slate, High contrast at 14:1 in the light shown, Easy in daylight at 14:1 there.
+ */
 function themeTile(family, onPick) {
-  const tokens = tokensFor(family, modeNow());
+  const mode = modeNow(), dark = mode === "dark", tokens = tokensFor(family, mode);
+  const ground = tokens["--ground"], text = tokens["--text"];
   const tile = make("button", "lx-tile");
   tile.type = "button";
   tile.dataset.family = family[0];
   tile.setAttribute("aria-pressed", String(look.family === family[0]));
+  const ratio = textContrast(family, mode), daylight = textContrast(family, "light");
+  tile.title = say("look.tile.title", "{name} · text contrast {ratio} to 1 ({light}), {daylight} to 1 in Daylight")
+    .replace("{name}", family[1]).replace("{ratio}", ratio.toFixed(1))
+    .replace("{light}", dark ? say("look.moonlight", "Moonlight") : say("look.daylight", "Daylight"))
+    .replace("{daylight}", daylight.toFixed(1));
   const mini = make("span", "lx-mini");
-  mini.style.background = tokens["--ground"];
-  const pane = make("b");
-  pane.style.background = tokens["--glass-2"];
-  pane.style.borderColor = tokens["--glass-edge"];
-  const line = make("s");
-  line.style.background = tokens["--text-3"];
-  const dot = make("u");
-  dot.style.background = tokens["--copper"];
-  mini.append(pane, line, dot);
-  tile.append(mini, make("span", "lx-tile-name", family[1]));
+  mini.style.background = ground;
+  const rail = make("u");
+  rail.style.background = dark ? solid(ground, "#000000", 0.4) : solid(text, ground, 0.08);
+  const pane = make("i");
+  pane.style.background = dark ? solid(ground, text, 0.045) : solid(ground, "#ffffff", 0.62);
+  const strong = make("em"), quiet = make("em"), accent = make("s");
+  strong.style.width = "58%";
+  strong.style.background = text;
+  quiet.style.width = "38%";
+  quiet.style.background = tokens["--text-3"];
+  accent.style.background = tokens["--copper"];
+  pane.append(strong, quiet, accent);
+  mini.append(rail, pane);
+  const foot = make("span", "lx-tile-foot");
+  /* The button is named by the theme alone; its words describe it (so "Cherry" still finds Cherry). */
+  const name = make("b", "lx-tile-name", family[1]);
+  name.id = `lx-tile-name-${family[0]}`;
+  tile.setAttribute("aria-labelledby", name.id);
+  foot.append(name);
+  const badge = ratio >= 14 ? ["look.badge.high", "High contrast"]
+    : daylight >= 14 && !dark ? ["look.badge.daylight", "Easy in daylight"] : null;
+  const described = [];
+  for (const word of [family[0] === DEFAULT_THEME ? ["look.badge.default", "Default"] : null, badge].filter(Boolean)) {
+    const small = worded("small", "lx-tile-badge", ...word);
+    small.id = `lx-tile-${word[0].split(".").pop()}-${family[0]}`;
+    described.push(small.id);
+    foot.append(small);
+  }
+  if (described.length) tile.setAttribute("aria-describedby", described.join(" "));
+  tile.append(mini, foot);
   tile.addEventListener("click", () => onPick(family[0]));
   return tile;
 }
@@ -160,42 +193,101 @@ function chooseMode(mode) {
     select.dispatchEvent(new Event("change", { bubbles: true }));
   }
 }
-function segmented(label, options, isOn, onPick) {
-  const group = make("div", "lx-seg");
+/** A choice with a sign before its word. The word alone names it, and alone is re-worded when the language changes. */
+function signedChoice(sign, key, english) {
+  const choice = make("button", "segmented-option");
+  choice.type = "button";
+  const mark = make("span", "seg-sign", sign);
+  mark.setAttribute("aria-hidden", "true");
+  choice.append(mark, " ", worded("span", "", key, english));
+  return choice;
+}
+/** The choices are named by the row's own label (by id), so a language change re-words their name with it. */
+function segmented(labelId, options, isOn, onPick) {
+  const group = make("div", "seg");
   group.setAttribute("role", "group");
-  group.setAttribute("aria-label", label);
-  for (const [value, key, english] of options) {
-    const choice = button("lx-seg-button", key, english);
+  group.setAttribute("aria-labelledby", labelId);
+  for (const [value, key, english, sign] of options) {
+    const choice = sign ? signedChoice(sign, key, english) : button("segmented-option", key, english);
+    choice.dataset.value = value;
     choice.setAttribute("aria-pressed", String(isOn(value)));
     choice.addEventListener("click", () => onPick(value));
     group.append(choice);
   }
   return group;
 }
-function drawLookControls() {
+/* DG-035/DG-036: the sample's search and filter chips above the tiles. The words typed and the chip
+   chosen live here, so redrawing the tiles (a new light, a new theme) keeps them. */
+let themeQuery = "", themeFilter = "all";
+/** How strongly a theme's text stands out from its ground, as the sample measures it for its chips. */
+function textContrast(family, mode) {
+  const tokens = tokensFor(family, mode);
+  const light = (hex) => {
+    if (!/^#[0-9a-f]{6}$/i.test(hex ?? "")) return null;
+    const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const a = light(tokens["--text"]), b = light(tokens["--ground"]);
+  return a === null || b === null ? 0 : (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+/** The sample's filters (its effective, later `tilesHTML`): a group, 14:1 in daylight, or 14:1 in the light shown now. */
+function themeShown(family) {
+  if (themeQuery && !family[1].toLowerCase().includes(themeQuery)) return false;
+  if (themeFilter === "lightok") return textContrast(family, "light") >= 14;
+  if (themeFilter === "high") return textContrast(family, modeNow()) >= 14;
+  return themeFilter === "all" || family[2] === themeFilter;
+}
+function drawThemeTiles() {
   const gallery = $("lx-theme-gallery");
-  if (gallery) {
-    gallery.replaceChildren();
-    for (const [id, name] of THEME_GROUPS) {
-      gallery.append(make("p", "lx-eyebrow", name));
-      const grid = make("div", "lx-tiles");
-      for (const family of THEMES.filter((item) => item[2] === id))
-        grid.append(themeTile(family, (value) => setLook({ family: value })));
-      gallery.append(grid);
-    }
+  if (!gallery) return;
+  gallery.replaceChildren();
+  let shown = 0;
+  for (const [id, name] of THEME_GROUPS) {
+    const families = THEMES.filter((item) => item[2] === id && themeShown(item));
+    if (!families.length) continue;
+    shown += families.length;
+    gallery.append(make("p", "lx-eyebrow", name));
+    const grid = make("div", "lx-tiles");
+    for (const family of families) grid.append(themeTile(family, (value) => setLook({ family: value })));
+    gallery.append(grid);
+  }
+  if (!shown) gallery.append(worded("p", "lx-theme-none", "look.search.none", "No theme matches. Try All, or a shorter name."));
+  const results = $("lx-theme-results");
+  /* The language's own plural rule: French says "0 thème", English "0 themes". */
+  const single = new Intl.PluralRules(root.lang || "en").select(shown) === "one";
+  if (results) results.textContent = single ? say("look.search.one", "1 theme").replace("1", String(shown))
+    : say("look.search.results", "{count} themes").replace("{count}", String(shown));
+  for (const chip of document.querySelectorAll("#lx-theme-chips .lx-fchip"))
+    chip.setAttribute("aria-pressed", String(chip.dataset.filter === themeFilter));
+}
+function drawLookControls() {
+  if ($("lx-theme-gallery")) {
+    drawThemeTiles();
     $("lx-theme-count").textContent = `${THEMES.length} · ${themeById(look.family)[1]}`;
   }
   const follow = $("appearance-follow")?.checked;
   const modeHost = $("lx-mode");
-  if (modeHost) modeHost.replaceChildren(segmented("Light or dark",
-    [["", "look.mode.follow", "Follow this computer"], ["dark", "look.mode.dark", "Dark"], ["light", "look.mode.light", "Light"]],
+  /* DG-160: the sample's words, ☾ Moonlight and ☀ Daylight; the saved value is still dark or light. */
+  if (modeHost) modeHost.replaceChildren(segmented("lx-mode-label",
+    [["", "look.mode.follow", "Follow this computer"], ["dark", "look.moonlight", "Moonlight", "☾"], ["light", "look.daylight", "Daylight", "☀"]],
     (value) => (follow ? value === "" : !follow && value === modeNow()), chooseMode));
   const seasonHost = $("lx-season");
-  if (seasonHost) seasonHost.replaceChildren(segmented("Season", SEASONS, (value) => value === look.season, (value) => setLook({ season: value })));
-  const contrast = $("lx-contrast");
-  if (contrast) contrast.checked = look.contrast === "more";
+  if (seasonHost) seasonHost.replaceChildren(segmented("lx-season-label", SEASONS, (value) => value === look.season, (value) => setLook({ season: value })));
+  const contrastHost = $("lx-contrast");
+  if (contrastHost) contrastHost.replaceChildren(segmented("lx-contrast-label", CONTRASTS,
+    (value) => value === (look.contrast === "more" ? "more" : "standard"), (value) => setLook({ contrast: value })));
+  drawWidth();
+  sayLookNotes();
   drawQuickThemes();
 }
+/** How wide the conversation grows: the one control for it, kept with the window's saved preferences. */
+function drawWidth() {
+  const host = $("lx-width");
+  if (host) host.replaceChildren(segmented("lx-width-label", WIDTHS,
+    (value) => value === (currentAppearance().conversationWidth ?? "wide"), (value) => changeAppearance({ conversationWidth: value })));
+}
+document.addEventListener("branch-appearance", drawWidth);
 function drawQuickThemes() {
   const host = $("lx-quick-themes");
   if (!host) return;
@@ -257,12 +349,8 @@ const SETTINGS_PAGES = [
 const MODEL_TABS = [["connection", "settings.models.connection", "Connection"], ["defaults", "settings.models.defaults", "Defaults"],
   ["local", "settings.models.local", "On this computer"], ["second", "settings.models.second", "Second opinion"], ["media", "settings.models.media", "Pictures & sound"]];
 const SETTINGS_DIRECTORY = {
-  trunks: [
-    ["trunks", "settingsDirectory.trunks", "Trunks", "settingsDirectory.trunks.line", "Create and change your own assistants.", "customize:specialists"],
-    ["overview", "place.overview", "Overview", "settingsDirectory.overview.line", "See what this computer or a Trunk is doing.", "overview"],
-    ["people", "place.household", "People", "settingsDirectory.people.line", "Manage the people who use Branch on this computer.", "household"],
-  ],
-  channels: [["channels", "settings.page.channels", "Chat apps & devices", "settingsDirectory.channels.line", "Set up chat apps, pages and devices that reach Branch.", "customize:channels"]],
+  /* DG-193: Trunks & people holds the real settings instead (public/settings-trunks.js), with a way to Trunks and People.
+     DG-194: Chat apps & devices likewise draws its settings on its own page, so neither has a directory here. */
   connections: [["connections", "settings.page.connections", "Connections", "settingsDirectory.connections.line", "Manage tool servers, app connections and your own connected accounts.", "customize:connections"]],
   skills: [
     ["skills", "place.customize.skills", "Skills", "settingsDirectory.skills.line", "Choose and inspect instructions for particular kinds of work.", "customize:skills"],
@@ -289,7 +377,7 @@ const MOVES = [
   ["obsidian-card", "documents"],
   ["plugins-card", "lx-slot-customize-plugins"],
   ["mcp-card", "lx-slot-customize-connections"],
-  ["channels-card", "lx-slot-customize-channels"], ["embeds-card", "lx-slot-customize-channels"],
+  ["channels-card", "lx-slot-customize-channels"], ["embeds-card", "lx-page-channels"],
   ["deployment-card", "lx-page-general"], ["projects-form", "lx-page-general"],
   ["identity-form", "lx-page-assistant"],
   ["settings-form", "lx-page-appearance"],
@@ -299,8 +387,8 @@ const MOVES = [
   ["model-profiles-card", "lx-models-defaults"], ["local-models-card", "lx-models-local"],
   ["second-opinion-form", "lx-models-second"], ["media-form", "lx-models-media"],
   ["policy-card", "lx-page-permissions"], ["limits-card", "lx-page-permissions"],
-  ["desktop-card", "lx-page-computer"], ["sandbox-card", "lx-page-computer"], ["firewall-card", "lx-page-computer"],
-  ["browser-card", "lx-page-computer"], ["remote-card", "lx-page-computer"],
+  ["desktop-card", "lx-page-computer"], ["linux-desktop-card", "lx-page-computer"], ["sandbox-card", "lx-page-computer"], ["firewall-card", "lx-page-computer"],
+  ["browser-card", "lx-page-computer"], ["remote-card", "lx-page-computer"], ["host-bridge-card", "lx-page-computer"],
   ["secrets-form", "lx-page-secrets"],
   ["usage", "lx-page-data"], ["retention-card", "lx-page-data"], ["backup-card", "lx-page-data"], ["snapshots-card", "lx-page-data"],
   ["health-card", "lx-page-advanced"], ["diagnostics-card", "lx-page-advanced"], ["activity-log-card", "lx-page-advanced"], ["developer-card", "lx-page-advanced"],
@@ -382,7 +470,22 @@ function tabButton(placeId, tab, key, english, oldView) {
   trigger.dataset.place = placeId;
   trigger.dataset.tab = tab;
   trigger.removeAttribute("title");
+
+  if (placeId === "inbox" && tab === "needs") countOnNeedsTab(trigger);
   return trigger;
+}
+/** DG-140: the "Needs you" tab carries the Inbox's live count, the same number as the side list's badge. */
+function countOnNeedsTab(trigger) {
+  const badge = $("lx-inbox-badge");
+  const count = make("span", "lx-tab-count");
+  count.id = "lx-needs-tab-count";
+  trigger.append(count);
+  const sync = () => {
+    count.textContent = badge ? badge.textContent.trim() : "";
+    count.hidden = !badge || badge.hidden || !count.textContent;
+  };
+  sync();
+  if (badge) new MutationObserver(sync).observe(badge, { attributes: true, childList: true, characterData: true, subtree: true });
 }
 /** A one-line ask box on every place, so a question never means going back to the conversation first. */
 function askDock(id, english) {
@@ -511,7 +614,7 @@ function settingsDirectoryCard(page, id, titleKey, title, lineKey, line, route) 
   const card = make("section", "card settings-directory-card");
   card.id = `settings-directory-${page}-${id}`;
   card.dataset.home = `settings:${page}`;
-  const heading = worded("h2", "settings-directory-title", titleKey, title);
+  const heading = worded("h3", "settings-directory-title", titleKey, title);
   heading.id = `${card.id}-title`;
   const description = worded("p", "settings-directory-line", lineKey, line);
   description.id = `${card.id}-description`;
@@ -526,7 +629,7 @@ function settingsDirectoryCard(page, id, titleKey, title, lineKey, line, route) 
 }
 function syncDirectoryButtons() {
   for (const open of document.querySelectorAll(".settings-directory-open")) {
-    const title = open.closest(".settings-directory-card")?.querySelector("h2")?.textContent ?? "";
+    const title = open.closest(".settings-directory-card")?.querySelector(".settings-directory-title")?.textContent ?? "";
     open.setAttribute("aria-label", `${say("settingsDirectory.open", "Open")} ${title}`.trim());
   }
 }
@@ -585,24 +688,97 @@ function buildAppearanceBlock() {
   const count = make("span", "lx-count");
   count.id = "lx-theme-count";
   head.append(worded("h3", "", "look.theme", "Theme"), count);
+  const tools = themeTools();
   const gallery = make("div", "lx-gallery");
   gallery.id = "lx-theme-gallery";
-  const modeRow = lookRow("look.mode", "Light and dark", "lx-mode");
-  const seasonRow = lookRow("look.season", "The oak's season", "lx-season");
-  const contrastRow = make("label", "check-row lx-contrast-row");
-  const contrast = make("input");
-  contrast.type = "checkbox";
-  contrast.id = "lx-contrast";
-  contrast.addEventListener("change", () => setLook({ contrast: contrast.checked ? "more" : "standard" }));
-  contrastRow.append(contrast, worded("span", "", "look.contrast", "More contrast between text and background"));
-  block.append(head, gallery, modeRow, seasonRow, contrastRow);
+  const modeRow = lookRow("look.dayOrNight", "Day or night", "lx-mode");
+  modeRow.append(worded("p", "lx-look-note", "look.dayOrNight.note", "Every theme has both. Switching keeps the theme you chose."));
+  /* DG-166: the sample's Season and Contrast rows, each with its note across beneath. */
+  const seasonRow = lookRow("look.seasonRow", "Season", "lx-season");
+  const seasonNote = make("p", "lx-look-note");
+  seasonNote.id = "lx-season-note";
+  seasonRow.append(seasonNote);
+  const contrastRow = lookRow("look.contrastRow", "Contrast", "lx-contrast");
+  contrastRow.append(worded("p", "lx-look-note", "look.contrast.note", "High contrast makes panels solid and text stronger."));
+  const widthRow = lookRow("look.widthRow", "Conversation width", "lx-width");
+  widthRow.append(worded("p", "lx-look-note", "look.width.note", "Wide uses most of the window; Full width uses all of it on a big screen."));
+  /* DG-040: the sample's order: Day or night first, then the themes, then Season, Contrast, width and stillness. */
+  block.append(head, modeRow, tools, gallery, seasonRow, contrastRow, widthRow);
+  const still = stillRow();
+  if (still) block.append(still);
   $("lx-page-appearance").append(block);
+}
+/** The sample's `.theme-tools`: a search over the themes' names and one row of filter chips. */
+const THEME_CHIPS = [["all", "look.filter.all", "All"], ["branch", "look.filter.branch", "Branch"],
+  ["keepoak", "look.filter.keepoak", "KeepOak"], ["editors", "look.filter.editors", "Editors & terminals"],
+  ["lightok", "look.filter.lightok", "Easy in daylight"], ["high", "look.filter.high", "High contrast"]];
+function themeTools() {
+  const tools = make("div", "lx-theme-tools");
+  const field = make("label", "lx-search lx-theme-search");
+  field.append(icon("search"));
+  const input = make("input");
+  input.id = "lx-theme-search";
+  input.type = "search";
+  input.autocomplete = "off";
+  input.placeholder = say("look.search", "Search {count} themes").replace("{count}", String(THEMES.length));
+  input.setAttribute("aria-label", say("look.search.label", "Search themes"));
+  input.setAttribute("aria-describedby", "lx-theme-results");
+  input.addEventListener("input", () => { themeQuery = input.value.trim().toLowerCase(); drawThemeTiles(); });
+  field.append(input);
+  const chips = make("div", "lx-theme-chips");
+  chips.id = "lx-theme-chips";
+  chips.setAttribute("role", "group");
+  chips.setAttribute("aria-label", say("look.filter", "Show"));
+  /* A group chip appears only for a group Branch really has (the sample's Branch group is DG-038's). */
+  const groups = new Set(THEME_GROUPS.map(([id]) => id));
+  for (const [value, key, english] of THEME_CHIPS) {
+    if (!["all", "lightok", "high"].includes(value) && !groups.has(value)) continue;
+    const chip = button("lx-fchip", key, english);
+    chip.dataset.filter = value;
+    chip.setAttribute("aria-pressed", String(value === themeFilter));
+    chip.addEventListener("click", () => { themeFilter = value; drawThemeTiles(); });
+    chips.append(chip);
+  }
+  const results = make("p", "sr-only");
+  results.id = "lx-theme-results";
+  results.setAttribute("role", "status");
+  tools.append(field, chips, results);
+  return tools;
+}
+/** Notes whose words carry a value the language file cannot fill: the season Auto means today. */
+function sayLookNotes() {
+  const note = $("lx-season-note");
+  if (note) note.textContent = say("look.season.note", "Auto follows today's date, which means {season} right now. The oak behind the window changes with it.")
+    .replace("{season}", say(`look.season.${seasonToday()}`, seasonToday()).toLowerCase());
+}
+/* The placeholder carries the count, which the language file's plain placeholder swap cannot fill. */
+document.addEventListener("branch-language", () => {
+  sayLookNotes();
+  const input = $("lx-theme-search");
+  if (!input) return;
+  input.placeholder = say("look.search", "Search {count} themes").replace("{count}", String(THEMES.length));
+  input.setAttribute("aria-label", say("look.search.label", "Search themes"));
+  drawThemeTiles();
+});
+/** The sample's last Theme row, Keep things still: the page's own switch, moved here, not a second one. */
+function stillRow() {
+  const motion = $("appearance-motion");
+  if (!motion) return null;
+  const old = motion.closest("label.check-row");
+  const row = make("div", "lx-look-row lx-still-row");
+  const label = worded("label", "lx-look-label", "appearance.reduceMotion", "Keep things still (no sliding or spinning)");
+  label.htmlFor = "appearance-motion";
+  row.append(label, motion);
+  old?.remove();
+  return row;
 }
 function lookRow(key, english, hostId) {
   const row = make("div", "lx-look-row");
   const host = make("div");
   host.id = hostId;
-  row.append(worded("span", "lx-look-label", key, english), host);
+  const label = worded("span", "lx-look-label", key, english);
+  label.id = `${hostId}-label`;
+  row.append(label, host);
   return row;
 }
 function openSettings(page) {
@@ -630,7 +806,7 @@ function buildOnThisPage(page) {
   page.querySelector(".lx-on-this-page")?.remove();
 
   // Find all section headings (h3 elements with ids)
-  const headings = [...page.querySelectorAll("h3[id]:not(.lx-page-title)")].filter((h) => {
+  const headings = [...page.querySelectorAll("h3.sg-head-title[id]")].filter((h) => {
     // Only include headings that are not hidden by the current level
     const card = h.closest(".lx-page > *, .lx-subpanel > *");
     return card && !card.hidden && (card.dataset.sgBucket !== undefined || card.dataset.bucket !== undefined);
@@ -678,6 +854,15 @@ function showSettingsPage(id) {
   if (id === "data") void globalThis.branchUsage?.render().then(() => globalThis.branchAllowed?.render());
   if (id === "appearance") drawLookControls();
 }
+/** A card's own words: not what Settings adds to it, such as the "N more with Advanced" line (DG-073). */
+function wordsOf(card) {
+  if (!card.querySelector("[data-no-search]")) return card.textContent;
+  const walk = document.createTreeWalker(card, NodeFilter.SHOW_TEXT,
+    { acceptNode: (text) => text.parentElement?.closest("[data-no-search]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  let words = "";
+  while (walk.nextNode()) words += walk.currentNode.nodeValue;
+  return words;
+}
 /** Search reads every card's own words, so it finds a setting by what it says, not by where it sits. */
 function searchSettings(query) {
   const needle = query.trim().toLowerCase();
@@ -686,7 +871,7 @@ function searchSettings(query) {
   for (const page of document.querySelectorAll(".lx-page")) {
     let hits = 0;
     for (const card of page.querySelectorAll(".lx-subpanel > *, .lx-page > *:not(.lx-page-title):not(.lx-page-intro):not(.lx-subtabs):not(.lx-subpanel)")) {
-      const match = !needle || card.textContent.toLowerCase().includes(needle);
+      const match = !needle || wordsOf(card).toLowerCase().includes(needle);
       card.classList.toggle("lx-miss", !match);
       if (match && needle) hits += 1;
     }
@@ -811,8 +996,6 @@ function showPlace(next, tab) {
     row.setAttribute("aria-current", row.dataset.place === next ? "page" : "false");
   const spec = PLACES[next];
   $("page-title").textContent = spec ? say(spec.key, spec.english) : say("nav.chat", titles.chat);
-  const crumb = spec?.tabs.find(([id]) => id === lastTab[next]);
-  $("lx-crumb").textContent = crumb ? say(crumb[1], crumb[2]) : "";
   $("thread-name").hidden = next !== "chat";
   document.body.classList.toggle("lx-chat", next === "chat");
   document.body.classList.remove("rail-open", "lx-pane-float");
@@ -831,28 +1014,26 @@ function buildRail() {
   const nav = $("sections-nav");
   for (const id of Object.keys(PLACES)) {
     const spec = PLACES[id];
-    if (spec.strip) continue; // phase2/shell: reached from the strip
+    /* phase2/shell: reached from the strip; DG-092: Overview is also the sidebar's first place, as in the sample */
+    if (spec.strip && id !== "overview") continue;
     const row = button("lx-place-link", spec.key, spec.english);
     iconAndWords(row, id);
     row.dataset.place = id;
     if (id === "inbox") row.append(Object.assign(make("span", "lx-badge"), { id: "lx-inbox-badge", hidden: true }));
     row.addEventListener("click", () => displayView(`${id}:${lastTab[id]}`));
-    nav.append(row);
+    if (id === "overview") nav.prepend(row);
+    else nav.append(row);
   }
-  /* The old Settings button becomes the gear beside search; the old Conversation button the way back. */
+  /* The old Settings button becomes the gear beside search. The old Conversation button goes, as in the sample: a
+     conversation opens from New conversation or its row in the side list, and the top bar's crumb is
+     public/topbar-crumbs.js (DG-099). */
   const gear = document.querySelector('.nav[data-view="settings"]');
   iconAndWords(gear, "settings");
   gear.className = "rail-icon lx-gear";
   gear.id = "rail-settings";
   gear.querySelector(".lx-words").classList.add("sr-only");
   $("appearance-shortcut").after(gear);
-  const back = document.querySelector('.nav[data-view="chat"]');
-  iconAndWords(back, "back");
-  back.className = "lx-back";
-  $("rail-toggle").after(back);
-  const crumb = make("span", "lx-crumb");
-  crumb.id = "lx-crumb";
-  $("page-title").after(crumb);
+  document.querySelector('.nav[data-view="chat"]')?.remove();
   document.querySelector('.nav[data-view="usage"]')?.remove();
 }
 /* ---------- the title bar: the side pane, clear the view, lockdown ---------- */
@@ -906,29 +1087,52 @@ let paneSeg = null;
    short. Measured, not guessed from a width, because the width that fits depends on the font. */
 function fitPaneTabs() {
   if (!paneSeg || !paneSeg.getClientRects().length) return;
-  paneSeg.classList.remove("lx-tabs-tight");
+  paneSeg.classList.remove("lx-tabs-tight", "lx-tabs-fit");
   /* A name can overflow its tab without being cut inside its own words, so the tabs themselves are measured too. */
   const over = (node) => node.getClientRects().length && node.scrollWidth > node.clientWidth + 1;
-  const cut = [...paneSeg.querySelectorAll(".lx-pane-tab, .lx-words")].some(over);
-  paneSeg.classList.toggle("lx-tabs-tight", cut);
+  const cut = () => [...paneSeg.querySelectorAll(".lx-pane-tab, .lx-words")].some(over);
+  /* DG-115: a longer name (French "Navigateur") first borrows room from the shorter ones, so all six names stay. */
+  if (cut()) paneSeg.classList.add("lx-tabs-fit");
+  paneSeg.classList.toggle("lx-tabs-tight", cut());
 }
 /* phase2/panels: the calm window's pane can be shut while work runs; it opens by itself again for the next task. */
 let paneShut = false;
 function togglePane() {
+  if (calm() ? calmPaneWanted() : paneOpen()) return closePane();
+  paneByRun = false;
   if (!calm()) {
-    const opened = document.body.classList.toggle("lx-pane-float");
+    document.body.classList.add("lx-pane-float");
     syncPane();
-    if (opened) document.dispatchEvent(new CustomEvent("branch-pane-draw")); // the fold's own redraw (context-pane.js) is stopped above
+    document.dispatchEvent(new CustomEvent("branch-pane-draw")); // the fold's own redraw (context-pane.js) is stopped above
     return;
-  }
-  if (calmPaneWanted()) {
-    paneAsked = false;
-    paneShut = calmWorking;
-    document.body.classList.remove("lx-pane-float");
-    return syncPane();
   }
   paneShut = false;
   askForPane(paneTab);
+}
+/* DG-118: puts the card away however it was opened (its switch, its close button, Escape, or a task), so the switch
+   in the title bar always says the same as the card. */
+function closePane() {
+  paneByRun = false;
+  if (calm()) {
+    paneAsked = false;
+    paneShut = calmWorking;
+  }
+  document.body.classList.remove("lx-pane-float");
+  syncPane();
+}
+/* DG-116: "Open this by itself while a task works" is on unless it was turned off. A card a task opened is put away
+   again when the work stops; one the owner opened stays. */
+const paneAuto = () => store.get("branch-pane-auto") !== "off";
+let paneByRun = false;
+function followWork(now) {
+  if (calm()) return;
+  if (now && paneAuto() && !narrow.matches && !paneOpen()) {
+    paneByRun = true;
+    document.body.classList.add("lx-pane-float");
+  } else if (!now && paneByRun) {
+    paneByRun = false;
+    document.body.classList.remove("lx-pane-float");
+  }
 }
 function pickPaneTab(id) {
   const open = calm() ? calmPaneWanted() : paneOpen();
@@ -969,6 +1173,22 @@ function tagPaneBlocks() {
   const head = make("div", "lx-pane-head");
   head.append(top, paneSeg); // phase2/panels: the tabs sit in the panel's own head
   $("context-panel").prepend(head);
+  /* DG-116: the card's foot, as the sample's: one switch that lets a task open the panel by itself while it works.
+     On unless turned off; kept in this browser. calmPaneWanted and followWork read it. */
+  const foot = make("label", "lx-pane-foot");
+  foot.id = "lx-pane-foot";
+  const auto = make("input", "sw");
+  auto.type = "checkbox";
+  auto.id = "lx-pane-auto";
+  auto.setAttribute("role", "switch"); // the shared switch look (control-styles.css) over style.css's plain checkbox
+  auto.checked = paneAuto();
+  auto.addEventListener("change", () => {
+    store.set("branch-pane-auto", auto.checked ? null : "off");
+    if (!auto.checked && paneByRun) closePane();
+    syncPane();
+  });
+  foot.append(auto, worded("span", "", "pane.autoOpen", "Open this by itself while a task works"));
+  $("context-panel").append(foot);
 }
 /** The pane belongs to the conversation: shown there when open, or anywhere while help is being read. */
 function syncPane() {
@@ -1157,11 +1377,10 @@ function wireKeys() {
       return;
     }
     /* The floating pane closes, and the keyboard goes back to what opened it. */
-    if (event.key === "Escape" && document.body.classList.contains("lx-pane-float")) {
-      const back = $("aside-toggle"); // phase2/panels: the tabs are inside the pane now; its one switch takes the keyboard back
-      if (calm()) paneAsked = false;
-      document.body.classList.remove("lx-pane-float");
-      back?.focus();
+    /* DG-118: also the calm window's card that a task opened, which is shown without the floating class. */
+    if (event.key === "Escape" && !event.defaultPrevented && (calm() ? calmPaneWanted() : paneOpen())) {
+      closePane();
+      $("aside-toggle")?.focus(); // phase2/panels: the tabs are inside the pane now; its one switch takes the keyboard back
     }
   });
   const after = (id, view) => $(id)?.addEventListener("click", () => displayView(view));
@@ -1175,7 +1394,7 @@ function wireKeys() {
   new MutationObserver(syncPane).observe($("context-help"), { attributes: true, attributeFilter: ["hidden"] });
   new MutationObserver(syncPane).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   new MutationObserver(applyLook).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
-  narrow.addEventListener("change", () => { document.body.classList.remove("lx-pane-float"); syncPane(); });
+  narrow.addEventListener("change", () => { paneByRun = false; document.body.classList.remove("lx-pane-float"); syncPane(); });
   $("appearance-follow")?.addEventListener("change", drawLookControls);
   new MutationObserver(() => { if ($("workspace").hidden) closeSettings(); })
     .observe($("workspace"), { attributes: true, attributeFilter: ["hidden"] });
@@ -1207,7 +1426,7 @@ const goalShowing = () => Boolean($("goal-strip") && !$("goal-strip").hidden);
 /** In the calm window the pane shows while work runs, or when the owner asked for it; a narrow window floats it only when asked. */
 function calmPaneWanted() {
   if (narrow.matches) return paneAsked && document.body.classList.contains("lx-pane-float");
-  return paneAsked || (calmWorking && !paneShut); // phase2/panels: shut with the switch while work runs
+  return paneAsked || (calmWorking && !paneShut && paneAuto()); // phase2/panels: shut with the switch while work runs
 }
 function askForPane(id) {
   /* DG-114: decided by whether the pane is showing, not by the old request: opened on a wide window and then narrowed
@@ -1229,6 +1448,7 @@ function watchCalmWork() {
       calmWorking = now;
       if (!now) paneShut = false; // phase2/panels
       document.body.classList.toggle("lx-calm-working", now);
+      followWork(now);
       if (now) document.dispatchEvent(new CustomEvent("branch-pane-draw"));
       syncPane();
     }, now ? 1200 : 1500);
@@ -1245,6 +1465,7 @@ function watchCalmWork() {
     if (root.dataset.everything === was) return;
     was = root.dataset.everything;
     paneAsked = false;
+    paneByRun = false;
     document.body.classList.remove("lx-pane-float");
     syncPane();
   }).observe(root, { attributes: true, attributeFilter: ["data-everything"] });
@@ -1270,6 +1491,7 @@ const MORE = [
     ["view", "inbox", "place.inbox", "Inbox"], ["view", "automations", "place.automations", "Automations"],
     ["view", "library", "place.library", "Library"], ["view", "customize", "place.customize", "Customize"],
     ["find", "", "rail.find", "Find anything"],
+    ["press", "topic-panes-open", "more.topicPanes", "Compare topics side by side"], // FQ-surfaces.panes (public/topic-panes.js)
   ]],
   ["more.window", "This window", [
     ["press", "thread-labels", "more.labels", "Labels for this conversation"],

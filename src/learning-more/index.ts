@@ -120,7 +120,8 @@ export class LearningMore {
 function registerLearningTools(registry: ToolRegistry, more: LearningMore): void {
   const tool = <T>(part: LearningPart, name: string, permission: string, description: string, parameters: z.ZodType<T>,
     run: (value: T, context: ToolContext) => Promise<unknown> | unknown) =>
-    registry.register({ name, permission, description, parameters,
+    // Q59: the outside memory services are reached over the network (src/tool-reach.ts).
+    registry.register({ name, permission, description, parameters, ...(part === "providers" ? { reach: "outbound" as const } : {}),
       execute: async (value: T, context: ToolContext) => { more.require(part); return run(value, context); } });
   tool("blocks", "memory.block_view", "memory.read", "Read your memory blocks (or one, by label), with how much of each block's size budget is used.",
     ViewBlockSchema, (value, context) => ({ blocks: more.blocks.view(more.who(context), value.label) }));

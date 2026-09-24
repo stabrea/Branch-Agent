@@ -3,7 +3,11 @@
    place. Headless only; nothing here opens a microphone. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+/** Whether a file was written: in the shared project, or in a Trunk's own folder under .branch-agents (isolated-agents). */
+const written = (app, path) => existsSync(join(app.runtime.workspace, path))
+  || (existsSync(join(app.runtime.workspace, ".branch-agents")) && readdirSync(join(app.runtime.workspace, ".branch-agents"))
+    .some((id) => existsSync(join(app.runtime.workspace, ".branch-agents", id, path))));
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -136,10 +140,10 @@ test("a room opens as a conversation: signed replies, a question answered in pla
   const ask = f.page.locator(".rooms-ask");
   await ask.waitFor({ state: "visible", timeout: 15000 });
   assert.match(await ask.innerText(), /Ledger needs you/);
-  assert.equal(existsSync(join(f.app.runtime.workspace, "totals.csv")), false, "nothing written before the yes");
+  assert.equal(written(f.app, "totals.csv"), false, "nothing written before the yes");
   await ask.getByRole("button", { name: "Yes: Ledger may do this in this room, for up to an hour" }).click();
   await f.page.waitForFunction(() => /Written\./.test(document.getElementById("conversation").textContent), null, { timeout: 15000 });
-  assert.equal(existsSync(join(f.app.runtime.workspace, "totals.csv")), true);
+  assert.equal(written(f.app, "totals.csv"), true);
   const width = await f.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.equal(width, 0, "nothing overflows sideways at 390");
   assert.deepEqual(f.errors, []);

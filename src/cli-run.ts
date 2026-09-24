@@ -2,11 +2,13 @@ import type { Run, RunStatus } from "./contracts.js";
 import type { Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
 import { addPolicyRule, readPolicy, savePolicy, policyPresets, type PolicyPresetName } from "./policy.js";
+import { recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 import { readAttachment, type Attachment, attachedText } from "./terminal-commands.js";
 import { progressLine } from "./terminal.js";
 import { allowTestsRefusal } from "./coding/project-tests.js";
 import { allowTestsIdleNote } from "./code-change.js"; // mac7/smoke-fixes (B6)
 import type { ImagePart } from "./contracts.js";
+import { unkeyedAlwaysRefusal } from "./runtime.js";
 
 /**
  * `branch run` for scripts: what the flags mean, what comes out (a JSON Lines event stream with
@@ -102,9 +104,15 @@ export function usePreset(store: Store, owner: string, name: string, keep: boole
   if (!known.includes(name as PolicyPresetName))
     throw new Error(`--preset takes one of: ${known.join(", ")}`);
   const before = readPolicy(store, owner);
-  savePolicy(store, owner, { preset: name });
-  if (keep)
+  if (keep) {
+    // Q48: a change that stays is written down like any other, so "why is this on?" names the command.
+    recordedWrite(store, owner, { writer: "owner-by-command", source: "command", detail: `--save-preset ${name}` }, ["policy"],
+      () => savePolicy(store, owner, { preset: name }));
     return { message: `[your saved setting for when to check with you is now "${name}", and it stays that way]`, restore: () => {} };
+  }
+  // For this one task only: the saved setting is put back afterwards and ends where it started, so
+  // neither step is recorded as a change of the owner's settings.
+  savePolicy(store, owner, { preset: name });
   return {
     message: `[when to check with you, for this task only: "${name}". Your saved setting stays "${before.preset}".]`,
     restore: () => { savePolicy(store, owner, before); },
@@ -243,11 +251,18 @@ export function answerFromCommand(runtime: Runtime, id: string, answer: string):
   const asked = runtime.store.events(run.id).filter((event) => event.kind === "policy.ask").at(-1);
   if (!asked) throw new Error("That task did not stop to ask permission for anything.");
   const tool = String(asked.data.name ?? ""), target = String(asked.data.target ?? "");
+  const noAlways = asked.data.noAlways === true || runtime.registry.noStandingTarget(tool, target);
+  // FQ-execution.browser, Q76: the CLI writes no standing rule where the question forbids one, or where
+  // the call named no target its tool could have named: it would cover every call of the tool.
+  // The CLI path cannot offer "just this once" like an attended UI can, so refuse and ask the user
+  // to run the task again where they can choose the right scope.
+  if (noAlways) throw new Error(`${unkeyedAlwaysRefusal}. Run the task again and choose your answer when it asks.`);
   // The question carried the fingerprint of the exact bytes it was put for, so the answer given
   // here is bound to them: a task that asks for something different next time asks again.
   const fingerprint = String(asked.data.fingerprint ?? "");
   runtime.approvals.remember(run.sessionId, tool, target, decision,
     { ...(fingerprint ? { fingerprint } : {}), label: String(asked.data.label ?? "") });
+  // Left with no target only for a tool that can name none, where a rule on "*" is the tool itself.
   addPolicyRule(runtime.store, runtime.owner, { tool, match: target || "*", decision, remember: "always" });
   return { runId: run.id, tool, target, decision, rule: `${tool} on ${target || "anything"}` };
 }

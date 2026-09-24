@@ -200,6 +200,8 @@ export class BudgetError extends Error {
 /** Raised by the user.ask tool: the task stops and waits for the person's answer. */
 export class NeedsInputError extends Error {
   override name = "NeedsInputError";
+  /** The tool call that asked, when a tool asked; a question from anywhere else (a stuck model, a plan to approve) has none. */
+  callId?: string;
   constructor(readonly question: string) { super(question); }
 }
 export class Budget {
@@ -249,6 +251,12 @@ export interface ToolContext {
   scratchRoot?: string;
   /** Practice run: tools that would change something report what they would have done instead. */
   dryRun?: boolean;
+  /**
+   * Q12: set only by the self-development contract check (src/self-development-contract.ts) for a
+   * command it let run while Branch's own source is checked out: the one folder the command may
+   * write to. The shell runs it behind the OS sandbox with writes held to this folder, or refuses.
+   */
+  writesConfinedTo?: string;
   /**
    * mac7/eval-honesty: a question asked in isolation — a grader marking work Branch itself did.
    * Nothing the owner has remembered, written down, installed or asked for standing reaches it, and
@@ -316,6 +324,12 @@ export interface ToolDefinition<T = unknown> {
   /** From a connected server, a plugin or a skill package: its description is somebody else's text. */
   external?: boolean;
   permission: string;
+  /**
+   * Q59: "outbound" when the tool sends a request over the network or acts on a web page or another
+   * program's window, "local" when it does not. Left out, its permission decides (src/tool-reach.ts);
+   * a tool whose permission does not say enough declares it here.
+   */
+  reach?: "local" | "outbound";
   execute: (args: T, context: ToolContext) => Promise<unknown>;
   /** What this call would touch, for the approval policy, when the arguments alone do not say. */
   target?: (args: T, context: ToolContext) => string | null;

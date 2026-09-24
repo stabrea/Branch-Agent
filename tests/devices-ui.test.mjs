@@ -29,7 +29,7 @@ test("every word on the Devices card has English and real French, and no colour 
   assert.deepEqual([...keys].filter((key) => !en[key] || !fr[key] || en[key] === fr[key]), []);
   assert.equal(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(source), false, "colours come from the tokens only");
   assert.match(await readFile(new URL("index.html", PUBLIC), "utf8"), /<script src="\/devices.js" type="module"><\/script>/);
-  assert.match(await readFile(new URL("../docs/places.md", import.meta.url), "utf8"), /Your devices.*customize:channels/);
+  assert.match(await readFile(new URL("../docs/places.md", import.meta.url), "utf8"), /Your devices.*settings:channels/);
 });
 
 test("pair, let in, switch on, pick, in English and French at 400 px, with nothing scrolling sideways", async (t) => {
@@ -48,11 +48,12 @@ test("pair, let in, switch on, pick, in English and French at 400 px, with nothi
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   const card = page.locator("#devices-card");
   await card.waitFor();
   assert.equal(await card.locator("h2").innerText(), "Your devices");
-  assert.equal(await page.evaluate(() => document.getElementById("devices-card")?.parentElement?.id ?? null), "lx-slot-customize-channels", "the card is in its home");
+  assert.equal(await page.evaluate(() => document.getElementById("devices-card")?.parentElement?.id ?? null), "lx-page-channels", "the card is in its home");
   assert.equal(await page.locator("#devices-mode").inputValue(), "off", "the feature ships off");
   assert.equal(await card.getByRole("button", { name: "Pair a device" }).count(), 0);
   await page.locator("#devices-mode").selectOption("on");
@@ -106,7 +107,8 @@ test("pair, let in, switch on, pick, in English and French at 400 px, with nothi
 
   await openSettings(page, "appearance");
   await page.locator("#appearance-language").selectOption("fr");
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   await page.waitForFunction(() => document.querySelector("#devices-card h2")?.textContent === "Vos appareils", null, { timeout: 15000 });
   await card.getByText("Faire une capture de l'écran").waitFor();
   assert.equal(await card.locator(".devices-device h3").innerText(), "action.save");

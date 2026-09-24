@@ -2,6 +2,7 @@ import { adaptFor, continuationFor } from "./host.js";
 import { adaptMode, saveAdaptSettings } from "./settings.js";
 import type { PressContext } from "../local-one-button.js";
 import type { Store } from "../store.js";
+import { byCard, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
 /**
  * mac7/adapt: the `/api/adapt` family. Looking (GET) describes and changes nothing, and shows the
@@ -28,7 +29,8 @@ export async function adaptApi(
   }
   if (method === "POST" && path === "/api/adapt/switch") {
     deps.requireOwner("the /adapt switch");
-    return saveAdaptSettings(store, owner, await body());
+    const input = await body();
+    return recordedWrite(store, owner, byCard("adapt"), ["adapt"], () => saveAdaptSettings(store, owner, input));
   }
   // merge-queue review: writing a stop into the owner's list, and reading an offer for one, are the
   // owner's too; the short-lived-key table already said "owner POST" and now the route agrees.
@@ -42,7 +44,7 @@ export async function adaptApi(
   }
   if (method === "POST" && path === "/api/adapt/go") {
     deps.requireOwner("/adapt");
-    const answer = await adaptFor(store, owner).go(await body(), context);
+    const answer = await adaptFor(store, owner, { writer: "owner-in-window", source: "card", detail: "adapt" }).go(await body(), context);
     return { ...answer, carryOn: answer.done && answer.stop ? continuationFor(answer.stop, answer.gained) : "" };
   }
   throw new Error("That is not something Branch can do with /adapt");

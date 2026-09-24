@@ -14,7 +14,7 @@ Two rules for reading it:
 
 The machine-readable checklist in [features.json](features.json) is the original research audit. Every
 row that was not already implemented was checked again on 2026-09-22 against the code and the exact
-test titles it names: 116 implemented, 37 partial, 1 external, 15 missing. A partial row says in
+test titles it names: 117 implemented, 36 partial, 1 external, 15 missing. A partial row says in
 `remaining` what is still missing. Settings, their exact names and their defaults are in
 [configuration.md](configuration.md).
 

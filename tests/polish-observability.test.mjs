@@ -433,9 +433,9 @@ test("D1 comparing two tasks shows both sets of figures and the difference betwe
     await page.locator("#prompt").fill(prompt);
     await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
     await page.waitForFunction((answer) => document.getElementById("conversation").textContent.includes(answer), `The answer for ${prompt}.`, { timeout: 20000 });
-    await page.locator("#new-session").waitFor({ state: "visible", timeout: 120000 });
+    /* DG-175: a new conversation starts from the rail, as a person starts one; the box has no button of its own. */
     await page.waitForFunction(() => !document.getElementById("new-session")?.disabled, undefined, { timeout: 120000 });
-    await page.locator("#new-session").click();
+    await page.locator("#rail-new").click();
   }
   await openPlace(page, "runs");
   const picks = page.locator(".compare-pick");
@@ -767,6 +767,9 @@ test("G1 the context pane lists a grant and the approval card says what a yes le
   const { page, errors } = await onPage(t, { provider: writesAFile("gated.txt") });
   await page.evaluate(async (token) => {
     await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) });
+    /* Q59: Ask first offers no "Yes, always", so this conversation follows the owner's setting to show all three yeses. */
+    await fetch("/api/conversation-mode/settings", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ newConversation: "follow" }) });
+    await globalThis.branchConversationMode.refresh();
   }, await page.evaluate(() => sessionStorage.getItem("branch-token")));
   await page.locator("#prompt").fill("write it");
   await page.locator("#send").click();

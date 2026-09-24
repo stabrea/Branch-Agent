@@ -40,6 +40,30 @@
   --shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.65);
   --control-thumb-shadow: 0 1px 2px rgb(0 0 0 / 30%);
   --control-selected-shadow: 0 1px 2px rgb(0 0 0 / 14%);
+  /* DG-138: the 3D acorn's and pets' own colours, the same in every theme (only their light follows
+     the theme). public/delight-3d.js reads them; each pet is its coat and its belly. */
+  --model-acorn-nut: #c8893e;
+  --model-acorn-cap: #6b4a2f;
+  --model-acorn-stem: #4a3220;
+  --model-eye: #1a1a1a;
+  --model-sun: #fff1dc;
+  --model-white: #ffffff;
+  --model-squirrel: #c0672e;
+  --model-squirrel-belly: #f0d2b0;
+  --model-owl: #8a6a4a;
+  --model-owl-belly: #e9d8b8;
+  --model-hedgehog: #7a6048;
+  --model-hedgehog-belly: #e8cfae;
+  --model-fox: #d9642a;
+  --model-fox-belly: #ffffff;
+  --model-robin: #7c5a44;
+  --model-robin-belly: #d9552f;
+  --model-rabbit: #b9aa98;
+  --model-rabbit-belly: #f4eee6;
+  --model-snail: #a8834f;
+  --model-snail-belly: #d8c4a0;
+  --model-fawn: #b07a4a;
+  --model-fawn-belly: #f2e4cc;
   color-scheme: dark;
 }
 
@@ -161,7 +185,7 @@
   --step-bg: rgba(0,0,0,.28);
   --border: rgba(227,238,243,.13);
   --text-dim: rgba(177,197,208,1);
-  --surface: rgb(38, 50, 58);
+  --surface: rgb(33, 45, 53);
   /* the page before public/layout.js dresses it (the flush-shell names below are Forest greens) */
   --rail-bg: var(--ground);
   --main-bg: var(--ground);
@@ -228,7 +252,7 @@
   --step-bg: rgba(35,52,62,.05);
   --border: rgba(35,52,62,.13);
   --text-dim: rgba(69,91,102,1);
-  --surface: rgb(246, 248, 249);
+  --surface: rgb(247, 249, 250);
   /* the page before public/layout.js dresses it (the flush-shell names below are Forest greens) */
   --rail-bg: var(--ground);
   --main-bg: var(--ground);
@@ -294,6 +318,36 @@
   --copper-low: #17231d;
   --on-copper: #ffffff;
   --copper-text: #233529;
+}
+/* DG-105: a Trunk's colours, the approved sample's (design/Branch-Grown-Up.html `swatches()`: its two greens, then the
+   highlight of each of its eighteen themes), the same in every theme because the owner chose that exact colour.
+   The studio offers them in this order; a face drawn in one takes the ink that stays readable on it. */
+:root {
+  --trunk-colour-1: #1F5139;
+  --trunk-colour-2: #133524;
+  --trunk-colour-3: #E07033;
+  --trunk-colour-4: #E4BA94;
+  --trunk-colour-5: #B0D0E0;
+  --trunk-colour-6: #D4A73A;
+  --trunk-colour-7: #FF6B8A;
+  --trunk-colour-8: #3AA7F5;
+  --trunk-colour-9: #B4A2FF;
+  --trunk-colour-10: #5FD3A0;
+  --trunk-colour-11: #FF8A5B;
+  --trunk-colour-12: #8DB082;
+  --trunk-colour-13: #F97316;
+  --trunk-colour-14: #BD93F9;
+  --trunk-colour-15: #88C0D0;
+  --trunk-colour-16: #FE8019;
+  --trunk-colour-17: #EBBCBA;
+  --trunk-colour-18: #7AA2F7;
+  --trunk-colour-19: #CBA6F7;
+  --trunk-colour-20: #A7C080;
+  --face-ink-light: #ffffff;
+  --face-ink-dark: #000000;
+  --any-colour: conic-gradient(#e0533a, #e0b33a, #4caf6a, #3a8fe0, #8a5ae0, #e0533a);
+  --any-colour-mark: #ffffff;
+  --any-colour-shadow: rgba(0, 0, 0, 0.6);
 }
 /* Swatches for the appearance screen: the same five accents, shown for the live theme. */
 :root {
@@ -371,6 +425,18 @@
   --tier-diamond: #58b8d8;
   --tier-godly: #9b6ad6;
   --tier-sss: #e0457b;
+  /* DG-134: the approved sample's own dots in "Try a celebration" (design/Branch-Grown-Up.html). */
+  --tier-dot-bronze: #b0793f;
+  --tier-dot-silver: #aeb6bd;
+  --tier-dot-gold: #d9a82e;
+  --tier-dot-diamond: #6fc8ea;
+  --tier-dot-godly: conic-gradient(#f7c56b, #f07ab8, #8f8cf5, #6fd6e8, #f7c56b);
+  --tier-dot-sssp: linear-gradient(90deg, #ff2d6f, #2de1ff);
+  /* Settings, grown up: the pinned strip's edge, a raised card, and a label laid over a picture. */
+  --strip-edge-shadow: 0 10px 16px -14px rgba(0, 0, 0, 0.4);
+  --raised-shadow: 0 12px 30px -18px rgba(0, 0, 0, 0.5);
+  --on-picture-bg: rgba(0, 0, 0, 0.55);
+  --on-picture-ink: #fff;
 }
 :root[data-density="compact"] {
   --density: 0.75;

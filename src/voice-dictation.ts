@@ -44,14 +44,19 @@ export type DictationSettings = z.infer<typeof DictationSettingsSchema>;
 
 /** The saved settings, with Lockdown winning over a saved mode exactly as every other switch does. */
 export function dictationSettings(store: Pick<Store, "get">, owner: string): DictationSettings {
-  const saved = DictationSettingsSchema.safeParse(store.get("settings", owner, dictationKey)?.data ?? {});
-  const settings = saved.success ? saved.data : DictationSettingsSchema.parse({});
+  const settings = ownDictationSettings(store, owner);
   return lockdownOverrides(store, owner, dictationKey) ? { ...settings, mode: "off" } : settings;
+}
+/** The owner's own choice as the app would run it, before Lockdown's override: what a change is saved onto. */
+function ownDictationSettings(store: Pick<Store, "get">, owner: string): DictationSettings {
+  const saved = DictationSettingsSchema.safeParse(store.get("settings", owner, dictationKey)?.data ?? {});
+  return saved.success ? saved.data : DictationSettingsSchema.parse({});
 }
 
 export function saveDictationSettings(store: Store, owner: string, input: unknown): DictationSettings {
   const given = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-  const next = DictationSettingsSchema.parse({ ...dictationSettings(store, owner), ...given });
+  // Saved onto the owner's own choice, never onto Lockdown's view, so a change made while locked keeps their switch.
+  const next = DictationSettingsSchema.parse({ ...ownDictationSettings(store, owner), ...given });
   store.save("settings", owner, dictationKey, next);
   return next;
 }

@@ -264,6 +264,8 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   assert.match(await ask.textContent(), /Do you trust this folder\?[\s\S]*Your workspace holds[\s\S]*AGENTS\.md/);
   const settings = page.locator("#folder-trust-card");
   assert.match(await settings.textContent(), /Trusted folders[\s\S]*Not decided yet[\s\S]*The folder of the “Deep” project[\s\S]*planted/);
+  // Q89: the card says that trusting a folder does not reach a repository cloned inside it.
+  assert.ok((await settings.textContent()).includes("A repository inside this folder needs its own trust."), "the nested-repository line is shown");
   await ask.getByRole("button", { name: "Don't trust it", exact: true }).click();
   await ask.waitFor({ state: "detached" });
   assert.equal(folderTrust(app.store, owner, workspace), "untrusted");
@@ -272,6 +274,7 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await page.waitForFunction(() => document.getElementById("folder-trust-card")?.textContent.includes("Dossiers de confiance"));
   assert.match(await settings.textContent(), /Votre espace de travail[\s\S]*Pas de confiance[\s\S]*Le dossier du projet « Deep »/);
+  assert.ok((await settings.textContent()).includes("Un dépôt à l'intérieur de ce dossier a besoin de sa propre confiance."), "the nested-repository line in French");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
   // At 400 px nothing on the card, long folder path included, widens the page.
   await page.setViewportSize({ width: 400, height: 800 });
@@ -287,7 +290,8 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   for (const id of ["folder-trust-card", "loop-guard-card"]) {
     const card = page.locator(`#${id}`);
     assert.equal(await card.getAttribute("data-home"), "settings:permissions");
-    assert.equal(await card.locator("button:not(.quiet-button)").count(), 1, id);
+    /* The section's "N more with …" link can end a card (DG-073, DG-199); it is a link, not the card's button. */
+    assert.equal(await card.locator("button:not(.quiet-button):not(.sg-more)").count(), 1, id);
   }
   // The loop guard switch is kept by its Save button.
   await page.locator("#loop-guard-mode").selectOption("when-needed");

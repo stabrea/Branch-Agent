@@ -3,6 +3,7 @@ import type { Store } from "../store.js";
 import { audit } from "../audit.js";
 import { securityShaped, secretShaped, settingsCatalogue, specFor, switchPositions, type FieldSpec, type SettingSpec } from "./catalogue.js";
 import { pinnedIds, pinnedRefusal, pinFor } from "./pins.js"; // mac7/wake-pins
+import { recordSettingsChange, type ChangeOrigin } from "./history.js"; // Q48
 
 /**
  * R17-S-A: one list of changes, whoever proposed them — putting settings back, a whole-app preset,
@@ -66,18 +67,22 @@ export function currentValue(store: Store, owner: string, spec: SettingSpec, fie
   if (saved === undefined && field.field === "mode" && spec.keepsEnabled && data.enabled === true) saved = "when-needed";
   const accepted = acceptValue(field, saved);
   if (accepted !== undefined) return accepted;
+  // A number saved between whole steps, on a setting the app itself keeps that way (the dictation wait takes
+  // 1.5 seconds), is read as it is, so a change from it is weighed against what is really in force.
+  const kind = field.kind;
+  if (kind.type === "number" && kind.fractions && typeof saved === "number" && Number.isFinite(saved) && saved >= kind.min && saved <= kind.max) return saved;
   // A choice saved outside the list ("custom" approval rules) is shown as it is, and counts as the
   // least known position, so moving away from it always asks for the separate yes.
   return field.kind.type === "choice" && typeof saved === "string" ? saved.slice(0, 40) : field.initial;
 }
 
-/** How careful a value is, as a number: higher is less careful. */
+/** Ordered magnitude; loosens() applies the field's protective or reach direction. */
 function reachOf(field: FieldSpec, value: Value): number {
   const kind = field.kind;
   if (kind.type === "switch") return switchPositions.indexOf(value as (typeof switchPositions)[number]);
   if (kind.type === "yes-no") return value ? 1 : 0;
   if (kind.type === "choice") return kind.options.indexOf(String(value));
-  return 0;
+  return value as number;
 }
 
 export function loosens(field: FieldSpec, from: Value, to: Value, spec?: Pick<SettingSpec, "key">): boolean {
@@ -109,6 +114,9 @@ export function changesFor(store: Store, owner: string, proposals: readonly Prop
     if (!spec || !field || secretShaped.test(proposal.field)) { refused.push(`${id}: not a setting that can be changed from here`); continue; }
     const to = acceptValue(field, proposal.value);
     if (to === undefined) { refused.push(`${id}: not a value this setting can hold`); continue; }
+    // Q65 review: a setting that cannot be changed right now is refused here, before anything is written.
+    const refusal = spec.refuses?.(store, owner);
+    if (refusal) { refused.push(`${id}: ${refusal}`); continue; }
     const from = currentValue(store, owner, spec, field);
     if (from === to || seen.has(id)) continue;
     seen.add(id);
@@ -153,6 +161,15 @@ export interface ApplyChoice {
    * away a tool) are saved through that, keyed by setting.
    */
   writers?: Record<string, Writer> | undefined;
+  /** Q48: who made these changes and which way, for the structured change record. */
+  record: ChangeOrigin;
+}
+
+/** What the setting holds once its own save has run, which may have tidied the value it was given. */
+function valueNow(store: Store, owner: string, change: Change): Value {
+  const spec = specFor(change.key);
+  const field = spec?.fields.find((entry) => entry.field === change.field);
+  return spec && field ? currentValue(store, owner, spec, field) : change.to;
 }
 
 /**
@@ -168,7 +185,7 @@ export function applyChanges(store: Store, owner: string, changes: readonly Chan
  * them. Nothing here throws for a pin: an import of forty settings with one pinned among them makes
  * the other thirty-nine and says which one it left alone.
  */
-export function applyWithPins(store: Store, owner: string, changes: readonly Change[], choice: ApplyChoice): { applied: Change[]; skipped: { id: string; why: string }[] } {
+export function applyWithPins(store: Store, owner: string, changes: readonly Change[], choice: ApplyChoice): { applied: Change[]; skipped: { id: string; why: string }[]; record?: string } {
   const accepted = new Set(choice.accept);
   const wanted = changes.filter((change) => accepted.has(change.id));
   const skipped = choice.pinnedAllowed ? [] : wanted.filter((change) => change.pinned)
@@ -179,15 +196,24 @@ export function applyWithPins(store: Store, owner: string, changes: readonly Cha
   const loose = picked.filter((change) => change.loosens);
   if (loose.length && !choice.confirmLoosening)
     throw new Error(`${loose.length} of these make Branch less careful (${loose.map((change) => change.label).join(", ")}). Tick "Yes, make it less careful" to go ahead, or untick them.`);
-  for (const spec of settingsCatalogue) {
-    const mine = picked.filter((change) => change.key === spec.key);
-    if (mine.length) writeOne(store, owner, spec, mine, choice.writers?.[spec.key]);
-  }
-  if (picked.length)
+  if (!picked.length) return { applied: picked, skipped };
+  // Q48: the settings, the audit entry and the change record are saved together or not at all, so a
+  // record that could not be written never leaves a change behind that nothing says was made.
+  const record = store.atomically(() => {
+    for (const spec of settingsCatalogue) {
+      const mine = picked.filter((change) => change.key === spec.key);
+      if (mine.length) writeOne(store, owner, spec, mine, choice.writers?.[spec.key]);
+    }
     audit(store, owner, {
       action: "policy.changed", actor: owner, subject: `${picked.length} settings changed (${choice.why})`,
       reason: picked.map((change) => `${change.id}: ${String(change.from)} → ${String(change.to)}`).join("; ").slice(0, 500),
       outcome: "saved",
     });
-  return { applied: picked, skipped };
+    // The structured record undo and "why is this on?" read. A caller from before it existed is
+    // written down as unknown rather than guessed at.
+    const origin: ChangeOrigin = (choice as Partial<ApplyChoice>).record ?? { writer: "unknown", source: "unknown", detail: choice.why };
+    return recordSettingsChange(store, owner, origin,
+      picked.map((change) => ({ setting: change.id, before: change.from, after: valueNow(store, owner, change) })));
+  });
+  return { applied: picked, skipped, record };
 }

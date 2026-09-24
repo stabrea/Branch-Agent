@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { optionalFields } from "./feature-switches.js"; // Q65
 import type { Store } from "./store.js";
 import type { LimitRow, LimitsView, LimitWindow } from "./usage-limits.js";
 
@@ -31,7 +32,8 @@ export function usageGlanceSettings(store: Pick<Store, "get">, owner: string): U
   return saved.success ? saved.data : UsageGlanceSettingsSchema.parse({});
 }
 export function saveUsageGlanceSettings(store: Pick<Store, "get" | "save">, owner: string, input: unknown): UsageGlanceSettings {
-  const wanted = UsageGlanceSettingsSchema.partial().parse(input ?? {});
+  // Q65: only the choice that was sent; `.partial()` put the other back to its default.
+  const wanted = optionalFields(UsageGlanceSettingsSchema).parse(input ?? {});
   const next = UsageGlanceSettingsSchema.parse({ ...usageGlanceSettings(store, owner), ...wanted });
   store.save("settings", owner, settingsKey, next);
   return next;
@@ -98,15 +100,18 @@ export function crossingsOf(rows: LimitRow[], now: number): GlanceCrossing[] {
   return out;
 }
 
+/** This month's estimated spend: tasks with a price are summed, tasks without one are only counted. */
+export interface GlanceMonth { cost: number; pricedRuns: number; unpricedRuns: number }
+
 export type UsageGlance =
   | { available: false }
   | { available: true; settings: UsageGlanceSettings; tightest: GlanceTightest | null; crossings: GlanceCrossing[];
-    running: number; rows: LimitRow[]; summary: string; empty: boolean };
+    running: number; rows: LimitRow[]; summary: string; empty: boolean; month?: GlanceMonth };
 
 /** What the ring and its popover show, built from rows already read. */
-export function glanceFrom(view: LimitsView, settings: UsageGlanceSettings, running: number, now: number): UsageGlance {
+export function glanceFrom(view: LimitsView, settings: UsageGlanceSettings, running: number, now: number, month?: GlanceMonth): UsageGlance {
   return { available: true, settings, tightest: tightestOf(view.rows), crossings: crossingsOf(view.rows, now),
-    running, rows: view.rows, summary: view.summary, empty: view.empty };
+    running, rows: view.rows, summary: view.summary, empty: view.empty, ...(month ? { month } : {}) };
 }
 
 /** The note each running task is sent when the owner presses "Save progress". */

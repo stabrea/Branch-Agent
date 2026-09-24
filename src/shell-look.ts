@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { optionalFields } from "./feature-switches.js"; // Q65
 import { currentPerson } from "./people/context.js";
 import { startedWithShortLivedKey } from "./key-context.js";
 import type { Store } from "./store.js";
@@ -42,7 +43,8 @@ function requireOwnerHere(store: Store): void {
 
 export function saveShellLook(store: Store, owner: string, input: unknown): ShellLook {
   requireOwnerHere(store);
-  const change = ShellLookSettingsSchema.partial().strict().parse(input);
+  // Q65: only the switch that was sent; `.partial()` put the other back to its default.
+  const change = optionalFields(ShellLookSettingsSchema).parse(input);
   const next = ShellLookSettingsSchema.parse({ ...readShellLook(store, owner), ...change });
   store.save("settings", owner, key, next);
   return next;

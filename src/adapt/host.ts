@@ -5,6 +5,8 @@ import { oneButtonSetting, saveOneButtonMode, type PressContext } from "../local
 import type { Store } from "../store.js";
 import { Adapt, type OneButtonLike } from "./service.js";
 import type { AdaptStop } from "./stops.js";
+import { inCatalogue, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
+import type { ChangeOrigin } from "../settings-kit/history.js";
 
 /**
  * mac7/adapt: the running Branch's own `/adapt`, wired to the pieces it borrows — the one button
@@ -39,14 +41,15 @@ export function continuationFor(stop: AdaptStop, gained: string): string {
     + `What was missing has been got: ${gained}`;
 }
 
-export function adaptFor(store: Store, owner: string): Adapt {
+/** `origin` is who says yes to an offer, so a switch it turns on is written down as a change (Q48). */
+export function adaptFor(store: Store, owner: string, origin: ChangeOrigin = { writer: "unknown", source: "unknown", detail: "/adapt" }): Adapt {
   const button = oneButtonOf(store, owner);
   return new Adapt({
     store, owner, ...(button ? { oneButton: button } : {}),
-    turnOn: (setting) => {
+    turnOn: (setting) => recordedWrite(store, owner, origin, inCatalogue(setting), () => {
       if (setting === localModelsSetting) saveLocalModelsMode(store, owner, { mode: "when-needed" });
       else if (setting === oneButtonSetting) saveOneButtonMode(store, owner, { mode: "when-needed" });
       else throw new Error("Branch does not turn that switch on from here.");
-    },
+    }),
   });
 }

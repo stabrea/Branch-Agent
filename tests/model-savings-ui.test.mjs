@@ -22,12 +22,17 @@ const homes = {
   "savings-mixtures-card": "#lx-models-second",
   "savings-round-chart-card": "#lx-page-appearance",
 };
-const fake = (name) => ({ name, async complete() { return { content: "Done.", toolCalls: [], usage: { input: 700, output: 20, cachedInput: 500 } }; } });
+const reportedUsage = { input: 700, output: 20, cachedInput: 500 };
+/** A model whose answers report `usages` in turn; one without `cachedInput` never said what the cache served. */
+const fake = (name, usages = [reportedUsage]) => {
+  let at = 0;
+  return { name, async complete() { return { content: "Done.", toolCalls: [], usage: usages[at++ % usages.length] }; } };
+};
 
-async function openApp(t, width = 1280) {
+async function openApp(t, width = 1280, usages = undefined) {
   const { chromium } = await import("playwright");
   const root = await mkdtemp(join(tmpdir(), "branch-savings-ui-"));
-  const presets = [{ id: "main", name: "Main", provider: fake("main"), model: "m" }, { id: "second", name: "Second", provider: fake("second"), model: "s" }];
+  const presets = [{ id: "main", name: "Main", provider: fake("main", usages), model: "m" }, { id: "second", name: "Second", provider: fake("second"), model: "s" }];
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), presets });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
@@ -53,13 +58,46 @@ const undescribed = (page, id) => page.evaluate((cardId) => {
   }).map((control) => control.id);
 }, id);
 
+for (const width of [1440, 860, 400]) {
+  test(`DG-008 model Settings headings retain native hierarchy at ${width}px`, async (t) => {
+    const { page, errors } = await openApp(t, width);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const language of ["en", "fr"]) {
+      await page.evaluate(async (lang) => (await import("/i18n.js")).setLanguage(lang), language);
+      await page.evaluate(() => window.branchModelSavings.refresh());
+      for (const id of Object.keys(homes)) {
+        await openSettingFor(page, `#${id}`);
+        const card = page.locator(`#${id}`), heading = card.locator(":scope > [data-t]").first();
+        assert.equal(await heading.evaluate((node) => node.tagName), "H3", id);
+        const name = (await heading.textContent()).trim();
+        assert.ok(name && !name.startsWith("savings."), `${id} has translated copy`);
+        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+        assert.equal(await card.evaluate((node) => node.closest(".lx-page").querySelectorAll(":scope > h2.lx-page-title").length), 1);
+        assert.equal(await card.locator(":scope > h3.settings-card-title + p.subtle + .kit-scope.sr-only").count(), 1);
+        assert.deepEqual(await undescribed(page, id), []);
+        assert.deepEqual(await heading.evaluate((node) => {
+          const css = getComputedStyle(node);
+          return [css.fontSize, css.fontWeight, css.lineHeight, css.letterSpacing, css.margin];
+        }), ["16px", "640", "20.8px", "normal", "0px 0px 6px"]);
+      }
+      await openSettingFor(page, "#savings-mixtures-card");
+      const subsection = page.locator('#savings-mixtures-card > [data-t="savings.mixture.add"]');
+      assert.equal(await subsection.evaluate((node) => node.tagName), "H4");
+      assert.equal(await page.locator("#savings-mixtures-card").getByRole("heading", {
+        level: 4, name: (await subsection.textContent()).trim(), exact: true,
+      }).count(), 1);
+    }
+    assert.deepEqual(errors, []);
+  });
+}
+
 test("each model card is in its home, every control has its own sentence, and saving reaches the server", async (t) => {
   const { app, page, errors } = await openApp(t);
   for (const [id, host] of Object.entries(homes)) {
     await page.waitForFunction(([card, slot]) => document.getElementById(card)?.closest(slot), [id, host]);
     await openSettingFor(page, `#${id}`);
     assert.ok(await page.locator(`#${id}`).isVisible(), `${id} can be seen on its page`);
-    assert.equal(await page.locator(`#${id} h2 + p.subtle`).count(), 1, `${id} says what it is for`);
+    assert.equal(await page.locator(`#${id} > h3.settings-card-title + p.subtle`).count(), 1, `${id} says what it is for`);
     assert.deepEqual(await undescribed(page, id), [], `${id} has a control without a sentence`);
     assert.equal(await page.locator(`#${id} [data-t]`).evaluateAll((nodes) => nodes.filter((n) => /^savings\./.test(n.textContent)).length), 0, `${id} shows a key`);
   }
@@ -127,10 +165,47 @@ test("R17-049 the round-by-round chart appears in the meter's popover only when 
   await page.locator("#meter-button").click();
   await page.locator("#round-chart svg rect").first().waitFor();
   const summary = await page.locator("#round-chart-summary").textContent();
-  assert.match(summary, /1 rounds, 700 tokens in, 500 served from the cache, 0 summaries/);
+  assert.match(summary, /Rounds: 1\. Tokens in: 700\. Served from the cache: 500\. Summaries: 0\./);
   // The meter redraws its numbers every few seconds; the chart stays.
   await page.evaluate(() => window.branchTokenMeter.refresh());
   await page.waitForTimeout(300);
   assert.equal(await page.locator("#meter-popover #round-chart svg").count(), 1);
+  assert.deepEqual(errors, []);
+});
+
+test("a round whose service never reported the cache is said to be unknown, never drawn or counted as none", async (t) => {
+  const { app, page, errors } = await openApp(t, 1280, [{ input: 700, output: 20 }, reportedUsage, { input: 700, output: 20, cachedInput: 0 }]);
+  saveSavings(app.store, "local", "roundChart", { mode: "on" });
+  const first = await app.runtime.run({ prompt: "hello" });
+  await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, first.sessionId);
+  await page.evaluate(() => window.branchModelSavings.refresh());
+  await page.evaluate(() => window.branchTokenMeter.refresh());
+  await page.locator("#meter-row").waitFor({ state: "visible" });
+  await page.locator("#meter-button").click();
+  /** Draws the chart now, waiting for that drawing itself, and answers its summary and its bars. */
+  const drawn = async () => {
+    await page.evaluate(() => window.branchRoundChart.refresh());
+    const bars = await page.locator("#round-chart svg rect:not(.round-chart-fold)").count();
+    return { summary: await page.locator("#round-chart-summary").textContent(), bars };
+  };
+  // Only an unreported round: no cache figure at all, and its input is drawn faded.
+  const only = await drawn();
+  assert.match(only.summary, /Rounds: 1\. Tokens in: 700\. Served from the cache: not reported\. Summaries: 0\./);
+  assert.doesNotMatch(only.summary, /Served from the cache: 0/);
+  assert.equal(only.bars, 2, "one round: what was sent and the answer");
+  assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1);
+  // One reported round beside it: the figure is a floor, and says how many rounds did not report.
+  await app.runtime.run({ prompt: "again", sessionId: first.sessionId });
+  const both = await drawn();
+  assert.equal(both.bars, 5, "the second round is drawn too: from the cache, the rest sent, and the answer");
+  assert.match(both.summary, /Rounds: 2\. Tokens in: 1,400\. Served from the cache: at least 500 \(not reported for 1 of the rounds\)\. Summaries: 0\./);
+  assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1, "only the unreported round is faded");
+  /* A service that reports its cache served nothing did report: it is not the silent round. */
+  await app.runtime.run({ prompt: "and again", sessionId: first.sessionId });
+  const three = await drawn();
+  assert.match(three.summary, /Rounds: 3\. Tokens in: 2,100\. Served from the cache: at least 500 \(not reported for 1 of the rounds\)\. Summaries: 0\./,
+    "a reported zero counts as reported, so only one round is still unreported");
+  assert.equal(await page.locator("#round-chart .round-chart-unreported").count(), 1,
+    "and a round reporting zero is not faded");
   assert.deepEqual(errors, []);
 });

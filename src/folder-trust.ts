@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
 import { z } from "zod";
@@ -30,6 +30,11 @@ import type { Store } from "./store.js";
  *
  * A decision covers the folder and everything inside it; the closest decided folder wins. The
  * shape follows Gemini CLI's `trust.ts` and `FolderTrustDiscoveryService.ts` (Apache-2.0).
+ *
+ * Inheritance stops at a nested repository: a folder containing `.git` (as a dir or file)
+ * strictly below the closest decided folder. A folder inside a nested repo with no explicit
+ * decision of its own is treated as undecided, so integrations files hold back their security
+ * sections until the owner trusts the repo itself.
  */
 export type FolderTrust = "trusted" | "untrusted" | "unknown";
 
@@ -93,19 +98,120 @@ export function realFolder(path: string, platform: NodeJS.Platform = process.pla
   return parent === full ? full : join(realFolder(parent, platform), basename(full));
 }
 
-/** How far a folder is trusted, from the closest folder the owner has decided about. */
-export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
-  let best: { depth: number; decision: "trust" | "distrust" } | null = null;
-  const entries = saved(store, owner).folders;
-  if (!entries.length) return "unknown";
-  const inner = realFolder(folder, platform);
+const copiesKey = "folder-trust-copies";
+const CopiesSchema = z.object({ copies: z.array(z.object({ source: z.string(), copy: z.string() }).strict()).max(500).default([]) }).strict();
+const copies = (store: Pick<Store, "get">, owner: string) => {
+  const parsed = CopiesSchema.safeParse(store.get("settings", owner, copiesKey)?.data ?? {});
+  return parsed.success ? parsed.data.copies : [];
+};
+/**
+ * Q100: Branch's own record of the parallel copies it made (git.worktree_add, plans.try, a forked
+ * conversation, a helper's copy), kept as real paths. Only this record lets a copy take its source's
+ * decision: a `.git` file inside the copy is the folder's own text and grants nothing.
+ */
+export function recordWorktreeCopy(store: Store, owner: string, source: string, copy: string, made: boolean): void {
+  const entry = { source: realFolder(source), copy: realFolder(copy) };
+  const kept = copies(store, owner).filter((one) => one.copy !== entry.copy);
+  store.save("settings", owner, copiesKey, { copies: made ? [...kept, entry].slice(-500) : kept });
+}
+/** A folder Branch made as a parallel copy of `source`'s repository: in its `.branch-worktrees`, on record, with a `.git` file. */
+function branchCopy(store: Pick<Store, "get">, owner: string, folder: string, pathApi: typeof posix): boolean {
+  const home = pathApi.dirname(folder);
+  if (pathApi.basename(home) !== ".branch-worktrees") return false;
+  try { if (!lstatSync(join(folder, ".git")).isFile()) return false; } catch { return false; }
+  const source = pathApi.dirname(home);
+  // The source must be a repository itself (then the walk judges it, not a folder inside one) whose own list
+  // of worktrees still names this copy: a record the copy outlived grants nothing.
+  if (!listedBy(source, folder)) return false;
+  // The copy's own record must name this source: another checkout of the same repository lists it too.
+  return copies(store, owner).some((one) => one.copy === folder && one.source === source);
+}
+/** Where a repository keeps its worktrees' entries: its own `.git/worktrees`, or, for a copy, the one it shares. */
+function worktreeEntries(source: string): string | null {
+  const dotGit = join(source, ".git");
+  try {
+    if (lstatSync(dotGit).isDirectory()) return join(dotGit, "worktrees");
+    const own = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1]?.trim();
+    if (!own) return null;
+    const entry = resolve(source, own);
+    return join(resolve(entry, readFileSync(join(entry, "commondir"), "utf8").trim()), "worktrees");
+  } catch { return null; }
+}
+/** Whether `source`'s repository still lists `copy` among its worktrees (the entry's `gitdir` points at the copy). */
+function listedBy(source: string, copy: string): boolean {
+  const entries = worktreeEntries(source);
+  if (!entries) return false;
+  const wanted = realFolder(join(copy, ".git"));
+  let names: string[];
+  try { names = readdirSync(entries); } catch { return false; }
+  return names.some((name) => {
+    try { return realFolder(resolve(join(entries, name), readFileSync(join(entries, name, "gitdir"), "utf8").trim())) === wanted; }
+    catch { return false; }
+  });
+}
+
+/** The owner's decision closest above `inner` (a real path), or null when none covers it. */
+function closestDecision(entries: Saved["folders"], inner: string, platform: NodeJS.Platform) {
+  let best: { depth: number; decision: "trust" | "distrust"; path: string } | null = null;
   for (const entry of entries) {
     const outer = realFolder(entry.path, platform);
     if (!folderContains(outer, inner, platform)) continue;
     const depth = outer.length;
-    if (!best || depth >= best.depth) best = { depth, decision: entry.decision };
+    if (!best || depth >= best.depth) best = { depth, decision: entry.decision, path: outer };
   }
-  return best ? (best.decision === "trust" ? "trusted" : "untrusted") : "unknown";
+  return best;
+}
+/** How far a folder is trusted, from the closest folder the owner has decided about. */
+export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
+  const entries = saved(store, owner).folders;
+  if (!entries.length) return "unknown";
+  const inner = realFolder(folder, platform);
+  const best = closestDecision(entries, inner, platform);
+  // Q100: a copy Branch made of a folder the owner does not trust is not trusted either, wherever it ended up
+  // (a copy made before its place was checked for links may lie outside the source, or outside every decision).
+  // Only a decision the owner made inside the copy itself comes first.
+  for (const one of copies(store, owner)) {
+    if (!folderContains(one.copy, inner, platform) || (best && folderContains(one.copy, best.path, platform))) continue;
+    if (closestDecision(entries, one.source, platform)?.decision === "distrust") return "untrusted";
+  }
+  if (!best) return "unknown";
+
+  // Q100: inside a copy Branch made, what was not decided in the copy itself is judged where it came from:
+  // the same place in the source, so every decision there (a "don't trust" on a subfolder too) holds in the copy.
+  // Only when the closest decision covers the source too: a decision between the two is closer, and wins. A
+  // repository inside the copy still stops trust, as it would in the source. Never through a link in the source:
+  // the copy's real folder would take the decision of wherever the source's link points now, so it is judged
+  // where it is instead. Each step drops `.branch-worktrees/<name>`, so the check always ends.
+  if (platform === process.platform) {
+    const path = platform === "win32" ? win32 : posix;
+    let nested = false;
+    for (let current = inner; current !== best.path && current !== path.dirname(current); current = path.dirname(current)) {
+      const source = path.dirname(path.dirname(current));
+      if (branchCopy(store, owner, current, path) && folderContains(best.path, source, platform)) {
+        const same = path.join(source, path.relative(current, inner));
+        if (realFolder(same, platform) !== same) break;
+        const there = folderTrust(store, owner, same, platform);
+        return nested && there === "trusted" ? "unknown" : there;
+      }
+      if (existsSync(join(current, ".git"))) nested = true;
+    }
+  }
+
+  // Inheritance stops at a nested repository (a folder containing .git, dir or file).
+  // Walk from inner up to (but not including) best.path, using resolved paths so symlinks
+  // cannot skip the check. A symlink to a repo elsewhere is still subject to the check
+  // at the resolved location.
+  // Only trust stops there: a nested repository under a folder the owner distrusts stays distrusted.
+  if (best.decision === "trust" && platform === process.platform) {
+    const path = platform === "win32" ? win32 : posix;
+    let current = inner;
+    while (current !== best.path && current !== path.dirname(current)) {
+      if (existsSync(join(current, ".git"))) return "unknown";
+      current = path.dirname(current);
+    }
+  }
+
+  return best.decision === "trust" ? "trusted" : "untrusted";
 }
 
 /** Writes down the owner's answer for one folder inside the workspace. */
@@ -218,22 +324,34 @@ export async function isFolderTrusted(store: Store, owner: string, path: string)
  * holds something for AI assistants (it usually does: it has just found a file to read). A loader
  * that is about to read a file from the folder passes nothing and gets the strict answer.
  */
-export function folderAllows(store: Store, owner: string, path: string, holdsSomething = true): boolean {
+export function folderAllows(store: Store, owner: string, path: string, holdsSomething = true, platform: NodeJS.Platform = process.platform): boolean {
   const mode = folderTrustMode(store, owner);
   if (mode === "off") return true;
-  const trust = folderTrust(store, owner, path);
+  const trust = folderTrust(store, owner, path, platform);
   if (trust !== "unknown") return trust === "trusted";
   return mode === "when-needed" && !holdsSomething;
 }
 
 /**
- * Whether the hooks and AI tool servers named in the launch's integrations file may be started.
- * Only a file that sits inside the workspace is a folder's own; one elsewhere is the owner's.
+ * Whether the launch's integrations file may be used at all. Only a file that sits inside the
+ * workspace is a folder's own; one elsewhere, reached without going through the workspace, is the
+ * owner's. A file that is itself a link is judged
+ * both where it is written and where it really is, and counts only when both may be used: a link
+ * outside the workspace to a file in a folder the owner has not trusted is still that folder's file,
+ * and a link inside such a folder is still that folder's, wherever it points. A path written inside
+ * the workspace that a link (to a folder or a file) leads out of it is judged where it leads, with no
+ * decision there, so it is refused even from a trusted folder. `platform` is for
+ * tests, as in `folderTrust`.
  */
-export function integrationsFileTrusted(store: Store, owner: string, workspace: string, file: string): boolean {
-  const folder = realFolder(dirname(resolve(file)));
-  if (!folderContains(realFolder(workspace), folder)) return true;
-  return folderAllows(store, owner, folder);
+export function integrationsFileTrusted(store: Store, owner: string, workspace: string, file: string,
+  platform: NodeJS.Platform = process.platform): boolean {
+  const path = platform === "win32" ? win32 : posix;
+  const full = path.resolve(file), root = realFolder(workspace, platform);
+  const written = realFolder(path.dirname(full), platform), really = path.dirname(realFolder(full, platform));
+  // Q89: a path written inside the workspace is still the workspace's when a folder link on the way leads out of it.
+  const fromInside = folderContains(path.resolve(workspace), full, platform) || folderContains(root, written, platform);
+  const judged = (folder: string) => fromInside || folderContains(root, folder, platform);
+  return [written, really].every((folder) => !judged(folder) || folderAllows(store, owner, folder, true, platform));
 }
 
 /** Whether the owner should be asked about a folder now, under the owner's setting. */

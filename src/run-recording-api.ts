@@ -26,6 +26,7 @@ import {
   buildRecording, recordingSettings, requireRecordings, saveRecordingSettings, withPictures, type RunRecording,
 } from "./run-recording.js";
 import type { Store } from "./store.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 export interface RecordingApp {
   store: Store;
@@ -68,7 +69,10 @@ async function route(app: RecordingApp, request: IncomingMessage, response: Serv
   if (method !== "GET" && method !== "POST") throw Object.assign(new Error("Use GET or POST"), { status: 405 });
   if (path === "/api/event-loop") return eventLoop(app, method, options, new URL(request.url ?? "/", "http://local").searchParams.has("read"));
   if (path === "/api/recordings") {
-    if (method === "POST") saveRecordingSettings(app.store, owner, await options.readBody());
+    if (method === "POST") {
+      const input = await options.readBody();
+      recordedWrite(app.store, owner, byCard("run-recording"), ["run-recording"], () => saveRecordingSettings(app.store, owner, input));
+    }
     const settings = recordingSettings(app.store, owner);
     const tasks = settings.mode === "off" ? [] : app.store.runs(owner).slice(0, 30)
       .map((run) => ({ id: run.id, prompt: app.runtime.hideSecrets(run.prompt).slice(0, 160), status: run.status, createdAt: run.createdAt }));
@@ -165,7 +169,9 @@ async function eventLoop(app: RecordingApp, method: string, options: RecordingAp
   if (method === "POST") {
     if (!app.store.profiles.isOwner())
       throw Object.assign(new Error("The check on whether Branch is keeping up belongs to the owner. Switch back to the owner's profile to change it."), { status: 400 });
-    eventLoopWatch.follow(saveEventLoopSettings(app.store, owner, await options.readBody()));
+    const input = await options.readBody();
+    eventLoopWatch.follow(recordedWrite(app.store, owner, byCard("event-loop-watch"), ["event-loop-watch"],
+      () => saveEventLoopSettings(app.store, owner, input)));
   }
   const settings = eventLoopSettings(app.store, owner);
   if (settings.mode === "off") {

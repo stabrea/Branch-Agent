@@ -142,16 +142,23 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const groups = testGroups();
   const explicit = parseFilesFrom(argv, groups);
   const mine = new Set(explicit ?? shareFiles(groups, index, total, loadWeights()));
-  const shared = groups.shared.filter((file) => mine.has(file));
-  const browsers = groups.browser.filter((file) => mine.has(file));
-  const apps = groups.desktop.filter((file) => mine.has(file));
+  // A machine that must leave some files to another (the owner's own computer never runs the desktop or
+  // uninstall tests) names them in BRANCH_TEST_EXCLUDE; the machine that takes them names them in BRANCH_TEST_ONLY.
+  const pattern = (name) => (process.env[name] ? new RegExp(process.env[name]) : null);
+  const exclude = pattern("BRANCH_TEST_EXCLUDE"), only = pattern("BRANCH_TEST_ONLY");
+  const keep = (file) => mine.has(file) && !exclude?.test(posix(file)) && (!only || only.test(posix(file)));
+  const shared = groups.shared.filter(keep);
+  const browsers = groups.browser.filter(keep);
+  const apps = groups.desktop.filter(keep);
   console.log(explicit
     ? `Selected ${shared.length + browsers.length + apps.length} of ${groups.shared.length + groups.browser.length + groups.desktop.length} test files.`
     : `Share ${index + 1} of ${total}: ${shared.length + browsers.length + apps.length} of ${groups.shared.length + groups.browser.length + groups.desktop.length} test files.`);
   const timings = process.env.BRANCH_TEST_TIMINGS;
   const parts = timings ? [`${timings}.shared`, `${timings}.browser`, `${timings}.desktop`] : [];
   // Every group always runs, so one red run reports every failure.
-  const statuses = [run(shared, 3, parts[0]), run(browsers, 1, parts[1]), run(apps, 1, parts[2])];
+  // A bigger machine runs more files at once (BRANCH_TEST_CONCURRENCY="shared,browser"); the default suits a hosted runner.
+  const [sharedAtOnce, browsersAtOnce] = (process.env.BRANCH_TEST_CONCURRENCY ?? "3,1").split(",").map(Number);
+  const statuses = [run(shared, sharedAtOnce || 3, parts[0]), run(browsers, browsersAtOnce || 1, parts[1]), run(apps, 1, parts[2])];
   if (timings) mergeTimings(timings, parts);
   process.exitCode = statuses.some((status) => status !== 0) ? 1 : 0;
 }

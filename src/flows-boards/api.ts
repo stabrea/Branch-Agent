@@ -3,6 +3,8 @@ import { InputsSchema } from "../recipes.js";
 import type { FlowsBoards } from "./index.js";
 import { boardLabels, BoardModeSchema, BoardOffError, boardParts, BoardPartSchema, requirePart } from "./settings.js";
 import { busyModes } from "./waiting-line.js";
+import { StartsElsewhereError } from "../trunks/starts-in.js"; // Q44
+import { byCard, inCatalogue, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
 /**
  * The web side of R17-H: the owner's routes under /api/flows-boards/. The server checks the owner's
@@ -45,7 +47,8 @@ const top: Route = async ({ boards, method, readBody }, path) => {
       busyMode: boards.waiting.busyMode(), busyModes };
   if (path === "/api/flows-boards/switch" && method === "POST") {
     const { part, mode } = SwitchBody.parse(await readBody());
-    return { part, mode: boards.setMode(part, { mode }) };
+    return { part, mode: recordedWrite(boards.store, boards.owner, byCard(`flowboards-${part}`), inCatalogue(`flowboards-${part}`),
+      () => boards.setMode(part, { mode })) };
   }
   return undefined;
 };
@@ -149,6 +152,7 @@ export async function flowsBoardsApi(deps: FlowsBoardsHttpDeps, path: string): P
   } catch (error) {
     if (error instanceof FlowsBoardsHttpError) throw error;
     if (error instanceof BoardOffError) throw new FlowsBoardsHttpError(409, error.message);
+    if (error instanceof StartsElsewhereError) throw new FlowsBoardsHttpError(409, error.message); // Q44
     if (error instanceof z.ZodError) throw new FlowsBoardsHttpError(400, error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`).join("; "));
     throw new FlowsBoardsHttpError(400, error instanceof Error ? error.message : String(error));
   }

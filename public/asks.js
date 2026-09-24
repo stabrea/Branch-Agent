@@ -60,7 +60,7 @@ function row(...children) {
   return node;
 }
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const PARTS = {
   "project-board": ["asks.part.projectBoard", "Project boards"],
   "answer-engine": ["asks.part.answerEngine", "Quick answers from the web, with sources"],
@@ -75,6 +75,8 @@ const PARTS = {
   nodes: ["asks.part.nodes", "Other computers running Branch"],
   "app-server": ["asks.part.appServer", "Letting an editor drive Branch (app-server protocol)"],
   runtimes: ["asks.part.runtimes", "Other agents answering a conversation"],
+  forecasts: ["asks.part.forecasts", "Forecasts, and how well they turned out"],
+  leads: ["asks.part.leads", "A list of prospects, filled out and scored"],
 };
 
 /** The part's three-way switch; a change redraws the cards, since what they show depends on it. */
@@ -145,7 +147,9 @@ async function nodesCard(modes) {
   const { node, status } = card("asks-nodes-card", "settings:computer", "asks.nodes.title", "Other computers running Branch",
     "asks.nodes.purpose", "Hand tasks to your other computers; a computer that is down or busy is passed over.");
   node.append(...switchFor("nodes", modes, status));
-  if (modes.nodes !== "off") {
+  /* DG-188: the list is there at every setting, as in the sample, so it can be written before the switch goes on;
+     checking the computers waits for the switch. */
+  {
     const { nodes } = await api("asks/nodes");
     const list = field("textarea", nodes.map((n) => [n.id, n.name, n.address, n.secret, n.labels.join(" ")].join(" | ")).join("\n"));
     const save = async () => {
@@ -156,7 +160,7 @@ async function nodesCard(modes) {
       try { status.textContent = (await api("asks/nodes/check", {})).nodes.map((h) => `${h.name}: ${h.ok ? "✓" : h.reason}`).join(" · "); } catch (error) { tell(status, error); }
     };
     node.append(...labelled("asks-nodes-list", "asks.nodes.list", "One per line: short name | name | address | saved secret with its key | labels", list),
-      row(button("asks.save", "Save", save), button("asks.nodes.check", "Check them now", check)));
+      row(button("asks.save", "Save", save), ...(modes.nodes !== "off" ? [button("asks.nodes.check", "Check them now", check)] : [])));
   }
   node.append(status);
   return node;
@@ -336,8 +340,39 @@ async function connectionsCard(modes) {
   return node;
 }
 
-const BUILDERS = [boardCard, analyticsCard, nodesCard, runtimesCard, madeCard, sourcesCard, hindsightCard, intentsCard, connectionsCard];
-const IDS = ["asks-board-card", "asks-analytics-card", "asks-nodes-card", "asks-runtimes-card", "asks-made-card", "asks-sources-card", "asks-hindsight-card", "asks-intents-card", "asks-connections-card"];
+/* ---------- settings:data — forecasts ---------- */
+async function forecastsCard(modes) {
+  const { node, status } = card("asks-forecasts-card", "settings:data", "asks.forecasts.title", "Forecasts",
+    "asks.forecasts.purpose", "Write down how likely something is, record what happened, and see how well the numbers held up.");
+  node.append(...switchFor("forecasts", modes, status));
+  if (modes.forecasts !== "off") {
+    const view = await api("asks/forecasts");
+    const brier = view.brier === null ? t("asks.forecasts.noneYet") : view.brier.toFixed(3);
+    node.append(plain("p", t("asks.forecasts.summary", { open: view.open.length, resolved: view.resolved, brier }), "field-note"));
+    for (const row of view.calibration.filter((one) => one.forecasts))
+      node.append(plain("p", t("asks.forecasts.band", { band: row.band, count: row.forecasts,
+        said: Math.round(row.said * 100), happened: Math.round(row.happened * 100) }), "field-note"));
+  }
+  node.append(status);
+  return node;
+}
+
+/* ---------- settings:data — prospects ---------- */
+async function leadsCard(modes) {
+  const { node, status } = card("asks-leads-card", "settings:data", "asks.leads.title", "Prospects",
+    "asks.leads.purpose", "A list of prospects filled out from their own details, scored against your words, with duplicates taken out. Nothing is looked up online.");
+  node.append(...switchFor("leads", modes, status));
+  if (modes.leads !== "off") {
+    const view = await api("asks/leads");
+    node.append(plain("p", t("asks.leads.count", { count: view.count }), "field-note"));
+    for (const lead of view.top) node.append(plain("p", `${lead.name || "—"} · ${lead.company || "—"} · ${lead.score}`, "field-note"));
+  }
+  node.append(status);
+  return node;
+}
+
+const BUILDERS = [boardCard, analyticsCard, nodesCard, runtimesCard, madeCard, sourcesCard, hindsightCard, intentsCard, connectionsCard, forecastsCard, leadsCard];
+const IDS = ["asks-board-card", "asks-analytics-card", "asks-nodes-card", "asks-runtimes-card", "asks-made-card", "asks-sources-card", "asks-hindsight-card", "asks-intents-card", "asks-connections-card", "asks-forecasts-card", "asks-leads-card"];
 
 async function drawCards() {
   let modes;

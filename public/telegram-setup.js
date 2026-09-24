@@ -45,7 +45,7 @@ function card() {
   node = document.createElement("section");
   node.className = "card";
   node.id = "telegram-setup-card";
-  node.dataset.home = "customize:channels";
+  node.dataset.home = "settings:channels";
   after.after(node);
   return node;
 }

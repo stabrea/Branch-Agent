@@ -7,7 +7,9 @@ import { remainingShown } from "./accounts/pool.js";
 import type { Store } from "./store.js";
 import { limitsView, saveUsageLimitsSettings, usageLimitsSettings, type LimitsAccount, type LimitsView } from "./usage-limits.js";
 import { askable, nextDelayMs, OpenRouterKeyReader } from "./usage-limits-openrouter.js";
-import { glanceFrom, saveProgressNote, saveUsageGlanceSettings, usageGlanceSettings, type UsageGlance } from "./usage-glance.js";
+import { glanceFrom, saveProgressNote, saveUsageGlanceSettings, usageGlanceSettings, type GlanceMonth, type UsageGlance } from "./usage-glance.js";
+import { pricingSettings } from "./pricing.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * mac7/usage-bar: the screen's one way in.
@@ -109,7 +111,19 @@ const runningTasks = (app: LimitsApp) => app.store.runs(app.runtime.owner).filte
  */
 export function usageGlance(app: LimitsApp, now = Date.now()): UsageGlance {
   if (!ownerHere(app.store)) return { available: false };
-  return glanceFrom(limitsNow(app), usageGlanceSettings(app.store, app.runtime.owner), runningTasks(app).length, now);
+  return glanceFrom(limitsNow(app), usageGlanceSettings(app.store, app.runtime.owner), runningTasks(app).length, now,
+    monthSpend(app.store, app.runtime.owner, now));
+}
+/** The same month the Usage screen adds up: the ledger's UTC days of this calendar month. */
+function monthSpend(store: Store, owner: string, now: number): GlanceMonth {
+  const month = new Date(now).toISOString().slice(0, 7);
+  const days = store.usageStore().aggregateUsage("90d", "day", pricingSettings(store, owner).overrides)
+    .filter((day) => day.date.startsWith(month));
+  return {
+    cost: days.reduce((total, day) => total + (day.pricedRuns ? day.estimatedCost : 0), 0),
+    pricedRuns: days.reduce((total, day) => total + day.pricedRuns, 0),
+    unpricedRuns: days.reduce((total, day) => total + day.unpricedRuns, 0),
+  };
 }
 /** Sends each of the owner's running tasks the note asking it to write down where it is. */
 function saveProgress(app: LimitsApp): { asked: number } {
@@ -140,7 +154,11 @@ export async function usageLimitsRoute(app: LimitsApp, request: IncomingMessage,
   }
   if (path === "/api/usage/limits/settings") {
     requireOwnerHere(app.store);
-    if (method === "POST") return { usageLimits: saveUsageLimitsSettings(app.store, app.runtime.owner, await readBody()) };
+    if (method === "POST") {
+      const input = await readBody();
+      return { usageLimits: recordedWrite(app.store, app.runtime.owner, byCard("usage-limits"), ["usage-limits"],
+        () => saveUsageLimitsSettings(app.store, app.runtime.owner, input)) };
+    }
     return { usageLimits: usageLimitsSettings(app.store, app.runtime.owner) };
   }
   if (method !== "GET") throw new UsageLimitsError(405, "Use GET");

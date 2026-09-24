@@ -277,12 +277,20 @@ function modeRow() {
     value: state.list.mode
   });
   const said = status();
-  const save = quiet("channel-setup.mode-save", async () => {
-    try { state.list = await api("channel-setup", { mode: select.value }); state.said.set("card", t("channel-setup.mode-saved")); await drawCard(); }
+  /* DG-025: kept the moment it changes, as the sample saves; no Save button. */
+  select.addEventListener("change", async () => {
+    try { state.list = await api("channel-setup", { mode: select.value }); said.textContent = t("channel-setup.mode-saved"); await drawCardPanel(); }
     catch (error) { said.textContent = error instanceof Error ? error.message : String(error); }
   });
-  save.id = "channel-setup-mode-save";
-  return [...labelled("channel-setup-mode", "channel-setup.mode-label", select), make("p", "channel-setup.mode-note", "field-note"), save, said];
+  return [...labelled("channel-setup-mode", "channel-setup.mode-label", select), make("p", "channel-setup.mode-note", "field-note"), said];
+}
+
+/** DG-194: each chat app's own switch lives on its row in Customize › Chat apps; this row says so and goes there. */
+function coreRow() {
+  const row = make("div", null, "channel-setup-core");
+  const go = quiet("channel-setup.core-open", () => window.branchLayout?.go("customize:channels"));
+  row.append(...labelled("channel-core-switches", "channel-setup.core-label", go));
+  return row;
 }
 
 function picker() {
@@ -306,7 +314,7 @@ function card() {
   node = document.createElement("section");
   node.className = "card";
   node.id = "channel-setup-card";
-  node.dataset.home = "customize:channels";
+  node.dataset.home = "settings:channels";
   after.after(node);
   return node;
 }
@@ -322,7 +330,8 @@ async function drawCard() {
   if (!node || !state.list) return;
   const slot = make("div");
   slot.id = "channel-setup-slot";
-  node.replaceChildren(make("h2", "channel-setup.title"), make("p", "channel-setup.lead"), ...modeRow(), ...picker(), slot,
+  /* DG-008: a card's title is a settings card title, not a page-level heading. */
+  node.replaceChildren(make("h3", "channel-setup.title", "settings-card-title"), make("p", "channel-setup.lead"), ...modeRow(), coreRow(), ...picker(), slot,
     make("p", "channel-setup.safety", "subtle"));
   await drawCardPanel();
 }

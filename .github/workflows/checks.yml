@@ -13,6 +13,12 @@ on:
   push:
     branches: [main, wave2/integration, 'release/**', 'mac/**', 'mac2/**', 'mac5/**', 'mac6/**', 'mac7/**', 'wave9/**']
   workflow_dispatch:
+    inputs:
+      own_computers:
+        description: Use the owner's computers (auto asks which of their runners are idle; on uses them all; off uses GitHub's)
+        type: choice
+        options: [auto, 'on', 'off']
+        default: auto
   schedule:
     - cron: '17 3 * * *'
 permissions:
@@ -29,26 +35,59 @@ concurrency:
 # than after them. Nothing is skipped in this workflow: `verify` is red unless every share on every
 # system and every packaging job are green.
 jobs:
+  # Which machines take this run. The owner's own computers are used when their runners are online and idle,
+  # and GitHub's otherwise, so a run never waits for a computer that is off or busy. Windows goes to the
+  # Legion PC's runners (label branch-legion) and macOS to the Mac mini's (branch-macmini), except the desktop and uninstall tests, which never run on
+  # the owner's own computer and go to one hosted Windows share. Listing runners needs a token that can read
+  # the repository's administration (RUNNER_STATUS_TOKEN); without it, or asked with own_computers, the
+  # choice is made by hand. Windows goes to the Legion PC only when asked (own_computers: on), and to ten of
+  # GitHub's Windows machines otherwise. Measured on 2026-09-24: six shares on the Legion PC did not finish inside
+  # the 60-minute limit, and six on GitHub's took 40 to 60 minutes each, one of them past the limit.
+  pick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+          REPO: ${{ github.repository }}
+          ASKED: ${{ inputs.own_computers || 'auto' }}
+        run: |
+          idle() {
+            case "$ASKED" in
+              on) echo "$2" ;;
+              auto) if [ -n "$GH_TOKEN" ]; then
+                  gh api "repos/$REPO/actions/runners" --jq "[.runners[] | select(.status == \"online\" and (.busy | not) and ([.labels[].name] | index(\"$1\")))] | length" || echo 0
+                else echo 0; fi ;;
+              *) echo 0 ;;
+            esac
+          }
+          node -e '
+            const [legion, macmini] = process.argv.slice(1, 3).map(Number), keepOff = process.argv[3], rows = [];
+            const add = (os, labels, total, extra = {}) => { for (let shard = 1; shard <= total; shard++) rows.push({ os, labels, shard, total, ...extra }); };
+            // One of the owner computers: never the desktop or uninstall tests, which take one hosted share of their own.
+            const own = (os, label, idle, hosted, spare) => {
+              add(os, ["self-hosted", label], idle, { own: label, exclude: keepOff, concurrency: spare });
+              rows.push({ os, labels: hosted, shard: 1, total: 1, only: keepOff });
+            };
+            if (legion > 0) own("windows", "branch-legion", legion, "windows-latest", "4,1"); else add("windows", "windows-latest", 10);
+            if (macmini > 0) own("macos", "branch-macmini", macmini, "macos-latest", "4,2"); else add("macos", "macos-latest", 5);
+            add("linux", "ubuntu-latest", 8);
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, "matrix=" + JSON.stringify({ include: rows }) + "\n");
+            console.log(`Windows on ${legion || "no"} Legion runner(s), macOS on ${macmini || "no"} Mac mini runner(s); ${rows.length} shares.`);
+          ' "$( [ "$ASKED" = on ] && idle branch-legion 6 || echo 0 )" "$(idle branch-macmini 2)" '^tests/(desktop[^/]*|[^/]*uninstall[^/]*|windows-hidden[^/]*|[^/]*console[^/]*)\.test\.mjs$'
   test:
-    name: test (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.total }})
+    name: test (${{ matrix.os }}${{ matrix.own && format(' on {0}', matrix.own) || '' }}${{ matrix.only && ' desktop' || '' }}, ${{ matrix.shard }}/${{ matrix.total }})
+    needs: pick
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: windows-latest, shard: 1, total: 6 }
-          - { os: windows-latest, shard: 2, total: 6 }
-          - { os: windows-latest, shard: 3, total: 6 }
-          - { os: windows-latest, shard: 4, total: 6 }
-          - { os: windows-latest, shard: 5, total: 6 }
-          - { os: windows-latest, shard: 6, total: 6 }
-          - { os: macos-latest, shard: 1, total: 2 }
-          - { os: macos-latest, shard: 2, total: 2 }
-          - { os: ubuntu-latest, shard: 1, total: 2 }
-          - { os: ubuntu-latest, shard: 2, total: 2 }
-    runs-on: ${{ matrix.os }}
-    # A share takes under 20 minutes. A test that leaves a process behind once kept a share waiting
+      matrix: ${{ fromJSON(needs.pick.outputs.matrix) }}
+    runs-on: ${{ matrix.labels }}
+    # A share takes 20 to 45 minutes on Windows. A test that leaves a process behind once kept a share waiting
     # 78 minutes for a file that would never finish; the default limit is six hours.
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # '24' is the newest Node 24, which is above the floor in src/node-floor.ts (24.14.0). The
@@ -57,7 +96,10 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # Never on the owner's own computers: installing a Python there replaces the owner's own copy of the same
+      # version (it once removed python.exe from the Legion PC's Python 3.12). They already have Python.
+      - if: ${{ !matrix.own }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
       - run: npm ci
@@ -71,7 +113,8 @@ jobs:
       - id: playwright
         shell: bash
         run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - if: ${{ !matrix.own }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/AppData/Local/ms-playwright
@@ -95,6 +138,9 @@ jobs:
         run: npm test -- --shard=${{ matrix.shard }}/${{ matrix.total }}
         env:
           BRANCH_TEST_TIMINGS: ${{ runner.temp }}/test-timings.json
+          BRANCH_TEST_EXCLUDE: ${{ matrix.exclude }}
+          BRANCH_TEST_ONLY: ${{ matrix.only }}
+          BRANCH_TEST_CONCURRENCY: ${{ matrix.concurrency }}
       # How long each file took, so tests/test-weights.json can be refreshed from a real run.
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

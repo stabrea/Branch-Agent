@@ -350,14 +350,14 @@ export function registerRemoteWorkspaces(registry: ToolRegistry, remotes: Remote
     execute: async () => ({ computers: remotes.list().map(({ alias, root, label, executables }) => ({ alias, root, label, executables })) }),
   });
   registry.register({
-    name: "remote.files", permission: "files.read", group: "remote",
+    name: "remote.files", reach: "outbound", permission: "files.read", group: "remote",
     description: "List what is in a folder on one of the owner's other computers. The folder is given relative to that computer's own working folder.",
     parameters: RemoteFilesSchema,
     target: (args) => `${args.computer}: ${args.path}`,
     execute: (args, context: ToolContext) => remotes.files(args.computer, args.path, context.signal),
   });
   registry.register({
-    name: "remote.read", permission: "files.read", group: "remote",
+    name: "remote.read", reach: "outbound", permission: "files.read", group: "remote",
     description: "Read a text file on one of the owner's other computers.",
     parameters: RemoteReadSchema,
     target: (args) => `${args.computer}: ${args.path}`,

@@ -7,6 +7,7 @@ import { decisionsFromRules, mergeCategoryRules } from "./tool-categories.js";
 import { readPolicy, savePolicy } from "./policy.js";
 import { IssueLinkSchema } from "./integrations/issue-context.js";
 import type { createBranch } from "./index.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * The routes for the smaller things in this batch: the record of what the assistant was allowed to
@@ -79,7 +80,8 @@ async function categoriesApi(
   if (request.method === "POST") {
     // Only the kinds named in the request change; every other rule the owner has is kept.
     const rules = mergeCategoryRules(app.registry, readPolicy(app.store, owner).rules, await readBody(request));
-    const policy = savePolicy(app.store, owner, { rules }, "Decided a whole kind of thing at once in the approval settings");
+    const policy = recordedWrite(app.store, owner, byCard("policy"), ["policy"],
+      () => savePolicy(app.store, owner, { rules }, "Decided a whole kind of thing at once in the approval settings"));
     return { policy, categories: decisionsFromRules(app.registry, policy.rules) };
   }
   return notFound();

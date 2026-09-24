@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Store } from "./store.js";
 import { audit } from "./audit.js";
+import type { ChangeWriter } from "./settings-kit/history.js"; // Q48 review
 
 /**
  * One switch that shuts everything down at once. Turning Lockdown on makes every tool wait for the
@@ -46,7 +47,8 @@ export const lockdownEffects = [
   "Automations that start by themselves, routines a Trunk owns, your other devices and your personal connectors are off, whatever they were set to.",
 ];
 
-interface SavedLockdown { on: boolean; since: string | null; before: Record<string, Record<string, unknown> | null> }
+/** `record` is the change record turning it on wrote, so turning it off can be recorded as putting that back. */
+interface SavedLockdown { on: boolean; since: string | null; before: Record<string, Record<string, unknown> | null>; record?: string }
 
 function saved(store: Store, owner: string): SavedLockdown {
   const record = store.get("settings", owner, stateKey)?.data as unknown as SavedLockdown | undefined;
@@ -105,6 +107,8 @@ const coveredSettings: readonly RegExp[] = [
   // mac7/clean-uninstall: letting an installer put a program outside Branch reaches further still,
   // so Lockdown reads it as no. (Removing Branch is not here: Lockdown must never trap the owner.)
   /^local-runner-place$/,
+  // FQ-execution.desktop: the shared Linux desktop reads off, and a running one is taken down.
+  /^linux-desktop$/,
 ];
 
 /** True when Lockdown is on and this settings record is one it switches off. */
@@ -160,12 +164,12 @@ export const lockdownRefusal = "Lockdown is on, so nothing is being sent out. Tu
  * changes them; turning it off writes exactly those copies back — a setting that had never been
  * saved before is removed again rather than being given a made-up default.
  */
-export function setLockdown(store: Store, owner: string, input: unknown): LockdownState {
+export function setLockdown(store: Store, owner: string, input: unknown, by: ChangeWriter = "owner-in-window"): LockdownState {
   const { on } = LockdownSchema.parse(input);
   const current = saved(store, owner);
   if (on === current.on) return lockdownState(store, owner);
-  if (on) turnOn(store, owner);
-  else turnOff(store, owner, current);
+  // Q48 review: the settings, their change record and Lockdown's own record are saved together or not at all.
+  store.atomically(() => { if (on) turnOn(store, owner, by); else turnOff(store, owner, current, by); });
   audit(store, owner, {
     action: "lockdown.changed", actor: owner, subject: on ? "Lockdown on" : "Lockdown off",
     reason: on
@@ -177,21 +181,49 @@ export function setLockdown(store: Store, owner: string, input: unknown): Lockdo
   return lockdownState(store, owner);
 }
 
-function turnOn(store: Store, owner: string): void {
+/**
+ * Q48 review: what Lockdown changes among the Settings settings is written down as a change record
+ * like any other, so "why is this on?" names Lockdown. Turning it off is recorded as putting back
+ * what turning it on changed, so the two cancel out and an older change can still be undone.
+ */
+type LockdownRecorder = (store: Store, owner: string, origin: { writer: ChangeWriter; detail: "on" | "off"; undoes?: string },
+  touches: (key: string) => boolean, write: () => void) => string | null;
+let recorder: LockdownRecorder = (_store, _owner, _origin, _touches, write) => { write(); return null; };
+/**
+ * The settings kit hands in its recorder when it loads (src/settings-kit/recorded-write.ts). It is
+ * handed in rather than imported because the catalogue imports the settings that import this file.
+ */
+export function recordLockdownWith(record: LockdownRecorder): void { recorder = record; }
+/**
+ * The settings Lockdown changes, as the settings kit shows them: the ones it writes over, and the
+ * ones read as off while it is on (where Branch listens reads as this computer only).
+ */
+const touches = (key: string): boolean => guarded.some((entry) => entry.key === key) || coveredSettings.some((pattern) => pattern.test(key));
+
+function turnOn(store: Store, owner: string, by: ChangeWriter): void {
   const before: Record<string, Record<string, unknown> | null> = {};
-  for (const entry of guarded) {
-    const record = store.get("settings", owner, entry.key);
-    before[entry.key] = record ? record.data : null;
-    store.save("settings", owner, entry.key, { ...(record?.data ?? {}), ...entry.locked });
-  }
-  store.save("settings", owner, stateKey, { on: true, since: new Date().toISOString(), before });
+  const since = new Date().toISOString();
+  const state = (): SavedLockdown => ({ on: true, since, before });
+  // Lockdown's own record is saved inside the recorded write: what the kit shows can depend on it.
+  const record = recorder(store, owner, { writer: by, detail: "on" }, touches, () => {
+    for (const entry of guarded) {
+      const saved = store.get("settings", owner, entry.key);
+      before[entry.key] = saved ? saved.data : null;
+      store.save("settings", owner, entry.key, { ...(saved?.data ?? {}), ...entry.locked });
+    }
+    store.save("settings", owner, stateKey, { ...state() });
+  });
+  if (record) store.save("settings", owner, stateKey, { ...state(), record });
 }
 
-function turnOff(store: Store, owner: string, current: SavedLockdown): void {
-  for (const entry of guarded) {
-    const was = current.before[entry.key];
-    if (was === null || was === undefined) store.delete("settings", owner, entry.key);
-    else store.save("settings", owner, entry.key, was);
-  }
-  store.save("settings", owner, stateKey, { on: false, since: null, before: {} });
+function turnOff(store: Store, owner: string, current: SavedLockdown, by: ChangeWriter): void {
+  const undoes = typeof current.record === "string" ? { undoes: current.record } : {};
+  recorder(store, owner, { writer: by, detail: "off", ...undoes }, touches, () => {
+    for (const entry of guarded) {
+      const was = current.before[entry.key];
+      if (was === null || was === undefined) store.delete("settings", owner, entry.key);
+      else store.save("settings", owner, entry.key, was);
+    }
+    store.save("settings", owner, stateKey, { on: false, since: null, before: {} });
+  });
 }

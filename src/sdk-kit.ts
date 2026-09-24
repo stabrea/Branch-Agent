@@ -6,6 +6,7 @@ import { flowFromYaml, flowToYaml, FlowYamlError, FlowYamlImportSchema } from ".
 import type { ToolRegistry } from "./registry.js";
 import { findRoutes, routeSnippets, sdkLanguages, SdkLanguageSchema, sdkPackages, starterProgram } from "./sdk-starters.js";
 import type { Store } from "./store.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * Bucket 21: tools for people building on Branch, behind one three-way switch that ships off.
@@ -124,7 +125,8 @@ export async function sdkKitApi(deps: SdkKitDeps, method: string, path: string, 
   if (path === "/api/sdk-kit") {
     if (method === "POST") {
       deps.requireOwner("Tools for people building on Branch");
-      saveSdkKitSettings(deps.store, deps.owner, await body());
+      const input = await body();
+      recordedWrite(deps.store, deps.owner, byCard("sdk-kit"), ["sdk-kit"], () => saveSdkKitSettings(deps.store, deps.owner, input));
     } else if (method !== "GET") throw new SdkKitError(405, "Read the switch with GET or change it with POST.");
     return { settings: { mode: sdkKitMode(deps.store, deps.owner) }, packages: sdkPackages, tools: sdkKitTools };
   }

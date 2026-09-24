@@ -60,11 +60,40 @@ const undescribed = (page, id) => page.evaluate((cardId) => {
   }).map((control) => control.id);
 }, id);
 
-async function pressForStatus(page, card, button, words) {
-  const status = page.locator(`${card} [role=status]`).filter({ hasText: words });
-  await pressUntil(page.locator(card).getByRole("button", { name: button, exact: true }),
-    () => status.waitFor({ state: "visible", timeout: 20000 }).then(() => true, () => false),
-    `${button} to report ${words}`);
+for (const width of [1440, 860, 400]) {
+  test(`DG-008 knob Settings headings preserve hierarchy and descriptions at ${width}px`, async (t) => {
+    const { page } = await openApp(t, width);
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const language of ["en", "fr"]) {
+      await page.evaluate(async (lang) => (await import("/i18n.js")).setLanguage(lang), language);
+      await page.evaluate(() => globalThis.branchKnobs.refresh());
+      for (const id of Object.keys(homes)) {
+        await openSettingFor(page, `#${id}`);
+        const card = page.locator(`#${id}`), heading = card.locator(":scope > [data-t]").first();
+        assert.equal(await heading.evaluate((node) => node.tagName), "H3", id);
+        const name = (await heading.textContent()).trim();
+        assert.ok(name && !name.startsWith("knobs."), `${id} has translated copy`);
+        assert.equal(await card.getByRole("heading", { level: 3, name, exact: true }).count(), 1);
+        assert.equal(await card.evaluate((node) => node.closest(".lx-page").querySelectorAll(":scope > h2.lx-page-title").length), 1);
+        assert.equal(await card.locator(":scope > h3.settings-card-title + p.subtle + .kit-scope.sr-only").count(), 1);
+        assert.deepEqual(await undescribed(page, id), []);
+        assert.deepEqual(await heading.evaluate((node) => {
+          const css = getComputedStyle(node);
+          return [css.fontSize, css.fontWeight, css.lineHeight, css.letterSpacing, css.margin];
+        }), ["16px", "640", "20.8px", "normal", "0px 0px 6px"]);
+      }
+      await openSettingFor(page, "#knobs-reasoning-card");
+      const subsection = page.locator('#knobs-reasoning-card > [data-t="knobs.field.effortByModel"]');
+      assert.equal(await subsection.evaluate((node) => node.tagName), "H4");
+      assert.equal(await page.locator("#knobs-reasoning-card").getByRole("heading", {
+        level: 4, name: (await subsection.textContent()).trim(), exact: true,
+      }).count(), 1);
+      assert.equal(await page.locator("#knobs-memory-card > h2").count(), 1, "Library heading is unchanged");
+    }
+    assert.deepEqual(errors, []);
+  });
 }
 
 test("each knob card is in its home, every control has its own sentence, and saving reaches the server", async (t) => {
@@ -73,7 +102,7 @@ test("each knob card is in its home, every control has its own sentence, and sav
     await page.waitForFunction(([card, slot]) => document.getElementById(card)?.closest(slot), [id, host]);
     await openSettingFor(page, `#${id}`);
     assert.ok(await page.locator(`#${id}`).isVisible(), `${id} can be seen on its page`);
-    assert.equal(await page.locator(`#${id} h2 + p.subtle`).count(), 1, `${id} says what it is for`);
+    assert.equal(await page.locator(`#${id} > h3.settings-card-title + p.subtle`).count(), 1, `${id} says what it is for`);
     assert.deepEqual(await undescribed(page, id), [], `${id} has a control without a sentence`);
   }
   await openPlace(page, "memory");
@@ -83,20 +112,54 @@ test("each knob card is in its home, every control has its own sentence, and sav
 
   await openSettingFor(page, "#knobs-limits-card");
   await page.locator("#knobs-maxSteps").fill("25");
-  await pressForStatus(page, "#knobs-limits-card", "Save", "Saved");
+
+  // Wait for the save response before checking status
+  let saveResp = page.waitForResponse((response) => response.url().endsWith("/api/knobs")
+    && response.request().method() === "POST", { timeout: 20000 });
+  await page.locator("#knobs-limits-card").getByRole("button", { name: "Save", exact: true }).click();
+  await saveResp;
+  await page.locator("#knobs-limits-card [role=status]").filter({ hasText: "Saved" })
+    .waitFor({ state: "visible", timeout: 10000 });
+
   assert.equal(readKnobs(app.store, "local", "limits").maxSteps, 25);
-  await pressForStatus(page, "#knobs-limits-card", "Put back as shipped", "Put back");
+
+  // Wait for the reset response before checking status
+  saveResp = page.waitForResponse((response) => response.url().endsWith("/api/knobs")
+    && response.request().method() === "POST", { timeout: 20000 });
+  await page.locator("#knobs-limits-card").getByRole("button", { name: "Put back as shipped", exact: true }).click();
+  await saveResp;
+  await page.locator("#knobs-limits-card [role=status]").filter({ hasText: "Put back" })
+    .waitFor({ state: "visible", timeout: 10000 });
+
   assert.equal(readKnobs(app.store, "local", "limits").maxSteps, 60);
   assert.equal(await page.locator("#knobs-maxSteps").inputValue(), "60");
 
   await openSettingFor(page, "#knobs-commands-card");
   await page.locator("#knobs-passEnvironment").fill("OPENAI_API_KEY");
-  await pressForStatus(page, "#knobs-commands-card", "Save", "never handed to commands");
+
+  // Wait for the save to attempt and fail validation
+  const saveResponse = page.waitForResponse((response) => response.url().endsWith("/api/knobs")
+    && response.request().method() === "POST", { timeout: 20000 });
+  await page.locator("#knobs-commands-card").getByRole("button", { name: "Save", exact: true }).click();
+  const response = await saveResponse;
+  assert.equal(response.status(), 400, "Save should be rejected with validation error");
+
+  // Verify the status message appears on the live card
+  await page.locator("#knobs-commands-card [role=status]").filter({ hasText: "never handed to commands" })
+    .waitFor({ state: "visible", timeout: 10000 });
   assert.deepEqual(readKnobs(app.store, "local", "commands").passEnvironment, []);
 
   await openSettingFor(page, "#knobs-launch-file-card");
   await page.locator("#knobs-launch-browserSites").fill("https://example.com\nhttps://docs.example.org");
-  await pressForStatus(page, "#knobs-launch-file-card", "Save for the next start", "next time it starts");
+
+  // Wait for the save response before checking status
+  const launchResp = page.waitForResponse((response) => response.url().endsWith("/api/knobs/launch-file")
+    && response.request().method() === "POST", { timeout: 20000 });
+  await page.locator("#knobs-launch-file-card").getByRole("button", { name: "Save for the next start", exact: true }).click();
+  await launchResp;
+  await page.locator("#knobs-launch-file-card [role=status]").filter({ hasText: "next time it starts" })
+    .waitFor({ state: "visible", timeout: 10000 });
+
   assert.deepEqual(JSON.parse(await readFile(launchFile, "utf8")).browser.allowedOrigins, ["https://example.com", "https://docs.example.org"]);
 });
 

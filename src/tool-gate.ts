@@ -166,7 +166,7 @@ export function gateToolUse(host: ToolGateHost, tool: string, args: unknown, con
   }
   const check = host.checkPolicy(tool, args, context, fingerprint);
   if (check.decision === "deny") throw refused(tool, check.label, check.reason);
-  if (check.decision === "ask") throw new ApprovalRequiredError(tool, check.target, check.label, check.remember, fingerprint);
+  if (check.decision === "ask") throw new ApprovalRequiredError(tool, check.target, check.label, check.remember, fingerprint, ...(check.onceOnly ? [{ onceOnly: true }] : []));
   return scopeOf(host, tool, args, context, check);
 }
 

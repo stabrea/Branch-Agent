@@ -9,6 +9,7 @@ import type { RealtimeSession, RealtimeSettings, RealtimeTool } from "./realtime
 import { argumentFingerprint, type Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
 import type { OpenSpan } from "./tracing.js";
+import { settingsToolNames } from "./settings-kit/tools.js";
 import { voiceSettings, type VoiceSettings } from "./voice.js";
 import { audioOf } from "./voice-service.js";
 
@@ -157,10 +158,16 @@ export class LiveConversation {
       "Say so out loud and wait; never pretend it was done. " +
       identityInstructions(identity) + this.deps.store.projects.instructions(this.deps.owner);
   }
-  /** The same tools an ordinary task of this person's may use, in the shape each service wants. */
+  /**
+   * The same tools an ordinary task of this person's may use, in the shape each service wants, at
+   * most 48. Branch's own settings tools come first (Q50): a spoken "turn on the board" must reach
+   * settings.find and its one question, and they sit at the far end of the registry.
+   */
   private tools(): RealtimeTool[] {
     const context = this.deps.runtime.context({ runId: this.runId, source: "owner" });
-    return this.deps.runtime.registry.descriptions(context.permissions).slice(0, 48)
+    const settingsFirst = (name: string): number => ((settingsToolNames as readonly string[]).includes(name) ? 0 : 1);
+    return this.deps.runtime.registry.descriptions(context.permissions)
+      .sort((a, b) => settingsFirst(a.name) - settingsFirst(b.name)).slice(0, 48)
       .map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters }));
   }
 
@@ -252,6 +259,7 @@ export class LiveConversation {
       runId: this.runId, sessionId: this.sessionId, tool: name, target,
       label, question, source: "owner", remember: check.remember, askedAt: new Date().toISOString(),
       bytes: bytes.slice(0, 2000), fingerprint,
+      ...(this.deps.runtime.registry.noStandingTarget(name, target ?? "") ? { noAlways: true } : {}),
     });
     this.deps.store.event(this.runId, "policy.ask", {
       name, label, target, remember: check.remember, question, bytes: bytes.slice(0, 2000), fingerprint,

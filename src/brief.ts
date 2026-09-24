@@ -164,7 +164,7 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     },
   });
   registry.register({
-    name: "brief.send", permission: "brief.manage",
+    name: "brief.send", reach: "outbound", permission: "brief.manage",
     description: "Send the morning brief now: it appears in the conversation list and goes to the chosen chat.",
     parameters: z.object({}).strict(),
     execute: async (_input, context) => {

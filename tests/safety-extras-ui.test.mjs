@@ -46,7 +46,7 @@ test("the cards sit in Permissions, every control is named and described, the sw
     await page.locator(`#${id}`).waitFor();
     assert.equal(await page.evaluate((card) => document.getElementById(card)?.parentElement?.id ?? null, id), "lx-page-permissions", `${id} is not in its home`);
   }
-  const unnamed = await page.evaluate((ids) => ids.flatMap((id) => [...document.getElementById(id).querySelectorAll("input, select, textarea, button")]
+  const unnamed = await page.evaluate((ids) => ids.flatMap((id) => [...document.getElementById(id).querySelectorAll("input, select, textarea, button:not(.sg-more)")] /* the section's "N more" link can end a card (DG-199) */
     .filter((control) => {
       const named = control.tagName === "BUTTON" ? control.textContent.trim() : control.labels?.[0]?.textContent.trim();
       const described = control.getAttribute("aria-describedby") ? document.getElementById(control.getAttribute("aria-describedby"))?.textContent.trim()
@@ -55,7 +55,7 @@ test("the cards sit in Permissions, every control is named and described, the sw
     }).map((control) => control.id || control.outerHTML.slice(0, 60))), cards);
   assert.deepEqual(unnamed, []);
   assert.equal(await page.locator("#safety-switch-command-scan").inputValue(), "off");
-  assert.equal(await page.locator("#safety-extras-card h2").innerText(), "Safety extras");
+  assert.equal(await page.locator("#safety-extras-card h3.settings-card-title").innerText(), "Safety extras");
   await page.locator("#safety-switch-command-scan").selectOption("when-needed");
   for (let i = 0; i < 100 && app.safetyExtras.modes()["command-scan"] !== "when-needed"; i++) await page.waitForTimeout(50);
   assert.equal(app.safetyExtras.modes()["command-scan"], "when-needed");
@@ -88,6 +88,6 @@ test("the cards sit in Permissions, every control is named and described, the sw
     return { text: b.textContent, title: b.getAttribute("title"), description: b.getAttribute("aria-description") }; });
   for (let i = 0; i < 40 && (await words()).description !== fr["safety.scan.runHint"]; i++) await page.waitForTimeout(50);
   assert.deepEqual(await words(), { text: fr["safety.scan.run"], title: fr["safety.scan.runHint"], description: fr["safety.scan.runHint"] });
-  assert.equal(await page.locator("#safety-extras-card h2").innerText(), fr["safety.extras.title"]);
+  assert.equal(await page.locator("#safety-extras-card h3.settings-card-title").innerText(), fr["safety.extras.title"]);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, "French still fits 400 px");
 });

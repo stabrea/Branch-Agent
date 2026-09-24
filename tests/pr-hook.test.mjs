@@ -231,6 +231,35 @@ test("A0300 the tool is only offered while GitHub is set up, so no GitHub permis
   assert.equal(app.registry.names().includes("github.pull_request_from_changes"), false);
 });
 
+test("A0300 the tool's paths and base, and the saved base, keep their rules", async (t) => {
+  const { app, owner } = await fixture(t);
+  // GitHub "set up": the stand-in makes the real tool appear. The switch is off, so nothing is ever sent.
+  app.registry.register({ name: "github.open_pull_request", permission: "github.manage", description: "stand-in", parameters: z.object({}).passthrough(), execute: async () => assert.fail("GitHub was reached") });
+  const call = (args) => app.registry.execute("github.pull_request_from_changes", { name: "fix", title: "t", summary: "s", ...args },
+    app.runtime.context({ permissions: ["github.manage"] }));
+  // Refused before the tool runs, and only by the rules of the argument named.
+  const refused = (args, field) => assert.rejects(call(args), (error) => {
+    assert.ok(Array.isArray(error.issues), `${JSON.stringify(args)} was refused for another reason: ${error.message}`);
+    assert.deepEqual([...new Set(error.issues.map((issue) => issue.path[0]))], [field], JSON.stringify(args));
+    return true;
+  }, `${JSON.stringify(args)} is refused`);
+  // Taken: the call reaches the tool, which refuses only because the switch is off.
+  const taken = (args) => assert.rejects(call(args), /switched off/, `${JSON.stringify(args)} is taken`);
+
+  // A path may not start with a dash, or hold a backslash, a colon or NUL.
+  for (const path of ["-rf", "--all", "a\\b", "C:x", "a:b", "a\0b"]) await refused({ paths: [path] }, "paths");
+  for (const path of ["src/a.ts", "x-", "dir/-file", ".github/workflows/ci.yml", "a b.txt"]) await taken({ paths: [path] });
+  // A base may not start with a dash or hold "..", and is 1 to 100 letters, digits, dots, dashes, underscores and slashes.
+  const longest = "b".repeat(100);
+  for (const base of ["-main", "--x", "a..b", "..", "x/..", "a...b", "ma in", "main\n", `${longest}b`]) await refused({ base }, "base");
+  for (const base of ["main", "mac/cross-platform", "release/1.2", "x-", ".hidden", "a_b", longest]) await taken({ base });
+
+  // The saved setting's base follows the same rule.
+  for (const base of ["-main", "a..b", `${longest}b`])
+    assert.throws(() => savePullRequestHookSettings(app.store, owner, { base }), (error) => error.issues?.every((issue) => issue.path[0] === "base"), `${base} is refused`);
+  for (const base of ["main", "mac/cross-platform", longest]) assert.equal(savePullRequestHookSettings(app.store, owner, { base }).base, base);
+});
+
 test("A0300 over HTTP: a short-lived key is refused the switch, the tool, and the hook after its own task", async (t) => {
   let round = 0;
   const provider = { name: "scripted", async complete() {

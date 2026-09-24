@@ -90,9 +90,10 @@ test("a switch that keeps an older yes/no has both kept in step", async (t) => {
   const { changes } = changesFor(store, owner, [{ key: "desktop-control", field: "mode", value: "when-needed" }]);
   assert.equal(changes[0].loosens, true, "letting Branch use the screen reaches further");
   applyChanges(store, owner, changes, all(changes));
-  assert.deepEqual(store.get("settings", owner, "desktop-control").data, { mode: "when-needed", enabled: true });
+  // Q65: saved through the screen's own schema, as its card saves it, so the record also carries the schema's other fields.
+  assert.deepEqual(store.get("settings", owner, "desktop-control").data, { mode: "when-needed", enabled: true, maxActionsPerRun: 40 });
   applyChanges(store, owner, changesFor(store, owner, resetProposals("desktop-control")).changes, { accept: ["desktop-control.mode"], confirmLoosening: false, why: "test" });
-  assert.deepEqual(store.get("settings", owner, "desktop-control").data, { mode: "off", enabled: false });
+  assert.deepEqual(store.get("settings", owner, "desktop-control").data, { mode: "off", enabled: false, maxActionsPerRun: 40 });
 });
 
 test("a settings file carries only catalogued switches, never a secret, and round-trips", async (t) => {

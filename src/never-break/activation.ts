@@ -231,6 +231,27 @@ export function settleActivation(path: string, runningVersion: string): "activat
   finally { journal.close(); }
 }
 
+/**
+ * Q55: the newest recorded activation, read without opening the journal for writing (a journal that
+ * cannot be read is simply "nothing recorded" here). Settings says what a failed update left running.
+ * A failed update is only news to the start that settled it: one settled before `since` (when this
+ * process started) is answered as nothing, so a later start stops repeating it. A later update is a
+ * newer row, so it takes the failure's place.
+ */
+export function lastActivation(dataDir: string, since: Date): { kind: ActivationEntry["kind"]; fromVersion: string; toVersion: string; state: string } | null {
+  let db: DatabaseSync | null = null;
+  try {
+    db = new DatabaseSync(join(dataDir, activationJournalName), { readOnly: true });
+    const row = db.prepare("SELECT kind, from_version, to_version, state, finished_at FROM activations ORDER BY id DESC LIMIT 1").get() as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const kind = String(row.kind), state = String(row.state);
+    const settledAt = typeof row.finished_at === "string" ? Date.parse(row.finished_at) : Number.NaN;
+    if (state === "failed" && !(settledAt >= since.getTime())) return null;
+    return { kind: kind === "install" || kind === "rollback" ? kind : "update", fromVersion: String(row.from_version), toVersion: String(row.to_version), state };
+  } catch { return null; }
+  finally { db?.close(); }
+}
+
 export class ActivationJournal {
   private readonly db: DatabaseSync;
   /** Tests hand in a failure here to act out a full disk, as the task journal does. */

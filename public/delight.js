@@ -104,14 +104,18 @@ function achievementsCard() {
   all.type = "button";
   all.addEventListener("click", () => void openSheet());
   line.append(Object.assign(el("span", "delight-ach-count"), { id: "delight-ach-count" }), all);
-  const tries = el("div", "delight-tries");
-  tries.append(el("span", "", say("delight.ach.try", "Try a celebration:")));
+  /* DG-134: the sample's "Try a celebration" row: its label, the six tiers as small buttons with a tier dot, three
+     and three, and what each one does beside them. */
+  const tries = el("div", "delight-celebrate"), buttons = el("div", "delight-celebrate-grid");
   for (const tier of TIERS) {
-    const b = el("button", "secondary", say(`delight.ach.tier.t-${tier.replace("+", "p").toLowerCase()}`, tier));
+    const key = `t-${tier.replace("+", "p").toLowerCase()}`, b = el("button", "delight-try");
     b.type = "button";
+    b.append(el("span", `delight-tier-dot ${key}`), el("span", "", say(`delight.ach.tier.${key}`, tier)));
     b.addEventListener("click", () => preview(tier));
-    tries.append(b);
+    buttons.append(b);
   }
+  tries.append(el("span", "delight-celebrate-label", say("delight.ach.try", "Try a celebration")), buttons,
+    el("p", "delight-celebrate-note", say("delight.ach.tryNote", "Bronze and Silver appear small at the top right for a few seconds. Gold and above get a card and a party that grows with the rank. Keep things still shows a still card.")));
   more.append(line,
     checkRow("delight-ach-quiet", "delight.ach.quiet", "Quiet: earn them without any pop-up", (v) => saveDelight({ achievements: { quiet: v } })), tries);
   box.append(checkRow("delight-ach-on", "delight.ach.on", "Show achievements", (v) => saveDelight({ achievements: { on: v } })), more);
@@ -272,7 +276,8 @@ function applyStyle() {
   canvas.setAttribute("aria-label", say("delight.look.acorn", "The acorn, in 3D. Drag to turn it."));
   canvas.title = say("acorn.tip", "Drag to turn");
   art.prepend(canvas);
-  acorn3d = view3d(canvas, acornModel(), { distance: 2.7, still: acornStill });
+  // DG-138: the sample's camera for the corner acorn: 35° lens, 3.2 away, a little above; a slow turn.
+  acorn3d = view3d(canvas, acornModel(), { distance: 3.2, fov: 0.61, pitch: 0.062, spin: 0.0003, still: acornStill });
   if (!acorn3d) { canvas.remove(); return; }
   root.dataset.delightStyle = "3d";
 }

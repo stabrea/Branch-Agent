@@ -61,6 +61,8 @@ test("a Trunk keeps its look: colour tokens only, a real emoji, and it travels i
   const saved = (await b.call(`/api/trunks/${trunk.id}`, { look })).body.trunk;
   assert.deepEqual(saved.look, { ...look, letters: "", shuffle: 0 });
   assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { colour: "#ff0000" } })).status, 400, "a colour is a token, never a value");
+  /* DG-105: a colour picked as a value is the Trunk's own chosenColour, beside the look, never inside it. */
+  assert.equal((await b.call(`/api/trunks/${trunk.id}`, { chosenColour: "#FF0000" })).body.trunk.chosenColour, "#ff0000");
   assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { face: "emoji", emoji: "<b>" } })).status, 400, "an emoji, not markup");
   assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { shape: "star" } })).status, 400);
   assert.equal((await b.call(`/api/trunks/${trunk.id}`, { look: { colour: "theme", face: "letters", letters: "LG" } })).body.trunk.look.colour, "theme");

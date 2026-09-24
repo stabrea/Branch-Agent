@@ -3,6 +3,7 @@ import type { createBranch } from "./index.js";
 import { pricingSettings } from "./pricing.js";
 import { saveUsageReportSettings, usageReport, usageReportSettings } from "./usage-report.js";
 import { executionMetricsDeps, executionMetricsSettings, saveExecutionMetricsSettings, sendExecutionMetrics } from "./execution-metrics.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 
@@ -18,7 +19,10 @@ export async function usageReportRoute(
   const owner = app.runtime.owner;
   const method = request.method ?? "GET";
   if (path === "/api/usage/counters") {
-    if (method === "POST") return { counters: saveExecutionMetricsSettings(app.store, owner, await body()) };
+    if (method === "POST") {
+      const input = await body();
+      return { counters: recordedWrite(app.store, owner, byCard("execution-metrics"), ["execution-metrics"], () => saveExecutionMetricsSettings(app.store, owner, input)) };
+    }
     return { counters: executionMetricsSettings(app.store, owner) };
   }
   if (path === "/api/usage/counters/send" && method === "POST") {
@@ -26,7 +30,10 @@ export async function usageReportRoute(
     return { ...outcome, counters: executionMetricsSettings(app.store, owner) };
   }
   if (path === "/api/usage/report/settings") {
-    if (method === "POST") return { usageReport: saveUsageReportSettings(app.store, owner, await body()) };
+    if (method === "POST") {
+      const input = await body();
+      return { usageReport: recordedWrite(app.store, owner, byCard("usage-report"), ["usage-report"], () => saveUsageReportSettings(app.store, owner, input)) };
+    }
     return { usageReport: usageReportSettings(app.store, owner) };
   }
   if (method !== "POST") return { usageReport: usageReportSettings(app.store, owner) };

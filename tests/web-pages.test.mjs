@@ -17,6 +17,7 @@ import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js"
 import { switchedToolTiers } from "../dist/feature-switches.js";
 import { robotsRules } from "../dist/web-robots.js";
 import { fetchChecked } from "../dist/web-page-fetch.js";
+import { pinnedFetch, pinnedTo } from "../dist/pinned-fetch.js";
 import { NetworkPolicy } from "../dist/network-policy.js";
 import { startServer } from "../dist/server.js";
 import { discardTemp } from "./temp-dir.mjs";
@@ -387,19 +388,32 @@ test("A1452: robots.txt groups, the Branch agent's own group, longest match and 
  * and a page that only ever redirects is given up on rather than followed for ever. These go
  * straight at `fetchChecked` with a real NetworkPolicy, so the rules being checked are the ones the
  * app runs with rather than the loosened ones the rest of this file needs to reach its own server.
+ * The site is a server this file starts: the policy's dialling seam sends the address judged for
+ * example.com there, and the reader's fetch hands each request on to Branch's checked sender.
  */
 const publicNames = { "example.com": "93.184.216.34", "example.invalid": "93.184.216.35" };
-/** Names are resolved from a table, so nothing here depends on this computer having a network. */
+/** Names are resolved from a table, so nothing here depends on this computer having a network; example.com is dialled at the local site. */
 const hopPolicy = () => new NetworkPolicy({}, async (host) => {
   const address = publicNames[host];
   if (!address) throw new Error(`${host} was not meant to be looked up`);
   return [address];
+}, (judged) => {
+  if (judged !== publicNames["example.com"]) throw new Error(`${judged} stands for a site on the internet, which this test never reaches`);
+  return "127.0.0.1";
 });
+/** A reader's fetch that notes each request and hands it on to Branch's checked sender; one not held to a judged address is stopped here, so no hop leaves this computer. */
+const handsOn = (asked) => async (input, init) => {
+  asked.push(String(input));
+  if (!init?.[pinnedTo]) throw new Error(`${input} was not held to a judged address, and this test sends nothing else`);
+  return pinnedFetch(input, init);
+};
 const hopDeps = (fetchImpl, policy = hopPolicy()) =>
   ({ policy, fetch: fetchImpl, timeoutMs: 5000, maxBytes: 100000, userAgent: "BranchAgent" });
-const redirectTo = (where) => new Response(null, { status: 302, headers: { location: where } });
+const redirectTo = (where) => [302, "text/plain", "", { location: where }];
 
-test("A0743: a redirect to this computer, to a private network or off the web is refused on the hop", async () => {
+test("A0743: a redirect to this computer, to a private network or off the web is refused on the hop", async (t) => {
+  let next = "";
+  const local = await site(t, { "/start": () => redirectTo(next) });
   for (const [where, why] of [
     ["file:///etc/passwd", /Only http and https/],
     ["http://127.0.0.1:9/secret", /private or local address/],
@@ -409,20 +423,22 @@ test("A0743: a redirect to this computer, to a private network or off the web is
     ["http://localhost:9/secret", /points at this computer/],
     ["http://user:pw@example.invalid/", /embedded credentials/],
   ]) {
-    const asked = [];
-    const fetchImpl = async (url) => { asked.push(String(url)); return redirectTo(where); };
-    await assert.rejects(fetchChecked(hopDeps(fetchImpl), "https://example.com/start", new AbortController().signal), why, where);
-    assert.deepEqual(asked, ["https://example.com/start"], `${where}: nothing was sent to the address it pointed at`);
+    next = where;
+    const asked = [], start = `http://example.com:${local.port}/start`, before = local.total();
+    await assert.rejects(fetchChecked(hopDeps(handsOn(asked)), start, new AbortController().signal), why, where);
+    assert.deepEqual(asked, [start], `${where}: nothing was sent to the address it pointed at`);
+    assert.equal(local.total() - before, 1, `${where}: the page itself was read once, at the local site`);
   }
 });
 
-test("A0743: a page that only ever redirects is given up on, and the hops are counted", async () => {
+test("A0743: a page that only ever redirects is given up on, and the hops are counted", async (t) => {
+  const local = await site(t, {
+    "/a": () => redirectTo(`http://example.com:${local.port}/b`),
+    "/b": () => redirectTo(`http://example.com:${local.port}/a`),
+  });
   const asked = [];
-  const fetchImpl = async (url) => {
-    asked.push(String(url));
-    return redirectTo(String(url).endsWith("/a") ? "https://example.com/b" : "https://example.com/a");
-  };
-  await assert.rejects(fetchChecked(hopDeps(fetchImpl), "https://example.com/a", new AbortController().signal),
+  await assert.rejects(fetchChecked(hopDeps(handsOn(asked)), `http://example.com:${local.port}/a`, new AbortController().signal),
     /redirected more than 5 times/);
   assert.equal(asked.length, 6, "the first request and five hops, then it stops");
+  assert.equal(local.total(), 6, "and each of them reached the local site");
 });

@@ -159,13 +159,21 @@ test("a refused caller cannot make Branch read the owner's settings, even throug
   const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
   const change = { changes: [{ setting: "fly-core.mode", value: "on" }] };
   for (const start of [{ source: "channel" }, { source: "owner", shortLivedKey: true }, { source: "schedule" }, { source: "mcp" },
-    { source: "a2a" }, { source: "owner", personProfileId: person.id }, { source: "owner" }]) {
+    { source: "a2a" }, { source: "owner", personProfileId: person.id }]) {
     for (const tool of ["settings.change", "settings.loosen"]) {
       const check = app.runtime.checkPolicy(tool, change, as(start), "fp");
       assert.equal(check.target, "fly-core.mode → on");
+      assert.doesNotMatch(check.label, /off →/, "and the question carries no current value");
     }
   }
   assert.equal(reads, 0, "working out the question read the setting");
+  // Q50: only the owner, in a conversation they started, is asked with the current value in the
+  // question; what the rules match against is still exactly what the call asked for.
+  for (const tool of ["settings.change", "settings.loosen"]) {
+    const check = app.runtime.checkPolicy(tool, change, as({ source: "owner" }), "fp");
+    assert.equal(check.target, "fly-core.mode → on");
+    assert.match(check.label, /off → on/);
+  }
 });
 
 test("a pinned setting stays as the owner fixed it, whichever tool asks", async (t) => {

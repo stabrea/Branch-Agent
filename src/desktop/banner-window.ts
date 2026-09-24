@@ -1,4 +1,4 @@
-import { bannerTitle, type BannerWindow, type BannerWindowFactory } from "../integrations/desktop-banner.js";
+import { bannerTitle, type BannerNotice, type BannerWindow, type BannerWindowFactory } from "../integrations/desktop-banner.js";
 
 /**
  * The Stop notice on a Mac or Linux: a small frameless window of the desktop app's own that sits on
@@ -44,11 +44,17 @@ const width = 460, height = 52;
  */
 const forest = { ground: "#03140b", text: "#edf1ea", bad: "#f28b7a", onBad: "#17201b" } as const;
 
+/** The screen control notice: what the window says when nothing else is asked for. */
+export const screenNotice: BannerNotice = { title: bannerTitle, text: "Branch is using your screen and keyboard", button: "Stop" };
+/** The notice's words are fixed strings of Branch's own, but they are escaped all the same. */
+const escapeHtml = (text: string): string =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
 /** Where the notice goes and what it may do: nothing but show two words and a button. */
-export function bannerWindowOptions(area: WorkArea) {
+export function bannerWindowOptions(area: WorkArea, title = bannerTitle) {
   return {
     width, height, x: area.x + Math.round((area.width - width) / 2), y: area.y + 12,
-    title: bannerTitle, frame: false, show: false, resizable: false, movable: true,
+    title, frame: false, show: false, resizable: false, movable: true,
     minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true,
     alwaysOnTop: true, focusable: true, backgroundColor: forest.ground,
     webPreferences: {
@@ -58,16 +64,19 @@ export function bannerWindowOptions(area: WorkArea) {
   };
 }
 
-/** The whole notice, as one page with no script and nothing to fetch. */
-export function bannerPage(): string {
+/**
+ * The whole notice, as one page with no script and nothing to fetch. The shared Linux desktop's
+ * "Take over" notice is the same page with its own words; its button closes the window the same way.
+ */
+export function bannerPage(notice: BannerNotice = screenNotice): string {
   const html = `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
-<title>${bannerTitle}</title><style>
+<title>${escapeHtml(notice.title)}</title><style>
 html,body{margin:0;height:100%;background:${forest.ground};color:${forest.text};font:14px system-ui,sans-serif;overflow:hidden}
 body{display:flex;align-items:center;justify-content:space-between;padding:0 10px 0 16px;box-sizing:border-box;-webkit-app-region:drag}
 a{-webkit-app-region:no-drag;background:${forest.bad};color:${forest.onBad};font-weight:700;text-decoration:none;padding:7px 28px;border-radius:4px}
 a:focus{outline:2px solid ${forest.text}}
-</style></head><body><span>Branch is using your screen and keyboard</span><a id="stop" href="${stopAddress}">Stop</a></body></html>`;
+</style></head><body><span>${escapeHtml(notice.text)}</span><a id="stop" href="${stopAddress}">${escapeHtml(notice.button)}</a></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
@@ -90,8 +99,8 @@ function guard(host: BannerHost): void {
 
 /** The factory the main process hands to `createBranch`. */
 export function electronBannerWindow(deps: ElectronBannerDeps): BannerWindowFactory {
-  return async (closed) => {
-    const host = deps.create(bannerWindowOptions(deps.workArea()));
+  return async (closed, notice = screenNotice) => {
+    const host = deps.create(bannerWindowOptions(deps.workArea(), notice.title));
     let shown = false;
     host.on("show", () => { shown = true; });
     host.on("hide", () => { shown = false; });
@@ -100,7 +109,7 @@ export function electronBannerWindow(deps: ElectronBannerDeps): BannerWindowFact
     host.setAlwaysOnTop(true, "screen-saver");
     if ((deps.platform ?? process.platform) === "darwin") host.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     try {
-      await host.loadURL(bannerPage());
+      await host.loadURL(bannerPage(notice));
       const appeared = shownWithin(host, deps.showTimeoutMs ?? 3000);
       host.showInactive();
       await appeared;

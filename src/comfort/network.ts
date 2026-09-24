@@ -3,6 +3,7 @@ import * as tls from "node:tls";
 import { X509Certificate } from "node:crypto";
 import type { z } from "zod";
 import type { ComfortNetworkSchema } from "./settings.js";
+import { noteProxy } from "../pinned-fetch.js";
 
 /**
  * R17-S20: a proxy and extra trusted certificates, for every call Branch itself makes.
@@ -26,8 +27,14 @@ export interface NetworkHooks {
   setCertificates: (certificates: string[]) => void;
 }
 export const processNetworkHooks = (): NetworkHooks => ({
+  // The network policy is told too: a request the proxy carries is looked up by the proxy, so it
+  // cannot be held to the addresses Branch checked (src/pinned-fetch.ts).
   setProxy: typeof (http as { setGlobalProxyFromEnv?: unknown }).setGlobalProxyFromEnv === "function"
-    ? (env) => (http as unknown as { setGlobalProxyFromEnv(env: Record<string, string>): () => void }).setGlobalProxyFromEnv(env)
+    ? (env) => {
+      const undo = (http as unknown as { setGlobalProxyFromEnv(env: Record<string, string>): () => void }).setGlobalProxyFromEnv(env);
+      const forget = noteProxy(env);
+      return () => { forget(); undo(); };
+    }
     : undefined,
   defaultCertificates: () => tls.getCACertificates("default"),
   setCertificates: (certificates) => tls.setDefaultCACertificates(certificates),

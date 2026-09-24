@@ -104,6 +104,8 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */
 const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/backup$/,
+  // Collaboration: the household's signed events (what members wrote).
+  /^\/api\/collab\/events$/,
   /^\/api\/jev$/,
   // mac7/smoke-fixes (B4): the list of short-lived keys, and the terminal's own places, which hand
   // back the owner's memory, settings and conversations as plain lines.
@@ -136,6 +138,11 @@ const ownerOnlyReads: readonly RegExp[] = [
   // which speech program is installed and whether the microphone is open this moment; starting it
   // is refused by the fail-closed rule above, which is what keeps a short-lived key out of it.
   /^\/api\/voice\/dictation(\/|$)/,
+  // FQ-collaboration: the comments on the owner's videos, read by the owner-only code editor's player.
+  /^\/api\/media-comments(\/.*)?$/,
+  // FQ-execution.desktop: the VNC viewer password for the shared desktop is the owner's only; a key
+  // cannot monitor or take over what the assistant is doing on the isolated desktop.
+  /^\/api\/linux-desktop\/viewer$/,
   // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
   // sites they belong to. It holds no password, but it is a map of where the owner's passwords are.
   /^\/api\/vault-autofill(\/|$)/,
@@ -150,6 +157,14 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/panels\/work$/,
   // The desktop handover sees every person's busy tasks and the owner's release channel.
   /^\/api\/comfort\/update-readiness$/,
+  // Q55: what the owner's last update did, and which versions it went between.
+  /^\/api\/never-break\/last-update$/,
+  // FQ-collaboration.unified-search: one query across every conversation, saved workflow and the
+  // record of what the assistant was allowed to do is a wider window than any one of those
+  // searches gives alone, so it stays the owner's the way the workflows and audit routes it reads do.
+  /^\/api\/search$/,
+  // Q64: a team's tasks from every source, with who asked, who holds each, questions put to the owner and answers.
+  new RegExp(`^/api/teams/${id}/tasks$`),
 ];
 
 /**
