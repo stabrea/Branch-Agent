@@ -27,7 +27,11 @@ const projectId = z.object({ project: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}
 /** Everything the Sharing, Workflows, Waiting line, Days off and People panels show. */
 export function collabState(app: Branch): unknown {
   const owner = app.runtime.owner, profiles = app.store.profiles, scope = profiles.scope();
-  const person = { active: profiles.active(), all: profiles.list(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn() };
+  // Q75: each card says what Branch really holds that person to (their groups narrow it). The owner
+  // sees everyone's; somebody else sees only their own.
+  const held = app.runtime.roles.all(profiles.list().map((profile) => profile.id));
+  const roles = profiles.isOwner() ? held : held.filter((entry) => entry.profileId === profiles.active()?.id);
+  const person = { active: profiles.active(), all: profiles.list(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn(), roles, roleLabels };
   // Shared copies, saved workflows, the waiting line and days off are the owner's, so a screen
   // opened under somebody else's profile shows their labels and nothing of the owner's.
   if (!profiles.isOwner())

@@ -223,9 +223,11 @@ function peopleSection(profile, helpers) {
     if (held) {
       const words = profile.roleLabels?.[held.grant.role];
       card.appendChild(el("p", `${words?.label ?? held.grant.role}: ${words?.description ?? ""}`, "collab-meta"));
+      // Q75: what Branch really holds them to (narrowed by their groups), not only what was saved.
+      const holds = held.effective ?? held.grant;
       const limits = [
-        held.grant.projects.length ? `Only in: ${held.grant.projects.join(", ")}` : "",
-        held.grant.dailySpendLimit > 0 ? `Up to ${held.grant.dailySpendLimit.toFixed(2)} a day` : "",
+        holds.projects.length ? `Only in: ${holds.projects.join(", ")}` : "",
+        holds.dailySpendLimit > 0 ? `Up to ${holds.dailySpendLimit.toFixed(2)} a day` : "",
       ].filter(Boolean);
       if (limits.length) card.appendChild(el("p", limits.join(" · "), "collab-meta"));
       if (profile.isOwner)
