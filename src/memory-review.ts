@@ -285,7 +285,9 @@ export class MemoryReview {
   }
   /** The memory snapshot a conversation started with; the same one is returned for the rest of that conversation. */
   sessionSnapshot(owner: string, sessionId: string, agent?: string): { text: string; count: number; reused: boolean; takenAt: string } {
-    const key = `memory-snapshot:${sessionId}`;
+    // FQ-routing.isolated-agents: one per conversation and per whoever answers in it, so a conversation the owner
+    // re-chose for another Trunk never hands it the facts the first one was shown (the owner's own key is unchanged).
+    const key = `memory-snapshot:${sessionId}${agent ? `:${agent}` : ""}`;
     const saved = this.db.prepare("SELECT data FROM settings WHERE owner=? AND id=?").get(owner, key);
     if (saved) return { ...(JSON.parse(String(saved.data)) as { text: string; count: number; takenAt: string }), reused: true };
     const lines: string[] = []; let chars = 0;

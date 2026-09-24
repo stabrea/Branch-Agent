@@ -64,6 +64,7 @@ function rules(ids) {
     const text = String(last?.content ?? "");
     if (text.startsWith("remember ")) return call("memory.put", { text: text.slice("remember ".length), source: "the researcher" });
     if (text.startsWith("recall ")) return call("memory.search", { query: text.slice("recall ".length) });
+    if (text.startsWith("share ")) return call("memory.put", { text: text.slice("share ".length), source: "the researcher", scope: "shared" });
     if (text.startsWith("onward: ")) return route.onward(text.slice("onward: ".length));
     return null;
   }, ({ last }) => {
@@ -196,11 +197,49 @@ test("workspace.redo in a conversation the owner re-chose never hands one Trunk 
   app.trunks.conversations.choose(sessionId, { trunkId: bo.id });
   const after = lastEvent(app);
   for (const prompt of ["preview redo", "redo", "read plan"]) await app.runtime.run({ prompt, sessionId });
-  const redone = outcomesSince(app, after, "workspace.redo");
-  assert.equal(redone.length, 2);
-  for (const text of redone) {
-    assert.doesNotMatch(text, new RegExp(later), "Bo's redo shows none of Ada's bytes");
-    assert.match(text, /not kept/, "refused as a version this Trunk does not keep");
-  }
+  const [preview, redo] = outcomesSince(app, after, "workspace.redo");
+  for (const text of [preview, redo]) assert.doesNotMatch(text, new RegExp(later), "Bo's redo shows none of Ada's bytes");
+  assert.match(preview, /"change":null/, "Ada's undo is not Bo's to redo");
+  assert.match(redo, /nothing to put back/);
   assert.doesNotMatch(outcomesSince(app, after, "files.read").join(""), new RegExp(later), "nothing of Ada's was written into Bo's folder");
 });
+
+test("a Trunk's specialist asked to save a shared fact keeps it to that Trunk, as the Trunk itself does", async (t) => {
+  const { app, ada, bo, say } = await twoTrunks(t);
+  const after = lastEvent(app);
+  await say(ada, `handoff: share Launch code ${secret}`);
+  const saved = app.store.list("memory", app.runtime.owner).find((record) => String(record.data.text).includes(secret));
+  assert.ok(saved, outcomesSince(app, after, "memory.put").join("\n"));
+  assert.notEqual(saved.data.scope, "shared", "never shared");
+  assert.match(saved.data.scope, new RegExp(`^agent:trunk:${ada.id}:`), "Ada's researcher's own");
+  const before = lastEvent(app);
+  await say(bo, "handoff: recall launch code");
+  assert.equal(outcomesSince(app, before, "memory.search")[0], "[]");
+});
+
+for (const [who, first] of [["another Trunk's", "Ada"], ["the owner's", "owner"]])
+  test(`a conversation the owner re-chose never shows the next Trunk ${who} remembered facts`, async (t) => {
+    const secretSnap = "SECRETSNAP8812";
+    const { app, provider } = await fixture(t, [({ last }) => (last?.role === "user" && last.content === "remember"
+      ? call("memory.put", { text: `Snap code ${secretSnap}`, source: "Ada" }) : null),
+    ({ last }) => (last?.role === "tool" ? "Done." : null)]);
+    on(app);
+    const ada = app.trunks.create({ name: "Ada" }), bo = app.trunks.create({ name: "Bo" });
+    for (const trunk of [ada, bo]) app.trunks.edit(trunk.id, { permissions: ["memory.read", "memory.write"] });
+    await app.trunks.introduced();
+    let sessionId, next;
+    if (first === "Ada") {
+      await app.trunks.say(ada.id, "remember"); // saved in Ada's own Trunk Chat
+      ({ sessionId } = app.trunks.startConversation({ trunkId: ada.id }));
+      next = bo;
+    } else {
+      await app.registry.execute("memory.put", { text: `Snap code ${secretSnap}`, source: "the owner" }, app.runtime.context());
+      sessionId = (await app.runtime.run({ prompt: "hello" })).sessionId; // the owner's own conversation
+      next = ada;
+    }
+    await app.runtime.run({ prompt: "hello", sessionId });
+    assert.match(JSON.stringify(provider.requests.at(-1).messages), new RegExp(secretSnap), "the first speaker is shown its own fact");
+    app.trunks.conversations.choose(sessionId, { trunkId: next.id });
+    await app.runtime.run({ prompt: "hello again", sessionId });
+    assert.doesNotMatch(JSON.stringify(provider.requests.at(-1).messages), new RegExp(secretSnap), `${next.name} is not shown it`);
+  });

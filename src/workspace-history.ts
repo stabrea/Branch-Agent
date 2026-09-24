@@ -41,6 +41,9 @@ export function lineDiff(before: string, after: string): { added: number; remove
   return { added, removed, diff: text.length > diffLimit ? text.slice(0, diffLimit) + "\n… (diff shortened)" : text };
 }
 
+/** FQ-routing.isolated-agents: an undo whose redo version the caller's own scope kept (another's is not its to redo). */
+const ownRedo = "redo_version_id IN (SELECT id FROM file_versions WHERE owner=? AND scope=?)";
+
 export class WorkspaceHistory {
   constructor(private readonly db: DatabaseSync, private readonly files: WorkspaceFiles, private readonly owner: string) {
     db.exec(`CREATE TABLE IF NOT EXISTS file_versions(id TEXT PRIMARY KEY, owner TEXT NOT NULL, path TEXT NOT NULL, snapshot_id TEXT,
@@ -208,7 +211,7 @@ export class WorkspaceHistory {
   /** The undo that would be put back next in this conversation. */
   async redoPlan(sessionId: string): Promise<(FileChange & { versionId: string }) | null> {
     const row = this.db.prepare(`SELECT redo_version_id AS id, path FROM workspace_undo
-      WHERE owner=? AND session_id=? AND redone=0 ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId);
+      WHERE owner=? AND session_id=? AND redone=0 AND ${ownRedo} ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId, this.owner, this.currentScope());
     return row ? this.planFor(String(row.id), String(row.path)) : null;
   }
   /** What writing one kept version back would do to the file as it stands now. */
@@ -232,7 +235,7 @@ export class WorkspaceHistory {
   /** Puts the last undone change back again. */
   async redo(sessionId: string): Promise<FileChange & { redone: true }> {
     const row = this.db.prepare(`SELECT id, redo_version_id, path FROM workspace_undo
-      WHERE owner=? AND session_id=? AND redone=0 ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId);
+      WHERE owner=? AND session_id=? AND redone=0 AND ${ownRedo} ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId, this.owner, this.currentScope());
     if (!row) throw new Error("There is nothing to put back in this conversation.");
     const plan = await this.planFor(String(row.redo_version_id), String(row.path));
     await this.writeVersion(String(row.redo_version_id), String(row.path));
