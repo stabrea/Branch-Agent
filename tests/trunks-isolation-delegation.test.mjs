@@ -501,3 +501,59 @@ test("a schedule a Trunk made fires as that Trunk, never with the owner's whole 
   assert.equal(after.history?.at(-1)?.status, "failed", "a schedule of a Trunk that is gone does not run");
   assert.doesNotMatch(JSON.stringify(after), /OWNERPRIV3391/);
 });
+
+test("a refused carry-on leaves a Trunk's workflow as it stopped, not stuck working", async (t) => {
+  const { app } = await fixture(t, [({ last }) => {
+    if (last?.role !== "user") return null;
+    const text = String(last.content ?? "");
+    if (text.startsWith("run ")) return call("workflows.run", { id: text.slice("run ".length) });
+    if (text.startsWith("resume ")) return call("workflows.resume", { id: text.slice("resume ".length) });
+    return null;
+  }, ({ last }) => (last?.role === "tool" ? "Done." : null)]);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" }), bo = app.trunks.create({ name: "Bo" });
+  for (const trunk of [ada, bo]) app.trunks.edit(trunk.id, { permissions: ["memory.read", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const workflow = await app.registry.execute("workflows.create", { name: "wait", steps: [
+    { name: "a while", kind: "wait", waitMinutes: 60 }, { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] }, app.runtime.context());
+  await app.trunks.say(ada.id, `run ${workflow.id}`);
+  const status = () => app.workflows.view(app.runtime.owner, workflow.id).status;
+  assert.equal(status(), "waiting_time");
+  await app.trunks.say(bo.id, `resume ${workflow.id}`); // refused: Ada's work
+  assert.equal(status(), "waiting_time", "Bo's refused resume leaves it waiting, not running");
+  app.trunks.remove(ada.id);
+  await assert.rejects(app.workflows.resume(app.runtime.owner, workflow.id), /no longer here/);
+  assert.equal(status(), "waiting_time", "a refused carry-on for a Trunk that is gone leaves it waiting too");
+});
+
+test("a Trunk's flow run that was working when the app closed carries on as that Trunk at the next launch", async (t) => {
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { createBranch } = await import("../dist/index.js");
+  const { brain } = await import("./trunks-helpers.mjs");
+  const root = await mkdtemp(join(tmpdir(), "branch-trunk-flow-restart-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const open = () => createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: brain([]) });
+  const first = await open();
+  on(first);
+  const ada = first.trunks.create({ name: "Ada" });
+  await first.trunks.introduced();
+  await first.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, first.runtime.context());
+  const graph = first.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  const { runId } = await withAccountCall({ owner: first.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => first.flows.startGraph(graph.id, {}));
+  await first.flows.settled(runId);
+  // As a close in the middle leaves it: still working, with the second box next.
+  first.store.sqlite.prepare("UPDATE flow_graph_runs SET status='running', next_node='b' WHERE run_id=?").run(runId);
+  await first.close();
+  const second = await open();
+  t.after(() => second.close());
+  const view = await second.flows.settled(runId);
+  assert.equal(view.status, "completed", `carried on at launch: ${JSON.stringify(view).slice(0, 300)}`);
+  assert.doesNotMatch(JSON.stringify(view), /OWNERPRIV3391/, "as Ada, not as the owner");
+});

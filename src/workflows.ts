@@ -275,18 +275,21 @@ export class Workflows {
     const limit = this.limitFor(owner, id, fresh, within); // mac7/lockdown-fix
     const held = this.heldSource(owner, id, fresh, source); // mac7/outside-resume
     const startedBy = this.startedBy(owner, id, fresh); // Q114
-    current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit,
-      startedFrom: held, startedBy, ...(fresh ? { cursor: 0 } : {}) });
-    for (let index = current.cursor; index < current.steps.length; index++) {
-      const step = current.steps[index]!, view = current;
-      const work = () => this.step(owner, id, index, step, view, held, chain, limit);
-      const outcome = startedBy ? await this.runtime.asTrunkWork(startedBy, work) : await work();
-      if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
-      // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).
-      current = this.setStatus(owner, id, { cursor: outcome.cursor ?? index + 1, ...outcome.patch });
-      index = current.cursor - 1;
-    }
-    return this.setStatus(owner, id, { status: "completed", cursor: current.steps.length, waitingUntil: null });
+    const carryOn = async (): Promise<WorkflowView> => {
+      current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit,
+        startedFrom: held, startedBy, ...(fresh ? { cursor: 0 } : {}) });
+      for (let index = current.cursor; index < current.steps.length; index++) {
+        const outcome = await this.step(owner, id, index, current.steps[index]!, current, held, chain, limit);
+        if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
+        // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).
+        current = this.setStatus(owner, id, { cursor: outcome.cursor ?? index + 1, ...outcome.patch });
+        index = current.cursor - 1;
+      }
+      return this.setStatus(owner, id, { status: "completed", cursor: current.steps.length, waitingUntil: null });
+    };
+    // Q114: the whole carry-on runs as the Trunk that started it, so a refusal (another Trunk, or one that is
+    // gone) comes before anything is marked running, and the workflow is left exactly as it stopped.
+    return startedBy ? this.runtime.asTrunkWork(startedBy, carryOn) : carryOn();
   }
   private async step(owner: string, id: string, index: number, step: WorkflowStep, view: WorkflowView, source: RunSource, chain: readonly string[] = [], limit: string[] | null = null):
     Promise<{ halt: boolean; cursor?: number; patch?: Record<string, unknown> }> {
