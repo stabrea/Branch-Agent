@@ -429,3 +429,18 @@ test("put-back: a record that is not an object at all hides every field, so it a
     assert.notEqual(back.status, 409, `${JSON.stringify(record)} is read as shipped: ${JSON.stringify(back.body)}`);
   }
 });
+
+test("put-back: a guard missing from its place while the record carries a key it should not have asks", async (t) => {
+  const { store, owner, call } = await served(t);
+  const careful = { systemVoice: "on", keepAudioOnThisComputer: true };
+  for (const record of [{ __proto__: null, ["__proto__"]: careful }, { constructor: careful }, { constructor: { prototype: careful } }, { voice: careful }]) {
+    const saved = JSON.parse(JSON.stringify(record));
+    store.save("settings", owner, "voice", saved);
+    const refused = await call("/api/settings-kit/put-back", { key: "voice" });
+    assert.equal(refused.status, 409, `${JSON.stringify(saved)}: ${JSON.stringify(refused.body)}`);
+    assert.deepEqual(store.get("settings", owner, "voice").data, saved, "nothing written without the yes");
+  }
+  // Every key known and the guard simply absent: nothing hidden, so no ask.
+  store.save("settings", owner, "voice", { systemVoice: "bogus" });
+  assert.equal((await call("/api/settings-kit/put-back", { key: "voice" })).status, 200);
+});

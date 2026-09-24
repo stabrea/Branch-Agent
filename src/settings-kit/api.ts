@@ -165,14 +165,19 @@ function putBack(deps: SettingsKitDeps, input: unknown) {
   const whole = typeof stored === "object" && stored !== null && !Array.isArray(stored);
   const hidden = !whole && Boolean(stored);
   const raw = (whole ? stored : {}) as Record<string, unknown>;
+  // A key the record should not have (`__proto__`, `voice`, a misspelling) may be where the owner's value
+  // went, so a field missing from its own place counts as unreadable too.
+  const shippedRecord = spec.shipped?.() ?? {};
+  const strayKey = Object.keys(raw).some((key) => !Object.hasOwn(shippedRecord, key));
   const loosenings: string[] = [];
   for (const field of spec.fields) {
     const rawValue = readPathRaw(raw, field.field);
-    const acceptedValue = hidden ? undefined : acceptValue(field, rawValue);
+    const missing = strayKey && rawValue === undefined;
+    const acceptedValue = hidden || missing ? undefined : acceptValue(field, rawValue);
     const shipped = field.initial as Value;
     // A saved value the field cannot read held the setting closed: putting back asks unless the shipped
     // value is already the most careful one the field can hold.
-    const unreadable = (hidden || (rawValue !== undefined && acceptedValue === undefined))
+    const unreadable = (hidden || missing || (rawValue !== undefined && acceptedValue === undefined))
       && holdable(field).some((value) => loosens(field, value, shipped, spec));
     if (unreadable || (acceptedValue !== undefined && acceptedValue !== shipped && loosens(field, acceptedValue, shipped, spec)))
       loosenings.push(field.label);
