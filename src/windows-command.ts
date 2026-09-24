@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, win32 } from "node:path";
 
 /**
  * How to start an installed program without a shell. On Windows a program installed with npm (Codex, Gemini CLI,
@@ -12,12 +12,17 @@ export interface StartCall { command: string; args: string[] }
 
 const isFile = (path: string): boolean => { try { return statSync(path).isFile(); } catch { return false; } };
 
-/** The launcher's script, as npm writes it: `"%dp0%\node_modules\...\bin\x.js"`. */
+/**
+ * The launcher's script, as npm writes it: `"%dp0%\node_modules\...\bin\x.js"`, beside the launcher. The launcher is
+ * a Windows file, so the script's folders are read the Windows way (`path.win32`), whatever system this is, and then
+ * put under the launcher's own folder as this computer writes it. On Windows that is the address it always was; a
+ * plain join elsewhere would keep the backslashes inside one file name, which is never the script.
+ */
 export function npmScriptOf(launcher: string): string | null {
   let text: string;
   try { text = readFileSync(launcher, "utf8"); } catch { return null; }
   const match = /"%dp0%\\([^"%]+\.(?:c|m)?js)"/i.exec(text);
-  return match ? join(dirname(launcher), match[1]!) : null;
+  return match ? join(dirname(launcher), ...win32.normalize(match[1]!).split(win32.sep)) : null;
 }
 
 export function startCall(command: string, args: string[], env: NodeJS.ProcessEnv = process.env,

@@ -254,11 +254,13 @@ function noteLeftOut(config: LaunchConfig, path: string): LaunchSection[] {
 
 /**
  * The settings loadIntegrations goes on with. With no settings file, the programs installed on this computer are
- * still there to run (dogfood A2, src/integrations/default-shell.ts); null when there is nothing at all to set up.
+ * still there to run (dogfood A2, src/integrations/default-shell.ts), except any in the workspace the launch's tasks
+ * work in; null when there is nothing at all to set up.
  */
 async function readConfig(path: string | undefined, env: NodeJS.ProcessEnv, channels?: ChannelHost): Promise<z.infer<typeof ConfigSchema> | null> {
   if (!path) {
-    const shell = defaultShellConfig(env);
+    const workspace = channels?.context?.('bootstrap').workspace;
+    const shell = defaultShellConfig(env, process.platform, workspace ? [workspace] : []);
     return shell ? ConfigSchema.parse({ shell }) : null;
   }
   const info = await stat(path);
