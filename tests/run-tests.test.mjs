@@ -145,16 +145,16 @@ test("the pick step is a shell script bash can read: nothing inside its quoted n
   assert.equal(check.status, 0, check.stderr);
 });
 
-test("a train's Windows shares leave the browser files to Linux and macOS, and every share still gets a browser", () => {
+test("a train's Windows and macOS shares leave the browser files to Linux, and every share still gets a browser", () => {
   const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
   for (const [legion, macmini] of [[0, 0], [3, 0], [0, 2]]) {
     const { rows } = sharesFor(workflow, legion, macmini, "off");
     for (const row of rows) {
-      if (row.os === "windows") assert.equal(row.groups, "shared,desktop", `${legion}/${macmini}: ${JSON.stringify(row)}`);
-      else assert.equal(row.groups, undefined, `${row.os} still runs every group`);
+      if (row.os === "linux") assert.equal(row.groups, undefined, "Linux still runs every group");
+      else assert.equal(row.groups, "shared,desktop", `${legion}/${macmini}: ${JSON.stringify(row)}`);
     }
-    assert.ok(rows.some((row) => row.os === "linux") && rows.some((row) => row.os === "macos"), "the browser files still run on two systems");
-    assert.ok(sharesFor(workflow, legion, macmini, "on").rows.every((row) => row.groups === undefined), "with screens on, Windows runs every group");
+    assert.ok(rows.some((row) => row.os === "linux" && row.labels === "ubuntu-latest"), "the browser files still run on Linux");
+    assert.ok(sharesFor(workflow, legion, macmini, "on").rows.every((row) => row.groups === undefined), "with screens on, every system runs every group");
   }
   const steps = workflow.jobs.test.steps;
   assert.equal(steps.find((step) => /playwright install/.test(step.run ?? "")).if, undefined, "no share goes without a browser");

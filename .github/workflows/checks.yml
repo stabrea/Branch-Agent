@@ -20,7 +20,7 @@ on:
         options: [auto, 'on', 'off']
         default: auto
       windows_screens:
-        description: Run the browser-screen tests on Windows too (auto does on the trunks and at night, and leaves them to Linux and macOS on trains)
+        description: Run the browser-screen tests on Windows and macOS too (auto does on the trunks and at night, and leaves them to Linux on trains)
         type: choice
         options: [auto, 'on', 'off']
         default: auto
@@ -70,9 +70,9 @@ jobs:
               *) echo 0 ;;
             esac
           }
-          # The browser-screen files are 166 of Windows' 258 machine-minutes, one at a time; Linux and macOS run
-          # every one of them on every run. So a train's Windows shares leave them out (about 10 minutes instead of
-          # 30), and the integration trunk and the nightly run still put all of them through Windows before a release.
+          # The browser-screen files are 166 of Windows' 258 machine-minutes and 71 of macOS' 86, one at a time; Linux
+          # runs every one of them on every run. So a train's Windows and macOS shares leave them out, and the
+          # integration trunk and the nightly run still put all of them through all three systems before a release.
           screens() {
             case "$SCREENS_ASKED" in
               on|off) echo "$SCREENS_ASKED" ;;
@@ -81,7 +81,7 @@ jobs:
           }
           node -e '
             const [legion, macmini, wsl] = process.argv.slice(1, 4).map(Number), screens = process.argv[4], keepOff = process.argv[5], rows = [];
-            const windows = screens === "off" ? { groups: "shared,desktop" } : {};
+            const windows = screens === "off" ? { groups: "shared,desktop" } : {}, mac = windows;
             const add = (os, labels, total, extra = {}) => { for (let shard = 1; shard <= total; shard++) rows.push({ os, labels, shard, total, ...extra }); };
             // One of the owner computers: never the desktop or uninstall tests, which take one hosted share of their own.
             const own = (os, label, idle, hosted, spare, extra = {}) => {
@@ -91,7 +91,8 @@ jobs:
             // With Linux on the Legion PC WSL runners, GitHub machines left over (about 20 at once) take more Windows shares.
             if (legion > 0) own("windows", "branch-legion", legion, "windows-latest", "4,1", windows);
             else add("windows", "windows-latest", wsl > 0 && screens === "off" ? 12 : 10, windows);
-            if (macmini > 0) own("macos", "branch-macmini", macmini, "macos-latest", "4,2"); else add("macos", "macos-latest", 5);
+            if (macmini > 0) own("macos", "branch-macmini", macmini, "macos-latest", "4,2", mac);
+            else add("macos", "macos-latest", screens === "off" ? 2 : 5, mac);
             // Linux goes to the Legion PC WSL runners (label branch-wsl, a separate distro with no Windows drive) only when
             // asked (own_computers: on). Measured on 2026-09-24: four shares there took 25 minutes against 13 to 18 on eight of
             // GitHub machines, and running more files at once there shook out order and timing flakes.
