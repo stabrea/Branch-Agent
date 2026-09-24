@@ -51,12 +51,22 @@ function writePath(data: Record<string, unknown>, field: string, value: Value): 
 /** The value a field accepts, or undefined when the proposal is not one it could hold. */
 export function acceptValue(spec: FieldSpec, value: unknown): Value | undefined {
   const kind = spec.kind;
+  // A number that also takes a word for "no figure of the owner's own" (the round limit's "auto").
+  if (kind.type === "number" && kind.unset !== undefined && value === kind.unset) return kind.unset;
   const schema = kind.type === "switch" ? z.enum(switchPositions)
     : kind.type === "yes-no" ? z.boolean()
       : kind.type === "choice" ? z.enum(kind.options as [string, ...string[]])
         : z.number().int().min(kind.min).max(kind.max);
   const parsed = schema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
+}
+
+/** A number's range, and the word it also takes when it has one (the round limit's "auto"). */
+export type Range = { min: number; max: number; or?: string };
+export function rangeOf(field: FieldSpec): Range | null {
+  const kind = field.kind;
+  if (kind.type !== "number") return null;
+  return { min: kind.min, max: kind.max, ...(kind.unset !== undefined ? { or: kind.unset } : {}) };
 }
 
 /** What the field holds now; an unset or unreadable value counts as its starting value. */

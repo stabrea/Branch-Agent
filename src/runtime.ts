@@ -57,7 +57,7 @@ import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOver
 import { presetRunsLocally } from "./models.js"; // mac7/coding-next
 import { contractHold } from "./self-development-contract.js"; // Q12
 import { nobodyToAskAboutPlan, projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next, mac7/smoke-fixes
-import { codingPreload, batchingInstructions, cannotRunInstructions, fewerRoundsOn, parallelGroups } from "./coding/fewer-rounds.js"; // mac7/speed
+import { codingPreload, batchingInstructions, cannotRunInstructions, fewerRoundsOn, looksLikeCodingWork, parallelGroups } from "./coding/fewer-rounds.js"; // mac7/speed
 import { codeRunSettings } from "./code-run.js"; // mac7/speed
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
@@ -123,6 +123,8 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 // --- R17-S-B: the owner's knobs, read fresh at each marked hook (src/knobs/apply.ts) ---
 import * as knobs from "./knobs/apply.js";
 import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
+import { loadWords, type Words } from "./terminal-words.js"; // the workspace's language, for a stopped task's sentences
+import { lookLanguage, readLook } from "./terminal-theme.js";
 import { produced, producedNothing, thinkingTokens } from "./empty-answer.js"; // mac7/empty-completion
 import { isOutOfRoomThinking } from "./provider-stream.js"; // mac7/coding-gap
 // --- end R17-S-B ---
@@ -1452,7 +1454,7 @@ ${run.output.slice(0, 6000)}`;
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
     await this.guards.opening(run.id); // wave mac2 (guards): an undecided folder is noted for the owner
-    const catalog = this.openCatalog(run, context, messages, shape.groups);
+    const { catalog, coding } = this.openCatalog(run, context, messages, shape.groups);
     // R17-047: with the difficulty card on, a small model's "easy or hard" picks the connection.
     override = await savings.byDifficulty(this, run, context.owner, override, (id, system, question) =>
       this.aside(run, context, { index: 0, reasoning: null, candidates: [this.models.presets.get(id)!] }, [{ role: "system", content: system }, { role: "user", content: question }]));
@@ -1480,9 +1482,11 @@ ${run.output.slice(0, 6000)}`;
     // back (the stall watch still runs) while an outlet filter applies to any connection this round may
     // fall back to, so filtered words never reach the page before the whole answer is filtered. ──
     const namesOf = (preset: ModelPreset | undefined): string[] => preset ? [preset.name, preset.id, preset.model, preset.provider.name] : [];
-    // mac7/speed: the owner's figure, or the launch one (12). A planned task gets more on top.
-    const ceiling = knobs.maxModelRounds(this.store, this.owner, this.reliability);
+    // mac7/speed: the owner's figure, or the launch one (12; 40 for work on the project's files). A planned task gets more on top.
+    const ceiling = knobs.maxModelRounds(this.store, this.owner, this.reliability, coding);
     for (let round = 0; round < conductor.maxRounds(ceiling); round++) {
+      // With no step left for the next question to the model, the task ends as one out of rounds does.
+      if (context.budget.steps >= context.budget.limits.maxSteps) return await this.outOfRounds(run, context, messages, route, context.budget.limits.maxSteps, "steps");
       catalog.nextRound();
       if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
       this.applySteers(run, messages, ids);
@@ -1564,7 +1568,11 @@ ${run.output.slice(0, 6000)}`;
         // exactly as the loop did when a call that threw ended the round where it stood.
         const settled = await Promise.allSettled(group.map((call) => this.oneCall(run, context, call)));
         for (const [at, outcome] of settled.entries()) {
-          if (outcome.status === "rejected") throw outcome.reason;
+          if (outcome.status === "rejected") {
+            // A call that found no step left ends the task with its best answer too, not the budget's bare words.
+            if (outOfSteps(context, outcome.reason)) return await this.outOfRounds(run, context, messages, route, context.budget.limits.maxSteps, "steps");
+            throw outcome.reason;
+          }
           const call = group[at]!, result = outcome.value;
           const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
           messages.push(message); ids.push(null);
@@ -1629,15 +1637,19 @@ ${run.output.slice(0, 6000)}`;
    * more question, with no tools of its own), what actually happened, and that the limit is the
    * owner's to raise. The task is still recorded as having stopped at its limit rather than having
    * finished, because that is what happened.
+   *
+   * A task that has used every step it may take (`by` "steps": each question to the model and each
+   * tool call is one) ends the same way, and the sentences name that limit instead.
    */
-  private async outOfRounds(run: Run, context: ToolContext, messages: Message[], route: ModelRoute, limit: number): Promise<never> {
+  private async outOfRounds(run: Run, context: ToolContext, messages: Message[], route: ModelRoute, limit: number, by: "rounds" | "steps" = "rounds"): Promise<never> {
     const trouble = this.whatItDid(run.id);
     let best = "";
     try {
       best = (await this.lastWord(run, context, route, messages)).trim();
     } catch { /* a task that cannot even be asked still gets the sentences below */ }
-    this.store.event(run.id, "rounds.exhausted", { limit, answered: Boolean(best), trouble });
-    throw new BudgetError([best, roundLimitSentence(limit, trouble)].filter(Boolean).join("\n\n"));
+    this.store.event(run.id, "rounds.exhausted", { limit, by, answered: Boolean(best), trouble });
+    const words = loadWords(lookLanguage(readLook(this.store, this.owner), process.env));
+    throw new BudgetError([best, limitSentence(words, by, limit, trouble)].filter(Boolean).join("\n\n"));
   }
   /**
    * The one last question, asked with no tools.
@@ -2024,9 +2036,10 @@ ${run.output.slice(0, 6000)}`;
   /**
    * Opens the catalog this task will show the model: the toolboxes that are always open, plus a
    * cheap lexical guess at the two or three this request needs, so an ordinary task never has to
-   * spend a round opening one. No model call and no network is involved.
+   * spend a round opening one. No model call and no network is involved. It also says whether this
+   * is work on the project's files, judged the way the coding pre-load judges it (`looksLikeCodingWork`).
    */
-  private openCatalog(run: Run, context: ToolContext, messages: Message[], styleGroups: readonly string[] = []): ToolLoader {
+  private openCatalog(run: Run, context: ToolContext, messages: Message[], styleGroups: readonly string[] = []): { catalog: ToolLoader; coding: boolean } {
     const tools = this.registry.descriptions(context.permissions);
     const available = [...new Set(tools.map((tool) => this.registry.groupOf(tool.name)))];
     const recent = messages.filter((m) => m.role !== "system").slice(-4).map((m) => m.content);
@@ -2065,9 +2078,10 @@ ${run.output.slice(0, 6000)}`;
     });
     this.catalogs.set(run.id, catalog);
     this.toolWork.set(run.id, { searched: [], called: [], failures: new Map(), rounds: 0 });
-    this.store.event(run.id, "catalog.preselected", { guessed, available, tools: tools.length,
+    const coding = looksLikeCodingWork(run.prompt, [...guessed, ...opened]);
+    this.store.event(run.id, "catalog.preselected", { guessed, available, tools: tools.length, coding,
       preloadedFromHistory: catalog.preloadedFromHistory(), ...(opened.length ? { style: opened } : {}) });
-    return catalog;
+    return { catalog, coding };
   }
   /**
    * A server has connected, or a plugin has been switched on, while this task was working. Its
@@ -3455,11 +3469,26 @@ const lastWordRequest =
   + "Using only what you have already found, give the person the best answer you can now: what you did, "
   + "what you found out, and what is still left to do. Be short and plain.";
 
-/** mac7/speed: the plain sentences that follow that answer. Never shown on its own without a reason. */
-function roundLimitSentence(limit: number, trouble: string): string {
-  return `I stopped here: this task went back to the model ${limit} times, which is as many as one task may. `
-    + `${trouble} You can let a task take more rounds in Settings, under Advanced, or ask me to carry on from here.`;
+/**
+ * mac7/speed: the plain sentences that follow that answer. Never shown on its own without a reason.
+ * They are said in the workspace's language and name the limit the task met by its name in Settings.
+ * The round limit is one Branch's own settings tools can change once the owner says yes; the step
+ * limit is only changed in Settings.
+ */
+function limitSentence(words: Words, by: "rounds" | "steps", limit: number, trouble: string): string {
+  if (by === "steps")
+    return words.t("task.stopped.steps", stepLimitWords, { limit, trouble, name: words.t("knobs.field.maxSteps", "Most steps in one task") });
+  return words.t("task.stopped.rounds", roundLimitWords, { limit, trouble, name: words.t("settings-kit.name.round-limit", "Round limit") });
 }
+const roundLimitWords = "I stopped here: this task went back to the model {limit} times, which is as many as one task may. {trouble} "
+  + "That is the \"{name}\" setting: you can let a task take more rounds in Settings, under Advanced, or ask me to raise it and I will, "
+  + "once you say yes. You can also ask me to carry on from here.";
+const stepLimitWords = "I stopped here: this task has taken as many steps as one task may ({limit}). Each question to the model "
+  + "and each tool it uses is one step. {trouble} You can raise \"{name}\" in Settings, under Permissions, or ask me to carry on from here.";
+
+/** Whether a task's call was refused because the task has no step left: the budget only counts past its limit when it refuses. */
+const outOfSteps = (context: ToolContext, error: unknown): boolean =>
+  error instanceof BudgetError && context.budget.steps > context.budget.limits.maxSteps;
 
 /** hardening-3: how long a model on this computer has been waited for in this round, and whether it was tried again. */
 interface LocalFirstReply { started: number; retried: boolean; capMs?: number | undefined }

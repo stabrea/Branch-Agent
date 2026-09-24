@@ -4,7 +4,7 @@ import { chatOwnerOnly, runOrigin, startedFromChat, startedWithShortLivedKey } f
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { settingsCatalogue, specFor, type FieldSpec, type SettingSpec } from "./catalogue.js";
-import { applyWithPins, changesFor, currentValue, type Change, type Proposal, type Writer } from "./changes.js";
+import { applyWithPins, changesFor, currentValue, rangeOf, type Change, type Proposal, type Range, type Writer } from "./changes.js";
 import { pinnedIds } from "./pins.js";
 import type { ChangeOrigin } from "./history.js";
 import { planUndo, undoSettingsChange, whySetting } from "./undo.js"; // Q49
@@ -76,11 +76,11 @@ function ownerIsHere(store: Store, context: ToolContext): boolean {
 }
 
 type Shown = string | number | boolean;
-function choicesOf(field: FieldSpec): Shown[] | { min: number; max: number } {
+function choicesOf(field: FieldSpec): Shown[] | Range {
   if (field.kind.type === "switch") return ["off", "when-needed", "on"];
   if (field.kind.type === "yes-no") return [false, true];
   if (field.kind.type === "choice") return [...field.kind.options];
-  return { min: field.kind.min, max: field.kind.max };
+  return rangeOf(field)!;
 }
 
 /** Which way is the less careful one, in words the model can repeat. */
@@ -92,13 +92,14 @@ function carefulness(field: FieldSpec): string | null {
 
 interface Row {
   setting: string; name: string; label: string; where: string;
-  value: Shown; startsAs: Shown; choices: Shown[] | { min: number; max: number };
-  lessCareful: string | null; pinned: boolean;
+  value: Shown; startsAs: Shown; choices: Shown[] | Range;
+  lessCareful: string | null; pinned: boolean; note?: string;
 }
 function row(store: Store, owner: string, spec: SettingSpec, field: FieldSpec, pinned: Set<string>): Row {
   const id = `${spec.key}.${field.field}`;
   return { setting: id, name: spec.name, label: field.label, where: spec.home, value: currentValue(store, owner, spec, field),
-    startsAs: field.initial, choices: choicesOf(field), lessCareful: carefulness(field), pinned: pinned.has(id) };
+    startsAs: field.initial, choices: choicesOf(field), lessCareful: carefulness(field), pinned: pinned.has(id),
+    ...(field.note ? { note: field.note } : {}) };
 }
 
 const ListSchema = z.object({

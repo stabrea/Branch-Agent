@@ -38,10 +38,14 @@ export const KnobTaskLimitsSettingsSchema = z.object({
   localFirstReplySeconds: z.number().int().min(5).max(1800).nullable().default(null),
   /**
    * mac7/speed: how many times one task may go back to the model before it stops and gives the best
-   * answer it has; null keeps the launch setting (12). A planned task is given more room on top.
+   * answer it has; null keeps the launch setting (12), or `codingModelRounds` for a task that works on
+   * the project's files. A planned task is given more room on top.
    */
   maxModelRounds: z.number().int().min(2).max(60).nullable().default(null),
 }).strict();
+
+/** The rounds a task working on the project's files gets while the owner has set no figure of their own. */
+export const codingModelRounds = 40;
 
 /**
  * R17-S10: what tools and commands may do. `passEnvironment` is security-relevant: only the owner

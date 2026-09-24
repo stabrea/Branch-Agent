@@ -1,6 +1,6 @@
 import type { Store } from "../store.js";
 import { settingsCatalogue, type FieldSpec, type SettingSpec } from "./catalogue.js";
-import { acceptValue, changesFor, currentValue, type Value } from "./changes.js";
+import { acceptValue, changesFor, currentValue, rangeOf, type Range, type Value } from "./changes.js";
 
 /**
  * Q50: a settings request in the owner's own words ("turn the wake word on", "switch off the
@@ -149,7 +149,19 @@ function negatedQuestion(store: Store, owner: string, found: readonly Candidate[
   return `${said} Should ${listed(found.slice(0, 5).map(nameOf))} change, and to what?`;
 }
 
-type Choice = { setting: string; name: string; value: Value };
+type Choice = { setting: string; name: string; value: Value; range?: Range; note?: string };
+
+/** A number's range and note, given with it wherever it is offered; nothing for a switch or a list. */
+function numberFacts(field: FieldSpec): Pick<Choice, "range" | "note"> {
+  const range = rangeOf(field);
+  return range ? { range, ...(field.note ? { note: field.note } : {}) } : {};
+}
+/** The same in words, for the one question the owner is asked. */
+function factsWords(field: FieldSpec): string {
+  const range = rangeOf(field);
+  if (!range) return "";
+  return ` It can be from ${range.min} to ${range.max}${range.or ? `, or ${range.or}` : ""}.${field.note ? ` ${field.note}` : ""}`;
+}
 type Preview = { setting: string; name: string; label: string; from: Value; to: Value; lessCareful: boolean; pinned: boolean };
 export type Clarified =
   | { status: "ask"; question: string; choices: Choice[]; planned: false }
@@ -164,13 +176,13 @@ export function clarifyRequest(store: Store, owner: string, input: { request: st
   const asked = input.value ?? spokenValue(input.request);
   const found = candidatesFor(input.request, asked);
   const choices = (list: readonly Candidate[]): Choice[] => list.slice(0, 20)
-    .map((one) => ({ setting: idOf(one), name: nameOf(one), value: currentValue(store, owner, one.spec, one.field) }));
+    .map((one) => ({ setting: idOf(one), name: nameOf(one), value: currentValue(store, owner, one.spec, one.field), ...numberFacts(one.field) }));
   if (negated(input.request)) return { status: "ask", question: negatedQuestion(store, owner, found), choices: choices(found), planned: false };
   if (found.length !== 1) return { status: "ask", question: questionFor(input.request, found), choices: choices(found), planned: false };
   const [only] = found as [Candidate];
   const setting = idOf(only), now = currentValue(store, owner, only.spec, only.field);
   if (asked === undefined)
-    return { status: "ask", question: `What should "${nameOf(only)}" be? It is ${String(now)} now.`, choices: choices(found), planned: false };
+    return { status: "ask", question: `What should "${nameOf(only)}" be? It is ${String(now)} now.${factsWords(only.field)}`, choices: choices(found), planned: false };
   const to = valueFor(only.field, asked) ?? asked;
   const { changes, refused } = changesFor(store, owner, [{ key: only.spec.key, field: only.field.field, value: to }]);
   if (!changes.length)
