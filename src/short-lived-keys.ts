@@ -160,6 +160,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   // record of what the assistant was allowed to do is a wider window than any one of those
   // searches gives alone, so it stays the owner's the way the workflows and audit routes it reads do.
   /^\/api\/search$/,
+  // Q64: a team's tasks from every source, with who asked, who holds each, questions put to the owner and answers.
+  new RegExp(`^/api/teams/${id}/tasks$`),
 ];
 
 /**

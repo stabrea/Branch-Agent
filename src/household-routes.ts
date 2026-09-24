@@ -199,6 +199,8 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/studies/run"),
     own("/api/teams"),
     own("/api/teams/:id/remove"),
+    own("/api/teams/:id/handoffs/:id/accept"), // Q62: a profile answers a team-task offer addressed to it
+    own("/api/teams/:id/handoffs/:id/reject"),
     own("/api/templates/import"),
     own("/api/todos"),
     own("/api/todos/:id"),
