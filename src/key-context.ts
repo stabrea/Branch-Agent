@@ -131,3 +131,13 @@ export function startedFromChat(context: { source?: string | undefined; runId?: 
 export function chatOwnerOnly(what: string): Error {
   return new Error(`${what} is for the owner only, and a message from a chat app cannot prove who is typing. Do it in the Branch app.`);
 }
+
+/**
+ * Q134: the morning brief is gathered from the owner's own schedules, tasks, documents, watches and memory, and
+ * sent to the owner's chat, so a Trunk (in its turn or in work it set going) or a delegated specialist is refused
+ * every brief tool before anything is gathered or changed, as the to-do list does.
+ */
+const ownersBriefOnly = "The morning brief is the owner's, gathered from their own schedules, tasks, documents and memory, so only the owner's own tasks can read or change it.";
+export function briefOwnerOnly(context: { agent?: string | undefined; trunk?: string | undefined }): void {
+  if (context.agent || context.trunk) throw new Error(ownersBriefOnly);
+}

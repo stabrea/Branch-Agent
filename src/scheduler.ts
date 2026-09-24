@@ -282,15 +282,19 @@ export class Scheduler {
       // A Trunk's routine that cannot run as its Trunk does not run at all, never as the owner.
       if (routed && "refuse" in routed) throw new Error(routed.refuse);
       const route = routed;
+      const madeBy = !route && typeof data.startedBy === "string" ? data.startedBy : undefined;
       const work = async (): Promise<Run> => data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
         prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[],
         source: data.fromChat === true ? "channel" : "schedule", ...route?.options,
+        // A schedule a Trunk made is built as that Trunk's task, as its routines are: its instructions and
+        // memory scope, and its permissions as they are now, never more than the schedule was given.
+        ...(madeBy ? { trunkId: madeBy } : {}),
         onStarted: (started) => { entry.runId = started.id; if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late }); },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       // Q118: a schedule a Trunk made (not one of its routines, which run as it already) runs as that Trunk,
       // and not at all once the Trunk is gone.
-      const run = !route && typeof data.startedBy === "string" ? await this.runtime.asTrunkWork(data.startedBy, work) : await work();
+      const run = madeBy ? await this.runtime.asTrunkWork(madeBy, work) : await work();
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
       route?.finished(run); // R17-A (Trunks)
       this.runtime.notifyEvent("schedule.fired", { scheduleId: record.id, runId: run.id, status: run.status, trigger });
@@ -439,14 +443,27 @@ export class Scheduler {
   remove(context: ToolContext, id: string): { id: string; removed: boolean } {
     if (!context.permissions.has("schedules.manage"))
       throw new Error("Permission denied: schedules.manage");
-    if (!this.store.get("schedules", context.owner, id)) return { id, removed: false };
+    const record = this.store.get("schedules", context.owner, id);
+    if (!record || !this.visibleTo(context, record)) return { id, removed: false };
     return { id, removed: this.store.delete("schedules", context.owner, id) };
+  }
+  /** The schedules the caller may see: all of them for the owner, and only its own for a Trunk. */
+  list(context: ToolContext): SavedRecord[] {
+    return this.store.list("schedules", context.owner).filter((record) => this.visibleTo(context, record));
+  }
+  /**
+   * The owner sees and changes every schedule; a Trunk only the ones it made, taken the same way
+   * `create` records it. Any other schedule gets the same answer as one that does not exist.
+   */
+  private visibleTo(context: ToolContext, record: SavedRecord): boolean {
+    const trunk = context.trunk ?? this.runtime.trunkAtWork();
+    return !trunk || record.data.startedBy === trunk;
   }
   setPaused(context: ToolContext, id: string, paused: boolean): SavedRecord {
     if (!context.permissions.has("schedules.manage"))
       throw new Error("Permission denied: schedules.manage");
     const record = this.store.get("schedules", context.owner, id);
-    if (!record || !["pending", "paused"].includes(String(record.data.status)))
+    if (!record || !this.visibleTo(context, record) || !["pending", "paused"].includes(String(record.data.status)))
       throw new Error(
         "Only pending or paused schedules may be paused or resumed",
       );
@@ -520,7 +537,7 @@ export function registerSchedules(
     description: "List owner schedules and their durable execution status.",
     permission: "schedules.read",
     parameters: z.object({}).strict(),
-    execute: async (_a, c) => scheduler.store.list("schedules", c.owner)
+    execute: async (_a, c) => scheduler.list(c)
       .map((record) => ({ ...record, health: scheduleHealth(record.data) })),
   });
 }

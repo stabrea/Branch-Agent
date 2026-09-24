@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { clip, partSettings, personalMode, requirePersonal, savePartSettings } from "./settings.js";
+import { briefOwnerOnly } from "../key-context.js";
 
 /**
  * R17-025: a daily briefing read aloud, built from what the owner has connected: today's events and
@@ -101,13 +102,15 @@ export class SpokenBrief {
 export function registerSpokenBrief(registry: Pick<ToolRegistry, "register">, brief: SpokenBrief): void {
   registry.register({ name: "brief.spoken", permission: "personal.read",
     description: "Make the owner's daily briefing from their connected calendars and mail and the morning brief, and read it aloud.",
-    parameters: z.object({}).strict(), execute: async () => {
+    parameters: z.object({}).strict(), execute: async (_input, context) => {
+      briefOwnerOnly(context); // Q134: it carries the owner's morning brief
       const { text, audio } = await brief.run({});
       return { text, spokenBytes: audio.bytes.byteLength };
     } });
   registry.register({ name: "brief.send_voice", permission: "channels.send",
     description: "Make the owner's daily briefing, read it aloud, and send it to one linked chat as a voice note.",
-    parameters: SpokenBriefSchema, execute: async (input) => {
+    parameters: SpokenBriefSchema, execute: async (input, context) => {
+      briefOwnerOnly(context); // Q134
       const { text, sentTo } = await brief.run(input);
       return { text, sentTo };
     } });
