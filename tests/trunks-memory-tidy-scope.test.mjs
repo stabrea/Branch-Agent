@@ -251,3 +251,46 @@ test("facts found alike by meaning are grouped within one person's facts, never 
   assert.ok(!groups.some((ids) => ids.includes("owner-bank") && ids.some((id) => id.startsWith("ada-"))), JSON.stringify(groups));
   assert.ok(groups.some((ids) => ids.includes("ada-card") && ids.includes("ada-card-2")), "Ada's two are still found alike");
 });
+
+test("a merge whose other fact is gone by the time the owner accepts it is refused, so that fact's words land nowhere", async (t) => {
+  const { app, ada } = await seeded(t);
+  const scope = `agent:trunk:${ada.id}`;
+  app.store.save("memory", "local", "owner-wifi", { text: "The wifi password is hunter2 pin 4417", source: "seed" });
+  app.store.save("memory", "local", "ada-wifi", { text: "The wifi password is hunter2", source: "seed", scope });
+  const stale = app.store.review.propose("local", { kind: "merge", memoryId: "ada-wifi", memoryIds: ["owner-wifi"],
+    text: "The wifi password is hunter2 pin 4417", source: "Suggested while tidying memory" });
+  // The owner's fact goes first: deleted here, and "forget this conversation" or the expiry sweep do the same.
+  assert.equal(await app.registry.execute("memory.delete", { id: "owner-wifi" }, app.runtime.context()), true);
+  await assert.rejects(() => app.store.review.decide("local", stale.id, true), /is gone/);
+  assert.equal(app.store.get("memory", "local", "ada-wifi")?.data.text, "The wifi password is hunter2", "Ada's fact keeps her own words");
+});
+
+test("the look back is shown only the owner's own facts, so what it merges or corrects is never a Trunk's", async (t) => {
+  const { app, ada } = await seeded(t);
+  const { lookBack } = await import("../dist/reflection/pass.js");
+  app.store.save("memory", "local", "owner-wifi", { text: "The wifi password is hunter2 pin 4417", source: "seed" });
+  // A real turn of the owner's to look back over.
+  const run = await app.runtime.run({ prompt: "Remind me about the wifi.", onTextDelta: () => undefined });
+  let asked = "";
+  // A model that tries anyway: merge Ada's two facts with the owner's words, and correct one of them.
+  const ask = async (_instructions, question) => {
+    asked = question;
+    return JSON.stringify({ remember: [], correct: [{ id: "Ada-dup-1", text: "pin 4417", why: "x" }], setAside: [], skillNotes: [], newSkills: [],
+      merge: [{ keep: "Ada-dup-1", others: ["Ada-dup-2"], text: "Ada's secret plan, and the wifi pin 4417", why: "x" }] });
+  };
+  await lookBack(app.store, { owner: "local", sessionId: run.sessionId, runId: run.id, trigger: "asked", ask });
+  assert.match(asked, /pin 4417/, "the owner's own fact is shown");
+  assert.doesNotMatch(asked, /Ada|Bo |shared-fact|office opens/, "no Trunk's fact and no shared one is shown");
+  const touched = app.store.review.proposals("local", "pending").filter((p) => p.memoryId?.startsWith("Ada") || p.memoryIds.some((id) => id.startsWith("Ada")));
+  assert.deepEqual(touched, [], "nothing is staged against Ada's facts");
+  assert.equal(app.store.get("memory", "local", "Ada-dup-1").data.text, "Ada's secret plan is to ship the rocket on Friday");
+});
+
+test("the owner's tidy never groups two Trunks' facts together, nor a private fact with a shared one", async (t) => {
+  const { app } = await seeded(t);
+  app.store.save("memory", "local", "owner-office", { text: "The office opens at nine every morning!", source: "seed" });
+  const report = await app.runtime.executeTool("memory.tidy", {});
+  const groups = report.duplicates.map((group) => [group.keep, ...group.drop]);
+  assert.ok(!groups.some((ids) => ids.some((id) => id.startsWith("Ada")) && ids.some((id) => id.startsWith("Bo"))), JSON.stringify(groups));
+  assert.ok(!groups.some((ids) => ids.includes("owner-office") && ids.includes("shared-fact")), "private and shared stay apart");
+});

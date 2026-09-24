@@ -64,8 +64,13 @@ export function turnsDue(store: Store, owner: string, sessionId: string): boolea
   return ownerTurns(turnsOf(store, sessionId)) - cursor.turns >= reflectionSettings(store, owner).everyTurns;
 }
 
+/**
+ * The facts the look back is shown, and so the only ones it may merge or correct: the owner's own private ones. It
+ * writes words of its own choosing onto a fact it keeps, so a Trunk's or a shared fact could have been given the
+ * owner's words (NAS ea14643, c4840ce).
+ */
 function whatIsKnown(store: Store, owner: string): { memory: string; skills: string; memoryIds: Set<string>; skillIds: Set<string> } {
-  const facts = store.list("memory", owner).slice(0, 60);
+  const facts = store.list("memory", owner).filter((fact) => (fact.data.scope ?? "private") === "private").slice(0, 60);
   const skills = store.skills.list(owner).filter((skill) => skill.activeVersion !== null);
   return {
     memory: facts.map((fact) => `[${fact.id}] ${String(fact.data.text ?? "").replace(/\s+/g, " ").slice(0, 300)}`).join("\n") || "(nothing yet)",

@@ -217,8 +217,12 @@ export class MemoryReview {
       // the owner says yes, because a suggestion may have been made before tidying knew that, or by the look back,
       // which groups what the model saw (Mac mini 5c2e4f6, NAS ea14643).
       const whose = (data: Record<string, unknown>): string => String(data.scope ?? "private");
-      const others = proposal.memoryIds.map((id) => this.memories.get(owner, id)).filter((record) => record !== undefined);
-      if (others.some((record) => whose(record.data) !== whose(current.data)))
+      // A fact named in the merge that is gone by now (deleted, forgotten, expired) still has its words in the merged
+      // text, and whose they were can no longer be told, so the merge is refused (NAS c4840ce).
+      const others = proposal.memoryIds.filter((id) => id !== current.id).map((id) => this.memories.get(owner, id));
+      if (others.some((record) => record === undefined))
+        throw new Error("A fact this merge names is gone, so it is not merged. Suggest tidying again.");
+      if (others.some((record) => whose(record!.data) !== whose(current.data)))
         throw new Error("These facts belong to different people, so they are not merged. Each stays as it is.");
       this.memories.save(owner, current.id, { ...current.data, text: proposal.text, source: proposal.source || String(current.data.source) });
     }
