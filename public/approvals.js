@@ -97,7 +97,7 @@ function renderWaiting() {
       if (question.onceOnly && remember !== "never") continue;
       const button = el("button", label);
       button.type = "button";
-      button.addEventListener("click", () => void answer(question.sessionId, "allow", remember, question.fingerprint));
+      button.addEventListener("click", () => void answer(question.sessionId, "allow", remember, question.fingerprint, question.source));
       item.append(button);
     }
     const no = el("button", "No", "danger");
@@ -126,10 +126,12 @@ function filesBlock(question, tone) {
   return box;
 }
 
-async function answer(sessionId, decision, remember, fingerprint) {
+async function answer(sessionId, decision, remember, fingerprint, source) {
   try {
-    await api("policy/approve", { sessionId, decision, remember, ...(fingerprint ? { fingerprint } : {}) });
-    status(decision === "allow" ? "Noted. Send your next message in that conversation to carry on." : "Noted. It will not do that.");
+    await api("policy/approve", { sessionId, decision, remember, ...(fingerprint ? { fingerprint } : {}), carryOn: true });
+    // Dogfood A6: a yes to the owner's own task carries it on by itself (src/server.ts, settleAsked).
+    status(decision !== "allow" ? "Noted. It will not do that."
+      : source === "owner" ? "Noted. It carries on in its conversation." : "Noted. Send your next message in that conversation to carry on.");
     await render();
   } catch (e) {
     status(e.message);

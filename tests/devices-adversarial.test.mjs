@@ -267,14 +267,18 @@ test("a yes to the camera, the screen, the microphone or a command is offered fo
   const asked = app.store.events(first.id).filter((e) => e.kind === "policy.ask");
   assert.equal(asked.at(-1).data.remember, "never", "the question offers this one call");
   app.runtime.approve(first.sessionId, "allow", asked.at(-1).data.remember);
-  const second = await app.runtime.run({ prompt: "and another", sessionId: first.sessionId });
-  assert.equal(second.status, "needs_input", "the next photo asks again");
-  assert.equal(sent.length, 0, "nothing reached the device");
+  // Dogfood A6: "just this once" is that one photo: the task carrying on takes it, and the next one asks again.
+  const second = await app.runtime.run({ prompt: "take it", sessionId: first.sessionId });
+  assert.equal(second.status, "completed", "the photo the yes was for is taken");
+  assert.equal(sent.length, 1, "once");
+  const next = await app.runtime.run({ prompt: "and another", sessionId: first.sessionId });
+  assert.equal(next.status, "needs_input", "the next photo asks again");
+  assert.equal(sent.length, 1, "nothing more reached the device");
   // Only if the owner picks "for this conversation" does the next one go ahead.
   app.runtime.approve(first.sessionId, "allow", "session");
   const third = await app.runtime.run({ prompt: "one more", sessionId: first.sessionId });
   assert.equal(third.status, "completed");
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 2);
 });
 
 test("the phone checks a page's address itself, whatever Branch sent", async () => {

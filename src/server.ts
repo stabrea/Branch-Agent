@@ -909,6 +909,27 @@ function toolInventory(app: Branch) {
  * and it can be continued. Read with store.waitingRuns, as the Activity list reads its waiting tasks, so the two lists
  * agree and a question stays listed however much other work finishes after it.
  */
+/** What a yes to the owner's own waiting task says in the conversation, as if the owner had typed it. */
+export const carryOnWords = "Yes, go ahead.";
+/**
+ * Dogfood A6/B6: an answer settles the task that stopped to ask. A task stops on its question, so a yes alone
+ * carried nothing on, and the task went on waiting in the banner. Now a yes to the owner's own task, given in the
+ * owner's window, carries it on in that conversation as pressing Send would; any other answer (a no, or a yes to a
+ * chat's or a schedule's task, which carries on from where it came) ends its wait. A task with another question
+ * still waiting is left for that one.
+ */
+function settleAsked(app: Branch, asked: { runId: string; sessionId: string; source: string }, decision: "allow" | "deny"): void {
+  const run = app.store.run(asked.runId);
+  if (!run || run.status !== "needs_input" || app.runtime.approvals.waiting(asked.sessionId).length) return;
+  if (decision === "allow" && asked.source === "owner" && !startedWithShortLivedKey()) {
+    void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined }).catch(() => {
+      // The conversation could not carry on (it is busy, say): it waits for the owner's next message instead.
+      if (app.store.run(run.id)?.status === "needs_input") app.store.finish(run.id, "completed", run.output);
+    });
+    return;
+  }
+  app.store.finish(run.id, decision === "allow" ? "completed" : "cancelled", run.output);
+}
 function attention(app: Branch) {
   type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; canContinue?: true; who?: string; room?: string; open?: string };
   return app.store.waitingRuns(app.runtime.owner).map((run): Waiting => {
@@ -1746,7 +1767,10 @@ async function api(
       // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
       fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional(),
       // mac7/r17-g: the six-digit code from the owner's authenticator app, for a yes that needs one.
-      code: z.string().max(12).optional() }).strict().parse(await readBody(request));
+      code: z.string().max(12).optional(),
+      // Dogfood A6/B6: the window's own cards ask for the task to be settled (carried on, or its wait ended).
+      // Scripts, the terminal and phones send their next message themselves, as before.
+      carryOn: z.boolean().optional() }).strict().parse(await readBody(request));
     // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
     if (input.remember === "always" && startedWithShortLivedKey())
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
@@ -1763,7 +1787,9 @@ async function api(
     // mac7/r17-g: a code typed with the answer is checked first; a wrong one is said plainly.
     if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
       throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
-    return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
+    const answered = app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
+    if (asked && input.carryOn) settleAsked(app, asked, input.decision);
+    return answered;
   }
   if (request.method === "GET" && path === "/api/governance")
     return { settings: app.store.governance.settings(), setAside: app.store.governance.exclusions(), benchmarks: app.store.governance.benchmarks() };

@@ -312,7 +312,17 @@ export class ApprovalGate {
     // The question itself carries the mark, so two conversations stopped on the same request are
     // each held to it, however many other requests were advised against since.
     const fingerprint = question.fingerprint;
-    if (!question.onceOnly || !fingerprint) return;
+    if (!fingerprint) return;
+    if (!question.onceOnly) {
+      // Dogfood A6: "Yes, just now" to an ordinary question kept nothing, and a task stops on its question, so the
+      // yes was lost when it carried on. It is now one pass for these exact bytes in this conversation, used by the
+      // next attempt (reviewCall), as a once-only question's yes already is.
+      if (decision === "allow" && remember === "never") {
+        if (this.overrules.size >= 500) this.overrules.delete(this.overrules.values().next().value!);
+        this.overrules.add(`${sessionId}\u0000${fingerprint}`);
+      }
+      return;
+    }
     if (decision === "allow" && remember !== "never") {
       const held = this.heldOnce.get(fingerprint);
       throw new Error(held && !this.advisedAgainst.has(fingerprint) ? `${held}. Choose "Yes, just now" to go ahead.` : onceOnlyRefusal);
