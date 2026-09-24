@@ -6,13 +6,64 @@ import type {
   ToolTarget,
 } from "./contracts.js";
 import { policyTarget } from "./policy.js";
+import { isCommandTool } from "./policy-resources.js";
 import { resourceOf, type PolicyResource } from "./policy-resources.js";
 import { inferToolGroup, slimTool } from "./catalog.js";
 import { underTask } from "./task-scope.js"; // household-followups
 import { reachOf, type ToolReach } from "./tool-reach.js"; // Q59
 
+/** Tools `policyTarget` reads a target for by name rather than from a `url` or `path`. */
+const targetedByName: ReadonlySet<string> = new Set(["shell.execute", "shell.session.run", "shell.session.open"]);
+/**
+ * Tools that genuinely touch nothing the rules judge, though an argument's name suggests a place. Each
+ * costs a sentence saying why. tests/tool-targets.test.mjs holds every other such tool to declaring a
+ * target; Q76 lets only these, and tools that take no arguments at all, keep "Yes, always" on no target.
+ */
+export const targetlessTools: Readonly<Record<string, string>> = {
+  "history.meaning": "`from` and `to` are dates bounding a search of conversations already kept, not places.",
+  "learning.journey": "`from` and `to` are dates bounding a timeline, not places.",
+  "memory.find": "`from` and `to` are dates bounding a search of facts already kept, not places.",
+  "memory.put": "`source` is where a fact came from, written for a person to read; `project` is a name, not a folder.",
+  "memory.update": "`source` is where a fact came from, written for a person to read, not a place to read from.",
+  "projects.notes": "`project` is a project's name. The project's folder is judged when something opens it.",
+  "labels.add": "`target` is a kind — conversation, procedure or document — beside `targetId`. Neither is a path.",
+  "labels.list": "`target` is a kind, not a path.",
+  "labels.remove": "`target` is a kind, not a path.",
+  "knowledge.search": "`filter.files` narrows results inside a knowledge base already built; nothing is read from disk.",
+  "context.read": "`file` is one of eight fixed instruction files by name, not a path the caller chooses.",
+  "procedures.propose": "Proposing only saves the recipe. `preconditions[].path` is read later, by files.verify, when the recipe is verified or replayed.",
+  "specialists.propose": "Proposing only saves the specialist. `evaluation.checks[].path` is read later, by files.verify, when it is evaluated.",
+  "specialists.delegate": "`checks.files` is what the specialist's answer must account for. Every tool the specialist itself runs is judged on its own, with fewer permissions.",
+};
+/**
+ * Q76: a target a kept rule would read as a pattern, so a standing yes on it would cover far more than
+ * this call. Rules match with `*` only (`?` and `[` are literal), even when written %2A. A command
+ * tool keeps a starred command as one exact command (policy.ts standingRule), so for those only a
+ * bare `*` is a pattern; remote.run's computer part stays a pattern, so any `*` there is one.
+ */
+export const patternTarget = (target: string, tool = ""): boolean => {
+  let read = target;
+  try { read = decodeURIComponent(target); } catch { /* not encoded: judged as written */ }
+  if (tool === "remote.run") {
+    // "computer: command": standingRule keeps the computer part as a pattern, and the command as above.
+    const at = read.indexOf(": ");
+    return (at < 0 ? read : read.slice(0, at)).includes("*") || (at >= 0 && read.slice(at + 2).trim() === "*");
+  }
+  if (isCommandTool(tool)) return read.trim() === "*";
+  return read.includes("*");
+};
+/** Q76: a JSON schema that accepts only `{}`: nothing listed, nothing else allowed, nothing composed. */
+function closedEmptySchema(schema: Record<string, unknown> | undefined): boolean {
+  if (!schema || schema.type !== "object" || schema.additionalProperties !== false) return false;
+  const opens = ["patternProperties", "anyOf", "oneOf", "allOf", "$ref", "if", "dependentSchemas", "unevaluatedProperties"];
+  return Object.keys((schema.properties as Record<string, unknown> | undefined) ?? {}).length === 0 && !opens.some((key) => key in schema);
+}
+/** Q76: a target of only spaces or invisible characters (a zero-width space, a joiner) names nothing. */
+export const blankTarget = (target: string): boolean => !target.replace(/[\p{Cf}\s]/gu, "");
+
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
+
   private readonly runFinished = new Set<(context: ToolContext) => Promise<void>>();
   /**
    * Integration (hardening-3): the folder of the workspace a tool's paths are read inside right now
@@ -105,6 +156,25 @@ export class ToolRegistry {
   declaresTarget(name: string): { target: boolean; targets: boolean } {
     const tool = this.tools.get(name);
     return { target: typeof tool?.target === "function", targets: typeof tool?.targets === "function" };
+  }
+  /**
+   * Q76: whether a call gets no standing yes. A target that is itself a pattern never does: the rule
+   * would cover everything. A call with no target keeps one only when its tool takes no arguments at
+   * all, or is on `targetlessTools`; any other tool (a plugin's, an outside server's, one whose
+   * arguments cannot be read) could have named where it reaches, so a rule on "*" would cover it all.
+   */
+  noStandingTarget(name: string, target: string): boolean {
+    if (patternTarget(target, name)) return true;
+    if (!blankTarget(target)) return false;
+    const tool = this.tools.get(name);
+    if (!tool || tool.target || tool.targets || targetedByName.has(name)) return true;
+    const shape = (tool.parameters as { shape?: Record<string, unknown> }).shape;
+    if (shape && Object.keys(shape).length === 0) return false;
+    // An outside server's tool takes nothing only when its JSON schema closes every door: an object
+    // with no properties and no others allowed. Anything else can carry a recipient under any name.
+    // A lent tool's schema is only the lender's word: nothing checks a call against it (MCP's Ajv does).
+    if (!shape && tool.group !== "client" && closedEmptySchema(tool.inputSchema)) return false;
+    return !Object.hasOwn(targetlessTools, name);
   }
   /** Every registered tool with its permission, for the capability inventory. */
   inventory(): { name: string; permission: string; description: string }[] {
@@ -255,6 +325,13 @@ export class ToolRegistry {
   afterTool?: (name: string, args: unknown, result: unknown, context: ToolContext) => Promise<unknown>;
   /** mac7/r17-d (src/coding/large-output.ts): a replacement for an answer over 64 KiB, or undefined to refuse it. */
   oversized?: (name: string, result: unknown, context: ToolContext) => unknown;
+  /**
+   * FQ-execution.browser: judges one step a tool takes on its own (a `browser.flow` click) as if the
+   * model had called `tool` itself, with `target` when the step's target is not the one `targetOf`
+   * would read right now. Throws `PolicyRefusedError` or `ApprovalRequiredError`. Set by the app;
+   * a bare registry judges no call at all, so it judges no step either.
+   */
+  judgeStep?: (tool: string, args: unknown, context: ToolContext, target?: string) => void;
 }
 
 /**

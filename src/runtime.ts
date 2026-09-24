@@ -41,7 +41,7 @@ import type {
   ToolTarget,
 } from "./contracts.js";
 import type { Store } from "./store.js";
-import type { ToolRegistry } from "./registry.js";
+import { blankTarget, type ToolRegistry } from "./registry.js";
 import { RunArtifacts } from "./artifacts.js";
 import type { WebhookNotifier } from "./webhooks.js";
 import type { HookDecision } from "./hooks.js";
@@ -190,6 +190,15 @@ export interface FollowUp { id: string; prompt: string; createdAt: string; short
 export const scriptAskFirstHold = "In Ask first, every script is asked about on its own";
 /** Q59: Ask first and Plan keep no standing yes, so "Yes, always" is not an answer there (src/approvals.ts `noStanding`). */
 export const noStandingRefusal = "Ask first and Plan first never keep a yes for good. Answer it just now, or for this conversation.";
+/** FQ-execution.browser: the answer to "always" for a call that named nothing a rule could be kept for. */
+export const unkeyedAlwaysRefusal = "This request does not say what it is targeting, so a standing yes would cover every "
+  + "request of its kind. Answer it for this conversation or just this once instead";
+/**
+ * FQ-execution.browser: tools whose answers are kept for the websites they declare. One of their calls
+ * that named none is answered only by a yes for the same bytes; which calls get no standing yes at all
+ * is the registry's `noStandingTarget` (Q76).
+ */
+const keyedOnDeclaredTargets: ReadonlySet<string> = new Set(["browser.flow"]);
 export interface FollowUpCarry { originFrom?: string | undefined; permissions?: readonly string[] | null | undefined }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
@@ -739,6 +748,27 @@ export class Runtime {
     } catch (error) {
       const kind = error instanceof ApprovalRequiredError ? "policy.ask" : "policy.denied";
       this.store.event(runId, kind, { name, manual: true, reason: this.hideSecrets(errorText(error)) });
+      throw error;
+    }
+  }
+  /**
+   * FQ-execution.browser (`ToolRegistry.judgeStep`): one step a tool takes on its own, judged exactly
+   * as the model calling `tool` would be — the same rules, the same kept yeses, bound to the step's
+   * own bytes — at `target` when the step says where it will be. A refusal or a question is thrown.
+   */
+  judgeStep(tool: string, args: unknown, context: ToolContext, target?: string): void {
+    const at = target === undefined ? undefined : { target };
+    const host = { store: this.store, owner: this.owner, guards: this.guards,
+      checkPolicy: (name: string, sent: unknown, c: ToolContext, fingerprint?: string) => this.checkPolicy(name, sent, c, fingerprint, at),
+      permissionOf: (name: string) => this.permissionOf(name),
+      wallFor: (name: string, sent: unknown, c: ToolContext, choice: PolicyCheck["sandbox"]) => this.wallFor(name, sent, c, choice) };
+    try {
+      gateToolUse(host, tool, args, context, argumentFingerprint(JSON.stringify(args ?? {})));
+    } catch (error) {
+      const kind = error instanceof ApprovalRequiredError ? "policy.ask" : "policy.denied";
+      // Written on the task's record; a call run with no task behind it has no record to write on.
+      if (this.store.run(context.runId))
+        this.store.event(context.runId, kind, { name: tool, step: true, ...(target ? { target } : {}), reason: this.hideSecrets(errorText(error)) });
       throw error;
     }
   }
@@ -2490,12 +2520,13 @@ ${run.output.slice(0, 6000)}`;
    * account. The same reckoning a model's turn goes through, for the places that are not one: a
    * saved workflow's tool step, and every step of a procedure being replayed.
    */
-  checkPolicy(tool: string, sent: unknown, context: ToolContext, fingerprint?: string): PolicyCheck {
+  checkPolicy(tool: string, sent: unknown, context: ToolContext, fingerprint?: string, at?: { target: string }): PolicyCheck {
     // hardening-3: judged as the tool will run it (the same schema, the same names), whatever the caller passed.
     const args = this.registry.runArgs(tool, sent);
     const permission = this.registry.permissionOf(tool);
     const readOnly = isReadOnlyPermission(permission);
-    const target = this.registry.targetOf(tool, args, context);
+    // FQ-execution.browser: a step judged ahead of the steps before it says where it will be (`judgeStep`).
+    const target = at?.target ?? this.registry.targetOf(tool, args, context);
     const label = describeToolCall(tool, args);
     const source: RunSource = this.sourceOf(context); // mac7/outside-resume
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the
@@ -2549,14 +2580,17 @@ ${run.output.slice(0, 6000)}`;
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
     // A once-only question is never answered by a kept yes (R17-S-C integration review).
+    // FQ-execution.browser: a browser.flow on no website is only answered by a yes given for these very
+    // bytes: its kept answer names nothing else to tell two such flows apart.
+    const unkeyed = this.unkeyed(tool, target);
     const answered = decision === "ask" && !hold?.onceOnly
-      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact) : undefined;
+      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact || unkeyed) : undefined;
     // Q50: a change to Branch's own settings is asked about with its exact before and after.
     const preview = settingsPreview(this.store, tool, args, context);
     const shown = preview ? `${label}: ${preview}` : label;
     const noted = extra.note ? `${shown} — ${extra.note}` : shown; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
-      remember: hold?.onceOnly ? "never" : extra.exact ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
+      remember: hold?.onceOnly ? "never" : extra.exact || this.registry.noStandingTarget(tool, target) ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
   }
   /**
@@ -2645,6 +2679,12 @@ ${run.output.slice(0, 6000)}`;
   }
   private readonly taskPeople = new Map<string, string | null>();
   /**
+   * FQ-execution.browser: a `browser.flow` on no website is answered only by a yes for the same bytes.
+   */
+  private unkeyed(tool: string, target: string): boolean {
+    return blankTarget(target) && keyedOnDeclaredTargets.has(tool);
+  }
+  /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved
    * workflow's step). "always" also writes it into the policy as a rule, exactly as answering a
    * paused task does, and the same row goes into the record of what was allowed.
@@ -2658,6 +2698,7 @@ ${run.output.slice(0, 6000)}`;
   ): void {
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    if (remember === "always" && this.registry.noStandingTarget(about.tool, about.target)) throw new Error(unkeyedAlwaysRefusal);
     // Integration review (mac7/coding-next): a workflow or flow carried on past "Let Branch run this
     // project's tests?" is held to the same rules as the question card: Always is the owner's alone,
     // and a plain yes is a single pass for the next run of the tests.
@@ -2850,8 +2891,9 @@ ${run.output.slice(0, 6000)}`;
     // Q59: Ask first and Plan read no standing yes, so their questions offer none (src/approvals.ts).
     const mode = about.kind ? null : this.heldConversationMode(readPolicy(this.store, this.owner), context.runId);
     const noStanding = mode === "ask" || mode === "plan" ? { noStanding: true } : {};
+    const noAlways = this.registry.noStandingTarget(about.tool, target) ? { noAlways: true } : {}; // Q76
     const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
-      label, question, source, remember, askedAt: new Date().toISOString(), ...files, ...noStanding,
+      label, question, source, remember, askedAt: new Date().toISOString(), ...files, ...noStanding, ...noAlways,
       ...(about.sandbox ? { sandbox: about.sandbox } : {}),
       ...(about.kind ? { kind: about.kind } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
@@ -2860,7 +2902,7 @@ ${run.output.slice(0, 6000)}`;
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "", ...files, ...noStanding,
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "", ...files, ...noStanding, ...noAlways,
       ...(about.kind ? { kind: about.kind } : {}) });
     throw new NeedsInputError(question);
   }
@@ -2913,6 +2955,8 @@ ${run.output.slice(0, 6000)}`;
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     if (remember === "always" && waiting.noStanding) throw new Error(noStandingRefusal); // Q59
+    // FQ-execution.browser: checked before anything is kept, so a refused "always" leaves the question waiting.
+    if (remember === "always" && this.registry.noStandingTarget(waiting.tool, waiting.target)) throw new Error(unkeyedAlwaysRefusal);
     // An answer that names a request must land on that request and no other. The only way to get
     // here having named one is through the fall-back above, which means nothing waiting carries
     // that name — including a question that carries no name at all, which an answer naming one was

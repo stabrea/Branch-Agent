@@ -483,6 +483,8 @@ export async function createBranch(options: {
   const decisions = new JevDecisions(store, runtime.owner, options.jev?.runner);
   registerJevDecisions(registry, decisions);
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
+  // FQ-execution.browser: a tool's own steps (a browser.flow click) are judged as the tool they stand for.
+  registry.judgeStep = (tool, args, context, target) => runtime.judgeStep(tool, args, context, target);
   // mac7/walk-rules: a task's folder walks are held to its rules for every file and folder (src/walk-rules.ts).
   files.walkRules = (outside) => {
     const runId = currentTaskRun(), tool = currentTool();

@@ -16,6 +16,7 @@ import { SiteSkills, applyQuirks, type QuirksApplied } from './browser-sites.js'
 import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, saveAttachSettings, type AttachedBrowser } from './browser-attach.js';
 import { clearPasswordValues, startRecording } from './browser-trace.js';
 import { registerPageNotes } from './browser-notes-tool.js'; // w911 (A2144)
+import { registerBrowserFlow } from './browser-flow.js'; // FQ-execution.browser
 import type { MarkChecks } from './browser-heal.js'; // w911 (A2144)
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
@@ -194,15 +195,24 @@ export class BranchBrowser {
         ...(events.downloads.length ? { downloads: events.downloads } : {}) };
     } finally { if (context.signal.aborted) await this.closeRun(context); }
   }
-  async navigate(url: string, context: ToolContext) {
+  /**
+   * Whether this window may open `url` at all — the website list, no password in the address, and
+   * the shared network policy — checked without touching the page. `navigate` asks before every
+   * page it opens; `browser.flow` asks for every page of a journey before the first step runs.
+   */
+  async checkAddress(url: string, context: ToolContext): Promise<void> {
     const known = this.sessions.get(this.key(context));
     // Something that is not an address at all is refused in the same plain words as an address on
     // no list: `allowed` answers false for it, so the reason never becomes the URL parser's own.
     if (!this.allowed(url, known)) throw new Error('Browser destination is not an allowed origin');
-    const target = new URL(url), origin = target.origin;
+    const target = new URL(url);
     if (target.username || target.password) throw new Error('Browser destination is not an allowed origin');
     // w911 (A1726): the one loopback page Branch itself serves to this window skips the network policy.
-    if (known?.granted !== origin) await this.policy?.assertAllowed(new URL(url), 'browser address');
+    if (known?.granted !== target.origin) await this.policy?.assertAllowed(new URL(url), 'browser address');
+  }
+  async navigate(url: string, context: ToolContext) {
+    await this.checkAddress(url, context);
+    const origin = new URL(url).origin;
     const entry = this.entry(context);
     // In the owner's own browser the refusals that keep the screen control away from banks and
     // password managers apply to website names too.
@@ -779,4 +789,5 @@ function registerBrowserSecondPass(registry: ToolRegistry, browser: BranchBrowse
     parameters: z.object({ action: z.enum(['start', 'keep']) }).strict(),
     execute: (a, c) => a.action === 'start' ? browser.startRecording(c) : browser.keepRecording(c) });
   registerPageNotes(registry, browser); // w911 (A2144) hook: page notes, hidden and refused while switched off.
+  registerBrowserFlow(registry, browser); // FQ-execution.browser: a named multi-page journey, one picture per step.
 }

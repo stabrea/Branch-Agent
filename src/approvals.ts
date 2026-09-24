@@ -41,6 +41,11 @@ export interface PendingApproval {
    */
   noStanding?: boolean;
   /**
+   * FQ-execution.browser: the call names nothing a standing rule could be kept for (a `browser.flow` on
+   * no website), so "Yes, always" is not offered; it would be a rule on every call of the tool.
+   */
+  noAlways?: boolean;
+  /**
    * mac7/coding-next: a question with answers of its own. "project-tests" is "Let Branch run this
    * project's tests?", answered Always for this folder / Once / No (src/coding/project-tests.ts).
    */

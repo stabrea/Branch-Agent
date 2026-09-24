@@ -93,6 +93,7 @@ function renderWaiting() {
     for (const [label, remember] of yeses) {
       if (remember === "always" && question.source !== "owner") continue;
       if (remember === "always" && question.noStanding) continue; // Q59: Ask first and Plan keep no standing yes
+      if (remember === "always" && question.noAlways) continue;
       if (question.onceOnly && remember !== "never") continue;
       const button = el("button", label);
       button.type = "button";
