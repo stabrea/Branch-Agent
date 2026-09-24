@@ -17,7 +17,13 @@
  * Only temporary folders, fake releases and fake installs. Nothing is installed on this computer, no
  * real app is launched, no `launchctl`, `systemctl` or real GitHub release is ever touched.
  */
-import test from "node:test";
+import nodeTest from "node:test";
+/* This file is split into parts so the build machines can run its minutes side by side: each
+   tests/never-break-install-chaos-N.test.mjs runs every 4th test declared here, starting from its own. Nothing is
+   skipped: the parts together declare every test, in the same order, with the same body. */
+const part = globalThis.branchTestPart ?? { index: 0, of: 1 };
+let declared = 0;
+const test = (...args) => (declared++ % part.of === part.index ? nodeTest(...args) : undefined);
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
