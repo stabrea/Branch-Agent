@@ -34,7 +34,7 @@ export const defaultProjectId = "default";
  * whatever reads "the active project's secrets" (OpenAPI and skill tools, the secrets card), so none
  * may be made.
  */
-export const reservedProjectId = (id: string): boolean => id === "model-connections" || id === "branch-safety" || /^acct-[0-9a-f]{12}$/.test(id);
+export const reservedProjectId = (id: string): boolean => id === "model-connections" || id === "branch-safety" || id === "web-push" || /^acct-[0-9a-f]{12}$/.test(id) || /^acct-chatgpt-(primary|[0-9a-f]{8})$/.test(id);
 const activeSchema = z.object({ active: projectIdSchema }).strict();
 
 export class Projects {
