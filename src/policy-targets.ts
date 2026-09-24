@@ -97,15 +97,30 @@ export const unknownTargetsRefusal = (problem: string): string =>
   `Branch could not tell every file this would touch, so it was not done: ${problem}`;
 
 /**
- * Q138: what else a call does that another tool does, so the rules weigh it as that tool as well. A
- * schedule that sends its result to a chat sends a message there when it runs, so it is also judged as
- * sending one to that chat (`channels.broadcast`): "Message people" counts for it as well as "Change
- * settings". Every other call, and a schedule with no chat, does nothing else.
+ * Stands for whatever a call sends later (a schedule's result, a watch's news, the morning brief). It does
+ * not exist yet; no rule reads the text, and the broadcast's own schema needs one.
+ */
+const laterMessage = "The schedule's result";
+
+/** The chat a call names for what it sends later, as the tool itself names it; undefined when none. */
+function chatSentToLater(tool: string, args: Record<string, unknown>): unknown {
+  if (tool === "schedules.create" || tool === "brief.configure") return args.deliverTo;
+  // A watch's news stays in the app's activity list unless the watch names a chat.
+  if (tool === "monitor.create" || tool === "monitors.screen.create") return args.notifyVia === "activity" ? undefined : args.notifyVia;
+  return undefined;
+}
+
+/**
+ * Q138: what else a call does that another tool does, so the rules weigh it as that tool as well. A call
+ * that names a chat to send to later sends a message there when the time comes, so it is also judged as
+ * sending one to that chat now (`channels.broadcast`): "Message people" counts for it as well as "Change
+ * settings". Those calls are a schedule that sends its result to a chat, a page or screen watch that
+ * sends its news to one, and the morning brief given the chat it goes to. Every other call, and one of
+ * these that names no chat, does nothing else.
  */
 export function alsoJudgedAs(tool: string, args: unknown): { tool: string; args: { text: string; to: unknown[] } } | null {
-  const to = tool === "schedules.create" && args && typeof args === "object" ? (args as { deliverTo?: unknown }).deliverTo : undefined;
-  // The result does not exist yet; no rule reads the text, and the broadcast's own schema needs one.
-  return to ? { tool: "channels.broadcast", args: { text: "The schedule's result", to: [to] } } : null;
+  const to = args && typeof args === "object" ? chatSentToLater(tool, args as Record<string, unknown>) : undefined;
+  return to ? { tool: "channels.broadcast", args: { text: laterMessage, to: [to] } } : null;
 }
 
 /**
