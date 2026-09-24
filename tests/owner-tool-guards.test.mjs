@@ -31,6 +31,9 @@ const GUARDS = [
   { file: "src/settings-kit/tools.ts", tool: "settings.loosen", args: { changes: [{ setting: "fly-core.mode", value: "on" }] } },
   { file: "src/channels/connectors.ts", tool: "channels.broadcast", args: { text: "hello" } },
   { file: "src/channels/connectors.ts", tool: "channels.digest", args: { channel: "telegram", chatId: "1" } },
+  // A schedule that sends its result to a chat is sending to the owner's chats, only later.
+  { file: "src/scheduler.ts", tool: "schedules.create",
+    args: { prompt: "hello", kind: "task", dueAt: "2099-01-01T00:00:00.000Z", deliverTo: { channel: "telegram", chatId: "1" } } },
   { file: "src/workflows.ts", tool: "workflows.list", args: {} },
   { file: "src/personal/guard.ts", tool: "gcal.events", args: {}, setup: (app) => app.personal.setMode("google", { mode: "on" }) },
   { file: "src/personal/chat-files.ts", tool: "chat.send_file", args: { channel: "telegram", chatId: "1", path: "a.txt" },

@@ -15,6 +15,8 @@ import { nextCronOccurrence, nextWallOccurrence, validCron } from "./recurrence.
 const timezone = z.string().min(1).max(64).refine((zone) => {
   try { new Intl.DateTimeFormat("en-US", { timeZone: zone }); return true; } catch { return false; }
 }, "Unknown timezone");
+const sendingToChats = "Sending messages to your chats";
+const trunkMayNotSend = "The Trunk that made this schedule may no longer send to chats, so its result was kept here.";
 export const ScheduleSchema = z
   .object({
     prompt: z.string().min(1).max(8000),
@@ -182,6 +184,12 @@ export class Scheduler {
         );
     if (permissions.some((p) => !context.permissions.has(p)))
       throw new Error("Schedule permission escalation denied");
+    // A result sent to a chat goes out as the owner's own bot, so only the owner, and only a caller that
+    // may send to chats, puts one on a timer: the same as sending it now (channels.broadcast).
+    if (definition.deliverTo) {
+      this.store.profiles.requireOwner(sendingToChats);
+      if (!context.permissions.has("channels.send")) throw new Error("Permission denied: channels.send");
+    }
     if (definition.gate && this.switches().scriptGates === "off") throw new Error(scriptsOff);
     // mac7/chat-source: an evaluation suite runs the owner's own saved tasks, with no way to hold them
     // to what the chat may do, so a chat message's task cannot put one on a timer.
@@ -298,7 +306,7 @@ export class Scheduler {
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
       route?.finished(run); // R17-A (Trunks)
       this.runtime.notifyEvent("schedule.fired", { scheduleId: record.id, runId: run.id, status: run.status, trigger });
-      const delivery = await this.deliverResult(data, run);
+      const delivery = await this.deliverResult(data, run, madeBy);
       const kept = run.status === "completed" && !saidNothingNew(run.output);
       this.store.save("schedules", record.owner, record.id, {
         ...data, runId: run.id, runCount: Number(data.runCount ?? 0) + 1, history: [...history, entry],
@@ -406,6 +414,11 @@ export class Scheduler {
     const { run } = await this.evaluations.runScheduled(String(record.data.suite), preset);
     return run;
   }
+  /** The permissions a task started with, as its first event wrote them down. */
+  private startedWith(runId: string): string[] {
+    const started = this.store.events(runId).find((event) => event.kind === "run.started")?.data.permissions;
+    return Array.isArray(started) ? started.map(String) : [];
+  }
   private promptFor(data: Record<string, unknown>, payload: unknown): string {
     let prompt = String(data.prompt);
     if (data.kind === "check" && typeof data.lastResult === "string" && data.lastResult)
@@ -415,12 +428,14 @@ export class Scheduler {
     if (payload !== undefined) prompt += `\n\nTriggering event payload (JSON): ${JSON.stringify(payload).slice(0, 16000)}`;
     return prompt;
   }
-  private async deliverResult(data: Record<string, unknown>, run: Run): Promise<Record<string, unknown> | undefined> {
+  private async deliverResult(data: Record<string, unknown>, run: Run, madeBy?: string): Promise<Record<string, unknown> | undefined> {
     const target = data.deliverTo as { channel: string; chatId: string } | undefined;
     if (!target) return undefined;
     const at = new Date().toISOString();
     if (!this.deliver) return { ...target, at, error: "No channel delivery is available in this launch" };
-    const held = heldBack(data, run, this.switches().notifyGate);
+    // A Trunk's schedule sends only while that Trunk may still send to chats: its run was given what it may use now.
+    const held = madeBy && !this.startedWith(run.id).includes("channels.send") ? trunkMayNotSend
+      : heldBack(data, run, this.switches().notifyGate);
     if (held) {
       this.store.event(run.id, "delivery.held", { ...target, reason: held });
       return { ...target, at, held };
