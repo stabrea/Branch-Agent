@@ -9,12 +9,22 @@
  *   Suggested automations  put a ready-made request in the message box to read and send
  *
  * "Not now" closes it. It is shown once per browser.
+ *
+ * OWNER-LIST 7, part two: a second card, "Two more things, if you like", comes first and stays
+ * visible in the calm window. Connect email and calendar with the owner's own sign-in, or bring a
+ * backup back after a plain "this replaces" yes. Both are optional; nothing happens without a click.
+ * First run's own trouble line (try again, then another way, raw text behind Details) and the
+ * copyable ChatGPT code live here too, so `public/app.js` only calls them.
  */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
 
 const SEEN = "branch-first-run-next";
 const say = (key, english) => { const words = t(key); return words === key ? english : words; };
+const sayWith = (key, english, values) => {
+  const words = t(key, values);
+  return words === key ? english.replace(/\{(\w+)\}/g, (whole, name) => String(values[name] ?? whole)) : words;
+};
 function el(tag, key, english, className) {
   const node = document.createElement(tag);
   if (key) node.dataset.t = key;
@@ -85,10 +95,154 @@ export function showFirstRunNext() {
   firstRun.after(build());
 }
 
+/* ---------- part two: two optional steps, email and bringing a backup back ---------- */
+const STEPS_SEEN = "branch-first-run-steps";
+const SIGN_INS = [["google", "Google"], ["microsoft", "Microsoft"]];
+
+async function emailStep() {
+  const step = el("section", undefined, undefined, "first-run-step");
+  step.append(el("h3", "first-run-steps.email-title", "Your email and calendar"),
+    el("p", "first-run-steps.email-purpose", "Let Branch read your mail and calendar with your own sign-in. It never sends mail.", "subtle"));
+  const connected = [];
+  for (const [service, name] of SIGN_INS) {
+    const answer = await api(`personal/signin/${service}`).catch(() => null);
+    if (answer?.status?.signedIn) connected.push(name);
+  }
+  if (connected.length) {
+    step.append(el("p", undefined, sayWith("first-run-steps.email-connected", "Connected: {names}.", { names: connected.join(", ") }), "meta"));
+    return step;
+  }
+  step.append(action("first-run-steps.email-go", "Set it up", () => globalThis.branchLayout?.go("customize:connections")));
+  return step;
+}
+
+/** Sent only after the owner said yes. What the file holds replaces the same kinds of data here; sign-ins stay. */
+async function bringBack(file, status) {
+  status.textContent = say("first-run-steps.restore-working", "Bringing it back…");
+  let archive;
+  try { archive = JSON.parse(await file.text()); } catch {
+    status.textContent = say("first-run-steps.restore-not-backup", "That file is not a Branch backup. Nothing was changed.");
+    return;
+  }
+  try {
+    const result = await api("restore?replace=1", archive); // replaces the backed-up data (Codex, 2026-09-22)
+    try { localStorage.setItem(STEPS_SEEN, "1"); } catch { /* shown again, harmless */ }
+    showRestartNeeded(status, result.rows);
+  } catch (error) {
+    status.textContent = /already has/.test(error.message)
+      ? say("first-run-steps.restore-has-state", "This Branch already has conversations, so nothing was changed. A backup can only go into a Branch that has none yet.")
+      : say("first-run-steps.restore-not-backup", "That file is not a Branch backup. Nothing was changed.");
+  }
+}
+
+/**
+ * Saved model connections and local models are only read when Branch starts (`createBranch`), so a
+ * page reload would show the restored rows over the old running setup. Branch must start again.
+ */
+function showRestartNeeded(status, rows) {
+  const restart = globalThis.branchDesktop?.restartBranch;
+  if (!restart) {
+    status.textContent = sayWith("first-run-steps.restore-done-browser",
+      "Brought back {count} items. Close Branch and start it again to finish.", { count: rows });
+    return;
+  }
+  const button = action("first-run-steps.restore-restart", "Restart Branch", async () => {
+    button.disabled = true;
+    try { await restart(); } catch { button.disabled = false; }
+  }, true);
+  status.replaceChildren(
+    el("span", undefined, sayWith("first-run-steps.restore-done", "Brought back {count} items. Restart Branch to finish.", { count: rows })),
+    el("span", undefined, " "), button);
+}
+
+function restoreStep() {
+  const step = el("section", undefined, undefined, "first-run-step");
+  const status = el("p", undefined, undefined, "meta");
+  status.setAttribute("role", "status");
+  const file = document.createElement("input");
+  file.type = "file";
+  file.accept = ".json,application/json";
+  file.id = "first-run-restore-file";
+  file.hidden = true;
+  const confirm = el("div", undefined, undefined, "first-run-confirm");
+  file.addEventListener("change", () => {
+    const chosen = file.files?.[0];
+    file.value = "";
+    if (chosen) askFirst(confirm, chosen, status);
+  });
+  step.append(el("h3", "first-run-steps.restore-title", "Bring back your Branch"),
+    el("p", "first-run-steps.restore-purpose",
+      "Have a backup file from before? Put your conversations, memory and settings back. Sign-ins and keys are never in a backup: the ones on this computer stay, and others you add again.", "subtle"),
+    file, action("first-run-steps.restore-go", "Choose the backup file", () => file.click()), confirm, status);
+  return step;
+}
+
+/** Nothing is sent until the owner has read that what is here now will be replaced, and said yes. */
+function askFirst(confirm, chosen, status) {
+  status.textContent = "";
+  const choices = el("div", undefined, undefined, "identity-actions");
+  choices.append(
+    action("first-run-steps.restore-yes", "Yes, replace it", () => { confirm.replaceChildren(); void bringBack(chosen, status); }, true),
+    action("first-run-steps.restore-no", "Cancel", () => { confirm.replaceChildren(); status.textContent = say("first-run-steps.restore-cancelled", "Nothing was changed."); }));
+  confirm.replaceChildren(
+    el("p", undefined, sayWith("first-run-steps.restore-confirm",
+      "Bring back {name}? The Branch data in this file replaces what is here now. Sign-ins and keys are never in a backup, so the ones on this computer stay.", { name: chosen.name })),
+    choices);
+}
+
+async function buildSteps() {
+  const card = el("section", undefined, undefined, "card first-run-steps");
+  card.id = "first-run-steps";
+  card.setAttribute("aria-labelledby", "first-run-steps-title");
+  const title = el("h2", "first-run-steps.title", "Two more things, if you like");
+  title.id = "first-run-steps-title";
+  const close = () => { card.remove(); try { localStorage.setItem(STEPS_SEEN, "1"); } catch { /* shown again, harmless */ } };
+  card.append(title, el("p", "first-run-steps.purpose", "Both are optional. You can do them later in Settings."),
+    await emailStep(), restoreStep(), action("first-run-steps.done", "Done", close, true));
+  return card;
+}
+
+export async function showFirstRunSteps() {
+  if (document.getElementById("first-run-steps")) return;
+  const card = await buildSteps();
+  if (document.getElementById("first-run-steps")) return;
+  (document.getElementById("first-run-next") ?? document.getElementById("first-run"))?.before(card);
+}
+
+/* ---------- first run's own trouble line and sign-in code ---------- */
+/** A failed try, in the order a stuck person needs: again, then another way; raw words behind Details. */
+export function showFirstRunTrouble(status, error) {
+  if (!status) return false;
+  const click = (id) => () => { status.textContent = ""; document.getElementById(id)?.click(); };
+  const details = document.createElement("details");
+  details.append(el("summary", "first-run-trouble.details", "Details"), el("pre", undefined, String(error?.message ?? error)));
+  const choices = el("div", undefined, undefined, "identity-actions");
+  choices.append(action("first-run-trouble.retry", "Try again", click("first-run-test"), true),
+    action("first-run-trouble.back", "Choose another way", () => { status.textContent = ""; document.querySelector("#first-run .door")?.focus(); }));
+  status.replaceChildren(el("span", "first-run-trouble.said", "It did not answer. You can:"), choices, details);
+  return true;
+}
+
+/** The sign-in code one character to a box, and one button that copies the whole code. */
+export function showDeviceCode(status, code) {
+  if (!status || !code) return;
+  const row = el("span", undefined, undefined, "first-run-code");
+  row.setAttribute("aria-label", code);
+  for (const character of String(code)) row.append(el("span", undefined, character, "first-run-code-cell"));
+  const copy = action("first-run-code.copy", "Copy the code", async () => {
+    try { await navigator.clipboard.writeText(code); copy.textContent = say("first-run-code.copied", "Copied"); }
+    catch { copy.textContent = code; }
+  });
+  status.append(el("span", undefined, " "), row, copy);
+}
+
 if (typeof document !== "undefined") {
+  globalThis.branchFirstRunTrouble = showFirstRunTrouble;
+  globalThis.branchDeviceCode = showDeviceCode;
   globalThis.branchFirstRunDone = () => {
-    let seen = false;
-    try { seen = localStorage.getItem(SEEN) === "1"; } catch { /* show it */ }
+    let seen = false, stepsSeen = false;
+    try { seen = localStorage.getItem(SEEN) === "1"; stepsSeen = localStorage.getItem(STEPS_SEEN) === "1"; } catch { /* show them */ }
     if (!seen) showFirstRunNext();
+    if (!stepsSeen) void showFirstRunSteps();
   };
 }
