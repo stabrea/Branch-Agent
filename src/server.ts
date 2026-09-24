@@ -927,10 +927,14 @@ function settleAsked(app: Branch, asked: { runId: string; sessionId: string; sou
   const owners = asked.source === "owner" && origin.source === "owner" && !origin.shortLivedKey && !origin.keyIds.length
     && !origin.personProfileId && !origin.lentTo;
   if (decision === "allow" && owners && app.store.profiles.isOwner() && !startedWithShortLivedKey()) {
-    void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined }).catch(() => {
-      // The conversation could not carry on (it is busy, say): it waits for the owner's next message instead.
-      if (app.store.run(run.id)?.status === "needs_input") app.store.finish(run.id, "completed", run.output);
-    });
+    // NAS 06a9508: the carry-on reads as the owner saying yes, so with a plan waiting for the owner's own answer in
+    // that conversation it would agree to the plan too. Then nothing carries on by itself: the task keeps waiting,
+    // and the owner answers the plan, then carries on.
+    const plan = app.runtime.orchestration.plan(run.sessionId);
+    if (plan && !plan.approved) return;
+    // The conversation busy with another task: the carry-on is not started, and this task keeps waiting (the one-time
+    // yes is still there for the owner's next message), rather than being marked done with its work undone.
+    void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined }).catch(() => undefined);
     return;
   }
   app.store.finish(run.id, decision === "allow" ? "completed" : "cancelled", run.output);

@@ -55,6 +55,14 @@ export interface RunOrigin {
 type EventReader = { events(runId: string): { kind: string; data: Record<string, unknown> }[] };
 const startOf = (store: EventReader, runId: string) => store.events(runId).find((event) => event.kind === "run.started")?.data;
 
+/**
+ * Who a task is for, as one word: its source, the household person it belongs to, and any key it was started with.
+ * Dogfood A6 (NAS 4a4d7b1): a "Yes, just now" is used only by a task of the same asker, because one conversation
+ * (a Trunk's room) can hold the owner's turns, a household person's and a key's.
+ */
+export function askerOf(origin: RunOrigin): string {
+  return [origin.source, origin.personProfileId ?? "", origin.lentTo ?? "", origin.shortLivedKey ? "key" : "", ...origin.keyIds].join("\u0000");
+}
 export function runOrigin(store: EventReader, runId: string): RunOrigin {
   const own = startOf(store, runId);
   const origin: RunOrigin = {
