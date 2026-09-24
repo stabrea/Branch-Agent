@@ -26,6 +26,9 @@ const rules = [({ last }) => {
   if (text === "watch") return call("monitor.create", { url: "https://example.test/p", every: 5, notifyVia: stranger });
   if (text === "watch here") return call("monitor.create", { url: "https://example.test/p", every: 5 });
   if (text === "watch screen") return call("monitors.screen.create", { label: "The build light", region, notifyVia: stranger });
+  if (text === "list watches") return call("monitor.list", {});
+  const drop = /^remove (\S+)$/.exec(text);
+  if (drop) return call("monitor.remove", { id: drop[1] });
   const check = /^check (\S+)$/.exec(text);
   if (check) return call("monitor.check", { id: check[1] });
   const look = /^look (\S+)$/.exec(text);
@@ -166,4 +169,40 @@ test("the owner's own watch still sends its news to a chat", async (t) => {
   page.text = "line A\nOWNERS7807";
   await app.scheduler.tick(inMinutes(10));
   assert.deepEqual((await reached(chat, "OWNERS7807")).map((one) => one.chatId), ["friend-1"], JSON.stringify(chat.sent));
+});
+
+test("A2: a Trunk lists, checks and removes only the watches it made; the owner's read as not there", async (t) => {
+  const { app, ada, page, owner, said } = await setup(t, ["monitors.manage", "monitors.read"]);
+  page.text = "OWNERPAGE7902 first";
+  const theirs = await app.monitors.create(owner, { url: "https://example.test/owner-private", every: 5 });
+  const hers = idOf(await said("watch here"));
+  // Her list holds her own watch and nothing of the owner's; the owner's still holds both.
+  const listed = await said("list watches");
+  assert.match(listed, new RegExp(hers));
+  assert.doesNotMatch(listed, /owner-private/, "the owner's watch is not in Ada's list");
+  assert.deepEqual(app.monitors.list(owner).map((w) => w.id).sort(), [theirs.id, hers].sort());
+  // Checking the owner's watch reads as not there, and hands her nothing of what changed on it.
+  page.text = "OWNERPAGE7902 second OWNERDIFF7903";
+  const checked = await said(`check ${theirs.id}`);
+  assert.match(checked, /There is no watch with that number/);
+  assert.doesNotMatch(checked, /OWNERDIFF7903|owner-private/);
+  assert.equal(app.monitors.list(owner).find((w) => w.id === theirs.id).changes, 0, "and it was not looked at for her");
+  // Nor can she remove it; her own she can.
+  assert.match(await said(`remove ${theirs.id}`), /There is no watch with that number/);
+  assert.ok(app.monitors.list(owner).some((w) => w.id === theirs.id), "the owner's watch is still there");
+  assert.doesNotMatch(await said(`remove ${hers}`), /no watch/);
+  assert.deepEqual(app.monitors.list(owner).map((w) => w.id), [theirs.id]);
+});
+
+test("A2: a Trunk cannot look at the owner's screen watch, nor another Trunk's page watch", async (t) => {
+  const { app, ada, owner, said } = await setup(t, ["monitors.manage", "monitors.read"]);
+  const screenWatch = await app.screenWatches.create(owner, { label: "The owner's build light", region });
+  assert.match(await said(`look ${screenWatch.id}`), /There is no screen watch with that number/);
+  // Bo's own watch is Bo's alone.
+  const bo = app.trunks.create({ name: "Bo" });
+  app.trunks.edit(bo.id, { permissions: ["monitors.manage", "monitors.read"] });
+  await app.trunks.introduced();
+  const bos = idOf((await app.trunks.say(bo.id, "watch here")).output ?? "");
+  assert.match(await said(`check ${bos}`), /There is no watch with that number/);
+  assert.doesNotMatch(await said("list watches"), new RegExp(bos));
 });

@@ -5,7 +5,7 @@ import type { ToolContext } from "./contracts.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { DeliveryHandler } from "./scheduler.js";
-import { noWatchTrunks, requireMaySendToChats, trunkMayNotSend, watchMadeBy, type WatchTrunks } from "./monitors.js";
+import { noWatchTrunks, requireMaySendToChats, trunkMayNotSend, watchMadeBy, watchVisibleTo, type WatchTrunks } from "./monitors.js";
 
 /**
  * Watching a corner of the screen for a change. A long job in a program that has no other way of
@@ -117,10 +117,10 @@ export class ScreenWatches {
    * Looks once. A different picture is a change; the same picture is nothing at all, and neither
    * picture is kept — only the fingerprint that told them apart.
    */
-  async check(owner: string, id: string): Promise<{ id: string; changed: boolean; summary: string; delivered: string | null; held?: string }> {
+  async check(owner: string, id: string, context?: ToolContext): Promise<{ id: string; changed: boolean; summary: string; delivered: string | null; held?: string }> {
     this.allowed(owner);
     const found = this.db.prepare("SELECT * FROM screen_watches WHERE owner=? AND id=?").get(owner, id) as Record<string, unknown> | undefined;
-    if (!found) throw new Error("There is no screen watch with that number");
+    if (!found || !watchVisibleTo(context, this.trunks, found.made_by)) throw new Error("There is no screen watch with that number"); // A2
     const watch = row(found);
     const now = fingerprint(await this.capture(watch.region));
     const changed = now !== String(found.fingerprint ?? "");
@@ -164,6 +164,6 @@ export function registerScreenWatches(registry: ToolRegistry, watches: ScreenWat
     name: "monitors.screen.check", permission: "monitors.manage",
     description: "Look at one screen watch now rather than waiting, and say whether it changed.",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async ({ id }, context) => watches.check(context.owner, id),
+    execute: async ({ id }, context) => watches.check(context.owner, id, context),
   });
 }

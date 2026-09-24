@@ -64,6 +64,14 @@ export function requireMaySendToChats(store: Store, context: ToolContext | undef
   store.profiles.requireOwner("Sending messages to your chats");
   if (context && !context.permissions.has("channels.send")) throw new Error("Permission denied: channels.send");
 }
+/**
+ * A2: whether a call may see a watch. The owner's own calls (and the app's routes and timer, which have no tool call
+ * behind them) see every watch; a Trunk sees only the watches it made, and any other reads as not there.
+ */
+export function watchVisibleTo(context: ToolContext | undefined, trunks: WatchTrunks, madeBy: unknown): boolean {
+  const asking = context ? watchMadeBy(context, trunks) : null;
+  return !asking || madeBy === asking;
+}
 /** Q141: the Trunk a watch is made for: its turn, a specialist it handed work to, or work it set going. */
 export function watchMadeBy(context: ToolContext | undefined, trunks: WatchTrunks): string | null {
   return context?.trunk ?? /^trunk:([^:]+)/.exec(context?.agent ?? "")?.[1] ?? trunks.atWork() ?? null;
@@ -104,11 +112,15 @@ export class Monitors {
     const recent = [...parseRecent(row?.recent), entry].slice(-10);
     this.db.prepare("UPDATE monitors SET recent=?, last_error=? WHERE id=?").run(JSON.stringify(recent), error, id);
   }
-  list(owner: string): MonitorRecord[] {
-    return this.db.prepare("SELECT * FROM monitors WHERE owner=? ORDER BY created_at DESC LIMIT 200").all(owner).map(toRecord);
+  /** `context` is the tool call behind it, if any: a Trunk lists only the watches it made (A2). */
+  list(owner: string, context?: ToolContext): MonitorRecord[] {
+    return this.db.prepare("SELECT * FROM monitors WHERE owner=? ORDER BY created_at DESC LIMIT 200").all(owner)
+      .filter((row) => watchVisibleTo(context, this.trunks, row.made_by)).map(toRecord);
   }
-  remove(owner: string, id: string): { removed: string } {
-    if (!this.db.prepare("DELETE FROM monitors WHERE owner=? AND id=?").run(owner, id).changes) throw new Error("There is no watch with that number");
+  remove(owner: string, id: string, context?: ToolContext): { removed: string } {
+    const row = this.db.prepare("SELECT made_by FROM monitors WHERE owner=? AND id=?").get(owner, id);
+    if (!row || !watchVisibleTo(context, this.trunks, row.made_by)) throw new Error("There is no watch with that number");
+    this.db.prepare("DELETE FROM monitors WHERE owner=? AND id=?").run(owner, id);
     return { removed: id };
   }
   /**
@@ -148,9 +160,9 @@ export class Monitors {
   }
 
   /** Looks again, describes anything that changed, and sends it on. */
-  async check(owner: string, id: string, now = new Date(), signal?: AbortSignal): Promise<MonitorCheck> {
+  async check(owner: string, id: string, now = new Date(), signal?: AbortSignal, context?: ToolContext): Promise<MonitorCheck> {
     const row = this.db.prepare("SELECT * FROM monitors WHERE owner=? AND id=?").get(owner, id);
-    if (!row) throw new Error("There is no watch with that number");
+    if (!row || !watchVisibleTo(context, this.trunks, row.made_by)) throw new Error("There is no watch with that number"); // A2
     const record = toRecord(row);
     const next = new Date(now.getTime() + record.everyMinutes * 60000).toISOString();
     this.inFlight.add(id);
@@ -257,18 +269,18 @@ export function registerMonitors(registry: ToolRegistry, monitors: Monitors): vo
     name: "monitor.list", permission: "monitors.read",
     description: "List the watches that are running, what each is looking at, when it was last checked and how often it has changed.",
     parameters: z.object({}).strict(),
-    execute: async (_input, context) => ({ monitors: monitors.list(context.owner) }),
+    execute: async (_input, context) => ({ monitors: monitors.list(context.owner, context) }),
   });
   registry.register({
     name: "monitor.check", reach: "outbound", permission: "monitors.manage",
     description: "Look at one watch right now instead of waiting for its next turn, and report what changed.",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async ({ id }, context) => monitors.check(context.owner, id, new Date(), context.signal),
+    execute: async ({ id }, context) => monitors.check(context.owner, id, new Date(), context.signal, context),
   });
   registry.register({
     name: "monitor.remove", permission: "monitors.manage",
     description: "Stop a watch and forget what it had seen.",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async ({ id }, context) => monitors.remove(context.owner, id),
+    execute: async ({ id }, context) => monitors.remove(context.owner, id, context),
   });
 }
