@@ -320,3 +320,32 @@ test("work a Trunk sets going through a saved workflow remembers as that Trunk, 
   assert.ok(kept, "the step saved its fact");
   assert.equal(kept.data.scope, `agent:trunk:${ada.id}`, "kept to Ada, never shared");
 });
+
+test("a workflow one Trunk runs because another Trunk messaged it remembers as the Trunk that runs it", async (t) => {
+  const { app } = await fixture(t, [({ system, last }) => {
+    if (last?.role !== "user") return null;
+    const text = String(last.content ?? "");
+    const run = /run workflow ([0-9a-f-]{36})/.exec(text);
+    if (run && /\nYou are Bo /.test(system)) return call("workflows.run", { id: run[1] });
+    if (text.startsWith("tell bo ")) return call("trunk.message", { to: "@bo", message: text.slice("tell bo ".length) });
+    return null;
+  }, ({ last }) => (last?.role === "tool" ? "Done." : null)]);
+  on(app, "messages");
+  const ada = app.trunks.create({ name: "Ada" }), bo = app.trunks.create({ name: "Bo" });
+  // A message carries its sender's limits, so Ada holds what Bo's work will need.
+  app.trunks.edit(ada.id, { permissions: ["trunks.message", "workflows.manage", "workflows.read", "memory.write"] });
+  app.trunks.edit(bo.id, { permissions: ["workflows.manage", "workflows.read", "memory.write"] });
+  await app.trunks.introduced();
+  const workflow = await app.registry.execute("workflows.create", { name: "note", steps: [{ name: "keep", kind: "tool", tool: "memory.put",
+    args: { text: "kept by a step Bo ran BOSTEP4242", source: "a step" } }] }, app.runtime.context());
+  // Ada's message sets Bo's turn going while Ada's own work is still marked as hers.
+  await app.trunks.say(ada.id, `tell bo run workflow ${workflow.id}`);
+  let kept;
+  for (let tries = 0; tries < 200 && !kept; tries++) {
+    await settled(app);
+    kept = app.store.list("memory", app.runtime.owner).find((record) => String(record.data.text).includes("BOSTEP4242"));
+    if (!kept) await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.ok(kept, "Bo's workflow ran and kept its fact");
+  assert.equal(kept.data.scope, `agent:trunk:${bo.id}`, "as Bo, not as Ada who sent the message");
+});
