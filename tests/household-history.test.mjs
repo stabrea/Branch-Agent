@@ -45,6 +45,9 @@ for (const role of ["adult", "child"]) {
       const run = await runForCurrentPerson(app, { prompt: `tool ${name} ${JSON.stringify(args)}`, onTextDelta: () => undefined });
       assert.doesNotMatch(said(run.id, name), /OWNERGARDEN1111/, `${name} ${JSON.stringify(args)} gives Sam nothing of the owner's`);
     }
+    // The task's own conversation is lent to the owner while it works, and is still the task's own: it exports itself.
+    const itself = await runForCurrentPerson(app, { prompt: `tool runs.export ${JSON.stringify({})}`, onTextDelta: () => undefined });
+    assert.match(said(itself.id, "runs.export"), /branch-agent-trajectory/, "Sam's task exports itself");
     const own = await runForCurrentPerson(app, { prompt: `tool history.search ${JSON.stringify({ query: "piano" })}`, onTextDelta: () => undefined });
     if (!/policy|not allowed|denied/i.test(said(own.id, "history.search")))
       assert.match(said(own.id, "history.search"), /SAMPIANO2222|piano/, "Sam finds their own earlier conversation");
