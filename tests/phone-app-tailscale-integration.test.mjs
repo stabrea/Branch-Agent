@@ -12,8 +12,9 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
-import { noAddressRefusal, PhoneApp, PhoneAppRefusal, pickedAddressRefusal } from "../dist/phone-app/index.js";
+import { noAddressRefusal, PhoneApp, phoneAppApi, PhoneAppRefusal, phoneLockdownRefusal, pickedAddressRefusal } from "../dist/phone-app/index.js";
 import { PhoneDoor } from "../dist/phone-app/door.js";
+import { phoneCommand } from "../dist/phone-app/cli.js";
 import { filterTailnetAddresses } from "../dist/phone-app/address.js";
 
 const running = (address) => ({ present: true, running: true, address, hostname: "desk.tail1234.ts.net", message: "" });
@@ -127,4 +128,85 @@ test("sharing asks Tailscale once for the door, so the door cannot refuse later 
   // Tailscale was asked twice, never a third time, and no plain "not running" came back.
   await phone.share({}).then(() => phone.stop(), (error) => assert.doesNotMatch(String(error), /Tailscale is not running/));
   assert.equal(calls, 2);
+});
+
+test("share is cancelled if stop() is called during the share awaits", async (t) => {
+  const root = await fakeApp(t);
+  // A Tailscale probe that takes 400 ms to respond, simulating a slow network or probing delay.
+  const probe = async () => {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    return running("100.101.102.103");
+  };
+  const phone = new PhoneApp({ root, env: {}, addresses: async () => ["100.101.102.103"], tailscale: probe });
+
+  // Start the share, then call stop() after 150 ms (before the Tailscale probe completes).
+  const sharePromise = phone.share({});
+  await new Promise(resolve => setTimeout(resolve, 150));
+  phone.stop();
+
+  // The share should be rejected because stop() was called during the awaits.
+  await assert.rejects(sharePromise, (error) => error instanceof PhoneAppRefusal && error.status === 409 && error.message === "Share was cancelled");
+
+  // The door should not be open.
+  assert.equal(phone.door.view(), null);
+});
+
+/** A door that only counts: nothing may reach it once a stop or Lockdown lands during the share. */
+function countingDoor(phone) {
+  const door = { opened: 0 };
+  phone.door.start = async () => { door.opened += 1; throw new Error("the door was opened"); };
+  return door;
+}
+
+test("a stop while the door's own Tailscale ask is out cancels the share, and no door opens", async (t) => {
+  const root = await fakeApp(t);
+  let calls = 0;
+  // The first ask is the address list; the second is the door's own, the last await before the door.
+  const probe = async () => {
+    if (++calls === 2) phone.stop();
+    return running("100.101.102.103");
+  };
+  const phone = new PhoneApp({ root, env: {}, addresses: async () => ["100.101.102.103"], tailscale: probe });
+  const door = countingDoor(phone);
+  await assert.rejects(phone.share({}), (error) => error instanceof PhoneAppRefusal && error.status === 409 && error.message === "Share was cancelled");
+  assert.equal(calls, 2);
+  assert.equal(door.opened, 0);
+});
+
+test("Lockdown turned on while the door's own Tailscale ask is out refuses the share, and no door opens", async (t) => {
+  const root = await fakeApp(t);
+  let on = false;
+  const store = { get: (_kind, _owner, key) => (on && key ? { data: { on: true } } : undefined) };
+  let calls = 0;
+  // Lockdown is off when the request arrives and comes on during the door's ask; nothing calls stop().
+  const probe = async () => {
+    if (++calls === 2) on = true;
+    return running("100.101.102.103");
+  };
+  const phone = new PhoneApp({ root, env: {}, addresses: async () => ["100.101.102.103"], tailscale: probe });
+  const door = countingDoor(phone);
+  const deps = { store, owner: "local", method: "POST", readBody: async () => ({}) };
+  await assert.rejects(phoneAppApi(phone, deps, "/api/phone-app/share"),
+    (error) => error instanceof PhoneAppRefusal && error.status === 403 && error.message === phoneLockdownRefusal);
+  assert.equal(calls, 2);
+  assert.equal(door.opened, 0);
+});
+
+test("Q95: branch phone refuses the share when Lockdown comes on during the door's own ask, and no door opens", async (t) => {
+  const root = await fakeApp(t);
+  let on = false;
+  const store = { get: (_kind, _owner, key) => (on && key ? { data: { on: true } } : undefined) };
+  let calls = 0;
+  const probe = async () => {
+    if (++calls === 2) on = true;
+    return running("100.101.102.103");
+  };
+  const phone = new PhoneApp({ root, env: {}, addresses: async () => ["100.101.102.103"], tailscale: probe });
+  const door = countingDoor(phone);
+  const lines = [];
+  assert.equal(await phoneCommand({ store, owner: "local", phone, write: (line) => lines.push(line), colour: false,
+    interrupted: Promise.resolve() }, []), 1);
+  assert.equal(calls, 2);
+  assert.equal(door.opened, 0);
+  assert.deepEqual(lines, [phoneLockdownRefusal]);
 });
