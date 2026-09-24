@@ -19,6 +19,7 @@ export interface GitOutcome extends ProcessResult { command: string }
 export const branchRef = (branch: string): string => (branch === "HEAD" || branch.startsWith("refs/") ? branch : `refs/heads/${branch}`);
 
 const NO_HOOKS = join(tmpdir(), "branch-hooks-disabled-does-not-exist");
+const NO_GRAFTS = join(tmpdir(), "branch-grafts-disabled-does-not-exist");
 const KEEP_ENV = ["PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE",
   "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMDATA", "LANG", "LC_ALL", "TZ"];
 
@@ -52,12 +53,24 @@ export const pinnedGitConfig: readonly string[] = [
 /**
  * Q12: more pins, only for Git run inside Branch's own source (`branch-agent-source`), where the
  * owner's preferences matter less than what a self-development task could have left behind:
- * signing programs, submodules and a bare repository found by walking up.
+ * signing programs, submodules and a bare repository found by walking up. The commit-graph file is
+ * explained with `pinnedEnvironmentInSource` below.
  */
 export const pinnedInSource: readonly string[] = [
   "commit.gpgSign=false", "tag.gpgSign=false", "gpg.program=false", "submodule.recurse=false", "diff.ignoreSubmodules=all",
-  "core.gitProxy=", "safe.bareRepository=explicit", "protocol.file.allow=never",
+  "core.gitProxy=", "safe.bareRepository=explicit", "protocol.file.allow=never", "core.commitGraph=false",
 ];
+
+/**
+ * Inside Branch's own source, Git reads every commit as it is stored, which is what a push sends.
+ * Replacement objects (`refs/replace/`) and grafts (`info/grafts`) can each make Git show a commit
+ * with other parents or another tree, so neither is used there. Any value of GIT_NO_REPLACE_OBJECTS
+ * turns replacements off, whatever a repository's settings say. Grafts have no setting, so they are
+ * read from a file that is not there. Git skips its commit-graph file (a saved copy of each commit's
+ * parents and tree) while replacements or grafts are in use, so with both off it would read that file
+ * again; `core.commitGraph=false` in `pinnedInSource` keeps it unread.
+ */
+const pinnedEnvironmentInSource: Readonly<Record<string, string>> = { GIT_NO_REPLACE_OBJECTS: "1", GIT_GRAFT_FILE: NO_GRAFTS };
 export const inBranchSource = (cwd: string): boolean => {
   try {
     const resolved = realpathSync.native(cwd);
@@ -68,8 +81,8 @@ export const inBranchSource = (cwd: string): boolean => {
 };
 
 /** Settings forced on every call; they come before the subcommand so no repository can override them. */
-export function hardening(cwd: string): string[] {
-  const pins = inBranchSource(cwd) ? [...pinnedGitConfig, ...pinnedInSource] : pinnedGitConfig;
+export function hardening(cwd: string, inSource = inBranchSource(cwd)): string[] {
+  const pins = inSource ? [...pinnedGitConfig, ...pinnedInSource] : pinnedGitConfig;
   return ["-c", `safe.directory=${cwd}`, "-c", `core.hooksPath=${NO_HOOKS}`, "-c", "core.quotepath=false",
     "-c", "credential.interactive=never", ...pins.flatMap((setting) => ["-c", setting]), "--no-pager"];
 }
@@ -117,9 +130,12 @@ export class GitRunner {
   }
   async run(options: GitRunOptions, signal: AbortSignal): Promise<GitOutcome> {
     const executable = await this.executable();
-    const args = [...hardening(options.cwd), ...options.args];
+    // Decided once, so the settings and the environment always agree on whether this is Branch's source.
+    const inSource = inBranchSource(options.cwd);
+    const args = [...hardening(options.cwd, inSource), ...options.args];
+    const env = { ...gitEnvironment(this.options.env), ...(inSource ? pinnedEnvironmentInSource : {}) };
     const result = await new ShellProcess({
-      executable, args, cwd: options.cwd, env: gitEnvironment(this.options.env), signal,
+      executable, args, cwd: options.cwd, env, signal,
       timeoutMs: options.timeoutMs ?? this.options.timeoutMs ?? 30000,
       maxOutputBytes: options.maxOutputBytes ?? 65536, maxMemoryMb: 2048, maxCpuSeconds: 120,
     }).run();

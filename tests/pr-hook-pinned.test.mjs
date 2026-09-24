@@ -7,9 +7,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { createBranch, NetworkPolicy } from "../dist/index.js";
 import { GitRunner } from "../dist/integrations/git-run.js";
@@ -354,4 +355,132 @@ test("from Branch's own source, a new commit holding only the named files is sen
     assert.equal(d.pushed.length, 1);
     assert.equal(d.pushed[0].sent, made, "exactly the new commit is sent");
     assert.deepEqual(d.opened.map((each) => each.args.head), ["branch/pinned"]);
+  });
+
+/** What Git prints when Branch itself runs it there, with its own settings. */
+async function branchSees(cwd, ...args) {
+  const outcome = await new GitRunner().run({ cwd, args }, AbortSignal.timeout(20_000));
+  assert.equal(outcome.status, "completed", outcome.stderr);
+  return outcome.stdout.trim();
+}
+
+/**
+ * Git can keep replacement objects (`refs/replace/`) and grafts (`info/grafts`) that change the parents
+ * and files it shows for a commit, while a push sends the commit as it is stored. In Branch's own source
+ * the check reads every commit as it is stored as well.
+ */
+test("from Branch's own source, the new commit is checked as Git stores it, whatever replacement Git keeps for it, and nothing is sent",
+  { skip: posixOnly }, async (t) => {
+    const { app, owner, worktree, walked, other, change } = await sourceWorktree(t);
+    // Each moves the new branch to another commit, which Git is then told to show as the commit made:
+    // one parent, the checked commit, and only the named file.
+    const moves = {
+      "a commit that also changes a file the pull request does not name": async () => {
+        await mkdir(join(worktree, ".github", "workflows"), { recursive: true });
+        await writeFile(join(worktree, ".github", "workflows", "extra.yml"), "more\n");
+        plain(worktree, "add", "--", ".github/workflows/extra.yml");
+        plain(worktree, "commit", "-q", "--amend", "--no-edit");
+        return plain(worktree, "rev-parse", "HEAD");
+      },
+      "a merge with other work": async (made) => plain(worktree, "commit-tree", `${made}^{tree}`, "-p", walked, "-p", other, "-m", "merge"),
+    };
+    let count = 0;
+    for (const [what, move] of Object.entries(moves)) {
+      plain(worktree, "switch", "-q", "-f", "self-x");
+      plain(worktree, "reset", "-q", "--hard", walked);
+      await change();
+      const head = `branch/pinned-${++count}`;
+      let held = "";
+      const d = hookDeps(app, owner, { before: async (args) => {
+        if (held || !readsBranch(args, head)) return;
+        const made = plain(worktree, "rev-parse", `refs/heads/${head}`);
+        held = await move(made);
+        plain(worktree, "update-ref", `refs/heads/${head}`, held);
+        plain(worktree, "replace", held, made);
+      } });
+      await assert.rejects(pullRequestFromChanges(d.value, ask(`pinned-${count}`)),
+        /is not just one new commit on the checked work .*so nothing was sent/, what);
+      assert.ok(held, `${what}: the branch held the other commit when it was read`);
+      const shown = async (read) => ({
+        parents: (await read("rev-list", "--parents", "--max-count=1", held)).split(" ").slice(1),
+        files: (await read("diff-tree", "-r", "--no-commit-id", "--name-only", walked, held)).split("\n"),
+      });
+      const asMade = { parents: [walked], files: ["src/ui/new.ts"] };
+      const stored = await shown((...args) => plain(worktree, "--no-replace-objects", ...args));
+      assert.deepEqual(await shown((...args) => plain(worktree, ...args)), asMade, `${what}: Git's ordinary reads show the commit made`);
+      assert.notDeepEqual(stored, asMade, `${what}: as stored, it is another commit`);
+      assert.deepEqual(await shown((...args) => branchSees(worktree, ...args)), stored, `${what}: Branch's own reads show it as stored`);
+      assert.deepEqual(d.pushed, [], `${what}: nothing was sent`);
+      assert.deepEqual(d.opened, [], `${what}: no pull request was opened`);
+      plain(worktree, "replace", "-d", held);
+    }
+  });
+
+test("from Branch's own source, the new commit is checked with the parents Git stores for it, whatever grafts Git keeps, and nothing is sent",
+  { skip: posixOnly }, async (t) => {
+    const { app, owner, worktree, walked, other } = await sourceWorktree(t);
+    const grafts = join(plain(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"), "info", "grafts");
+    let merge = "";
+    const d = hookDeps(app, owner, { before: async (args) => {
+      if (merge || !readsBranch(args, "branch/pinned")) return;
+      // A merge of the new commit's own tree with other work, which Git's grafts then list with one
+      // parent, the checked commit.
+      merge = plain(worktree, "commit-tree", "refs/heads/branch/pinned^{tree}", "-p", walked, "-p", other, "-m", "merge");
+      plain(worktree, "update-ref", "refs/heads/branch/pinned", merge);
+      await mkdir(dirname(grafts), { recursive: true });
+      await writeFile(grafts, `${merge} ${walked}\n`);
+    } });
+    await assert.rejects(pullRequestFromChanges(d.value, ask("pinned")),
+      /"branch\/pinned" is not just one new commit on the checked work .*so nothing was sent/);
+    assert.ok(merge, "the branch held the merge when it was read");
+    assert.equal(plain(worktree, "rev-list", "--parents", "--max-count=1", merge), `${merge} ${walked}`,
+      "Git's ordinary reads show one parent, the checked commit");
+    assert.deepEqual(plain(worktree, "cat-file", "-p", merge).split("\n").filter((line) => line.startsWith("parent ")),
+      [`parent ${walked}`, `parent ${other}`], "as stored, it is a merge with other work");
+    assert.equal(await branchSees(worktree, "rev-list", "--parents", "--max-count=1", merge), `${merge} ${walked} ${other}`,
+      "Branch's own reads show both parents");
+    assert.deepEqual(d.pushed, [], "nothing was sent");
+    assert.deepEqual(d.opened, [], "no pull request was opened");
+  });
+
+test("from Branch's own source, the pull request still sends exactly the new commit while Git keeps a replacement and a graft for other commits",
+  { skip: posixOnly }, async (t) => {
+    const { app, owner, worktree, walked, others } = await sourceWorktree(t);
+    plain(worktree, "replace", others[0], others[1]);
+    const grafts = join(plain(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"), "info", "grafts");
+    await mkdir(dirname(grafts), { recursive: true });
+    await writeFile(grafts, `${others[1]}\n`);
+    const d = hookDeps(app, owner);
+    const opened = await pullRequestFromChanges(d.value, ask("pinned"));
+    const made = plain(worktree, "rev-parse", "refs/heads/branch/pinned");
+    assert.deepEqual(plain(worktree, "cat-file", "-p", made).split("\n").filter((line) => line.startsWith("parent ")), [`parent ${walked}`],
+      "one new commit, right on the checked one");
+    assert.deepEqual(d.pushed.map((each) => each.refspec), [`${made}:refs/heads/branch/pinned`], "exactly the new commit is sent");
+    assert.deepEqual(opened.files, ["src/ui/new.ts"]);
+    assert.deepEqual(d.opened.map((each) => each.args.head), ["branch/pinned"]);
+  });
+
+test("Git run in Branch's own source reads commits as stored, with no replacements, grafts or commit-graph file; elsewhere nothing changes",
+  { skip: posixOnly }, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "branch-pr-pins-"));
+    t.after(() => discardTemp(root));
+    // A stand-in Git that prints the two variables and the arguments it was given.
+    const program = join(root, "git");
+    await writeFile(program, '#!/bin/sh\nprintf \'%s\\n\' "replace=${GIT_NO_REPLACE_OBJECTS-unset}" "grafts=${GIT_GRAFT_FILE-unset}" "$@"\n', { mode: 0o755 });
+    const runner = new GitRunner({ locate: async () => program });
+    const given = async (cwd) => {
+      await mkdir(cwd, { recursive: true });
+      const outcome = await runner.run({ cwd, args: ["status"] }, AbortSignal.timeout(20_000));
+      assert.equal(outcome.status, "completed", outcome.stderr);
+      return outcome.stdout.split("\n");
+    };
+    const inSource = await given(join(root, "workspace", "branch-agent-source", ".branch-worktrees", "self-x"));
+    assert.ok(inSource.includes("replace=1"), "no replacement objects");
+    const grafts = inSource.find((line) => line.startsWith("grafts="))?.slice("grafts=".length) ?? "";
+    assert.ok(isAbsolute(grafts) && !existsSync(grafts), `grafts are read from a file that is not there (${grafts})`);
+    assert.ok(inSource.includes("core.commitGraph=false"), "no commit-graph file");
+    const elsewhere = await given(join(root, "workspace", "project"));
+    assert.deepEqual(elsewhere.filter((line) => /^(replace|grafts)=/.test(line)), ["replace=unset", "grafts=unset"],
+      "the owner's own repositories are unchanged");
+    assert.equal(elsewhere.includes("core.commitGraph=false"), false);
   });
