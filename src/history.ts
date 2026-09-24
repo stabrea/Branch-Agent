@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
+import { accessAgent } from "./trunks/memory-scope.js";
 import type { ToolContext } from "./contracts.js";
 
 export const HistoryQuerySchema = z.object({
@@ -152,7 +153,7 @@ export function registerHistory(registry: ToolRegistry, store: Store): void {
     permission: "history.read", parameters: HistoryQuerySchema,
     execute: async (input, context) => {
       const { owner, current } = historyScope(store, context);
-      return { results: store.searchHistory(owner, input, current, context.agent) };
+      return { results: store.searchHistory(owner, input, current, accessAgent(context)) };
     },
   });
   registry.register({
@@ -161,7 +162,7 @@ export function registerHistory(registry: ToolRegistry, store: Store): void {
     permission: "history.read", parameters: HistoryReadSchema,
     execute: async (input, context) => {
       const { owner, current } = historyScope(store, context);
-      return store.readHistory(owner, input, current, context.agent);
+      return store.readHistory(owner, input, current, accessAgent(context));
     },
   });
   registry.register({
@@ -171,7 +172,7 @@ export function registerHistory(registry: ToolRegistry, store: Store): void {
     target: (input) => `another conversation (${input.conversation.slice(0, 60)})`,
     execute: async (input, context) => {
       const { owner, current } = historyScope(store, context);
-      return attachConversation(store, owner, input, current, context.runId, context.agent);
+      return attachConversation(store, owner, input, current, context.runId, accessAgent(context)); // Q123 with #159
     },
   });
 }

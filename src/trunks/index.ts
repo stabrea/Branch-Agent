@@ -87,6 +87,8 @@ export class Trunks {
       scrub: (value) => runtime.hideSecrets(value) });
     this.refresh();
     runtime.trunkShape = (options) => this.shapeOf(options);
+    runtime.trunkKeysFor = (id) => this.records.find(id)?.keys ?? null; // Q114
+    runtime.trunkPermissionsFor = (id) => this.shapeOf({ prompt: "", trunkId: id })?.permissions ?? null; // Q119
     runtime.queueGuard = (sessionId) => this.requireQueueable(sessionId); // Q44: every queued message, whoever queues it
     runtime.followUpNotSent = (sessionId, prompt, reason) => this.messages.notSent(sessionId, prompt, reason); // Q44
     runtime.modeFollows = (sessionId) => this.followsRoom.get(sessionId) ?? null; // phase2/rooms

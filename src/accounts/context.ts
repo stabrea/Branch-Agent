@@ -13,7 +13,11 @@ export interface AccountCall {
    * mac7/lockdown-fix: set when the call is a Trunk's (its conversation, a room seat, a routine, or
    * work under them). A sign-in account never answers it, and a key is chosen by the Trunk's own pick.
    */
-  trunk?: { keys: { copyFromOwner: boolean; accounts: Record<string, string> } };
+  trunk?: {
+    keys: { copyFromOwner: boolean; accounts: Record<string, string> };
+    /** FQ-routing.isolated-agents: which Trunk, so work it sets going (a workflow or flow step) remembers as it. */
+    id?: string;
+  };
   /** Writes a line on the task's record (never a key or a token). */
   note?: (kind: string, data: Record<string, unknown>) => void;
 }

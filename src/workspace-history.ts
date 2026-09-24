@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { readFile, writeFile, mkdir, readdir, lstat, rm } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
@@ -40,6 +40,9 @@ export function lineDiff(before: string, after: string): { added: number; remove
   const text = kept.join("\n");
   return { added, removed, diff: text.length > diffLimit ? text.slice(0, diffLimit) + "\n… (diff shortened)" : text };
 }
+
+/** FQ-routing.isolated-agents: an undo whose redo version the caller's own scope kept (another's is not its to redo). */
+const ownRedo = "redo_version_id IN (SELECT id FROM file_versions WHERE owner=? AND scope=?)";
 
 export class WorkspaceHistory {
   constructor(private readonly db: DatabaseSync, private readonly files: WorkspaceFiles, private readonly owner: string) {
@@ -126,14 +129,15 @@ export class WorkspaceHistory {
    * files.write, which a Trunk already has to save its own files) walked the whole shared workspace —
    * every other Trunk's own folder and the owner's own files included — and every file it found was
    * kept under file_versions with that Trunk's own scope stamped on it (see `insert`), so the Trunk
-   * could later read any of it back through its own files.history. For the owner's own turn `base`
-   * still equals `root` (no scope set), so a snapshot "from the window" keeps everything, unchanged.
+   * could later read any of it back through its own files.history. For the owner's own turn, snapshot
+   * walks the entire workspace (resolve(root, worktreeScope() ?? "")), ignoring any active project folder,
+   * unless a worktree limits it — just as before this branch (the whole workspace, unchanged).
    */
   async snapshot(input: unknown): Promise<Snapshot & { leftOut?: string }> {
     const { label } = z.object({ label: z.string().trim().min(1).max(120).default("Snapshot") }).strict().parse(input ?? {});
     const id = randomUUID(); let files = 0, bytes = 0;
     const rules = new WalkRules(this.files.walkRules());
-    const base = this.files.base;
+    const base = this.currentScope() === "" ? resolve(this.files.root, worktreeScope() ?? "") : this.files.base;
     // A Trunk's own folder may not exist yet if this is its first tool call (nothing has written
     // through files.checked() to make it): a snapshot of an empty folder of one's own is 0 files,
     // not a crash.
@@ -186,30 +190,34 @@ export class WorkspaceHistory {
     this.db.prepare("INSERT INTO workspace_snapshots VALUES(?,?,?,?,?,?)").run(id, this.owner, label, files, bytes, snapshot.createdAt);
     return snapshot;
   }
-  /** The files the assistant changed in one conversation, the most recently changed first. */
+  /** The files the assistant changed in one conversation, the most recently changed first.
+   *  FQ-routing.isolated-agents: undo, redo and this list read only versions kept in the caller's own scope,
+   *  like every other read here: a conversation the owner re-chose for another Trunk never hands it the
+   *  first Trunk's kept bytes (and for the owner, a path is only ever relative to the folder it was kept in). */
   changedIn(sessionId: string): string[] {
-    const rows = this.db.prepare(`SELECT DISTINCT path FROM file_versions WHERE owner=? AND reason='before write'
-      AND run_id IN (SELECT id FROM tasks WHERE session_id=?) ORDER BY created_at DESC`).all(this.owner, sessionId);
+    const rows = this.db.prepare(`SELECT DISTINCT path FROM file_versions WHERE owner=? AND scope=? AND reason='before write'
+      AND run_id IN (SELECT id FROM tasks WHERE session_id=?) ORDER BY created_at DESC`).all(this.owner, this.currentScope(), sessionId);
     return rows.map((row) => String(row.path));
   }
 
   /** The change that would be undone next in this conversation, with what putting it back would do. */
   async undoPlan(sessionId: string): Promise<(FileChange & { versionId: string }) | null> {
-    const row = this.db.prepare(`SELECT id, path FROM file_versions WHERE owner=? AND reason='before write'
+    const row = this.db.prepare(`SELECT id, path FROM file_versions WHERE owner=? AND scope=? AND reason='before write'
       AND run_id IN (SELECT id FROM tasks WHERE session_id=?)
       AND id NOT IN (SELECT version_id FROM workspace_undo WHERE owner=? AND redone=0)
-      ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId, this.owner);
+      ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, this.currentScope(), sessionId, this.owner);
     return row ? this.planFor(String(row.id), String(row.path)) : null;
   }
   /** The undo that would be put back next in this conversation. */
   async redoPlan(sessionId: string): Promise<(FileChange & { versionId: string }) | null> {
     const row = this.db.prepare(`SELECT redo_version_id AS id, path FROM workspace_undo
-      WHERE owner=? AND session_id=? AND redone=0 ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId);
+      WHERE owner=? AND session_id=? AND redone=0 AND ${ownRedo} ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId, this.owner, this.currentScope());
     return row ? this.planFor(String(row.id), String(row.path)) : null;
   }
   /** What writing one kept version back would do to the file as it stands now. */
   private async planFor(versionId: string, path: string): Promise<FileChange & { versionId: string }> {
-    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId)!;
+    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=? AND scope=?").get(this.owner, versionId, this.currentScope());
+    if (!row) throw new Error("That earlier version is not kept");
     const wanted = Number(row.existed) ? Buffer.from(String(row.content), "base64").toString("utf8") : "";
     const now = (await this.current(path))?.toString("utf8") ?? "";
     return { path, versionId, existed: Number(row.existed) === 1, ...lineDiff(now, wanted) };
@@ -227,7 +235,7 @@ export class WorkspaceHistory {
   /** Puts the last undone change back again. */
   async redo(sessionId: string): Promise<FileChange & { redone: true }> {
     const row = this.db.prepare(`SELECT id, redo_version_id, path FROM workspace_undo
-      WHERE owner=? AND session_id=? AND redone=0 ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId);
+      WHERE owner=? AND session_id=? AND redone=0 AND ${ownRedo} ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId, this.owner, this.currentScope());
     if (!row) throw new Error("There is nothing to put back in this conversation.");
     const plan = await this.planFor(String(row.redo_version_id), String(row.path));
     await this.writeVersion(String(row.redo_version_id), String(row.path));
@@ -236,7 +244,7 @@ export class WorkspaceHistory {
   }
   /** Writes one kept version's exact bytes; a version of a file that did not exist removes it. */
   private async writeVersion(versionId: string, path: string): Promise<void> {
-    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId);
+    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=? AND scope=?").get(this.owner, versionId, this.currentScope());
     if (!row) throw new Error("That earlier version is not kept");
     const target = await this.files.checked(path);
     if (!Number(row.existed)) { await rm(target, { force: true }); return; }

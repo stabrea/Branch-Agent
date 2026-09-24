@@ -38,9 +38,10 @@ export function trunkIdOf(agent: string | undefined): string | undefined {
  * fork). `null` for anything but a Trunk's fresh top-level turn, so the owner's own conversation, a
  * delegated specialist and a helper task all keep working in the shared project exactly as before.
  */
-export function trunkFilePlace(root: string, context: Pick<ToolContext, "agent">, parent: unknown): TaskPlace | null {
+export function trunkFilePlace(root: string, context: Pick<ToolContext, "agent" | "trunk">, parent: unknown): TaskPlace | null {
   if (parent) return null;
-  const id = trunkIdOf(context.agent);
+  // Q114: work a Trunk set going without a turn of its own (a workflow's prompt step, a flow box) is its work too.
+  const id = context.agent ? trunkIdOf(context.agent) : trunkIdOf(context.trunk ? `trunk:${context.trunk}` : undefined);
   if (!id) return null;
   const scope = posix.join(trunkFilesHome, id);
   return { scope, workspace: join(root, scope), release: async () => undefined };

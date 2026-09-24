@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { memoryScope, visibleTo, type MemoryRecord } from "../memory.js";
+import { memoryAgent } from "../trunks/memory-scope.js";
 import { contextOf, FlyCore, type MemoryAdvice, type Suggestions } from "./hook.js";
 import { flyCoreSettings, saveFlyCoreSettings, suggestToolName, type FlyCoreSettings } from "./settings.js";
 
@@ -28,7 +29,8 @@ export function registerSuggestTool(registry: ToolRegistry, store: Store): void 
       const situation = run ? contextOf(store, run) : { prompt: "" };
       const code = core.code(context.owner, { ...situation, prompt: value.request ?? situation.prompt });
       const answer = { ...core.suggest(context.owner, code), memoryAdvice: core.memoryAdvice(context.owner) };
-      return context.agent ? readableOnly(store, answer, memoryScope(store, context), context.agent) : answer;
+      const agent = memoryAgent(context);
+      return agent ? readableOnly(store, answer, memoryScope(store, context), agent) : answer;
     },
   });
 }

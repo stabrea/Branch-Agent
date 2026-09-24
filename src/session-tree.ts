@@ -4,6 +4,7 @@ import { canAccessSession } from "./history.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Message } from "./contracts.js";
+import { accessAgent } from "./trunks/memory-scope.js";
 
 /**
  * Conversations that come off other conversations. Branching already copies a conversation up to a
@@ -189,6 +190,6 @@ export function registerSessionTree(registry: ToolRegistry, _store: Store, tree:
     name: "sessions.tree", permission: "history.read", group: "memory",
     description: "Conversations branched off this one, as a tree.",
     parameters: z.object({ sessionId }).strict(),
-    execute: async (input, context) => tree.tree(context.owner, input.sessionId, context.agent),
+    execute: async (input, context) => tree.tree(context.owner, input.sessionId, accessAgent(context)), // Q123
   });
 }

@@ -890,10 +890,6 @@ export async function createBranch(options: {
   // the schedules toolbox does not grow a second tool that says the same thing.
   workflows.resumeGraph = (id, within, source) => (flows.isGraph(id) // mac7/lockdown-fix: within; mac7/outside-resume: source
     ? flows.resumeGraph(id, { ...(within ? { within } : {}), ...(source ? { source } : {}) }) : null);
-  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
-  // that finished, with the state exactly as that box left it. Nothing is started again from the
-  // top, and a launch with no interrupted flow does nothing at all.
-  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
   // Wave 8: a plain list of what is still to be done — the assistant's plan and the owner's own
   // items in one place, with a due day handed on to the schedules rather than timed here.
   const todos = new Todos(store.sqlite);
@@ -1252,9 +1248,6 @@ export async function createBranch(options: {
   };
   // --- end bucket 14 ---
   let closing: Promise<void> | undefined;
-  // household-followups: with the owner's PIN set, the window comes back on the profile it was left
-  // on, once everything above has started as the owner.
-  store.profiles.resumeWhereLeft();
   /** Wave mac2 (guards): the sections of the integrations file this start left out, which the launch-file card names. */
   const launchFile = { leftOut: [] as readonly string[] };
   const branch = {
@@ -1593,6 +1586,16 @@ export async function createBranch(options: {
   // Changing Branch's own settings by asking, saved through the same writers as the window's (src/settings-kit/tools.ts).
   registerSettingsTools(registry, store, () => settingsKitWriters(branch));
   registerHelpSearch(registry); // what Branch knows about itself, from its own handbook
+  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
+  // that finished, with the state exactly as that box left it. Nothing is started again from the
+  // top, and a launch with no interrupted flow does nothing at all. Last of all (Q121, NAS 7af12b6):
+  // a Trunk's run carries on as that Trunk only once every hook it reaches is wired, its own folder
+  // (`runtime.coding`) included, rather than in the owner's project.
+  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
+  // household-followups: with the owner's PIN set, the window comes back on the profile it was left
+  // on, once everything above has started as the owner: the launch carry-on of interrupted flows
+  // included (NAS 52f87df), which is the owner's and must not meet another person's window.
+  store.profiles.resumeWhereLeft();
   return branch;
 }
 /** Runs one of the owner's own verified recipes by name, for a skill package's event hook. */

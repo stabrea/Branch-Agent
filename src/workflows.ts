@@ -84,6 +84,8 @@ export interface WorkflowApproval {
    */
   fingerprint?: string;
 }
+/** Q121: why a Trunk's work stops once that Trunk is removed, in the words asTrunkWork uses. */
+const goneTrunk = "The Trunk that started this is no longer here, so it does not carry on.";
 /** Where a workflow's remembered answers are kept, since a workflow is not a conversation. */
 const approvalKeyFor = (id: string): string => `workflow:${id}`;
 
@@ -127,10 +129,27 @@ export class Workflows {
     this.store.profiles.requireOwner("Saved workflows");
     return owner;
   }
-  create(owner: string, input: unknown): WorkflowView {
+  /**
+   * Q119: whose a saved workflow is: the Trunk that made it (or was given it), or null for the owner's own.
+   * Every run of it is that Trunk's work, whoever presses Run.
+   */
+  private whose(data: unknown): string | null {
+    const saved = (data as { startedBy?: unknown } | undefined)?.startedBy;
+    return typeof saved === "string" ? saved : null;
+  }
+  /** Q119: the one saved record a caller may touch. A Trunk reaches only its own; another's reads as not there. */
+  private reach(owner: string, id: string): SavedRecord {
+    const record = this.store.get("workflows", owner, id);
+    const caller = this.runtime.trunkAtWork();
+    if (!record || (caller && this.whose(record.data) !== caller)) throw new Error("Workflow not found");
+    return record;
+  }
+  /** `given` is the Trunk the owner hands a new workflow to (Teach); otherwise it is whoever makes it. */
+  create(owner: string, input: unknown, options: { given?: string } = {}): WorkflowView {
     const definition = WorkflowSchema.parse(input);
     const id = definition.id ?? randomUUID();
-    const existing = this.store.get("workflows", owner, id)?.data;
+    const existing = this.store.get("workflows", owner, id) ? this.reach(owner, id).data : undefined; // Q119
+    const whose = existing ? this.whose(existing) : options.given ?? this.runtime.trunkAtWork() ?? null;
     this.store.save("workflows", owner, id, {
       ...definition, id, status: existing?.status ?? "idle", cursor: Number(existing?.cursor ?? 0),
       waitingUntil: existing?.waitingUntil ?? null, question: null, error: null,
@@ -138,18 +157,21 @@ export class Workflows {
       taskLimit: Array.isArray(existing?.taskLimit) ? existing.taskLimit : null,
       // mac7/outside-resume: nor who set a paused run going.
       ...(typeof existing?.startedFrom === "string" ? { startedFrom: existing.startedFrom } : {}),
+      // Q114/Q119: nor the Trunk whose work it is, so saving the steps again never hands the rest to someone else.
+      ...(whose ? { startedBy: whose } : {}),
     });
     return this.view(owner, id);
   }
   list(owner: string): WorkflowView[] {
-    return this.store.list("workflows", owner).map((record) => this.toView(owner, record));
+    const caller = this.runtime.trunkAtWork(); // Q119: a Trunk sees only its own
+    return this.store.list("workflows", owner).filter((record) => !caller || this.whose(record.data) === caller)
+      .map((record) => this.toView(owner, record));
   }
   view(owner: string, id: string): WorkflowView {
-    const record = this.store.get("workflows", owner, id);
-    if (!record) throw new Error("Workflow not found");
-    return this.toView(owner, record);
+    return this.toView(owner, this.reach(owner, id));
   }
   remove(owner: string, id: string): { removed: boolean } {
+    if (this.store.get("workflows", owner, id)) this.reach(owner, id); // Q119
     this.store.sqlite.prepare("DELETE FROM workflow_state WHERE owner=? AND workflow_id=?").run(owner, id);
     return { removed: this.store.delete("workflows", owner, id) };
   }
@@ -174,6 +196,13 @@ export class Workflows {
       output=excluded.output, run_id=excluded.run_id, updated_at=excluded.updated_at`)
       .run(id, owner, index, step.name, step.kind, patch.status ?? "running", patch.attempts ?? 0,
         (patch.output ?? "").slice(0, 4000), patch.runId ?? null, patch.startedAt ?? now, now);
+  }
+  /**
+   * Q114/Q119: the Trunk whose work this is: the one it belongs to, whoever presses Run or resume. A
+   * workflow of the owner's own is nobody's Trunk work, and `reach` lets no Trunk start one of those.
+   */
+  private startedBy(owner: string, id: string): string | null {
+    return this.whose(this.store.get("workflows", owner, id)?.data);
   }
   private setStatus(owner: string, id: string, patch: Record<string, unknown>): WorkflowView {
     const record = this.store.get("workflows", owner, id);
@@ -204,6 +233,11 @@ export class Workflows {
     const waitingForYes = current.status === "waiting_approval"
       || (current.status === "paused" && current.pausedFrom === "waiting_approval");
     if (!waitingForYes) return this.run(owner, id, options.source ?? "owner", [], options.within);
+    // Q126 (NAS 65b7ab8): a yes that cannot be carried on is refused before it is written down, so the question
+    // stays asked and the step it was about is never recorded as approved.
+    const trunk = this.startedBy(owner, id);
+    const refused = trunk ? this.runtime.trunkWorkRefusal(trunk) : null;
+    if (refused) throw new Error(refused);
     const asked = this.pending(owner, id);
     if (asked) {
       this.runtime.grantApproval(approvalKeyFor(id), asked, options.remember ?? asked.remember);
@@ -238,9 +272,14 @@ export class Workflows {
    * workflow, so an owner's yes later does not widen it); the owner starting it afresh clears it.
    */
   private limitFor(owner: string, id: string, fresh: boolean, within: readonly string[] | undefined): string[] | null {
-    const saved = (this.store.get("workflows", owner, id)?.data as { taskLimit?: string[] | null } | undefined)?.taskLimit ?? null;
-    if (!within) return fresh ? null : saved;
-    return saved && !fresh ? saved.filter((p) => within.includes(p)) : [...within];
+    const data = this.store.get("workflows", owner, id)?.data;
+    const saved = fresh ? null : (data as { taskLimit?: string[] | null } | undefined)?.taskLimit ?? null;
+    const limit = !within ? saved : saved ? saved.filter((p) => within.includes(p)) : [...within];
+    // Q119: a Trunk's workflow keeps to what that Trunk may use now, whoever presses Run or says yes.
+    const whose = this.whose(data);
+    const trunkMay = whose ? this.runtime.trunkPermissionsFor(whose) : null;
+    if (!trunkMay) return limit;
+    return limit ? limit.filter((p) => trunkMay.includes(p)) : [...trunkMay];
   }
   /**
    * mac7/outside-resume: who a run of the workflow is held as. Carrying one on (after a pause, a wait
@@ -263,17 +302,25 @@ export class Workflows {
     const fresh = ["idle", "completed", "failed"].includes(current.status);
     const limit = this.limitFor(owner, id, fresh, within); // mac7/lockdown-fix
     const held = this.heldSource(owner, id, fresh, source); // mac7/outside-resume
-    current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit,
-      startedFrom: held, ...(fresh ? { cursor: 0 } : {}) });
-    for (let index = current.cursor; index < current.steps.length; index++) {
-      const step = current.steps[index]!;
-      const outcome = await this.step(owner, id, index, step, current, held, chain, limit);
-      if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
-      // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).
-      current = this.setStatus(owner, id, { cursor: outcome.cursor ?? index + 1, ...outcome.patch });
-      index = current.cursor - 1;
-    }
-    return this.setStatus(owner, id, { status: "completed", cursor: current.steps.length, waitingUntil: null });
+    const startedBy = this.startedBy(owner, id); // Q114/Q119
+    const carryOn = async (): Promise<WorkflowView> => {
+      current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit,
+        startedFrom: held, startedBy, ...(fresh ? { cursor: 0 } : {}) });
+      for (let index = current.cursor; index < current.steps.length; index++) {
+        // Q121 (NAS 7af12b6): a Trunk removed while its workflow works stops it before the next step, as each step used to ask.
+        if (startedBy && !this.runtime.trunkKeysFor(startedBy))
+          return this.setStatus(owner, id, { status: "failed", cursor: index, error: goneTrunk });
+        const outcome = await this.step(owner, id, index, current.steps[index]!, current, held, chain, limit);
+        if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
+        // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).
+        current = this.setStatus(owner, id, { cursor: outcome.cursor ?? index + 1, ...outcome.patch });
+        index = current.cursor - 1;
+      }
+      return this.setStatus(owner, id, { status: "completed", cursor: current.steps.length, waitingUntil: null });
+    };
+    // Q114: the whole carry-on runs as the Trunk that started it, so a refusal (another Trunk, or one that is
+    // gone) comes before anything is marked running, and the workflow is left exactly as it stopped.
+    return startedBy ? this.runtime.asTrunkWork(startedBy, carryOn) : carryOn();
   }
   private async step(owner: string, id: string, index: number, step: WorkflowStep, view: WorkflowView, source: RunSource, chain: readonly string[] = [], limit: string[] | null = null):
     Promise<{ halt: boolean; cursor?: number; patch?: Record<string, unknown> }> {
@@ -341,7 +388,10 @@ export class Workflows {
     const allowed = limit ? { permissions: [...this.runtime.context().permissions].filter((p) => limit.includes(p)) } : {};
     if (step.kind === "prompt") {
       // A chat message's workflow asks the model as the chat, never as a schedule the owner made.
-      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...allowed });
+      // Q119: a Trunk's step is shaped as that Trunk's turn: its tools now, and none of the owner's documents.
+      const trunkId = this.runtime.trunkAtWork();
+      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...allowed,
+        ...(trunkId ? { trunkId } : {}) });
       if (run.status !== "completed") throw new Error(`The step did not finish (${run.status})`);
       return { output: run.output, runId: run.id };
     }

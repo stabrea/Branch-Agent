@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
+import { briefOwnerOnly } from "../key-context.js";
 import { ChannelPolicySchema, type ChannelAdapter, type ChannelRouter } from "./router.js";
 // Wave mac3 (channels-parity): the chat services built in, each in its own file.
 import type { ParityService } from "./parity-common.js";
@@ -202,7 +203,8 @@ export function registerChannelTools(registry: ToolRegistry, router: ChannelRout
     name: "channels.digest", permission: "channels.send",
     description: "Send the morning brief as it stands right now to one chat, whichever chat app it is on.",
     parameters: DigestSchema,
-    execute: async (input, context) => { people.requireOwner(onlyTheOwner); return digest(router, brief, context.owner, input); },
+    // Q134: the brief is the owner's, so a Trunk or a delegated specialist is refused it here too.
+    execute: async (input, context) => { briefOwnerOnly(context); people.requireOwner(onlyTheOwner); return digest(router, brief, context.owner, input); },
   });
 }
 
