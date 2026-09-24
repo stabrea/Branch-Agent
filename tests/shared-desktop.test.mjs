@@ -1,7 +1,7 @@
 // FQ-execution.desktop: the shared Linux desktop (VNC/Xvfb) and the owner taking it over. Every
 // "docker"/"xdotool" call here is a fake that only records what it was asked, so this file needs
 // no Docker and touches no real display; the pure argv builders prove the real commands are right.
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,6 +21,18 @@ const runContext = (runId, owner, permissions) => ({
   owner, workspace: ".", runId, signal: new AbortController().signal, budget: new Budget(),
   permissions: new Set(permissions), depth: 0,
 });
+
+/**
+ * Every loopback listener a fixture desktop opens. Tests start desktops they never stop, and an open
+ * listener keeps node from exiting once the file is done (seen on Windows as a job-length hang).
+ */
+const listeners = new Set();
+function tracked(desktop) {
+  const open = desktop.createListener;
+  desktop.createListener = async (...args) => { const server = await open(...args); listeners.add(server); return server; };
+  return desktop;
+}
+after(() => { for (const server of listeners) server.close(); });
 
 /** A fake `docker`/`xdotool` runner that only records what it was asked and answers with a fixed id. */
 function fakeRunner({ image = "branch-linux-desktop:latest" } = {}) {
@@ -137,6 +149,7 @@ function sandboxFixture(app) {
       server.listen(0, "127.0.0.1", () => resolve(server));
     });
   };
+  tracked(desktop);
   return { desktop, calls };
 }
 
@@ -239,6 +252,7 @@ test("the shared desktop is reachable as tools, and takeOver reaches through the
       server.listen(0, "127.0.0.1", () => resolve(server));
     });
   };
+  tracked(desktop);
   const permissions = ["desktop.control"];
   const ctx = () => runContext("run-1", "local", permissions);
 
@@ -303,6 +317,7 @@ function heldFixture(app, desktop = new LinuxDesktopSandbox(app.store), windowFa
   desktop.pauseMs = 1;
   desktop.probe = async () => true;
   const ran = (verb) => calls.filter((call) => call.args[0] === verb);
+  tracked(desktop);
   return { desktop, calls, hold, banner: desktop.banner, ran };
 }
 const settle = async (until) => { for (let i = 0; i < 200 && !until(); i++) await new Promise((done) => setTimeout(done, 5)); };
