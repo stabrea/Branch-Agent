@@ -274,7 +274,7 @@ export function openTopicPanes() {
   document.body.classList.add("topic-panes-open");
   panes = [];
   grid.replaceChildren();
-  for (const id of store.get()) addPane(id);
+  for (const id of store.get()) addPane(id, false);
   syncEmptyNote();
   $("topic-panes-add")?.focus();
 }
