@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import { copyFile, lstat, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
 import { randomUUID } from "node:crypto";
@@ -40,6 +40,21 @@ async function copyPlace(cwd: string, name: string): Promise<string> {
   return target;
 }
 
+/**
+ * Q107: the parallel copy called `name`, checked before it is removed. `git worktree remove --force` follows a
+ * link at the copies folder or at the copy itself to whatever worktree it leads to, so the copy must be a real
+ * folder at its own place in this repository; otherwise nothing is removed. Null when the copy is already gone:
+ * its place is then never handed to Git, since a link could appear there before Git looks (NAS 88d4a92).
+ */
+async function copyToRemove(cwd: string, name: string): Promise<string | null> {
+  const target = join(cwd, WORKTREE_HOME, name);
+  const found = await lstat(target).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+  if (!found) return null;
+  if (!found.isDirectory() || canonical(target) !== join(canonical(cwd), WORKTREE_HOME, name))
+    throw new Error(`${WORKTREE_HOME}/${name} here is not a parallel copy Branch made in this folder (it is a link, or leads elsewhere), so nothing is removed.`);
+  return target;
+}
+
 export class GitTools {
   constructor(private readonly files: WorkspaceFiles, private readonly runner: GitRunner) {}
   /** Q100: told of every parallel copy made or removed here (`source` is the repository folder), for folder trust. */
@@ -50,6 +65,32 @@ export class GitTools {
     const target = await this.files.checked(path, true);
     if (!(await stat(target).catch(() => null))?.isDirectory()) throw new Error("That is not a folder in your workspace.");
     return target;
+  }
+  /**
+   * Q107 (NAS 28ba0db): the copy called `name` exactly as Git registered it, or null. Git is handed only that
+   * path, so it finds the copy by what it registered and never resolves the place through a link put there after
+   * the check. A folder the repository itself carries at that place is no copy, and is never handed to Git.
+   */
+  private async registered(cwd: string, name: string, signal: AbortSignal): Promise<string | null> {
+    const home = canonical(join(cwd, WORKTREE_HOME));
+    const stdout = (await this.run(cwd, ["worktree", "list", "--porcelain"], signal)).stdout;
+    return stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9).trim())
+      .find((path) => basename(path) === name && canonical(dirname(path)) === home) ?? null;
+  }
+  /** Q107: removals in one repository go one at a time, so another cannot take a copy off Git's list mid-check. */
+  private readonly removing = new Map<string, Promise<unknown>>();
+  private async oneRemoveAt<T>(cwd: string, work: () => Promise<T>): Promise<T> {
+    const key = canonical(cwd);
+    const mine = (this.removing.get(key) ?? Promise.resolve()).catch(() => undefined).then(work);
+    this.removing.set(key, mine.catch(() => undefined));
+    return mine;
+  }
+  /** Q107: the copy checked on disk and on Git's list: its registered path, null when gone, or an error. */
+  private async removable(cwd: string, name: string, signal: AbortSignal): Promise<string | null> {
+    if (!(await copyToRemove(cwd, name))) return null;
+    const copy = await this.registered(cwd, name, signal);
+    if (!copy) throw new Error(`${WORKTREE_HOME}/${name} here is not a parallel copy Git knows of, so nothing is removed.`);
+    return copy;
   }
   private async run(cwd: string, args: string[], signal: AbortSignal, options: { timeoutMs?: number; maxOutputBytes?: number } = {}): Promise<GitOutcome> {
     const outcome = await this.runner.run({ cwd, args, ...options }, signal);
@@ -145,14 +186,28 @@ export class GitTools {
       const base = canonical(home);
       const inside = (path: string) => { const rel = relative(base, canonical(path)); return rel !== "" && !rel.startsWith(".."); };
       const mine = paths.filter(inside);
-      return { folder: input.folder, copies: mine.map((path) => ({ name: relative(base, canonical(path)).replace(/\\/g, "/") })) };
+      // Q128 (NAS 9730120): a copy whose folder was deleted by hand is still on Git's list; it is shown as gone, so a
+      // name that cannot be used again is explained rather than silently listed as a working copy.
+      return { folder: input.folder, copies: await Promise.all(mine.map(async (path) => {
+        const name = relative(base, canonical(path)).replace(/\\/g, "/");
+        const there = await lstat(path).then(() => true, () => false);
+        return there ? { name } : { name, gone: true };
+      })) };
     }
     if (!input.name) throw new Error("Tell me what to call this parallel copy.");
     const target = join(home, input.name);
     if (input.action === "remove") {
-      await this.run(cwd, ["worktree", "remove", "--force", target], signal, { timeoutMs: 60000 });
-      this.onCopy({ source: cwd, copy: target, made: false });
-      return { folder: input.folder, name: input.name, removed: true };
+      const name = input.name;
+      return this.oneRemoveAt(cwd, async () => {
+        const copy = await this.removable(cwd, name, signal);
+        if (!copy) {
+          this.onCopy({ source: cwd, copy: target, made: false });
+          throw new Error(`There is no parallel copy called "${name}" here any more, so nothing was removed.`);
+        }
+        await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 });
+        this.onCopy({ source: cwd, copy: target, made: false });
+        return { folder: input.folder, name, removed: true };
+      });
     }
     await copyPlace(cwd, input.name);
     const create = input.branch ? ["-b", input.branch] : ["--detach"];
@@ -194,14 +249,23 @@ export class GitTools {
   async planMerge(input: { folder: string; name: string; message?: string | undefined; remove: boolean }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const branch = planBranch(input.name);
+    // Checked before the merge, so a copy that is not Branch's own leaves everything as it was.
+    if (input.remove) await this.removable(cwd, input.name, signal);
     const into = (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["merge", "--no-ff", "--no-edit", "-m", input.message ?? `Try "${input.name}"`, branch], signal, { timeoutMs: 60000 });
+    // Q107: checked again right before the remove, since the merge itself can put a link at the copy's place.
+    // Reported as removed only when the remove really ran and finished; a copy already gone is left to Git never.
+    let removed = false;
     if (input.remove) {
-      const copy = join(cwd, WORKTREE_HOME, input.name);
-      await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).catch(() => undefined);
-      this.onCopy({ source: cwd, copy, made: false });
+      const name = input.name;
+      removed = await this.oneRemoveAt(cwd, async () => {
+        const copy = await this.removable(cwd, name, signal).catch(() => undefined); // undefined: refused; null: gone
+        const done = !!copy && await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).then(() => true, () => false);
+        if (done || copy === null) this.onCopy({ source: cwd, copy: join(cwd, WORKTREE_HOME, name), made: false });
+        return done;
+      });
     }
-    return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: input.remove };
+    return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: removed };
   }
 
   /**
