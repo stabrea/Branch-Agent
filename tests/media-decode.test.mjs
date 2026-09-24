@@ -284,3 +284,20 @@ test("a tiny Adam7-interlaced PNG with valid structure is refused by name", () =
   const png = Buffer.concat([signature, pngChunk("IHDR", ihdr), pngChunk("IDAT", idat), pngChunk("IEND", Buffer.alloc(0))]);
   assert.throws(() => decodePng(png), /interlaced PNG is not supported/);
 });
+
+test("the unpacked-size cap sits exactly at a 4096x4096 RGBA picture: one column more is refused by name before inflating", () => {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const claiming = (width, height) => {
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(width, 0);
+    ihdr.writeUInt32BE(height, 4);
+    ihdr[8] = 8; ihdr[9] = 6; // 8-bit RGBA, not interlaced
+    return Buffer.concat([signature, pngChunk("IHDR", ihdr), pngChunk("IDAT", deflateSync(Buffer.alloc(0))), pngChunk("IEND", Buffer.alloc(0))]);
+  };
+  // (4096 * 4 + 1) * 4096 = 67112960 bytes is the most decoded here, so a 4096x4096 claim gets past the cap and fails
+  // only on its empty pixel data...
+  assert.throws(() => decodePng(claiming(4096, 4096)), /decompressed picture is 0 bytes, not the 67112960 its own size says/);
+  // ...while one column more, (4097 * 4 + 1) * 4096 = 67129344 bytes, is refused by the cap itself. Raising, lowering
+  // or removing the cap changes one of these two messages.
+  assert.throws(() => decodePng(claiming(4097, 4096)), /would unpack to 67129344 bytes, more than the 67112960 decoded here/);
+});
