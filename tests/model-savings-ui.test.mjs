@@ -29,7 +29,7 @@ const fake = (name, usages = [reportedUsage]) => {
   return { name, async complete() { return { content: "Done.", toolCalls: [], usage: usages[at++ % usages.length] }; } };
 };
 
-async function openApp(t, width = 1280, usages = undefined) {
+async function openApp(t, width = 1280, usages = undefined, beforeLoad = undefined) {
   const { chromium } = await import("playwright");
   const root = await mkdtemp(join(tmpdir(), "branch-savings-ui-"));
   const presets = [{ id: "main", name: "Main", provider: fake("main", usages), model: "m" }, { id: "second", name: "Second", provider: fake("second"), model: "s" }];
@@ -40,6 +40,7 @@ async function openApp(t, width = 1280, usages = undefined) {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  if (beforeLoad) await page.addInitScript(beforeLoad);
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -228,5 +229,20 @@ test("R17-049 the chart asks for rounds only while Data & usage is on screen", a
   await openDataAndUsage(page);
   await page.locator("#usage #round-chart svg rect").first().waitFor({ timeout: 10000 });
   assert.ok(asked > 0, "open: it asks, and draws");
+  assert.deepEqual(errors, []);
+});
+
+test("Q196 opening Data & usage draws the round chart at once, not at its next four-second look (NAS b613f63)", async (t) => {
+  // Its four-second look never comes in this window, so only drawing on opening can show the chart.
+  const { app, page, errors } = await openApp(t, 1280, undefined, () => {
+    const every = window.setInterval.bind(window);
+    window.setInterval = (fn, ms, ...rest) => (ms === 4000 ? 0 : every(fn, ms, ...rest));
+  });
+  const run = await app.runtime.run({ prompt: "hello" });
+  await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
+  saveSavings(app.store, "local", "roundChart", { mode: "on" });
+  await page.evaluate(() => window.branchModelSavings.refresh());
+  await openDataAndUsage(page);
+  await page.locator("#usage #round-chart svg rect").first().waitFor({ timeout: 5000 });
   assert.deepEqual(errors, []);
 });

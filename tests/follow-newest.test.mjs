@@ -131,3 +131,38 @@ test("B5 opening a conversation from Recents in a fresh window starts at its new
   assert.ok((await gap(page)) <= 80, `opened at the newest message (${await gap(page)} px above the bottom)`);
   assert.deepEqual(errors, []);
 });
+
+test("Q197 Shift+Space, and a key pressed with the focus on the page itself, count as reading up (NAS b613f63)", async (t) => {
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
+  await send(page, "A long answer please.");
+  const following = () => page.evaluate(() => globalThis.branchFollowNewest.following);
+  assert.equal(await following(), true, "control: following after the answer");
+  await page.locator("#conversation").click();
+  await page.keyboard.press("Shift+Space");
+  assert.equal(await following(), false, "Shift+Space in the conversation");
+  await page.evaluate(() => document.getElementById("workspace").scrollTo(0, document.getElementById("workspace").scrollHeight));
+  await page.evaluate(() => document.getElementById("workspace").dispatchEvent(new Event("scroll")));
+  assert.equal(await following(), true, "control: back at the bottom it follows again");
+  await page.evaluate(() => { document.activeElement?.blur(); });
+  await page.keyboard.press("PageUp");
+  assert.equal(await following(), false, "PageUp with the focus on the page itself");
+  assert.deepEqual(errors, []);
+});
+
+test("Q198 a conversation opened from Recents after a scroll up on the empty screen starts at its newest message (NAS e87c522)", async (t) => {
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
+  await send(page, "A long answer to come back to.");
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.waitForFunction(() => globalThis.branchFollowNewest, null, { timeout: 20000 });
+  // A wheel turned upward over the empty screen.
+  await page.evaluate(() => document.getElementById("workspace").dispatchEvent(new WheelEvent("wheel", { deltaY: -300, bubbles: true })));
+  assert.equal(await page.evaluate(() => globalThis.branchFollowNewest.following), false, "control: the wheel counted as reading");
+  const row = page.locator("#rail-list .rail-item").filter({ hasText: "A long answer to come back to" });
+  await row.waitFor({ timeout: 20000 });
+  await row.click();
+  await page.waitForFunction(() => document.querySelectorAll("#conversation .message.assistant").length >= 1, null, { timeout: 20000 });
+  await page.waitForTimeout(500);
+  assert.ok((await gap(page)) <= 80, `opened at the newest message (${await gap(page)} px above the bottom)`);
+  assert.deepEqual(errors, []);
+});
