@@ -1,6 +1,7 @@
 // Settings → Your other computers → "Run something on one computer" (FQ-execution.host-bridge).
 // The owner names a computer explicitly, from the ones already added, and the answer that comes back
 // always carries which computer it came from, right beside what it said.
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 
 async function api(path, body) {
@@ -30,7 +31,7 @@ async function showComputers() {
   if (!computers.length) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = "Add a computer above first";
+    option.textContent = t("host-bridge.add-first");
     select.append(option);
     select.disabled = true;
     return;
@@ -54,7 +55,7 @@ function showQuestion(where, question, body) {
   const yes = document.createElement("button");
   yes.type = "button";
   yes.id = "host-bridge-confirm";
-  yes.textContent = "Yes, run it";
+  yes.textContent = t("host-bridge.run-yes");
   yes.addEventListener("click", () => void send({ ...body, confirm: true }));
   row.append(text, yes);
   where.append(row);
@@ -73,7 +74,7 @@ async function send(body) {
     const row = document.createElement("div");
     row.className = "card-row";
     const title = document.createElement("h4");
-    title.textContent = `Ran on ${result.computer}`;
+    title.textContent = t("host-bridge.ran-on", { computer: result.computer });
     const output = document.createElement("pre");
     output.textContent = result.output || "(no output)";
     row.append(title, output);

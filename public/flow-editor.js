@@ -92,7 +92,7 @@ function stepRow(step, at) {
   const name = el("input");
   name.type = "text";
   name.value = step.name;
-  name.setAttribute("aria-label", `Name of step ${at + 1}`);
+  name.setAttribute("aria-label", t("flowEditor.step.name", { n: at + 1 }));
   name.addEventListener("input", () => { step.name = name.value; redrawPicture(); });
   row.append(el("strong", `${at + 1}. ${step.kind}`), name);
   const form = el("div", undefined, "row-fields");

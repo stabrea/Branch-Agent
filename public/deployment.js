@@ -172,7 +172,7 @@ if (card) {
       const newest = points.points[0];
       if (!newest) throw new Error("There is no safety copy to put back.");
       // Putting a copy back writes over the conversations, memory and skills that are here now.
-      const sure = confirm(`This replaces everything saved here with the copy from ${newest.savedAt.slice(0, 10)} (version ${newest.version}). Anything added since then is lost. Put it back?`);
+      const sure = confirm(t("deployment.confirm.restore", { date: newest.savedAt.slice(0, 10), version: newest.version }));
       if (!sure) { say("restore-offer-note", "Left as it is. Nothing was changed."); return; }
       const result = await call("/restore-point", { name: newest.name });
       say("restore-offer-note", `Put back ${result.rows} saved items from ${newest.version}. Close and open Branch to see them.`);

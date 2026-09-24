@@ -3,6 +3,7 @@
  * this only writes the choice into it and says in plain words what the choice means, so nobody has
  * to remember the word for it. What each way of working does comes from the app, not from here.
  */
+import { t } from "./i18n.js";
 import { api } from "/app.js";
 
 const $ = (id) => document.getElementById(id);
@@ -44,7 +45,7 @@ async function start() {
     }
     describe(styles, select.value);
     select.addEventListener("change", () => { describe(styles, select.value); apply(select.value); });
-  } catch { $("specialist-style-note").textContent = "The ways of working could not be read just now."; }
+  } catch { $("specialist-style-note").textContent = t("specialists.status.stylesUnreadable"); }
 }
 
 void start();
