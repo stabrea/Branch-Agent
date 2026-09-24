@@ -26,6 +26,24 @@ async function fixture(t) {
   return { app, ...server };
 }
 
+test("source-change inbox and decisions require owner HTTP authentication", async (t) => {
+  const { url, token, app } = await fixture(t);
+  const path = url + "/api/branch/source-change";
+  assert.equal((await fetch(path)).status, 401);
+  assert.equal((await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "bad", decision: "deny" }) })).status, 401);
+  const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const inbox = await fetch(path, { headers });
+  assert.equal(inbox.status, 200);
+  assert.deepEqual(await inbox.json(), { requests: [], reviews: [] });
+  assert.equal((await fetch(path + "/diff?id=00000000-0000-4000-8000-000000000000")).status, 401);
+  assert.equal((await fetch(path + "/diff?id=00000000-0000-4000-8000-000000000000", { headers })).status, 400);
+  assert.equal((await fetch(path + "/publish", { method: "POST" })).status, 401);
+  assert.equal((await fetch(path + "/publish", { method: "POST", headers, body: JSON.stringify({ id: "bad", digest: "bad", confirm: "publish-draft" }) })).status, 400);
+  assert.equal((await fetch(path + "/publish", { method: "POST", headers, body: JSON.stringify({ id: "00000000-0000-4000-8000-000000000000", digest: "0".repeat(64), confirm: "publish-draft" }) })).status, 400);
+  assert.equal((await fetch(path, { method: "POST", headers, body: JSON.stringify({ id: "bad", decision: "deny" }) })).status, 400);
+  assert.equal(app.store.profiles.isOwner(), true);
+});
+
 test("private API requires token, validates origin and host, and rejects URL token", async (t) => {
   const { url, token } = await fixture(t);
   assert.equal((await fetch(url + "/api/state")).status, 401);

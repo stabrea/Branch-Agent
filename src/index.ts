@@ -123,7 +123,7 @@ import { SessionLimiter } from "./session-limits.js";
 import { ConversationRetention } from "./retention.js";
 import { GitRunner, type GitRunOptions } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
-import { offerSelfDevelopment } from "./self-development.js";
+import { offerSelfDevelopment, registerSourceEditTools } from "./self-development.js";
 import { ContractBook, contractGuard, contractPreflight } from "./self-development-contract.js"; // Q12
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
@@ -590,10 +590,14 @@ export async function createBranch(options: {
   // database — see the comment on `MemoryReview.provider`.
   store.review.provider = memory.backend;
   registerMemory(registry, store, memory.retrieval, memory.backend);
-  offerSelfDevelopment({
+  const selfDevelopment = {
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
-    git: (input, signal) => gitRunner.run(input, signal), contracts: selfContracts, store,
-  });
+    git: (input: GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal), contracts: selfContracts, store, runtime, files,
+    openDraft: (input: { repo: string; head: string; base: string; title: string; body: string; draft: true }) =>
+      runtime.executeTool("github.open_pull_request", input, { mode: "owner" }),
+  };
+  offerSelfDevelopment(selfDevelopment);
+  registerSourceEditTools(selfDevelopment);
   const contractChecks = { store, owner: options.owner ?? "local", workspace, registry, book: selfContracts,
     git: (input: GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal) };
   registry.beforeTool = contractGuard(contractChecks);
@@ -1278,6 +1282,7 @@ export async function createBranch(options: {
   /** Wave mac2 (guards): the sections of the integrations file this start left out, which the launch-file card names. */
   const launchFile = { leftOut: [] as readonly string[] };
   const branch = {
+    selfDevelopment,
     store,
     registry,
     launchFile,

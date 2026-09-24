@@ -391,6 +391,53 @@ async function installsCard(modes) {
   return node;
 }
 
+async function sourceRequestsCard() {
+  const { node, status } = card("branch-source-requests-card", "inbox:needs", "branch.source.title", "Branch source-change requests",
+    "branch.source.purpose", "Review requests from chat. Approval prepares an isolated worktree; it never pushes or opens a pull request.");
+  const { requests, reviews = [] } = await api("branch/source-change");
+  const list = document.createElement("ul");
+  for (const item of requests) {
+    const line = plain("li", `${item.name} · ${item.repository} · ${item.base} · expires ${shortDate(item.expiresAt)}`);
+    line.append(plain("p", item.goal));
+    const decide = (decision) => act(status, async () => {
+      await api("branch/source-change", { id: item.id, decision });
+      await drawCards();
+    });
+    line.append(row(button("branch.source.approve", "Approve", decide("approve")), button("branch.source.deny", "Deny", decide("deny"))));
+    list.append(line);
+  }
+  node.append(list);
+  if (!requests.length) node.append(make("p", "field-note", "branch.source.none", "No pending requests."));
+  if (reviews.length) node.append(plain("h3", "Coding task review"));
+  for (const item of reviews) {
+    const line = plain("li", `${item.name} · ${item.status} · ${item.folder || "worktree not prepared"}`);
+    line.append(plain("p", item.goal));
+    if (item.taskRunId) line.append(plain("p", `Run: ${item.taskRunId}`));
+    if (item.summary) line.append(plain("pre", item.summary));
+    if (item.publishedSha) line.append(plain("p", `Published commit: ${item.publishedSha}. Check GitHub CI for this exact SHA before review.`));
+    if (item.folder && (item.status === "review" || item.status === "failed")) {
+      const diff = plain("pre", "");
+      const publish = button("branch.source.publish", "Publish reviewed draft PR", () => {});
+      publish.disabled = true;
+      line.append(button("branch.source.diff", "View read-only diff", () => act(status, async () => {
+        const result = await api(`branch/source-change/diff?id=${encodeURIComponent(item.id)}`);
+        diff.textContent = `Changed files (including untracked; untracked contents are not shown):\n${result.files}${result.filesTruncated ? "\n[List truncated]" : ""}\nTracked diff:\n${result.diff}${result.truncated ? "\n[Diff truncated]" : ""}`;
+        publish.disabled = item.status !== "review" || !result.publishDigest;
+        publish.onclick = () => act(status, async () => {
+          if (!globalThis.confirm(`Publish a draft PR for ${item.name}? This pushes only the exact reviewed diff. No local tests run; verify CI at the published commit before review.`)) return;
+          await api("branch/source-change/publish", { id: item.id, digest: result.publishDigest, confirm: "publish-draft" });
+          await drawCards();
+        });
+      })));
+      if (item.status === "review") line.append(publish);
+      line.append(diff);
+    }
+    list.append(line);
+  }
+  node.append(row(button("branch.source.refresh", "Refresh", act(status, drawCards)), status));
+  return node;
+}
+
 /* ---------- typing while it works ---------- */
 let busyMode = "queue", waitingAllowed = false;
 /** The message box asks this first; null means "wait its turn", the way it always did. */
@@ -403,7 +450,7 @@ globalThis.branchBusySend = async (sessionId, prompt) => {
 const BUILDERS = [
   ["flows-travel-card", timeTravelCard], ["flows-recipes-card", recipeCard], ["flows-board-card", boardCard],
   ["flows-waiting-card", waitingCard], ["flows-widgets-card", widgetsCard], ["flows-focus-card", focusCard],
-  ["flows-installs-card", installsCard],
+  ["flows-installs-card", installsCard], ["branch-source-requests-card", sourceRequestsCard],
 ];
 
 async function drawCards() {

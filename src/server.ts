@@ -44,6 +44,7 @@ import { catalogEntries, catalogEntry, providerCatalog } from "./provider-catalo
 import { localModelsApi } from "./local-models-api.js";
 import type { PressContext } from "./local-one-button.js";
 import { handlesRemovePath, removeBranchApi } from "./remove-branch.js";
+import { decideBranchSourceChange, pendingBranchSourceChanges, reviewedBranchSourceChanges, branchSourceDiff, publishBranchSourceChange } from "./self-development.js";
 
 /** mac7/clean-uninstall: the folder holding this copy's package.json, as `branch uninstall` reads it. */
 const packageRootHere = (): string => dirname(dirname(fileURLToPath(import.meta.url)));
@@ -1295,6 +1296,23 @@ async function api(
   if (path.startsWith("/api/lock") || path.startsWith("/api/privacy")) return guardApi(app, request, path);
   if (path.startsWith("/api/connections/")) return connectionsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
+  if (["/api/branch/source-change", "/api/branch/source-change/diff", "/api/branch/source-change/publish"].includes(path)) {
+    if (startedWithShortLivedKey() || !app.store.profiles.isOwner())
+      throw new HttpError(401, "Approve source changes only as the owner in the Branch app.");
+    if (path.endsWith("/diff")) {
+      if (request.method !== "GET") throw new HttpError(405, "Method not allowed");
+      const id = z.string().uuid().parse(new URL(request.url ?? "", "http://localhost").searchParams.get("id"));
+      return branchSourceDiff(app.selfDevelopment, id, AbortSignal.timeout(15000));
+    }
+    if (path.endsWith("/publish")) {
+      if (request.method !== "POST") throw new HttpError(405, "Method not allowed");
+      const input = z.object({ id: z.string().uuid(), digest: z.string().regex(/^[a-f0-9]{64}$/), confirm: z.literal("publish-draft") }).strict().parse(await readBody(request));
+      return publishBranchSourceChange(app.selfDevelopment, input.id, input.digest, AbortSignal.timeout(240000));
+    }
+    if (request.method === "GET") return { requests: pendingBranchSourceChanges(app.selfDevelopment), reviews: reviewedBranchSourceChanges(app.selfDevelopment) };
+    const input = z.object({ id: z.string().uuid(), decision: z.enum(["approve", "deny"]) }).strict().parse(await readBody(request));
+    return decideBranchSourceChange(app.selfDevelopment, input.id, input.decision, AbortSignal.timeout(240000));
+  }
   // Wave mac2 (quiet-jobs): the check-in, and the owner's yes to a job's check script.
   if (path.startsWith("/api/heartbeat") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path)) {
     app.store.profiles.requireOwner("Your schedules");
@@ -4269,6 +4287,7 @@ function commandLook(app: Branch, request: IncomingMessage, path: string, suppli
 }
 
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+  if (path === "/api/branch/source-change" || path === "/api/branch/source-change/diff" || path === "/api/branch/source-change/publish") return "Approve source changes only as the owner in the Branch app.";
   // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
   // neither read files through it nor save over them, so this comes before reading is let through.
   // FQ-collaboration: the video bytes the code editor's own player opens are the same door.

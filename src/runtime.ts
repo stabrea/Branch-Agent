@@ -51,6 +51,7 @@ import { assistantIdentity, identityInstructions } from "./identity.js";
 import { contextFileInstructions } from "./context-files.js";
 import type { CodingHooks, RoundNotes } from "./coding/hooks.js"; // mac7/r17-d
 import { steerMessage, steerNote } from "./steer.js";
+import { inWorktree } from "./coding/worktrees.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
@@ -258,6 +259,8 @@ interface ModelRoute {
 }
 export interface RunOptions {
   prompt: string;
+  /** Owner-reviewed internal task only: bind file and command tools to an isolated copy. */
+  sourceWorktree?: { scope: string; workspace: string };
   sessionId?: string;
   temporary?: boolean;
   /** Preset id for this run only; the conversation's saved choice still applies afterwards. */
@@ -1091,7 +1094,9 @@ ${run.output.slice(0, 6000)}`;
         // R17-A: a Trunk's own turn is not delegated (it gets the planner and reviewer); a room turn is.
         ...(context.depth > 0 || (context.agent && (!trunk || trunk.roomTurn)) ? { delegated: true } : {}),
       }, options.style);
-      output = place && this.coding ? await this.coding.inPlace(place.scope, () => work({ ...context, workspace: place.workspace })) : await work(context);
+      output = options.sourceWorktree
+        ? await inWorktree(options.sourceWorktree.scope, () => work({ ...context, workspace: options.sourceWorktree!.workspace }))
+        : place && this.coding ? await this.coding.inPlace(place.scope, () => work({ ...context, workspace: place.workspace })) : await work(context);
     } catch (error) {
       status = this.failureStatus(context, error);
       // mac7/speed: a task that stops must still say something a person can act on. A model service
