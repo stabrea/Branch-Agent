@@ -181,6 +181,7 @@ import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
 // Wave 8: the to-do list, and reports saved in several forms.
 import { Todos, registerTodos } from "./todos.js";
+import { Wiki, registerWiki } from "./wiki.js";
 import { MemoryLearning } from "./memory-learning.js";
 import { ObsidianBridge, registerObsidian } from "./obsidian.js";
 import { RunQueue } from "./run-queue.js";
@@ -944,6 +945,9 @@ export async function createBranch(options: {
   // Wave 8: a plain list of what is still to be done — the assistant's plan and the owner's own
   // items in one place, with a due day handed on to the schedules rather than timed here.
   const todos = new Todos(store.sqlite);
+  // Pages with names, and links between them written [[like this]] (src/wiki.ts).
+  const wiki = new Wiki(store.sqlite);
+  registerWiki(registry, wiki, runtime.owner, store);
   registerTodos(registry, todos, runtime.owner);
   // --- mac3/never-break: with the switch on, the assistant may suggest gateway settings (never apply them) ---
   if ((await loadGatewayConfig(dataDir)).config.mode !== "off")
@@ -1514,6 +1518,7 @@ export async function createBranch(options: {
     flows,
     /** Wave 8: the things still to be done, written down where the owner can see them. */
     todos,
+    wiki,
     /** Wave 8: notes written into the owner's own notes folder, and the tagged ones read back. */
     obsidian,
     /** Wave 8: watches on one rectangle of the screen, off unless the owner switches them on. */
@@ -1935,6 +1940,7 @@ export * from "./flow-graph.js";
 export * from "./flow-graph-run.js";
 // Wave 8: the to-do list, reports in three forms, and artifacts out of a reply.
 export * from "./todos.js";
+export * from "./wiki.js";
 export * from "./reports.js";
 export * from "./artifact-pages.js";
 export * from "./dashboards.js";

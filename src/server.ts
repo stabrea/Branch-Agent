@@ -143,6 +143,7 @@ import {
 import { CommandApiError, commandsApi, handlesCommandsPath } from "./commands/api.js";
 import { tokenReport } from "./commands/tokens.js";
 import { handlesPromptsPath, promptsApi } from "./prompt-library-api.js"; // bucket 12
+import { handlesWikiPath, wikiApi } from "./wiki.js";
 import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { archiveBodyLimit } from "./session-library.js";
@@ -3503,6 +3504,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the bucket 12 block ----
+        // ---- the wiki: pages with names, and links between them (src/wiki.ts). The owner check is
+        // inside wikiApi, at the top, so it travels with the operation rather than living only here. ----
+        if (handlesWikiPath(path)) {
+          const answer = await wikiApi(
+            { wiki: app.wiki, owner: app.runtime.owner, profiles: app.store.profiles },
+            request, path, () => readBody(request, 128 * 1024),
+            new URL(request.url ?? "/", "http://local").searchParams,
+          );
+          if (answer === null) throw new HttpError(404, "Endpoint not found");
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the wiki block ----
         // ---- mac4/bucket-20: the Agent Protocol and /api/interop (src/interop/api.ts). ----
         if (handlesInteropPath(path)) {
           app.store.profiles.requireOwner("Working with other agents");
@@ -4347,6 +4361,9 @@ function picturesAmong(attachments?: { mediaType: string; name: string; data: st
   return pictures.length ? { images: pictures } : {};
 }
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+  // The wiki is what the owner and the assistant have written down together; a script's key may
+  // neither read it nor write a page in it.
+  if (handlesWikiPath(path)) return "A short-lived key cannot read or write the wiki. Do that in the app window.";
   // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
   // neither read files through it nor save over them, so this comes before reading is let through.
   // FQ-collaboration: the video bytes the code editor's own player opens are the same door.
