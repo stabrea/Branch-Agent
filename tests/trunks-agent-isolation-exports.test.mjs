@@ -190,6 +190,15 @@ test("Q143: knowledge.refresh writes up only the conversations a Trunk took part
   assert.equal(JSON.stringify(refreshed).includes("OWNERSECRET4242"), false, "nor does anything of it come back to her");
   assert.ok(shown.some((digest) => digest.includes("ADAOWN77")), "her own conversation is still written up");
   assert.equal(refreshed.conversations, 1);
+  assert.equal(refreshed.cost.conversations, 1, "the cost she is shown counts only what is read for her");
+
+  // A workflow's tool step Ada set going runs with no turn of its own: `trunk` set, `agent` unset.
+  shown.length = 0;
+  const stepRefresh = await app.registry.execute("knowledge.refresh", { collection: base.id, conversations: 10 }, { ...app.runtime.context(), trunk: ada.id });
+  assert.equal(shown.some((digest) => digest.includes("OWNERSECRET4242")), false, "her workflow's step never has the owner's conversation written up");
+  assert.equal(JSON.stringify(stepRefresh).includes("OWNERSECRET4242"), false, "nor does anything of it come back to the step");
+  assert.equal(stepRefresh.conversations, 1);
+  assert.equal(stepRefresh.cost.conversations, 1);
 
   shown.length = 0;
   await app.registry.execute("knowledge.refresh", { collection: base.id, conversations: 10 }, app.runtime.context());
