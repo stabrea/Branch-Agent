@@ -210,3 +210,27 @@ test("a Trunk's workflow step and flow box are asked as that Trunk, with none of
   assert.ok(box, "Ada's flow box asked the model");
   assert.doesNotMatch(box, /OWNERDOC4242/, "nor is Ada's flow box");
 });
+
+test("a Trunk reads the steps of its own flow runs only, never the owner's or another Trunk's", async (t) => {
+  // NAS 911afbf (A4): with time travel on, Ada's own turn read a run of the owner's graph flow, box outputs
+  // included, through flow.steps.
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app, ada, bo, owner, use } = await setup(t, ["memory.read", "workflows.manage", "workflows.read"]);
+  app.flowsBoards.setMode("time-travel", { mode: "on" });
+  await app.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, app.runtime.context());
+  const graph = app.flows.saveGraph({ name: "Look", input: {}, state: { found: "text" }, entry: "look",
+    nodes: [{ id: "look", name: "Look", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { found: "text" } }], edges: [] });
+  const owners = app.flows.startGraph(graph.id, {}).runId;
+  await app.flows.settled(owners);
+  const adas = (await withAccountCall({ owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}))).runId;
+  await app.flows.settled(adas);
+  // The control, in a task of the owner's own: the owner reads their own run's values.
+  const asked = await app.runtime.run({ prompt: `tool flow.steps ${JSON.stringify({ runId: owners })}`, onTextDelta: () => undefined });
+  assert.match(outcomes(app, 0, "flow.steps"), /OWNERPRIV3391/, `the control: ${asked.status}`);
+  const theirs = await use(ada, "flow.steps", { runId: owners });
+  assert.match(theirs, /no flow run of yours/, "Ada is refused the owner's run");
+  assert.doesNotMatch(theirs, /OWNERPRIV3391/);
+  assert.doesNotMatch(await use(ada, "flow.steps", { runId: adas }), /REFUSED|no flow run of yours/, "her own run is hers to read");
+  assert.match(await use(bo, "flow.steps", { runId: adas }), /no flow run of yours/, "and Bo is refused Ada's");
+});
