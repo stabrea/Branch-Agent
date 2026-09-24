@@ -761,7 +761,7 @@ export class ChannelRouter {
       for (const inbound of turn.messages) for (const attachment of inbound.attachments ?? []) {
         if (attachment.size !== undefined && attachment.size > maxArtifactBytes) {
           await live?.finish("error");
-          await this.deliver(message.channel, message.chatId, `That file is larger than 8 MB, so it was not used`,
+          await this.deliver(message.channel, message.chatId, `That file is larger than ${maxArtifactBytes / 1024 / 1024} MB, so it was not used`,
             `file-size:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
           return "failed";
         }
@@ -772,7 +772,9 @@ export class ChannelRouter {
         } else {
           if (!this.runtime.artifacts) throw new Error("Runtime artifact storage is unavailable");
           const safe = attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 48).replace(/^[^a-zA-Z0-9]+/, "") || "file";
-          const cleanedChatId = message.chatId.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/^[^a-zA-Z0-9]+/, "") || "chat";
+          // A forum topic's chat is "<group>:<topic>", and a stored file's folder takes only letters, digits, dots, dashes
+          // and underscores. The sign stays, so a group and a person whose ids differ only by it keep separate folders.
+          const cleanedChatId = message.chatId.replace(/[^a-zA-Z0-9._-]/g, "_");
           const artifact = await this.runtime.artifacts.write(`inbound-${message.channel}-${cleanedChatId}`, `${message.messageId}-${attachment.sourceId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}-${safe}`, attachment.mediaType, Buffer.from(bytes));
           files.push(`${safe}: ${artifact.path}`);
         }

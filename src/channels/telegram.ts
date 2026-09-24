@@ -268,15 +268,15 @@ export class TelegramAdapter implements ChannelAdapter {
   }
   /** Fetches a voice note's bytes, and only once the message has earned an answer. */
   private async download(fileId: string, declaredSize: number): Promise<Uint8Array> {
-    const limit = 8 * 1024 * 1024;
-    if (declaredSize > limit) throw new Error("That voice note is larger than 8 MB, so it was not downloaded");
+    const limit = 20 * 1024 * 1024;
+    if (declaredSize > limit) throw new Error("That voice note is larger than 20 MB, so it was not downloaded");
     const info = z.object({ file_path: z.string().min(1).max(400) }).passthrough().parse(await this.call("getFile", { file_id: fileId }));
     const response = await this.fetch(`${this.base.replace("/bot", "/file/bot")}/${info.file_path}`, {
       redirect: "error", signal: AbortSignal.timeout(60000),
     });
     if (!response.ok) throw new Error(`Telegram would not hand over that voice note (${response.status})`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > limit) throw new Error("That voice note is larger than 8 MB, so it was not used");
+    if (bytes.byteLength > limit) throw new Error("That voice note is larger than 20 MB, so it was not used");
     return bytes;
   }
   /** Fetch only after the router accepts the sender, enforcing the intake ceiling on both sides. */

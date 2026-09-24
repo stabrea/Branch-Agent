@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TelegramAdapter } from '../dist/channels/telegram.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const base = { id: 'tg', token: 'fake', pollTimeoutSeconds: 0 };
 
@@ -43,6 +46,9 @@ test('files and voice replies target the physical forum chat and topic; ordinary
 });
 
 test('files sent inside a forum topic are stored with cleaned address in the folder name', async () => {
+  const { RunArtifacts } = await import('../dist/artifacts.js');
+  const folder = await mkdtemp(join(tmpdir(), 'branch-topic-files-'));
+  const stored = new RunArtifacts(folder);
   const runs = [];
   let writeCalls = [];
   const runtime = {
@@ -50,9 +56,10 @@ test('files sent inside a forum topic are stored with cleaned address in the fol
     registry: { permissions: () => [] },
     tracer: { startAfter: () => ({ end() {} }) },
     artifacts: {
-      write: async (id, name, _type, bytes) => {
+      // The real store, so a folder name it would refuse fails here too.
+      write: async (id, name, type, bytes) => {
         writeCalls.push({ id, name });
-        return { path: `/artifacts/${id}/${name}`, bytes: bytes.byteLength, sha256: 'fake', mediaType: _type };
+        return stored.write(id, name, type, bytes);
       }
     },
     run: async options => { runs.push(options); return { id: 'run', sessionId: 'session', status: 'completed', output: 'done' }; }
@@ -89,10 +96,11 @@ test('files sent inside a forum topic are stored with cleaned address in the fol
     assert.equal(runs.length, 1, 'Should have run');
     const writCall = writeCalls.find(w => w.id.startsWith('inbound-tg-'));
     assert.ok(writCall, 'Should have written artifact');
-    assert.equal(writCall.id, 'inbound-tg-1001234567890_45', 'Folder name should have invalid characters removed/replaced');
+    assert.equal(writCall.id, 'inbound-tg--1001234567890_45', "the topic's colon becomes an underscore, and the group keeps its minus sign");
     assert.ok(runs[0].prompt.includes('report.pdf'), 'Prompt should include clean filename');
   } finally {
     await router.detachAll();
+    await rm(folder, { recursive: true, force: true });
   }
 });
 

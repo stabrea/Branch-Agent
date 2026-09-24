@@ -130,3 +130,18 @@ test('hostile filenames with control characters are sanitized', async () => {
     assert.ok(!run.prompt.includes('[attached file: exploit'), 'Should not include fake bracket injection');
   } finally { await router.detachAll(); store.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test('a voice note keeps its own 20 MB limit: the 8 MB limit is only for files that are stored', async () => {
+  let fetched = 0;
+  const fetch = async url => {
+    const path = String(url);
+    if (path.endsWith('/getFile')) { fetched++; return Response.json({ ok: true, result: { file_path: 'voice/file' } }); }
+    if (path.endsWith('/voice/file')) return new Response(new Uint8Array([1, 2, 3]));
+    throw Error(path);
+  };
+  const adapter = new TelegramAdapter({ id: 'tg', token: 'fake', fetch, pollTimeoutSeconds: 0 });
+  const note = size => adapter.inbound({ message_id: 1, chat: { id: 5, type: 'private' }, from: { id: 7 }, voice: { file_id: 'v', duration: 600, file_size: size } });
+  assert.equal((await note(12 * 1024 * 1024).voice.bytes()).byteLength, 3, 'a 12 MB voice note is fetched');
+  await assert.rejects(note(21 * 1024 * 1024).voice.bytes(), /larger than 20 MB/);
+  assert.equal(fetched, 1, 'the one over 20 MB is never fetched');
+});
