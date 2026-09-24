@@ -233,4 +233,9 @@ test("a Trunk reads the steps of its own flow runs only, never the owner's or an
   assert.doesNotMatch(theirs, /OWNERPRIV3391/);
   assert.doesNotMatch(await use(ada, "flow.steps", { runId: adas }), /REFUSED|no flow run of yours/, "her own run is hers to read");
   assert.match(await use(bo, "flow.steps", { runId: adas }), /no flow run of yours/, "and Bo is refused Ada's");
+  // A run with no record of whose it is (an older one, or its record gone) reads as the owner's: Ada is refused it,
+  // and asking stamps nobody on it (NAS fed082d).
+  app.store.delete("settings", owner, `flow-run-trunk:${owners}`);
+  assert.match(await use(ada, "flow.steps", { runId: owners }), /no flow run of yours/, "Ada is refused an unrecorded run");
+  assert.equal(app.store.get("settings", owner, `flow-run-trunk:${owners}`), undefined, "and her asking stamps nobody on it");
 });
