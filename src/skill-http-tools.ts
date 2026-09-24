@@ -6,6 +6,7 @@ import type { NetworkPolicy } from "./network-policy.js";
 import { scrubSecrets } from "./locker.js";
 import { bindInputs, type InputValue, type Parameters } from "./recipes.js";
 import type { HttpTool } from "./skill-package.js";
+import { pathSegment } from "./path-segment.js";
 import { assertDeclaredHost, type ManifestGrant } from "./manifest-permissions.js";
 
 /**
@@ -36,10 +37,13 @@ export function secretsUsed(tool: HttpTool): string[] {
 }
 
 function fillText(template: string, bound: Record<string, InputValue>, encode: boolean): string {
-  return template.replace(/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g, (_, name: string) => {
+  const query = template.indexOf("?");
+  return template.replace(/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g, (_, name: string, at: number) => {
     if (!(name in bound)) throw new Error(`This tool needs a value for "${name}"`);
     const value = String(bound[name]);
-    return encode ? encodeURIComponent(value) : value;
+    if (!encode) return value;
+    // Q111: a value in the address's path is one segment of it, never "." or ".."; in the query it is only encoded.
+    return query === -1 || at < query ? pathSegment(value) : encodeURIComponent(value);
   });
 }
 function fillSecrets(template: string, values: Record<string, string>): string {

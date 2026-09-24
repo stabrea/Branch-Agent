@@ -6,6 +6,7 @@ import type { Store } from "./store.js";
 import type { WorkspaceFiles } from "./files.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import { scrubSecrets } from "./locker.js";
+import { pathSegment } from "./path-segment.js";
 import {
   operationSchema, parseOpenApiText, readOpenApi, toolNameFor, OperationArgsSchema,
   type OpenApiOperation,
@@ -225,7 +226,7 @@ export function buildRequest(operation: OpenApiOperation, base: string, args: Re
       if (parameter.required) throw new Error(`This call needs a value for "${parameter.name}".`);
       continue;
     }
-    if (parameter.where === "path") path = path.split(`{${parameter.name}}`).join(encodeURIComponent(String(value)));
+    if (parameter.where === "path") path = path.split(`{${parameter.name}}`).join(pathSegment(String(value)));
     else if (parameter.where === "query") query.set(parameter.name, String(value));
     else headers[parameter.name.toLowerCase()] = String(value).slice(0, 500);
   }
