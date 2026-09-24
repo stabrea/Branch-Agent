@@ -32,7 +32,7 @@
     <link rel="stylesheet" href="/phone-layout.css" /><!-- phase2/everywhere -->
     <link rel="stylesheet" href="/topic-panes.css" /><!-- FQ-surfaces.panes: compare topics side by side -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/favicon-64.png" type="image/png" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
   </head>
   <body>
@@ -44,11 +44,9 @@
     <aside class="rail" id="conversation-rail" aria-label="Sidebar">
       <div class="rail-head">
         <button id="app-switcher" class="app-switcher" type="button" aria-describedby="rail-target-name" aria-haspopup="true" aria-expanded="false">
-          <span id="rail-target-mark" class="rail-target-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="12" rx="2" /><path d="M2 20h20" /></svg></span>
-          <span id="rail-target" class="rail-target" aria-live="polite">
-            <strong id="rail-target-name" data-t="strip.here">This computer</strong>
-            <small><span id="rail-target-kind" data-t="strip.kind.here">the computer you are on</span> · <span id="rail-target-status" data-t="strip.status.online">Online</span></small>
-          </span>
+          <!-- Branch Agent's own face: the mascot. KeepOak's oak stays at the foot, as the maker. -->
+          <span class="brand-icon"><img class="mascot-mark" src="/assets/mascot-128.png" alt="" /></span>
+          <span class="brand"><span id="brand-name">Branch Agent</span></span>
           <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
         </button>
         <button id="cmd-open" class="rail-icon" type="button" aria-label="Search everything" data-t-label="rail.search">
@@ -255,7 +253,10 @@
             <div id="live-ask-slot"></div>
           </div>
           <div class="welcome">
-            <h2 id="greeting">What do you want done?</h2>
+            <div class="welcome-head">
+              <img class="welcome-mascot" src="/assets/mascot-128.png" alt="" aria-hidden="true" />
+              <h2 id="greeting">What do you want done?</h2>
+            </div>
             <p>Ask for anything, or start from one of these.</p>
             <div class="chips" id="suggestions">
               <button id="demo-prompt" class="chip" type="button" data-t="action.try-the-file-workflow">Try the file workflow</button>
@@ -1372,27 +1373,10 @@
             <p class="subtle terms-line" id="chatgpt-terms"><strong data-t="terms.label">Terms:</strong> <span data-t="terms.chatgpt.route">ChatGPT plan sign-in. Unofficial: OpenAI documents this sign-in only for its own apps and has given no written permission for other apps, so it may stop working at any time. It stays off until you sign in, and an API key is the officially supported way.</span> <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noopener noreferrer" data-t="terms.chatgpt.sign-in-page">OpenAI's sign-in documentation ↗</a> · <a href="https://openai.com/policies/row-terms-of-use/" target="_blank" rel="noopener noreferrer" data-t="terms.read">Read the terms ↗</a></p>
             <p class="subtle" data-t="terms.chatgpt.honest">Branch identifies itself as Branch Agent and never pretends to be another app.</p>
           </section>
-          <!-- DG-192: the sample's Updates. Its section's heading names it, so the card's own title is read aloud, not
-               drawn; then where updates come from, Branch Agent and its version with Check for updates, and the channel.
-               A browser shows the version only: checking and installing are the desktop app's (public/app.js). -->
-          <section id="updates-card" class="card">
-            <h4 class="sr-only" data-t="settings.card.updates">Updates</h4>
-            <p class="subtle" data-t="updates.source">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
-            <div class="updates-brand">
-              <img src="/assets/icon.svg" alt="" width="56" height="56" />
-              <div><b>Branch Agent</b><span class="subtle" data-t="updates.brand.line">A personal assistant that runs on your own computer · open source</span></div>
-            </div>
-            <div class="updates-now">
-              <p id="updates-version"></p>
-              <button id="updates-check" type="button" data-t="action.check-for-updates">Check for updates</button>
-            </div>
-            <fieldset id="updates-channel" class="update-channel-choices" aria-describedby="updates-channel-note">
-              <legend data-t="updates.channel.label">Update channel</legend>
-              <label><input type="radio" name="release-channel" value="stable" checked> <span data-t="updates.channel.stable">Stable</span></label>
-              <label><input type="radio" name="release-channel" value="beta"> <span data-t="updates.channel.beta">Beta</span></label>
-              <label><input type="radio" name="release-channel" value="dev"> <span data-t="updates.channel.dev">Dev</span></label>
-            </fieldset>
-            <p id="updates-channel-note" class="subtle" data-t="updates.channel.note">Beta shows accepted changes sooner and may be less tested. Dev builds every merged change on this computer, the moment it lands, before the full checks: it needs git and Node.js, each update takes a few minutes, and it never updates by itself. Stable remains the default. Switching back never installs an older version.</p>
+        <button id="app-switcher" class="app-switcher" type="button" aria-describedby="rail-target-name" aria-haspopup="true" aria-expanded="false">
+          <!-- Branch Agent's own face: the mascot. KeepOak's oak stays at the foot, as the maker. -->
+          <span class="brand-icon"><img class="mascot-mark" src="/assets/mascot-128.png" alt="" /></span>
+          <span class="brand"><span id="brand-name">Branch Agent</span></span>
             <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
             <p id="updates-newest" class="subtle"></p>
             <!-- Q55: exactly which build is installed, and what the offered release says about itself. -->
