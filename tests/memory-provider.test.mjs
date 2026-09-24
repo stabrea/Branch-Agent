@@ -1619,3 +1619,31 @@ test("a memory suggestion cannot choose whose fact it is: only memory.put's own 
   const found = app.store.list("memory", "local").filter((record) => record.data.text === "Planted PLANT6");
   assert.equal(found[0]?.data.scope, undefined, "it is saved as the owner's, never as a Trunk's");
 });
+
+test("bringing back an earlier wording takes the words only: how long the fact lasts now is kept, not the old revision's", async (t) => {
+  const { app, context } = await fixture(t);
+  const ada = { ...context, agent: "trunk:ada-test" };
+  const note = await app.registry.execute("memory.put", { text: "Ada's draft: call the plumber ADAKEEP8", source: "owner", kind: "task-scratch" }, ada);
+  assert.equal(app.store.get("memory", "local", note.id).data.layer, "task");
+  await app.registry.execute("memory.keep", { id: note.id }, ada);
+  const kept = app.store.get("memory", "local", note.id).data;
+  assert.equal(kept.promoted, true);
+  app.store.review.restoreVersion("local", note.id, 1);
+  const after = app.store.get("memory", "local", note.id).data;
+  assert.equal(after.text, "Ada's draft: call the plumber ADAKEEP8");
+  assert.deepEqual({ scope: after.scope, layer: after.layer, promoted: after.promoted }, { scope: kept.scope, layer: kept.layer, promoted: true },
+    "it stays kept for good, as it is now, not the scribble it was at revision 1");
+});
+
+test("bringing back a Trunk's fact that was deleted brings it back as hers, as it was when it went", async (t) => {
+  const { app, context } = await fixture(t);
+  const ada = { ...context, agent: "trunk:ada-test" };
+  const hers = await app.registry.execute("memory.put", { text: "Ada's bike lock code is in the drawer ADAKEEP9", source: "owner", entity: "bike lock", attribute: "place" }, ada);
+  const before = keptOf(app.store.get("memory", "local", hers.id).data);
+  assert.equal(await app.registry.execute("memory.delete", { id: hers.id }, ada), true);
+  app.store.review.restoreVersion("local", hers.id, 1);
+  assert.deepEqual(keptOf(app.store.get("memory", "local", hers.id).data), before, "hers again, with its layer and what it is about");
+  assert.deepEqual((await app.registry.execute("memory.search", { query: "ADAKEEP9" }, ada)).map((record) => record.data.text),
+    ["Ada's bike lock code is in the drawer ADAKEEP9"], "she finds it again");
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "ADAKEEP9" }, { ...context, agent: "trunk:bob-test" }), [], "Bob does not");
+});

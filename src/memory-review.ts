@@ -243,9 +243,10 @@ export class MemoryReview {
     if (!version) throw new Error("That earlier version is not kept");
     const data = version.data as { text: string; source: string; sourceRunId?: string; originRunId?: string };
     const words = { text: data.text, source: data.source, sourceRunId: data.sourceRunId ?? "" };
-    // Only the words go back: the fact stays whose it is now, as with any other change.
-    const current = this.memories.get(owner, memoryId);
-    return this.memories.save(owner, memoryId, current ? reworded(current.data, words) : words);
+    // Only the words go back: the fact stays whose it is now, as with any other change. A fact that is gone is whose
+    // it was when it went (its newest kept version, never the revision chosen, which could be wider than that).
+    const now = this.memories.get(owner, memoryId)?.data ?? this.versions(owner, memoryId)[0]?.data;
+    return this.memories.save(owner, memoryId, now && MemoryDataSchema.safeParse(now).success ? reworded(now, words) : words);
   }
   /** Freezes every memory record and every skill's active version so both can be put back exactly. */
   checkpoint(owner: string, input: unknown): Checkpoint {
