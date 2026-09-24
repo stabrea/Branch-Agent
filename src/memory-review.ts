@@ -164,7 +164,13 @@ export class MemoryReview {
       // is saved exactly as it always was, as a fact about the world.
       const kind = FactKindSchema.safeParse(proposal.learned?.kind).data;
       const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId, ...(kind ? { kind } : {}) };
-      return outside ? outside.write(owner, randomUUID(), data) : this.memories.save(owner, randomUUID(), data);
+      if (!outside) return this.memories.save(owner, randomUUID(), data);
+      // As memory.put: a save reported as failed is never read back, even if the service applies it late.
+      const id = randomUUID();
+      return outside.write(owner, id, data).catch(async (error: unknown) => {
+        await outside.forget(owner, id).catch(() => false);
+        throw error;
+      });
     }
     if (proposal.kind === "update") {
       const apply = async () => {

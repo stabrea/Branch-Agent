@@ -1298,3 +1298,28 @@ test("switching remembering off while a Forget is still asking the service stays
   assert.notEqual(refused.status, 200);
   assert.equal(app.store.memorySuppressed("local", sessionId), true, "the owner's own choice is kept");
 });
+
+test("a save Branch gave up on is never read back, even when the service applies it late", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 500 });
+  // NAS 728ca5e (timeout): the service holds the save past Branch's patience, then applies it anyway.
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  double.server.on("request", async (request, response) => {
+    if (request.method !== "PUT") return answer(request, response);
+    let raw = ""; for await (const chunk of request) raw += chunk; // read before Branch gives up on it
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const [, owner, id] = new URL(request.url, "http://x").pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    const now = new Date().toISOString();
+    if (!double.byOwner.has(owner)) double.byOwner.set(owner, new Map());
+    double.byOwner.get(owner).set(id, { id, owner, data: JSON.parse(raw), createdAt: now, updatedAt: now, revision: 1 });
+    response.destroy(); // Branch is no longer listening
+  });
+  await assert.rejects(() => app.registry.execute("memory.put", { text: "Garage code is 4321", source: "owner" }, context), /timeout|could not be reached/i);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "Garage" }, context), [], "Branch does not find what it said was not saved");
+  assert.equal((await app.memory.backend.list("local")).some((r) => r.data.text === "Garage code is 4321"), false);
+});

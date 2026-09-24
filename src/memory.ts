@@ -435,7 +435,12 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       const data = { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId };
       if (!provider?.isOutside(owner)) return store.save("memory", owner, randomUUID(), data);
       const id = randomUUID();
-      const saved = await provider.write(owner, id, data);
+      const saved = await provider.write(owner, id, data).catch(async (error: unknown) => {
+        // A save Branch reports as failed is never read back: the service may still apply one it was too slow
+        // to answer, after a Forget has already looked. This id is new, so nothing of the owner's is hidden.
+        await provider.forget(owner, id).catch(() => false);
+        throw error;
+      });
       // "Forget this conversation" may have run while the service was still saving this fact, and it could not see
       // a fact the service did not have yet. Once any Forget of it now running has settled, what was saved is taken
       // back (and never read back) and refused the same way if the conversation was forgotten.
