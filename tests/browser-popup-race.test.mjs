@@ -284,7 +284,7 @@ test("in the owner's browser, Branch's tab skips service workers, and a tab that
   assert.equal(guarded.outcome, "used");
   assert.deepEqual(guarded.sent.find(([method]) => method === "Network.setBypassServiceWorker"), ["Network.setBypassServiceWorker", { bypass: true }]);
   assert.equal(guarded.tab.closes, 0);
-  for (const refused of ["Network.enable", "Network.setBypassServiceWorker"]) {
+  for (const refused of ["Network.enable", "Network.setBypassServiceWorker", "Target.setAutoAttach"]) {
     const failed = await run(refused);
     assert.equal(failed.used, false, `${refused} refused: the tab is never handed to the task`);
     assert.match(failed.outcome, /Target closed/);
@@ -326,4 +326,66 @@ test("in the owner's browser, a frame of Branch's tab runs only once it skips se
     "a frame that cannot skip them is never let go");
   session.emit("Target.attachedToTarget", { sessionId: "worker", targetInfo: { type: "worker" }, waitingForDebugger: true });
   assert.deepEqual(await answer("worker", null), ["Runtime.runIfWaitingForDebugger"], "a worker is let go at once");
+});
+
+test("in the owner's browser, frames inside frames are stopped the same way, and one nested too deep is never let go", async () => {
+  const tab = fakePage("ours");
+  const session = Object.assign(events(), { sent: [], send: async (method, params) => { session.sent.push([method, params]); } });
+  const context = Object.assign(events(), {
+    setDefaultTimeout() {}, route: async () => {}, unroute: async () => {},
+    newCDPSession: async () => session,
+    newPage: async () => { await null; context.emit("page", tab); return tab; },
+  });
+  const browser = new BrowserSession(async () => { throw new Error("not launched in the owner's browser"); }, async () => {});
+  browser.options = { attached: { context } };
+  await browser.use({ owner: "o", runId: "r", signal: new AbortController().signal }, async () => undefined);
+  // Every call to a frame `path` levels down, unwrapped: which frame it is for, and what it asks.
+  const unwrap = ([method, params]) => {
+    if (method !== "Target.sendMessageToTarget") return null;
+    const path = [params.sessionId];
+    let message = JSON.parse(params.message);
+    while (message.method === "Target.sendMessageToTarget") { path.push(message.params.sessionId); message = JSON.parse(message.params.message); }
+    return { path: path.join("/"), message };
+  };
+  const calls = () => session.sent.map(unwrap).filter(Boolean);
+  // A message from a frame, wrapped once for each frame above it, as Chromium sends it.
+  const from = (path, message) => {
+    let text = JSON.stringify(message);
+    for (let at = path.length - 1; at >= 1; at--)
+      text = JSON.stringify({ method: "Target.receivedMessageFromTarget", params: { sessionId: path[at], message: text } });
+    session.emit("Target.receivedMessageFromTarget", { sessionId: path[0], message: text });
+  };
+  // Answers each call to this frame as it comes (one at a time, as they are awaited), then says what was asked.
+  const settle = async (path) => {
+    const mine = () => calls().filter((one) => one.path === path.join("/")).map((one) => one.message);
+    let answered = 0;
+    for (let round = 0; round < 8; round++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      for (const asked of mine().slice(answered)) { from(path, { id: asked.id, result: {} }); answered += 1; }
+    }
+    return mine();
+  };
+  // A frame, a frame inside it, and so on: each gets the same stop for its own frames before it is let go.
+  const chain = [];
+  for (let depth = 1; depth <= 5; depth++) {
+    chain.push(`f${depth}`);
+    if (depth === 1) session.emit("Target.attachedToTarget", { sessionId: "f1", targetInfo: { type: "iframe" }, waitingForDebugger: true });
+    else from(chain.slice(0, -1), { method: "Target.attachedToTarget", params: { sessionId: `f${depth}`, targetInfo: { type: "iframe" }, waitingForDebugger: true } });
+    const asked = await settle(chain);
+    if (depth <= 4) {
+      assert.deepEqual(asked.map((one) => one.method),
+        ["Network.enable", "Network.setBypassServiceWorker", "Target.setAutoAttach", "Runtime.runIfWaitingForDebugger"], `depth ${depth}`);
+      assert.deepEqual(asked[2].params, { autoAttach: true, waitForDebuggerOnStart: true, flatten: false }, `depth ${depth}: its own frames are stopped too`);
+    } else {
+      assert.deepEqual(asked, [], "a frame nested five sites deep is never let go");
+    }
+  }
+  // What a frame says about the network is never read: it is not even parsed, however often it comes.
+  const before = calls().length, parse = JSON.parse;
+  let parsed = 0;
+  JSON.parse = (...args) => { parsed += 1; return parse(...args); };
+  try { from(["f1"], { method: "Network.requestWillBeSent", params: { requestId: "1" } }); } finally { JSON.parse = parse; }
+  assert.equal(parsed, 0, "a network event is not parsed");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(calls().length, before);
 });

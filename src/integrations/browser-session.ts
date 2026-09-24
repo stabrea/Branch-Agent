@@ -23,10 +23,15 @@ interface PausedRequest {
 /**
  * The bypass below holds for one target only, and a frame from another website becomes a target of its own once it
  * loads there: from its next page on, the owner's service worker ran it again (measured, NAS 6d8c1b1). So every frame
- * and worker Branch's tab starts, and every one they start, is stopped before it runs, given the same bypass, and only
- * then let go. One that cannot be given it is never let go. A target's own targets report
- * through it, so a message to one `path` levels down is wrapped once for each session above it.
+ * Branch's tab starts, and every one they start, is stopped before it runs, given the same bypass, and only then let
+ * go; one that cannot be given it is never let go. A worker is let go at once: it has no page of its own to bypass. A target's own targets report
+ * through it, so a message to one `path` levels down is wrapped once for each session above it. Each level doubles
+ * what a message weighs (NAS 705d511: 19 MB at 18 levels), so a frame deeper than `deepestFrame` from another site
+ * is never let go, and what a frame says is read only when it is about targets or answers one of these calls.
  */
+const deepestFrame = 4;
+/** Chromium writes an event's method first and a reply's id first, so the rest (every network event) is never parsed. */
+const worthReading = (text: string): boolean => text.startsWith('{"id"') || text.startsWith('{"method":"Target.');
 async function bypassEveryFrame(root: CDPSession): Promise<void> {
   let next = 0;
   const waiting = new Map<number, (error: unknown) => void>();
@@ -40,6 +45,7 @@ async function bypassEveryFrame(root: CDPSession): Promise<void> {
   });
   const stopped = { autoAttach: true, waitForDebuggerOnStart: true, flatten: false };
   const attach = (path: string[], type: string): void => {
+    if (type === 'iframe' && path.length > deepestFrame) return;
     const ready = type === 'iframe'
       ? call(path, 'Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 })
         .then(() => call(path, 'Network.setBypassServiceWorker', { bypass: true }))
@@ -50,7 +56,7 @@ async function bypassEveryFrame(root: CDPSession): Promise<void> {
   const heard = (path: string[], message: { id?: number; method?: string; params?: Record<string, unknown>; error?: unknown }): void => {
     if (message.method === 'Target.receivedMessageFromTarget') {
       const inner = message.params as { sessionId: string; message: string };
-      heard([...path, inner.sessionId], JSON.parse(inner.message));
+      if (worthReading(inner.message)) heard([...path, inner.sessionId], JSON.parse(inner.message));
     } else if (message.method === 'Target.attachedToTarget') {
       const child = message.params as { sessionId: string; targetInfo: { type: string } };
       attach([...path, child.sessionId], child.targetInfo.type);
@@ -61,7 +67,7 @@ async function bypassEveryFrame(root: CDPSession): Promise<void> {
   };
   root.on('Target.attachedToTarget', event => attach([event.sessionId], event.targetInfo.type));
   root.on('Target.receivedMessageFromTarget', event => {
-    try { heard([event.sessionId!], JSON.parse(event.message)); } catch { /* not a message this reads */ }
+    try { if (worthReading(event.message)) heard([event.sessionId!], JSON.parse(event.message)); } catch { /* not a message this reads */ }
   });
   await root.send('Target.setAutoAttach', stopped);
 }
