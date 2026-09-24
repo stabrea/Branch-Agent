@@ -530,6 +530,17 @@ test("Q101: a settings read that did not finish is not taken as none, and a stop
   assert.doesNotMatch(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }), /branch-publish-check/, "no check remote is left behind");
 });
 
+test("Q101: a settings read that failed for any reason but \"no such settings\" is not taken as none", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  t.after(() => { runner.run = real; });
+  // Git ends the read with exit 1 when there are no such settings; a settings file it cannot read ends it with another code.
+  runner.run = async (options, signal) => (options.args[0] === "config" && options.args.includes("--show-scope") && options.args.at(-1).startsWith("^remote\\.origin")
+    ? { ...(await real(options, signal)), status: "failed", exitCode: 128 } : real(options, signal));
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, AbortSignal.timeout(10_000)), /Could not read the Git settings for "origin"/);
+});
+
 
 test("Q98: git.push and publishing send the branch as refs/heads/<name>, the ref the contract walks", { skip: posixOnly }, async (t) => {
   const { app, folder, cwd } = await plantedBare(t);
