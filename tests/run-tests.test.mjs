@@ -23,7 +23,15 @@ test("npm test isolates browser and desktop files while keeping ordinary tests t
     ["tests/desktop-export.test.mjs", "tests/desktop-identity.test.mjs", "tests/desktop-settings.test.mjs", "tests/desktop-window.test.mjs", "tests/desktop.test.mjs"]);
   assert.equal(real.shared.some((file) => /^tests[\\/]desktop/.test(file)), false);
   assert.ok(real.browser.includes(join("tests", "glass-select.test.mjs")));
-  assert.ok(real.browser.includes(join("tests", "settings-grown.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "settings-grown-1.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "settings-grown-2.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "settings-grown-3.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "shell-ui-1.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "shell-ui-2.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "shell-ui-3.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "surface-parity-1.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "surface-parity-2.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "surface-parity-3.test.mjs")));
   assert.equal(real.shared.some((file) => real.browser.includes(file)), false);
   assert.ok(real.shared.includes(join("tests", "run-tests.test.mjs")));
 });

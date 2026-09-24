@@ -126,7 +126,12 @@ test("the checked-in impact map names only tests that still exist", () => {
 
 test("panel styling and language edits have reviewed fast contracts", () => {
   const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
-  const browserTests = new Set(["tests/panels.test.mjs", "tests/grown-up-controls.test.mjs", "tests/glass-select.test.mjs", "tests/settings-grown.test.mjs"]);
+  const browserTests = new Set([
+    "tests/panels.test.mjs", "tests/grown-up-controls.test.mjs", "tests/glass-select.test.mjs",
+    "tests/settings-grown-1.test.mjs", "tests/settings-grown-2.test.mjs", "tests/settings-grown-3.test.mjs",
+    "tests/shell-ui-1.test.mjs", "tests/shell-ui-2.test.mjs", "tests/shell-ui-3.test.mjs",
+    "tests/surface-parity-1.test.mjs", "tests/surface-parity-2.test.mjs", "tests/surface-parity-3.test.mjs"
+  ]);
   const options = { config: checkedIn, weights: {}, browserTest: (file) => browserTests.has(file) };
   const panels = selectImpact([{ status: "M", paths: ["public/panels.css"] }], options);
   assert.equal(panels.classification, "narrow");
@@ -139,7 +144,10 @@ test("panel styling and language edits have reviewed fast contracts", () => {
   const settings = selectImpact([{ status: "M", paths: ["public/settings-grown.css"] }], options);
   assert.equal(settings.classification, "narrow");
   assert.equal(settings.browserNeeded, true);
-  assert.deepEqual(settings.tests, ["tests/glass-select.test.mjs", "tests/grown-up-controls.test.mjs", "tests/leak-guard.test.mjs", "tests/settings-grown.test.mjs"]);
+  assert.deepEqual(settings.tests, [
+    "tests/glass-select.test.mjs", "tests/grown-up-controls.test.mjs", "tests/leak-guard.test.mjs",
+    "tests/settings-grown-1.test.mjs", "tests/settings-grown-2.test.mjs", "tests/settings-grown-3.test.mjs"
+  ]);
 });
 
 test("phone layout styling selects its real browser proof", () => {
@@ -167,16 +175,15 @@ test("glass list behavior has its exact browser contract inside the fast budget"
   assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
 });
 
-test("the measured Settings audit cannot be started in the five-minute lane", () => {
+test("the measured Settings audit parts can each start in the five-minute lane", () => {
   const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
   const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
-  const result = selectImpact([{ status: "M", paths: ["tests/settings-grown.test.mjs"] }], {
+  const result = selectImpact([{ status: "M", paths: ["tests/settings-grown-1.test.mjs"] }], {
     config: checkedIn,
     weights,
   });
-  assert.equal(result.classification, "full-required");
-  assert.ok(result.predictedSeconds > checkedIn.budgetSeconds);
-  assert.match(result.reasons.join("\n"), new RegExp(`above the ${checkedIn.budgetSeconds}s budget`));
+  assert.equal(result.classification, "narrow");
+  assert.ok(result.predictedSeconds < checkedIn.budgetSeconds);
 });
 
 test("the isolated composer module has focused browser coverage inside the fast budget", () => {
