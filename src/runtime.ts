@@ -213,6 +213,9 @@ const localQuietMs = 10_000;
 /** What the model is told after a reply that was all thinking: act on it now. */
 export const emptyReplyNudge = "Your last reply had thinking but no answer and no tool call, so nothing happened. "
   + "Act on what you worked out now: call the tool for the next step, or, if the task is finished, give your final answer.";
+/** Dogfood A7: a task that used tools and then said nothing left the owner with no answer at all. */
+export const silentAfterToolsNudge = "Your last reply was empty, so the owner has no answer. In plain words, tell them what you did, "
+  + "what came of it, and anything you could not do; or call the tool for the next step if the task is not finished.";
 /** A task's own deadline: two minutes unless the caller asked for another, within one day. */
 export function runDeadline(timeoutMs: number | undefined): number {
   const asked = Number.isFinite(timeoutMs) ? Math.floor(timeoutMs!) : 0;
@@ -1475,6 +1478,7 @@ ${run.output.slice(0, 6000)}`;
     this.add(run, messages, ids, opening);
     let checkFailures = 0;
     let emptyReplies = 0; // mac7/coding-gap: replies that were all thinking and no action
+    let usedTools = false; // dogfood A7: this task has called a tool, so an empty reply is never its answer
     let knownTools = this.registry.version;
     // ── bucket-15: the owner's filters are asked about the connection that answers. The preview is held
     // back (the stall watch still runs) while an outlet filter applies to any connection this round may
@@ -1519,12 +1523,14 @@ ${run.output.slice(0, 6000)}`;
       // call. That is not an answer, and ending the task there wastes all the thinking; ask it once
       // or twice to act on what it worked out before the task is judged to have produced nothing.
       // Only a reply that did think: an empty reply with no thinking ends the turn as it always did.
-      if (!completion.toolCalls.length && !completion.content.trim() && (completion.reasoningChars ?? 0) > 0 && emptyReplies < 2) {
+      const thought = (completion.reasoningChars ?? 0) > 0;
+      if (!completion.toolCalls.length && !completion.content.trim() && (thought || usedTools) && emptyReplies < 2) {
         emptyReplies++;
         this.store.event(run.id, "model.empty_reply", { round: round + 1, nudge: emptyReplies });
-        this.add(run, messages, ids, { role: "user", content: emptyReplyNudge });
+        this.add(run, messages, ids, { role: "user", content: thought ? emptyReplyNudge : silentAfterToolsNudge });
         continue;
       }
+      if (completion.toolCalls.length) usedTools = true;
       const assistant: Message = {
         role: "assistant",
         content: completion.content,
