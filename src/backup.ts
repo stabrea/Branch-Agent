@@ -121,6 +121,9 @@ function disarmed<Row extends Record<string, unknown>>(table: string, row: Row):
   return { ...row, data: JSON.stringify(kept) } as Row;
 }
 
+/** Tables whose rows SQLite itself reads by field (`json_extract`, `json_set` in src/store.ts). */
+const readByField = (table: string): boolean => table === "schedules" || table === "workflows";
+
 /** Reads every backed-up table in insertion order. */
 export function exportBackup(db: DatabaseSync, appVersion: string): BackupArchive {
   const tables: Record<string, Record<string, string | number | null>[]> = {};
@@ -183,6 +186,10 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
         }
         const row = disarmed(table, given);
         if (!row) continue;
+        // These two tables are read field by field with SQLite's own JSON functions. A row it refuses (JSON.parse
+        // takes nesting SQLite will not) would stop every due job at each beat and the next start, so it is left
+        // out like one that cannot be disarmed (NAS 91388a7).
+        if (readByField(table) && !(db.prepare("SELECT json_valid(?) AS ok").get(String(row.data ?? "")) as { ok: number }).ok) continue;
         const keys = Object.keys(row).filter((k) => columns.has(k));
         if (keys.length !== Object.keys(row).length) throw new Error(`Backup row for ${table} has a column this version does not know`);
         // An append-only row gets a fresh id and is skipped when this install already has that revision.

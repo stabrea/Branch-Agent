@@ -117,3 +117,24 @@ test("a schedule the restore cannot read as a plain JSON object is left out, not
     assert.equal(job(Object.keys(shapes)[0]), undefined);
   }
 });
+
+test("a schedule or workflow SQLite's own JSON reader refuses is left out, so the owner's jobs keep running", async (t) => {
+  const { app, job, context } = await fixture(t);
+  const reminder = app.scheduler.create(context, { prompt: "Water the plants", dueAt: noon.toISOString(), kind: "reminder" });
+  const archive = app.store.backup(app.version);
+  // JSON.parse takes this depth; SQLite's JSON functions do not (NAS 91388a7).
+  const deep = `{"prompt":"deep","kind":"reminder","dueAt":"${noon.toISOString()}","status":"pending","history":[],"x":${"[".repeat(1200)}${"]".repeat(1200)}}`;
+  assert.doesNotThrow(() => JSON.parse(deep), "control: JavaScript reads it");
+  const now = new Date().toISOString();
+  const deepId = "d0a1c1e8-0000-4000-8000-00000000dee9";
+  archive.tables.schedules = [...(archive.tables.schedules ?? []), { id: deepId, owner: "local", created_at: now, updated_at: now, data: deep }];
+  archive.tables.workflows = [...(archive.tables.workflows ?? []), { id: "d0a1c1e8-0000-4000-8000-00000000dee8", owner: "local", created_at: now, updated_at: now,
+    data: `{"status":"running","x":${"[".repeat(1200)}${"]".repeat(1200)}}` }];
+  const fresh = await fixture(t);
+  await restoreBackup(fresh.app, async () => archive, false);
+  assert.equal(fresh.app.store.sqlite.prepare("SELECT count(*) AS n FROM schedules WHERE id=?").get(deepId).n, 0, "the deep schedule is not restored");
+  assert.equal(fresh.app.store.sqlite.prepare("SELECT count(*) AS n FROM workflows WHERE json_valid(data)=0").get().n, 0, "nor the deep workflow");
+  await fresh.app.scheduler.tick(new Date(noon.getTime() + 1000));
+  assert.notEqual(fresh.job(reminder.id).status, "pending", "the owner's own due reminder still runs");
+  assert.ok(job(reminder.id), "control: it was the owner's");
+});
