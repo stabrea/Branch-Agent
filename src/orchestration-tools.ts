@@ -78,7 +78,11 @@ async function oneBranch(
   const id = `b${index + 1}`;
   try {
     const spec = knowledge.activeSpecialist(branch.owner, task.specialist);
-    const { run } = await runtime.delegateChecked(task.prompt, branch, spec.permissions, spec.instructions, { agent: task.specialist });
+    // FQ-routing.isolated-agents: namespace specialist memory by parent agent to prevent Ada's
+    // "researcher" and Bo's "researcher" from sharing agent:researcher scope. The parent's agent
+    // (if delegated from a Trunk) is included in the namespace; the owner has no agent prefix.
+    const agentName = branch.agent ? `${branch.agent}/${task.specialist}` : task.specialist;
+    const { run } = await runtime.delegateChecked(task.prompt, branch, spec.permissions, spec.instructions, { agent: agentName });
     return { id, specialist: task.specialist, runId: run.id, status: run.status, output: run.output.slice(0, 4000) };
   } catch (error) {
     return { id, specialist: task.specialist, status: "failed", output: "", error: errorText(error) };
@@ -109,7 +113,10 @@ export async function handOff(
       runtime.store.message(sessionId, { role: "system",
         content: `Handed over from ${from} to ${input.specialist}${reason ? `: ${reason}` : "."}` });
   }
-  const { run, result } = await runtime.delegateChecked(input.brief, context, spec.permissions, spec.instructions, { agent: input.specialist });
+  // FQ-routing.isolated-agents: namespace specialist memory by parent agent to prevent Ada's
+  // "researcher" and Bo's "researcher" from sharing agent:researcher scope (see oneBranch above).
+  const agentName = context.agent ? `${context.agent}/${input.specialist}` : input.specialist;
+  const { run, result } = await runtime.delegateChecked(input.brief, context, spec.permissions, spec.instructions, { agent: agentName });
   return { specialist: input.specialist, runId: run.id, status: run.status, output: run.output.slice(0, 4000), resolved: result.status === "resolved" };
 }
 

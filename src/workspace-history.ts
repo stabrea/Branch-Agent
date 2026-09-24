@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { readFile, writeFile, mkdir, readdir, lstat, rm } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
@@ -126,14 +126,15 @@ export class WorkspaceHistory {
    * files.write, which a Trunk already has to save its own files) walked the whole shared workspace —
    * every other Trunk's own folder and the owner's own files included — and every file it found was
    * kept under file_versions with that Trunk's own scope stamped on it (see `insert`), so the Trunk
-   * could later read any of it back through its own files.history. For the owner's own turn `base`
-   * still equals `root` (no scope set), so a snapshot "from the window" keeps everything, unchanged.
+   * could later read any of it back through its own files.history. For the owner's own turn, snapshot
+   * walks the entire workspace (resolve(root, worktreeScope() ?? "")), ignoring any active project folder,
+   * unless a worktree limits it — just as before this branch (the whole workspace, unchanged).
    */
   async snapshot(input: unknown): Promise<Snapshot & { leftOut?: string }> {
     const { label } = z.object({ label: z.string().trim().min(1).max(120).default("Snapshot") }).strict().parse(input ?? {});
     const id = randomUUID(); let files = 0, bytes = 0;
     const rules = new WalkRules(this.files.walkRules());
-    const base = this.files.base;
+    const base = this.currentScope() === "" ? resolve(this.files.root, worktreeScope() ?? "") : this.files.base;
     // A Trunk's own folder may not exist yet if this is its first tool call (nothing has written
     // through files.checked() to make it): a snapshot of an empty folder of one's own is 0 files,
     // not a crash.
