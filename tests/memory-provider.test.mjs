@@ -986,3 +986,78 @@ test("a fact that hiding a key would make too long is refused before it is sent,
   const listed = await app.memory.backend.list("local");
   assert.deepEqual(listed.map((r) => r.id), ["kept"], "the service still lists what it holds");
 });
+
+test("a forget waits for an update of the same fact that is still on its way, so the service does not keep it", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const saved = await app.registry.execute("memory.put", { text: "Door code is 1111", source: "owner" }, context);
+  // The update's PUT is held at the service for a moment; the forget is asked for while it is held.
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  const order = [];
+  double.server.on("request", async (request, response) => {
+    if (request.method === "PUT" || request.method === "DELETE") order.push(request.method);
+    if (request.method === "PUT") await new Promise((resolve) => setTimeout(resolve, 300));
+    return answer(request, response);
+  });
+  const updating = app.registry.execute("memory.update", { id: saved.id, text: "Door code is 2222", source: "owner", expectedRevision: 1 }, context);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const forgetting = app.registry.execute("memory.delete", { id: saved.id }, context);
+  await Promise.all([updating, forgetting]);
+  assert.deepEqual(order, ["PUT", "DELETE"], "the forget reached the service after the update");
+  assert.equal(double.byOwner.get("local")?.has(saved.id) ?? false, false, "the service no longer keeps the fact");
+});
+
+test("writes to one fact stay in order across a settings change on the way", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app } = await fixture(t);
+  const provider = app.memory.backend;
+  await provider.configure("local", { mode: "outside", url: base });
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  let held = 0, most = 0;
+  double.server.on("request", async (request, response) => {
+    if (request.method !== "PUT") return answer(request, response);
+    held += 1; most = Math.max(most, held);
+    response.on("finish", () => { held -= 1; });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return answer(request, response);
+  });
+  const first = provider.write("local", "one-fact", { text: "First" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await provider.configure("local", { mode: "outside", url: base, timeoutMs: 9000 }); // a new connection from here on
+  const second = provider.write("local", "one-fact", { text: "Second" });
+  await Promise.all([first, second]);
+  assert.equal(most, 1, "the second write waited for the first, although it went on a new connection");
+});
+
+test("a forget asked for while an update is still reading the fact waits for that update to finish", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const saved = await app.registry.execute("memory.put", { text: "Door code is 1111", source: "owner" }, context);
+  // The update's read is held; without the lock the forget would land first and the update's write bring the fact back.
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  const order = [];
+  let reads = 0;
+  double.server.on("request", async (request, response) => {
+    const parts = new URL(request.url, "http://x").pathname.split("/").filter(Boolean);
+    if (request.method === "GET" && parts.length === 3 && reads++ === 0) await new Promise((resolve) => setTimeout(resolve, 300));
+    if (request.method === "PUT" || request.method === "DELETE") order.push(request.method);
+    return answer(request, response);
+  });
+  const updating = app.registry.execute("memory.update", { id: saved.id, text: "Door code is 2222", source: "owner", expectedRevision: 1 }, context);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const forgetting = app.registry.execute("memory.delete", { id: saved.id }, context);
+  await Promise.allSettled([updating, forgetting]);
+  assert.deepEqual(order, ["PUT", "DELETE"], "the forget waited for the update it arrived during");
+  assert.equal(double.byOwner.get("local")?.has(saved.id) ?? false, false, "the service no longer keeps the fact");
+});

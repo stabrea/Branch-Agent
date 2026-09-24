@@ -158,10 +158,14 @@ export class MemoryReview {
       return outside ? outside.write(owner, randomUUID(), data) : this.memories.save(owner, randomUUID(), data);
     }
     if (proposal.kind === "update") {
-      const current = proposal.memoryId ? await (outside ? outside.read(owner, proposal.memoryId) : this.memories.get(owner, proposal.memoryId)) : undefined;
-      if (!current) throw new Error("The memory this suggestion changes no longer exists");
-      const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId };
-      return outside ? outside.write(owner, current.id, data) : this.memories.save(owner, current.id, data);
+      const apply = async () => {
+        const current = proposal.memoryId ? await (outside ? outside.read(owner, proposal.memoryId) : this.memories.get(owner, proposal.memoryId)) : undefined;
+        if (!current) throw new Error("The memory this suggestion changes no longer exists");
+        const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId };
+        return outside ? outside.write(owner, current.id, data) : this.memories.save(owner, current.id, data);
+      };
+      // Read and written under the same lock as memory.update, so neither overwrites the other unseen.
+      return outside?.withFactLock && proposal.memoryId ? outside.withFactLock(owner, proposal.memoryId, apply) : apply();
     }
     if (proposal.kind === "delete") {
       if (!proposal.memoryId) return { removed: false };

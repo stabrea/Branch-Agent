@@ -259,6 +259,7 @@ export class MemoryProvider implements MemoryBackend {
   readonly name = "the owner's chosen memory provider";
   private backendCache = new Map<string, RemoteMemoryBackend>(); // config key -> backend instance
   private updateLocks = new Map<string, Promise<unknown>>(); // (owner:id) -> update lock chain
+  private factChains = new Map<string, Promise<unknown>>(); // (owner:id) -> writes and forgets in the order asked
   constructor(
     private readonly store: Store,
     private readonly builtIn: MemoryBackend,
@@ -333,7 +334,10 @@ export class MemoryProvider implements MemoryBackend {
     if (!this.isOutside(owner)) return this.builtIn.list(owner);
     return this.remembered(owner, await this.current(owner).list(owner));
   }
-  write(owner: string, id: string, data: Record<string, unknown>): Promise<MemoryRecord> { return this.current(owner).write(owner, id, data); }
+  write(owner: string, id: string, data: Record<string, unknown>): Promise<MemoryRecord> {
+    if (!this.isOutside(owner)) return this.builtIn.write(owner, id, data);
+    return this.inOrder(owner, id, () => this.current(owner).write(owner, id, data));
+  }
   async search(owner: string, query: string, agent?: string): Promise<MemoryRecord[]> {
     if (!this.isOutside(owner)) return this.builtIn.search(owner, query, agent);
     return this.remembered(owner, await this.current(owner).search(owner, query, agent));
@@ -342,7 +346,7 @@ export class MemoryProvider implements MemoryBackend {
   async forget(owner: string, id: string): Promise<boolean> {
     if (!this.isOutside(owner)) return this.builtIn.forget(owner, id);
     this.markForgotten(owner, id);
-    return this.current(owner).forget(owner, id);
+    return this.forgetInTurn(owner, id);
   }
   async count(owner: string): Promise<number> {
     return this.isOutside(owner) ? (await this.list(owner)).length : this.builtIn.count(owner);
@@ -393,10 +397,26 @@ export class MemoryProvider implements MemoryBackend {
     const notRemoved: { id: string; reason: string }[] = [];
     for (const id of ids) {
       this.markForgotten(owner, id);
-      try { await this.current(owner).forget(owner, id); }
+      try { await this.forgetInTurn(owner, id); }
       catch (error) { notRemoved.push({ id, reason: error instanceof Error ? error.message : String(error) }); }
     }
     return notRemoved;
+  }
+  /** A forget waits for an update or a write of the same fact that is still on its way, so the fact cannot come back after it. */
+  private forgetInTurn(owner: string, id: string): Promise<boolean> {
+    return this.withFactLock(owner, id, () => this.inOrder(owner, id, () => this.current(owner).forget(owner, id)));
+  }
+  /**
+   * Every write and forget of one outside fact goes to the service in the order it was asked for. The queue lives here,
+   * not on a connection, so it holds across a settings change and whoever else's list opens a connection meanwhile.
+   */
+  private inOrder<T>(owner: string, id: string, fn: () => Promise<T>): Promise<T> {
+    const key = `${owner}:${id}`;
+    const next = (this.factChains.get(key) ?? Promise.resolve()).then(fn, fn);
+    this.factChains.set(key, next);
+    const release = () => { if (this.factChains.get(key) === next) this.factChains.delete(key); };
+    next.then(release, release);
+    return next;
   }
   private markForgotten(owner: string, id: string): void {
     this.store.sqlite.prepare("INSERT OR IGNORE INTO memory_outside_forgotten VALUES(?,?,?)").run(owner, id, new Date().toISOString());
