@@ -282,15 +282,19 @@ export class Scheduler {
       // A Trunk's routine that cannot run as its Trunk does not run at all, never as the owner.
       if (routed && "refuse" in routed) throw new Error(routed.refuse);
       const route = routed;
+      const madeBy = !route && typeof data.startedBy === "string" ? data.startedBy : undefined;
       const work = async (): Promise<Run> => data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
         prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[],
         source: data.fromChat === true ? "channel" : "schedule", ...route?.options,
+        // A schedule a Trunk made is built as that Trunk's task, as its routines are: its instructions and
+        // memory scope, and its permissions as they are now, never more than the schedule was given.
+        ...(madeBy ? { trunkId: madeBy } : {}),
         onStarted: (started) => { entry.runId = started.id; if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late }); },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       // Q118: a schedule a Trunk made (not one of its routines, which run as it already) runs as that Trunk,
       // and not at all once the Trunk is gone.
-      const run = !route && typeof data.startedBy === "string" ? await this.runtime.asTrunkWork(data.startedBy, work) : await work();
+      const run = madeBy ? await this.runtime.asTrunkWork(madeBy, work) : await work();
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
       route?.finished(run); // R17-A (Trunks)
       this.runtime.notifyEvent("schedule.fired", { scheduleId: record.id, runId: run.id, status: run.status, trigger });
