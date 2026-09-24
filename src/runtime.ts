@@ -1317,6 +1317,8 @@ ${run.output.slice(0, 6000)}`;
   trunkKeysFor: (id: string) => TrunkRunShape["keys"] | null = () => null;
   /** Q119: the tools a Trunk may use now, by its id, or null once it is gone (set by src/trunks). */
   trunkPermissionsFor: (id: string) => string[] | null = () => null;
+  /** Q144: Q44's refusal of a Trunk set to start on another computer, as its own error, or null (set by src/trunks). */
+  trunkStartsElsewhere: (id: string) => Error | null = () => null;
   /** Q114: the Trunk whose work is going on here (a turn, or something it set going), if any. */
   trunkAtWork(): string | undefined { return currentAccountCall()?.trunk?.id; }
   /** Q122: why a Trunk's work cannot be carried on from here, or null when it can: asTrunkWork's own checks, asked first. */
@@ -1324,7 +1326,20 @@ ${run.output.slice(0, 6000)}`;
     const marked = currentAccountCall()?.trunk;
     if (marked?.id && marked.id !== trunkId) return "Another Trunk started this, so only that Trunk or the owner can carry it on.";
     // NAS e1e9dd2: asked even inside that Trunk's own mark, which can outlive the Trunk it names.
-    return this.trunkKeysFor(trunkId) ? null : "The Trunk that started this is no longer here, so it does not carry on.";
+    if (!this.trunkKeysFor(trunkId)) return "The Trunk that started this is no longer here, so it does not carry on.";
+    // Q144: nor while it is set to start on another computer. Asked here, before anything is approved or marked
+    // running, rather than later inside its shape, where the refusal came after the yes was written down.
+    return this.trunkStartsElsewhere(trunkId)?.message ?? null;
+  }
+  /**
+   * Q144 (NAS ebeccfa): the same refusal, as the error to throw. Q44's is its own kind, which every route answers
+   * 409, as its other refusals are; the others are plain.
+   */
+  trunkWorkError(trunkId: string): Error | null {
+    const refused = this.trunkWorkRefusal(trunkId);
+    if (!refused) return null;
+    const elsewhere = this.trunkKeysFor(trunkId) ? this.trunkStartsElsewhere(trunkId) : null;
+    return elsewhere?.message === refused ? elsewhere : new Error(refused);
   }
   /**
    * Q114: work a Trunk started and someone carries on later (a workflow step or a flow box after the owner's
@@ -1332,8 +1347,8 @@ ${run.output.slice(0, 6000)}`;
    * Refused for a Trunk that is gone, and while another Trunk is at work.
    */
   async asTrunkWork<T>(trunkId: string, work: () => Promise<T>): Promise<T> {
-    const refused = this.trunkWorkRefusal(trunkId);
-    if (refused) throw new Error(refused);
+    const refused = this.trunkWorkError(trunkId);
+    if (refused) throw refused;
     const marked = currentAccountCall()?.trunk;
     if (marked?.id === trunkId) return work();
     const keys = this.trunkKeysFor(trunkId)!;

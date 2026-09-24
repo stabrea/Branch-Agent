@@ -385,4 +385,8 @@ test("Q123 with #159: a Trunk's workflow step brings in another conversation onl
   await use(ada, "workflows.run", { id: saved("adas").id });
   const brought = app.workflows.view(owner, saved("adas").id);
   assert.doesNotMatch(JSON.stringify(brought), /OWNERHIST8813/, "Ada's step does not bring in the owner's conversation");
+  // And what it does bring in is her own: her chat, the one conversation of hers that says it (NAS: a step that
+  // failed for any other reason would pass the line above too).
+  assert.equal(brought.status, "completed", JSON.stringify(brought).slice(0, 300));
+  assert.equal(JSON.parse(brought.state[0].output).conversation.id, app.trunks.records.find(ada.id).chatSessionId);
 });

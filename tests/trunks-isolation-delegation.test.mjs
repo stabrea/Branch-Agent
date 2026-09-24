@@ -871,3 +871,192 @@ test("a flow set going from a mark that outlived its Trunk ends at once, saying 
   assert.match(String(app.store.run(runId).output ?? ""), /no longer here/, "and says why");
   assert.equal(Number(app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM flow_graph_nodes WHERE run_id=?").get(runId).n), 0, "no box ran");
 });
+
+/** Q144: a paired computer called Tower, and `trunk` set to start there (Q44), so it cannot work on this one. */
+function startsOnTower(app, trunk) {
+  const tower = "a1b2c3d4e5f60718";
+  app.store.save("settings", app.runtime.owner, "devices-book", { mode: "on", requests: [], devices: [{ id: tower, name: "Tower", platform: "linux",
+    publicKey: "k".repeat(44), pairedAt: "2026-09-23T00:00:00.000Z", lastSeen: null, offers: [], enabled: [], folder: null, sharedWith: [] }] });
+  app.trunks.edit(trunk.id, { startsIn: tower });
+}
+const onTower = /starts on Tower/;
+
+test("Q144: a yes to the workflow of a Trunk set to start on another computer is refused before it is written down", async (t) => {
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const workflow = await madeBy(app, ada, { name: "later", steps: [
+    { name: "ok?", kind: "approval", question: "Carry on?" },
+    { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] });
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    () => app.workflows.run(app.runtime.owner, workflow.id));
+  startsOnTower(app, ada);
+  for (const time of ["first", "second"]) {
+    await assert.rejects(app.workflows.resume(app.runtime.owner, workflow.id), onTower, `the ${time} yes`);
+    const view = app.workflows.view(app.runtime.owner, workflow.id);
+    assert.equal(view.status, "waiting_approval", `still waiting after the ${time} yes`);
+    assert.equal(view.question, "Carry on?", "the question is still asked");
+    assert.equal(view.cursor, 0);
+    assert.equal(view.state.some((step) => step.status === "approved"), false, "no step recorded as approved");
+  }
+  // Back on this computer, the yes carries it on, and the tool step really runs.
+  app.trunks.edit(ada.id, { startsIn: null });
+  await app.workflows.resume(app.runtime.owner, workflow.id);
+  const done = app.workflows.view(app.runtime.owner, workflow.id);
+  assert.equal(done.status, "completed", JSON.stringify(done).slice(0, 300));
+  assert.notEqual(done.state[1]?.status, "approved", "the tool step ran rather than being written off as approved");
+});
+
+test("Q144: carrying on the flow run of a Trunk set to start on another computer leaves it as it stopped, not working", async (t) => {
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  const graph = app.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  const { runId } = await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}));
+  await app.flows.settled(runId);
+  // As a failure at the second box leaves it, for the owner to press Carry on.
+  app.store.sqlite.prepare("UPDATE flow_graph_runs SET status='failed', next_node='b', error='stopped' WHERE run_id=?").run(runId);
+  app.store.sqlite.prepare("UPDATE tasks SET status='failed' WHERE id=?").run(runId);
+  startsOnTower(app, ada);
+  // NAS ebeccfa: the owner is told why, in Q44's words and its 409, not answered "running" while nothing runs.
+  assert.throws(() => app.flows.resumeGraph(graph.id, { runId }), (error) => onTower.test(error.message) && error.status === 409);
+  const refused = await app.flows.settled(runId);
+  assert.equal(refused.status, "failed", `left as it stopped, not working: ${JSON.stringify(refused).slice(0, 300)}`);
+  assert.notEqual(app.store.sqlite.prepare("SELECT status FROM tasks WHERE id=?").get(runId).status, "running", "nor its task");
+  app.trunks.edit(ada.id, { startsIn: null });
+  app.flows.resumeGraph(graph.id, { runId });
+  assert.equal((await app.flows.settled(runId)).status, "completed", "back on this computer, it carries on");
+});
+
+test("Q144: an 'always' yes to the workflow of a Trunk set to start on another computer writes no standing rule", async (t) => {
+  // Legion 109b9bc (NAS's probe-startsin-guarded): before the up-front check, the refused yes still added an allow rule.
+  const { readPolicy, savePolicy } = await import("../dist/policy.js");
+  const { app } = await fixture(t, []);
+  on(app);
+  savePolicy(app.store, app.runtime.owner, { preset: "custom", rules: [
+    { tool: "files.write", decision: "ask", remember: "session" }, { tool: "*", decision: "allow", remember: "always" }] });
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "files.read", "files.write", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const workflow = await madeBy(app, ada, { name: "write", steps: [
+    { name: "write", kind: "tool", tool: "files.write", args: { path: "q144.md", content: "x" } }] });
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    () => app.workflows.run(app.runtime.owner, workflow.id, "owner"));
+  const pending = () => app.store.get("workflows", app.runtime.owner, workflow.id)?.data?.pendingApproval ?? null;
+  assert.equal(pending()?.tool, "files.write", "the write stopped to ask");
+  const rules = () => JSON.stringify(readPolicy(app.store, app.runtime.owner).rules);
+  const before = rules();
+  startsOnTower(app, ada);
+  for (const time of ["first", "second"]) {
+    await assert.rejects(app.workflows.resume(app.runtime.owner, workflow.id, { remember: "always" }), onTower, `the ${time} yes`);
+    assert.equal(rules(), before, `no standing rule was written by the ${time} yes`);
+    assert.equal(pending()?.tool, "files.write", "the question is still pending");
+  }
+  // The control: back on this computer, the same "always" yes is kept as a rule and the write goes on.
+  app.trunks.edit(ada.id, { startsIn: null });
+  await app.workflows.resume(app.runtime.owner, workflow.id, { remember: "always" });
+  assert.notEqual(rules(), before, "an 'always' that is carried on is written down");
+  assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "completed");
+});
+
+test("Q144: over HTTP, carrying on a Trunk's workflow or flow run while it is set to start elsewhere is a 409 that says why", async (t) => {
+  // NAS ebeccfa: the flow's Carry on answered 200 {status:"running"}, and the workflow's yes a 400.
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { startServer } = await import("../dist/server.js");
+  const { app, root } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const asAda = (work) => withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } }, work);
+  const workflow = await madeBy(app, ada, { name: "later", steps: [
+    { name: "ok?", kind: "approval", question: "Carry on?" },
+    { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] });
+  await asAda(() => app.workflows.run(app.runtime.owner, workflow.id));
+  const graph = app.flows.saveGraph({ name: "Once", input: {}, state: { first: "text" }, entry: "a",
+    nodes: [{ id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } }], edges: [] });
+  const { runId } = await asAda(async () => app.flows.startGraph(graph.id, {}));
+  await app.flows.settled(runId);
+  app.store.sqlite.prepare("UPDATE flow_graph_runs SET status='failed', next_node='a', error='stopped' WHERE run_id=?").run(runId);
+  startsOnTower(app, ada);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  t.after(() => server.close());
+  const post = (path, body) => fetch(new URL(path, server.url), { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
+    .then(async (response) => ({ status: response.status, body: await response.json() }));
+  for (const [what, path] of [["the workflow's yes", `/api/workflows/${workflow.id}/resume`], ["the flow's Carry on", `/api/flows/${graph.id}/resume`]]) {
+    const answer = await post(path, {});
+    assert.equal(answer.status, 409, `${what}: ${JSON.stringify(answer.body)}`);
+    assert.match(String(answer.body.error), onTower, what);
+  }
+  assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "waiting_approval");
+  assert.equal((await app.flows.settled(runId)).status, "failed", "the flow run is left as it stopped");
+});
+
+test("Q144: carrying on the flow run of a Trunk that is gone still ends it saying why before the owner is told", async (t) => {
+  // NAS review of Q148: the refusal is thrown only after the resume has ended the gone Trunk's run (Q122), not instead of it.
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  const graph = app.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  const { runId } = await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}));
+  await app.flows.settled(runId);
+  // As a failure at the second box leaves it, for the owner to press Carry on; then Ada is removed.
+  app.store.sqlite.prepare("UPDATE flow_graph_runs SET status='failed', next_node='b', error='stopped' WHERE run_id=?").run(runId);
+  app.store.sqlite.prepare("UPDATE tasks SET status='failed' WHERE id=?").run(runId);
+  app.trunks.remove(ada.id);
+  assert.throws(() => app.flows.resumeGraph(graph.id, { runId }), /no longer here/, "the owner is told why");
+  const ended = await app.flows.settled(runId);
+  assert.equal(ended.status, "failed", JSON.stringify(ended).slice(0, 300));
+  assert.match(String(ended.error), /no longer here/, "the run itself says why, not the old 'stopped'");
+  assert.equal(app.store.run(runId).status, "failed", "its task ended too");
+  assert.match(String(app.store.run(runId).output ?? ""), /no longer here/, "and says why");
+});
+
+test("Q149 (NAS 839e64b): forking the flow run of a Trunk set to start elsewhere is refused as Q44's 409, and no copy is made", async (t) => {
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { startServer } = await import("../dist/server.js");
+  const { app, root } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  app.flowsBoards.setMode("time-travel", { mode: "on" }); // so each run's steps are kept to fork from
+  const graph = app.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  const { runId } = await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}));
+  await app.flows.settled(runId);
+  startsOnTower(app, ada);
+  const runs = () => Number(app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM flow_graph_runs").get().n);
+  const before = runs();
+  assert.throws(() => app.flowsBoards.timeTravel.fork(runId, { seq: 1 }), (error) => onTower.test(error.message) && error.status === 409);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  t.after(() => server.close());
+  const answer = await fetch(new URL(`/api/flows-boards/flows/${runId}/fork`, server.url), { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ seq: 1 }) });
+  const body = await answer.json();
+  assert.equal(answer.status, 409, JSON.stringify(body));
+  assert.match(String(body.error), onTower);
+  assert.equal(runs(), before, "no copy was made");
+});
