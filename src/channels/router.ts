@@ -48,6 +48,7 @@ export interface InboundMessage {
    * A voice note, when the person sent one instead of typing. The bytes are fetched only if the
    * message gets as far as being answered, so a stranger cannot make Branch download anything.
    */
+  attachments?: { name: string; sourceId: string; mediaType: string; kind: "picture" | "video" | "document"; bytes: () => Promise<Uint8Array> }[];
   voice?: {
     mediaType: string;
     seconds?: number | undefined;
@@ -754,8 +755,22 @@ export class ChannelRouter {
         await this.deliver(message.channel, message.chatId, trunkRefusal, `trunk-reach:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
         return "rejected";
       }
+      const images: { mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string; name: string }[] = [];
+      const files: string[] = [];
+      for (const inbound of turn.messages) for (const attachment of inbound.attachments ?? []) {
+        const bytes = await attachment.bytes();
+        if (attachment.kind === "picture" && ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(attachment.mediaType)) {
+          if (bytes.byteLength > 5 * 1024 * 1024) throw new Error("Telegram picture exceeds the runtime's 5 MB picture limit");
+          images.push({ mediaType: attachment.mediaType as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data: Buffer.from(bytes).toString("base64"), name: attachment.name });
+        } else {
+          if (!this.runtime.artifacts) throw new Error("Runtime artifact storage is unavailable");
+          const safe = attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 48).replace(/^[^a-zA-Z0-9]+/, "") || "file";
+          const artifact = await this.runtime.artifacts.write(`inbound-${message.channel}-${message.chatId}`, `${message.messageId}-${attachment.sourceId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}-${safe}`, attachment.mediaType, Buffer.from(bytes));
+          files.push(`${attachment.name}: ${artifact.path}`);
+        }
+      }
       const run = await this.runtime.run({
-        prompt: heard.prompt, ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(message),
+        prompt: [heard.prompt, ...files.map((file) => `[attached file: ${file}]`)].filter(Boolean).join("\n") || "Please inspect the attached picture.", ...(images.length ? { images } : {}), ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(message),
         // A chat cannot prove who is typing, so its task is never the owner's own (see RunSource).
         source: "channel",
         onStarted: (started) => {
