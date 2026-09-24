@@ -2193,7 +2193,7 @@ holds an update's watch open for ever or rolls a good version back on the first 
 copies taken before a format change are pruned to the newest three as well. A fetched extra that is
 missing or whose download stopped half-way (the private browser, a reading-aloud program) is
 reported as missing with the command that gets it back, and Branch itself still starts. The whole
-set is exercised by `tests/never-break-install-chaos.test.mjs`, a seeded round that kills Branch
+set is exercised by `tests/never-break-install-chaos-*.test.mjs` (split into 4 files), a seeded round that kills Branch
 mid-update, mid-format-change and mid-start (`BRANCH_INSTALL_SEEDS=200` for the long run).
 
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.

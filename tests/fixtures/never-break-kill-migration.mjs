@@ -1,6 +1,6 @@
 /**
  * A change to the shape of the saved work, killed part-way through, for
- * tests/never-break-install-chaos.test.mjs. It is a whole process so the kill is a real one: the
+ * tests/never-break-install-chaos-*.test.mjs (split into 4 parts). It is a whole process so the kill is a real one: the
  * database is left exactly as a power cut would leave it, not as a thrown error would.
  *
  * Arguments: <database> <step to be killed at> <round>. It never finishes, by design.
