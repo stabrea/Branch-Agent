@@ -5,6 +5,9 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createBranch, saveComfort} from '../dist/index.js';
 import {BranchBrowser, registerBrowser} from '../dist/integrations/browser.js';
+// Its page actions are stand-ins, but a flow may still reach the real browser, so it declares the engine.
+import { chromium } from 'playwright';
+void chromium;
 import {addPolicyRule, readPolicy, savePolicy} from '../dist/policy.js';
 
 /*

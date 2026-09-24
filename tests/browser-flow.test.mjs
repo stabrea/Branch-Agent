@@ -6,6 +6,9 @@ import {mkdtemp, mkdir, readFile, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {BranchBrowser, registerBrowser} from '../dist/integrations/browser.js';
+// It drives a real browser through Branch's own browser tool, so it declares the engine the lane must install.
+import { chromium } from 'playwright';
+void chromium;
 import {RunArtifacts, ToolRegistry, Budget, createBranch, NetworkPolicy} from '../dist/index.js';
 import {addPolicyRule, savePolicy} from '../dist/policy.js';
 

@@ -229,6 +229,12 @@ const EXCUSED = {
       "await registry.execute(\"computer.type\", { at: \"window\", window: \"Notes\", name: \"Body\", text: \"hello\" }, context);",
     ],
   },
+  "tests/tool-targets.test.mjs": {
+    why: "it only registers the browser tools to read what each says it touches, and never runs one; closing a browser that never launched opens nothing",
+    callsites: [
+      "t.after(() => browser.close());",
+    ],
+  },
   "tests/guardrails.test.mjs": {
     why: "the one navigate is inside assert.rejects: the address is on the blocked list and is refused before anything launches Closing a browser that never launched opens nothing.",
     callsites: [
