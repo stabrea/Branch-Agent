@@ -4554,6 +4554,21 @@ Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
   be reached from, so a wider socket buys nothing — and opening one on the strength of having found
   nothing is exactly how a mistake turns into an open door.
 
+**When this computer's addresses change while Branch runs.** The door is decided on the addresses
+this computer has when Branch starts, and a computer can gain one later. So while the door is open
+wider than this computer, Branch reads its addresses again every 15 seconds (`addressCheckMs`), and
+when they have changed it makes the same decision again, asking Tailscale again when a 100.64
+address is there. When the answer is narrower — because a public IPv4 address has arrived, or a
+100.64 address Tailscale does not report, or a global IPv6 address with no private IPv4 network to
+stay on — the wider socket is closed there and then, anything connected to it from beyond this computer is
+dropped, and Branch keeps answering on `127.0.0.1`, the same way as when Lockdown comes on. Why is
+said once, on a `Branch Agent:` line and as `refusal` in `GET /api/listen`, which also says
+`closedWhileRunning`. Nothing opens the door again while Branch runs, whatever the addresses do
+next: when they would let it open, `restartOpens` in `GET /api/listen` says so, and starting Branch
+again opens it. Under Lockdown it never says so. While the door stays open, an address that goes
+away is taken out of the names it answers to at once, and a new one is only added by the next start.
+A reading that fails changes nothing.
+
 **Who may read it, and who may change it.** Both are the owner's, in the app window or their own
 terminal, and nobody else’s. Being told where the door is is being told where to knock, so looking
 is refused to exactly the same callers as moving it: a
@@ -4561,7 +4576,8 @@ household person, a signed-in person, a short-lived key, a Trunk's message from 
 message from a chat app and work another assistant or program started are each refused in plain
 words. Lockdown is the one exception to the reading rule: the owner can still see their own card
 while Lockdown is on, because that card is where it says Lockdown is why Branch is narrow. A change
-takes effect the next time Branch starts.
+takes effect the next time Branch starts. Going back to this computer only can take effect sooner:
+the next time this computer's addresses change, the door is decided again and closes.
 
 **In a container.** A container has no window to turn the setting on in, so it can be asked for with
 the environment name `BRANCH_LISTEN=private-network`. It asks for exactly the same thing the setting
@@ -4571,6 +4587,13 @@ With it, `docker run -e BRANCH_LISTEN=private-network -p 3210:3210 …` works an
 `--network host`. It is read when Branch starts, and it is the one thing on this card that cannot be
 turned off from the card: the settings screen shows what the door is really doing, but you take the
 wider door away again by starting the container without that line, not by changing the setting.
+
+**What the window shows.** The card **How Branch runs on this computer**, in Settings, has one line
+made from `GET /api/listen`: whether Branch listens beyond this computer on every address, beyond it
+on private IPv4 networks only, or on this computer only, with the address the door is on. When the
+door was closed while Branch ran, the line says so with Branch's own reason, or, once this computer's
+addresses would let a start open it again, that starting Branch again opens it. The line is in
+English and French; the reason is Branch's own English sentence. Anyone but the owner sees no line.
 
 Routes: `GET /api/listen` and `POST /api/listen`, both the owner's alone. The setting is saved under
 `listen-address`.
