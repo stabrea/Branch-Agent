@@ -242,6 +242,10 @@ export interface ToolContext {
   depth: number;
   /** Set for delegated specialists: memory reads are limited to shared facts and this agent's own. */
   agent?: string;
+  /** Q109: set by the self-development guard for a push from Branch's source: the ref it walked and the one
+   *  commit it walked there, which the push sends exactly (`<commit>:<ref>`). */
+  sendsRef?: string;
+  sendsCommit?: string;
   /** The task whose shared scratch area this run and all of its sub-tasks read and write. */
   scratchRoot?: string;
   /** Practice run: tools that would change something report what they would have done instead. */

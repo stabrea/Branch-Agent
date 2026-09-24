@@ -223,6 +223,8 @@ function guardWith(git, contract = {}, workspace = "/w") {
   const guard = contractGuard({ store: { audit: log }, owner: "local", workspace, registry, book,
     git: async (options) => {
       calls.push(options.args.join(" "));
+      // Q109: a ref's commit is named here by the ref itself, so the walk below reads the same either way.
+      if (options.args[0] === "rev-parse" && options.args[1] === "--verify" && !git.ownRevParse) return answer(options.args.at(-1).replace(/\^\{commit\}$/, ""));
       // Like a real worktree: its own folder at the top, sharing the source checkout's repository.
       if (options.args[0] === "rev-parse" && !git.ownRevParse) return answer(`${options.cwd}\n${join(options.cwd, "..", "..", ".git")}\n`);
       return git(options.args);

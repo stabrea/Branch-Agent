@@ -630,3 +630,46 @@ test("Q104: a push lands on the branch it names, never where an alias of main or
   await app.git.push({ folder: "work/r", remote: "origin", branch: "feature" }, AbortSignal.timeout(10_000));
   assert.deepEqual(landed(), ["refs/heads/feature", "refs/heads/trunk"], "on feature, not on main");
 });
+
+test("Q109: a push from Branch's source sends exactly the commit the guard walked, even if the branch moves after", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-walked-push-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const source = join(workspace, "branch-agent-source"), folder = "branch-agent-source/.branch-worktrees/self-x";
+  await mkdir(source, { recursive: true });
+  const git = (cwd, ...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git(source, "init", "-q", "-b", "main");
+  git(source, "commit", "-q", "--allow-empty", "-m", "source");
+  const base = git(source, "rev-parse", "HEAD");
+  git(source, "worktree", "add", "-q", "-b", "self-x", join(workspace, folder));
+  const worktree = join(workspace, folder);
+  git(worktree, "commit", "-q", "--allow-empty", "-m", "the work");
+  const walked = git(worktree, "rev-parse", "HEAD");
+  const orphan = git(worktree, "commit-tree", git(worktree, "mktree"), "-m", "never walked");
+  git(source, "config", "--local", "http.proxy", "http://127.0.0.1:9"); // nothing leaves this computer
+  git(source, "remote", "add", "origin", "https://github.com/o/r.git");
+  new ContractBook(app.store.sqlite).create(app.runtime.owner, { taskRunId: "run-1", sourceSha: base, worktreePath: folder, terms: {
+    allowedPaths: ["**"], permissions: ["git.push"], expectedTests: ["t"], definitionOfDone: "d", sideEffects: [], rollbackPlan: "r" } });
+  const { registerGitRemote } = await import("../dist/integrations/git-tools.js");
+  registerGitRemote(app.registry, app.git);
+  // Another run moves the branch, or switches the worktree to another one, right after this push was walked.
+  let move = () => undefined;
+  const guard = app.registry.beforeTool;
+  app.registry.beforeTool = async (...call) => { const held = await guard(...call); move(); return held; };
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  const pushed = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "push") pushed.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; app.registry.beforeTool = guard; });
+  const run = app.store.createRun(app.runtime.owner, "push");
+  const context = app.runtime.context({ runId: run.id, source: "owner" });
+  const moves = [() => git(worktree, "reset", "-q", "--hard", orphan), () => git(worktree, "switch", "-q", "-C", "moved", orphan)];
+  for (const args of [{ folder, remote: "origin" }, { folder, remote: "origin", branch: "self-x" }])
+    for (const next of moves) {
+      git(worktree, "switch", "-q", "self-x");
+      git(worktree, "reset", "-q", "--hard", walked);
+      move = next;
+      await app.registry.execute("git.push", args, context).catch(() => undefined); // the dead proxy refuses the send
+    }
+  assert.deepEqual(pushed, Array(4).fill(`${walked}:refs/heads/self-x`), "the walked commit, to the walked branch");
+});

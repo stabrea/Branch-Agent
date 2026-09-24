@@ -314,14 +314,26 @@ function termsBroken(contract: SelfDevelopmentContract, name: string, paths: rea
 const namesInLog = (text: string): string[] =>
   text.split("\n").filter((line) => line.includes("\t")).flatMap((line) => line.split("\t").slice(1));
 
+/** Q109: the branch HEAD points at in the worktree, or `HEAD` itself when it is detached (the push then refuses). */
+async function checkedOut(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal): Promise<string> {
+  const outcome = await deps.git({ cwd: resolve(deps.workspace, contract.worktreePath), args: ["symbolic-ref", "-q", "HEAD"], timeoutMs: 10_000 }, signal);
+  const ref = outcome.status === "completed" ? outcome.stdout.trim() : "";
+  return /^refs\/heads\/./.test(ref) ? ref : "HEAD";
+}
+/** Q109: the one commit `ref` names now, or "" when it names none. */
+async function commitOf(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal, ref: string): Promise<string> {
+  const outcome = await deps.git({ cwd: resolve(deps.workspace, contract.worktreePath), args: ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], timeoutMs: 10_000 }, signal);
+  return outcome.status === "completed" ? outcome.stdout.trim() : "";
+}
+
 /**
- * Why sending `ref` breaks the contract, or null. `ref` must still start from the contract's source
+ * Why sending `ref` (walked as `commit`) breaks the contract, or null. `ref` must still start from the contract's source
  * commit, and every change on the way there is checked, commit by commit, on both sides (renames as
  * a removal and an addition, merges against each parent), along with what is changed or new in the
  * worktree and not yet committed. A file added and removed again, or moved out of the allowed paths
  * under another name, is caught as surely as one left changed at the end.
  */
-async function remoteBroken(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal, ref = "HEAD"): Promise<string | null> {
+async function remoteBroken(deps: Pick<ContractGuardDeps, "workspace" | "git">, contract: SelfDevelopmentContract, signal: AbortSignal, commit = "HEAD", ref = commit): Promise<string | null> {
   const cwd = resolve(deps.workspace, contract.worktreePath);
   const git = (args: string[]) => deps.git({ cwd, args, timeoutMs: 60_000, maxOutputBytes: 4_194_304 }, signal);
   // The repository Git finds here must be the worktree's own, sharing the source checkout's, not one planted in it.
@@ -329,9 +341,9 @@ async function remoteBroken(deps: Pick<ContractGuardDeps, "workspace" | "git">, 
   const [top = "", common = ""] = found.stdout.trim().split("\n");
   if (found.status !== "completed" || !top || onDisk(resolve(top)) !== onDisk(cwd) || onDisk(resolve(cwd, common)) !== onDisk(resolve(deps.workspace, sourceFolder, ".git")))
     return `The repository Git finds in ${contract.worktreePath} is not the worktree's own, so nothing is sent from it.`;
-  if ((await git(["merge-base", "--is-ancestor", contract.sourceSha, ref])).status !== "completed")
+  if ((await git(["merge-base", "--is-ancestor", contract.sourceSha, commit])).status !== "completed")
     return `${ref === "HEAD" ? "This worktree" : ref} no longer starts from the contract's source commit ${contract.sourceSha.slice(0, 12)}.`;
-  const walked = await git(["log", "--no-renames", "-m", "--name-status", "--format=", `${contract.sourceSha}..${ref}`]);
+  const walked = await git(["log", "--no-renames", "-m", "--name-status", "--format=", `${contract.sourceSha}..${commit}`]);
   const changed = await git(["diff", "--no-renames", "--name-only", "-z", contract.sourceSha]);
   const untracked = await git(["ls-files", "--others", "--exclude-standard", "-z"]);
   if ([walked, changed, untracked].some((outcome) => outcome.status !== "completed" || outcome.truncated))
@@ -449,19 +461,25 @@ async function confineCommand(deps: ContractGuardDeps, name: string, args: unkno
  * worktree's contract and must keep to it; a remote step also needs the contract's source commit
  * underneath it and no changed file outside the allowed paths. Commands follow `confineCommand`.
  */
-export function contractGuard(deps: ContractGuardDeps): (name: string, args: unknown, context: ToolContext) => Promise<Pick<ToolContext, "writesConfinedTo"> | void> {
+export function contractGuard(deps: ContractGuardDeps): (name: string, args: unknown, context: ToolContext) => Promise<Pick<ToolContext, "writesConfinedTo" | "sendsRef" | "sendsCommit"> | void> {
   return async (name, args, context) => {
     if (startsProgram(deps, name, args) && sourceCheckedOut(deps.workspace)) return confineCommand(deps, name, args, context);
     const held = heldTerms(deps, name, args, context);
     if (!held || !remotePermissions.has(held.permission)) return;
     // git.push and publishing send the branch they name (or the one checked out); that ref is the one walked.
+    const pushes = name === "git.push" || name === "github.publish_repo";
     const named = (args as { branch?: unknown } | null)?.branch;
-    const sends = (name === "git.push" || name === "github.publish_repo") && typeof named === "string" && named ? named : "";
+    const sends = pushes && typeof named === "string" && named && named !== "HEAD" ? named : "";
     // Walked as the branch itself (refs/heads/<name>), which is what the push sends: a bare name would let Git pick
     // one of its own files first (ORIG_HEAD, worktrees/<id>/HEAD), so the walk and the push could differ.
-    const ref = branchRef(sends || "HEAD");
-    const broken = await remoteBroken(deps, held.contract, context.signal, ref);
+    // Q109: resolved once, to the branch HEAD points at when none is named and then to one commit, which is what is
+    // walked and exactly what the push sends, so nothing that moves the branch meanwhile changes what goes out.
+    const ref = sends ? branchRef(sends) : pushes ? await checkedOut(deps, held.contract, context.signal) : "HEAD";
+    const commit = await commitOf(deps, held.contract, context.signal, ref);
+    if (!commit) refuse(deps, context, name, held.contract.worktreePath, `${ref === "HEAD" ? "This worktree" : ref} is not a commit here, so nothing is sent.`);
+    const broken = await remoteBroken(deps, held.contract, context.signal, commit, ref);
     if (broken) refuse(deps, context, name, held.contract.worktreePath, broken);
+    if (pushes) return { sendsCommit: commit, ...(ref.startsWith("refs/") ? { sendsRef: ref } : {}) };
   };
 }
 

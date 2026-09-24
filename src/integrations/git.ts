@@ -185,12 +185,12 @@ export class GitTools {
    * address is set as a plain remote with no sign-in details in it: the push uses whatever Git
    * sign-in this computer already has, so no token is ever written into the repository's settings.
    */
-  async publish(input: { folder: string; url: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
+  async publish(input: { folder: string; url: string; remote: string; branch?: string | undefined }, signal: AbortSignal, walked: Walked = {}) {
     const cwd = await this.folder(input.folder);
     const address = new URL(input.url);
     if (address.protocol !== "https:" || address.username || address.password)
       throw new Error("The address of a repository on a server starts with https:// and carries no sign-in details.");
-    const ref = await this.sendRef(cwd, input.branch, signal), branch = shortBranch(ref);
+    const ref = walked.ref ?? await this.sendRef(cwd, input.branch, signal), branch = shortBranch(ref);
     // Q98: publishing is a push too, so in Branch's source it gets the same checks, on the address Git will really use.
     // Q101: they run on a remote of their own, so a refused publish leaves the folder's own remote as it was (in a
     // worktree the remotes are the source checkout's).
@@ -217,7 +217,7 @@ export class GitTools {
     }
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
-    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, sendsTo(ref)], signal, { timeoutMs: 180000 });
+    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, sendsTo(ref, walked.commit)], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
   }
 
@@ -342,14 +342,14 @@ export class GitTools {
   }
 
   /** Sending work to a shared server; pushing the branch everyone shares asks the person first. */
-  async push(input: { folder: string; remote: string; branch?: string | undefined; confirmed?: boolean | undefined }, signal: AbortSignal) {
+  async push(input: { folder: string; remote: string; branch?: string | undefined; confirmed?: boolean | undefined }, signal: AbortSignal, walked: Walked = {}) {
     const cwd = await this.folder(input.folder);
     const urlError = await this.validateRemoteURL(cwd, input.remote, true, signal);
     if (urlError) throw new Error(urlError);
-    const ref = await this.sendRef(cwd, input.branch, signal), branch = shortBranch(ref);
+    const ref = walked.ref ?? await this.sendRef(cwd, input.branch, signal), branch = shortBranch(ref);
     if (/^refs\/heads\/(main|master)$/i.test(ref) && !input.confirmed)
       throw new NeedsInputError(`This would send your work straight to "${branch}" on ${input.remote}, the copy everyone shares. Shall I go ahead?`);
-    const outcome = await this.run(cwd, ["push", input.remote, sendsTo(ref)], signal, { timeoutMs: 120000 });
+    const outcome = await this.run(cwd, ["push", input.remote, sendsTo(ref, walked.commit)], signal, { timeoutMs: 120000 });
     return { folder: input.folder, remote: input.remote, branch, sent: true, notes: notes(outcome) };
   }
   async pull(input: { folder: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
@@ -368,7 +368,9 @@ const shortBranch = (ref: string): string => ref.replace(/^refs\/heads\//, "");
  * A bare ref lets Git pick where it lands: a branch that is an alias of main (a symbolic ref) lands on main, and
  * so does a `remote.<name>.push` mapping, neither of which the main/master question sees.
  */
-const sendsTo = (ref: string): string => `${ref}:${ref}`;
+const sendsTo = (ref: string, commit?: string): string => `${commit ?? ref}:${ref}`;
+/** Q109: what the self-development guard walked for this push, when it ran (in Branch's own source). */
+export interface Walked { ref?: string | undefined; commit?: string | undefined }
 const notes = (outcome: GitOutcome): string => `${outcome.stdout}\n${outcome.stderr}`.trim().slice(0, 2000);
 
 /**
