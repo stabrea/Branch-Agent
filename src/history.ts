@@ -4,6 +4,8 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { accessAgent } from "./trunks/memory-scope.js";
 import type { ToolContext } from "./contracts.js";
+import { runOrigin } from "./key-context.js";
+import { profileScope } from "./profiles.js";
 
 export const HistoryQuerySchema = z.object({
   query: z.string().trim().min(1).max(500),
@@ -169,7 +171,21 @@ export function historyScope(store: Store, context: Pick<ToolContext, "runId">):
   if (!context.runId) return { owner: store.profiles.scope() };
   const run = store.run(context.runId);
   if (!run) throw new Error("This task is not on record, so there is no history to look through.");
-  return { owner: run.owner, current: run.sessionId };
+  return { owner: conversationOwner(store, { owner: run.owner, runId: context.runId }), current: run.sessionId };
+}
+
+/**
+ * Q147: whose conversations a task may look through. A household person's task runs with their conversation lent
+ * to the owner (collab-server.ts), so the task is filed under the owner while it works; it still looks only through
+ * that person's own conversations, and the one lent to it. The owner's own tasks are unchanged, and a Trunk's are
+ * held by participation as before.
+ */
+export function conversationOwner(store: Store, context: { owner: string; runId?: string | undefined }, sessionId?: string): string {
+  if (!context.runId) return context.owner;
+  const origin = runOrigin(store, context.runId);
+  const person = origin.lentTo ?? (origin.personProfileId ? profileScope(origin.personProfileId) : null);
+  if (!person) return context.owner;
+  return sessionId !== undefined && sessionId === store.run(context.runId)?.sessionId ? context.owner : person;
 }
 
 export function registerHistory(registry: ToolRegistry, store: Store): void {

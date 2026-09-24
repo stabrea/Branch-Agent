@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
-import { canAccessSession } from "./history.js";
+import { canAccessSession, conversationOwner } from "./history.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Message } from "./contracts.js";
@@ -185,11 +185,11 @@ export class SessionTree {
  * owner is reading, so — like putting a whole checkpoint back — it is their own choice, made from
  * the rail through the HTTP route, and it costs the model's catalog nothing.
  */
-export function registerSessionTree(registry: ToolRegistry, _store: Store, tree: SessionTree): void {
+export function registerSessionTree(registry: ToolRegistry, store: Store, tree: SessionTree): void {
   registry.register({
     name: "sessions.tree", permission: "history.read", group: "memory",
     description: "Conversations branched off this one, as a tree.",
     parameters: z.object({ sessionId }).strict(),
-    execute: async (input, context) => tree.tree(context.owner, input.sessionId, accessAgent(context)), // Q123
+    execute: async (input, context) => tree.tree(conversationOwner(store, context, input.sessionId), input.sessionId, accessAgent(context)), // Q123, Q147
   });
 }
