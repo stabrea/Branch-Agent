@@ -928,7 +928,8 @@ test("Q144: carrying on the flow run of a Trunk set to start on another computer
   app.store.sqlite.prepare("UPDATE flow_graph_runs SET status='failed', next_node='b', error='stopped' WHERE run_id=?").run(runId);
   app.store.sqlite.prepare("UPDATE tasks SET status='failed' WHERE id=?").run(runId);
   startsOnTower(app, ada);
-  app.flows.resumeGraph(graph.id, { runId });
+  // NAS ebeccfa: the owner is told why, in Q44's words and its 409, not answered "running" while nothing runs.
+  assert.throws(() => app.flows.resumeGraph(graph.id, { runId }), (error) => onTower.test(error.message) && error.status === 409);
   const refused = await app.flows.settled(runId);
   assert.equal(refused.status, "failed", `left as it stopped, not working: ${JSON.stringify(refused).slice(0, 300)}`);
   assert.notEqual(app.store.sqlite.prepare("SELECT status FROM tasks WHERE id=?").get(runId).status, "running", "nor its task");
@@ -967,4 +968,38 @@ test("Q144: an 'always' yes to the workflow of a Trunk set to start on another c
   await app.workflows.resume(app.runtime.owner, workflow.id, { remember: "always" });
   assert.notEqual(rules(), before, "an 'always' that is carried on is written down");
   assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "completed");
+});
+
+test("Q144: over HTTP, carrying on a Trunk's workflow or flow run while it is set to start elsewhere is a 409 that says why", async (t) => {
+  // NAS ebeccfa: the flow's Carry on answered 200 {status:"running"}, and the workflow's yes a 400.
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { startServer } = await import("../dist/server.js");
+  const { app, root } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const asAda = (work) => withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } }, work);
+  const workflow = await madeBy(app, ada, { name: "later", steps: [
+    { name: "ok?", kind: "approval", question: "Carry on?" },
+    { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] });
+  await asAda(() => app.workflows.run(app.runtime.owner, workflow.id));
+  const graph = app.flows.saveGraph({ name: "Once", input: {}, state: { first: "text" }, entry: "a",
+    nodes: [{ id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } }], edges: [] });
+  const { runId } = await asAda(async () => app.flows.startGraph(graph.id, {}));
+  await app.flows.settled(runId);
+  app.store.sqlite.prepare("UPDATE flow_graph_runs SET status='failed', next_node='a', error='stopped' WHERE run_id=?").run(runId);
+  startsOnTower(app, ada);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  t.after(() => server.close());
+  const post = (path, body) => fetch(new URL(path, server.url), { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
+    .then(async (response) => ({ status: response.status, body: await response.json() }));
+  for (const [what, path] of [["the workflow's yes", `/api/workflows/${workflow.id}/resume`], ["the flow's Carry on", `/api/flows/${graph.id}/resume`]]) {
+    const answer = await post(path, {});
+    assert.equal(answer.status, 409, `${what}: ${JSON.stringify(answer.body)}`);
+    assert.match(String(answer.body.error), onTower, what);
+  }
+  assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "waiting_approval");
+  assert.equal((await app.flows.settled(runId)).status, "failed", "the flow run is left as it stopped");
 });

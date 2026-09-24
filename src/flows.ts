@@ -233,9 +233,15 @@ export class Flows {
     if (!options.approve && !options.interrupted && waiting.question)
       throw new Error("That flow is waiting for you to say yes on your own screen. Approve it there, then carry it on.");
     // mac7/outside-resume: a run set going from outside stays held as that (FlowGraphRunner.work reads it).
-    this.follow(pick, this.graphs.resume(pick, definition, { source: options.source ?? "owner", approve: options.approve === true,
+    // Q144 (NAS ebeccfa): a carry-on that is refused says why, rather than answering "running" while nothing runs. The
+    // resume is still started first, so a run whose Trunk is gone is ended saying so (Q122), as before.
+    const whose = this.graphs.trunkOf(pick);
+    const refused = whose ? this.runtime.trunkWorkError(whose) : null;
+    const work = this.graphs.resume(pick, definition, { source: options.source ?? "owner", approve: options.approve === true,
       ...(options.interrupted === undefined ? {} : { interrupted: options.interrupted }),
-      ...(options.within ? { within: options.within } : {}) })); // mac7/lockdown-fix: a task carrying it on keeps to its tools
+      ...(options.within ? { within: options.within } : {}) }); // mac7/lockdown-fix: a task carrying it on keeps to its tools
+    if (refused) { void work.catch(() => undefined); throw refused; }
+    this.follow(pick, work);
     return { runId: pick, flowId: id, status: "running", name: definition.name };
   }
   /** Keeps hold of a run happening in the background, so a caller can wait for it if it wants to. */

@@ -236,8 +236,8 @@ export class Workflows {
     // Q126 (NAS 65b7ab8): a yes that cannot be carried on is refused before it is written down, so the question
     // stays asked and the step it was about is never recorded as approved.
     const trunk = this.startedBy(owner, id);
-    const refused = trunk ? this.runtime.trunkWorkRefusal(trunk) : null;
-    if (refused) throw new Error(refused);
+    const refused = trunk ? this.runtime.trunkWorkError(trunk) : null;
+    if (refused) throw refused;
     const asked = this.pending(owner, id);
     if (asked) {
       this.runtime.grantApproval(approvalKeyFor(id), asked, options.remember ?? asked.remember);

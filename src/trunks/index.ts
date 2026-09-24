@@ -91,7 +91,7 @@ export class Trunks {
     runtime.trunkPermissionsFor = (id) => this.shapeOf({ prompt: "", trunkId: id })?.permissions ?? null; // Q119
     runtime.trunkStartsElsewhere = (id) => { // Q144
       const trunk = this.records.find(id);
-      try { if (trunk) requireStartsHere(trunk, this.computers()); return null; } catch (error) { return (error as Error).message; }
+      try { if (trunk) requireStartsHere(trunk, this.computers()); return null; } catch (error) { return error as Error; }
     };
     runtime.queueGuard = (sessionId) => this.requireQueueable(sessionId); // Q44: every queued message, whoever queues it
     runtime.followUpNotSent = (sessionId, prompt, reason) => this.messages.notSent(sessionId, prompt, reason); // Q44
