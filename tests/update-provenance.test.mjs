@@ -657,9 +657,23 @@ test("verifyAttestationBundle accepts beta.yml for a Beta version only, rejects 
 
 test("a retried install clears the previous attempt's provenance outcome", { skip: !windows && "Windows archive tooling" }, async (t) => {
   // Attempt 1: records "checked" and then fails at the stubbed extract.
-  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
-  const fixture = await installFixture(t, { attestationFor: (d) => d === digestHex ? makeBundle(d) : null });
-  const updater1 = gateUpdater(fixture);
+  const fixture = await installFixture(t, { attestationFor: (d) => makeBundle(d) });
+  let digestAttempt1 = null;
+  const fetchWrapped = async (url, init) => {
+    const response = await fixture.fetchViaFixture(url, init);
+    if (url.endsWith(".sha256")) {
+      if (!digestAttempt1) {
+        // Capture the real digest on first attempt
+        digestAttempt1 = (await response.clone().text()).split(/\s+/)[0];
+      } else if (response.status === 200) {
+        // On second attempt, return a wrong digest so checksum fails
+        const wrongDigest = "a".repeat(64);
+        return new Response(`${wrongDigest}  Branch-Agent-windows-x64.zip\n`, { status: 200 });
+      }
+    }
+    return response;
+  };
+  const updater1 = gateUpdater(fixture, { fetch: fetchWrapped });
   await assert.rejects(updater1.install(), new RegExp(reachedUnpack));
   assert.equal(updater1.status.provenance?.outcome, "checked", "attempt 1 recorded checked");
 
