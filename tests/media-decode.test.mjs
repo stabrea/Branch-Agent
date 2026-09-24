@@ -254,3 +254,33 @@ test("a tiny PNG whose pixel data unpacks into 128 MB is refused quickly, withou
   const giant = Buffer.concat([signature, pngChunk("IHDR", huge), pngChunk("IDAT", deflateSync(Buffer.alloc(8))), pngChunk("IEND", Buffer.alloc(0))]);
   assert.throws(() => decodePng(giant), /claims to be 100000x100000/);
 });
+
+test("a tiny PNG with IHDR claiming 16384x4097 RGBA is refused by name before inflating, as it exceeds the ~64 MB unpacked-size cap", () => {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(16384, 0);
+  ihdr.writeUInt32BE(4097, 4);
+  ihdr[8] = 8; ihdr[9] = 6; // 8-bit RGBA
+  ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0; // not interlaced
+  const unpackedSize = (16384 * 4 + 1) * 4097; // stride * height, with 1 byte filter per row
+  assert.ok(unpackedSize > 4096 * 4096 * 4 + 4096, "PNG exceeds max unpacked size");
+  // Use a minimal valid zlib stream (empty data)
+  const minimalZlib = Buffer.from([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
+  const png = Buffer.concat([signature, pngChunk("IHDR", ihdr), pngChunk("IDAT", minimalZlib), pngChunk("IEND", Buffer.alloc(0))]);
+  assert.throws(() => decodePng(png), /would unpack to.*more than the.*decoded here/);
+});
+
+test("a tiny Adam7-interlaced PNG with valid structure is refused by name", () => {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(8, 0);
+  ihdr.writeUInt32BE(8, 4);
+  ihdr[8] = 8; ihdr[9] = 6; // 8-bit RGBA
+  ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 1; // interlaced (Adam7)
+  // Create a minimal valid zlib stream
+  const row = Buffer.concat([Buffer.from([0]), Buffer.concat(Array.from({ length: 8 }, () => Buffer.from([255, 0, 0, 255])))]);
+  const raw = Buffer.concat(Array.from({ length: 8 }, () => row));
+  const idat = deflateSync(raw);
+  const png = Buffer.concat([signature, pngChunk("IHDR", ihdr), pngChunk("IDAT", idat), pngChunk("IEND", Buffer.alloc(0))]);
+  assert.throws(() => decodePng(png), /interlaced PNG is not supported/);
+});
