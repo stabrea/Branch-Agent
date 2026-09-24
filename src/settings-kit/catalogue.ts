@@ -202,7 +202,7 @@ export interface SettingSpec {
   refuses?: (store: Store, owner: string) => string | null;
   /** Q65 review: puts a record that cannot be read back to how Branch ships, the way out of `refuses`. */
   putBack?: (store: Store, owner: string) => void;
-  /** The whole record `putBack` writes: put-back tells a key the record should not have (Q83) and compares the values no field weighs (Q99). */
+  /** The whole record `putBack` writes, so put-back can name the saved values no field weighs when they differ from it (Q99). */
   shipped?: () => Record<string, unknown>;
 }
 
