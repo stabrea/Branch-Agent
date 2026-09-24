@@ -211,6 +211,10 @@ test("cue words match whole words only, so a name that holds or is waiting is no
   for (const mark of ["‛", "ʻ", "ʹ", "‵", "ꞌ", "՚", "｀"]) {
     assert.equal(negated(`don${mark}t turn on the learning`), true, `don${mark}t (U+${mark.codePointAt(0).toString(16)})`);
   }
+  // Q102: a double or triple prime, which NFKC turns into single primes
+  for (const mark of ["\u2033", "\u2034", "\u2036", "\u2037", "\u2057"]) {
+    assert.equal(negated(`don${mark}t turn on the learning`), true, `don${mark}t (U+${mark.codePointAt(0).toString(16)})`);
+  }
 });
 
 test("a choice or number that would loosen when named plainly still asks when the words say not to", async (t) => {

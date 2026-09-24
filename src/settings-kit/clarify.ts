@@ -58,8 +58,9 @@ const plainWords = (text: string): string[] => wordsOf(text.normalize("NFD").rep
 /** Variant of plainWords that replaces invisible characters with spaces, normalizes, then strips, to catch cues separated by only invisible characters. */
 const plainWordsWithSpaces = (text: string): string[] => {
   const nfd = text.normalize("NFD").replace(/[̀-ͯ]/g, "");
-  // Replace \p{Cf} (invisible format chars) with spaces, strip apostrophes before NFKC so accents+apostrophes are caught, then split
-  const variant = nfd.replace(/\p{Cf}/gu, " ").replace(apostrophes, "").normalize("NFKC").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  // Replace \p{Cf} (invisible format chars) with spaces, strip apostrophes before NFKC so accents+apostrophes are caught,
+  // and again after it, since NFKC turns a double or triple prime (″ ‴ ‶ ‷ ⁗) into listed primes; then split
+  const variant = nfd.replace(/\p{Cf}/gu, " ").replace(apostrophes, "").normalize("NFKC").replace(apostrophes, "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   return variant;
 };
 
