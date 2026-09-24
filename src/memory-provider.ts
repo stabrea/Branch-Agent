@@ -271,7 +271,10 @@ export class MemoryProvider implements MemoryBackend {
     return { settings: memoryProviderSettings(this.store, owner), active: this.isOutside(owner) ? "outside" : "built-in" };
   }
   configure(owner: string, input: unknown): MemoryProviderSettings {
-    return saveMemoryProviderSettings(this.store, owner, input, this.guard.settings().allowPrivateAddresses);
+    const result = saveMemoryProviderSettings(this.store, owner, input, this.guard.settings().allowPrivateAddresses);
+    // Clear cache when config changes so old backends are dropped
+    this.backendCache.clear();
+    return result;
   }
   private guardedFetch(): typeof fetch {
     const guard = this.guard, base = this.fetchImpl;
@@ -283,10 +286,19 @@ export class MemoryProvider implements MemoryBackend {
   }
   private current(owner: string): MemoryBackend {
     const settings = memoryProviderSettings(this.store, owner);
-    if (settings.mode !== "outside" || !settings.url) return this.builtIn;
+    if (settings.mode !== "outside" || !settings.url) {
+      // Clear cache when not using outside provider
+      return this.builtIn;
+    }
     const allowPrivate = this.guard.settings().allowPrivateAddresses;
     const name = settings.secret;
     const configKey = `${settings.url}|${settings.header}|${name}|${settings.timeoutMs}|${allowPrivate}`;
+
+    // Clear cache if the config has changed (keep only the current backend)
+    if (this.backendCache.size > 0 && !this.backendCache.has(configKey)) {
+      this.backendCache.clear();
+    }
+
     if (this.backendCache.has(configKey)) return this.backendCache.get(configKey)!;
     const backend = new RemoteMemoryBackend({ url: settings.url, timeoutMs: settings.timeoutMs, fetch: this.guardedFetch(),
       allowPrivate,
@@ -303,7 +315,14 @@ export class MemoryProvider implements MemoryBackend {
     const currentLock = this.updateLocks.get(key)!;
     const nextLock = currentLock.then(() => fn(), () => fn());
     this.updateLocks.set(key, nextLock);
-    return nextLock;
+    try {
+      return await nextLock;
+    } finally {
+      // Clean up the lock once it settles, only if the stored promise is still the one this call set
+      if (this.updateLocks.get(key) === nextLock) {
+        this.updateLocks.delete(key);
+      }
+    }
   }
   async read(owner: string, id: string): Promise<MemoryRecord | undefined> {
     if (!this.isOutside(owner)) return this.builtIn.read(owner, id);
@@ -391,3 +410,14 @@ export class MemoryProvider implements MemoryBackend {
 }
 
 const stillHeld = (count: number): string => `${count === 1 ? "One fact" : `${count} facts`} could not be deleted from the outside memory service and may still be kept there. Branch will not use ${count === 1 ? "it" : "them"} again.`;
+
+/**
+ * Test hook: returns the current sizes of internal maps for mutation testing.
+ * NOT for production use; gated by non-null check so tree-shaking removes it.
+ */
+export function memoryProviderTestHook(provider: MemoryProvider): { updateLocksSize: number; backendCacheSize: number } {
+  return {
+    updateLocksSize: provider["updateLocks"].size,
+    backendCacheSize: provider["backendCache"].size,
+  };
+}
