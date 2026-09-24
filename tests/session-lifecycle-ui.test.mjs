@@ -57,7 +57,7 @@ async function shown(page, pattern) {   // flagless patterns only: the source is
 async function ready(page) { await page.waitForFunction(() => !document.getElementById('send').disabled); }
 async function library(page, query = '') {
   if (!(await page.locator('#saved-history-dialog').isVisible())) {
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.locator('#cmd-input').fill('Conversation history');
     await page.locator('.cmd-item').filter({ hasText: 'Conversation history' }).click();
   }
