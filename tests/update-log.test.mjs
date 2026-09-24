@@ -38,7 +38,7 @@ async function failedUpdate(t, before = async () => {}) {
     await before();
     await server.close(); await app.close();
     for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
-    await discardTemp(root);
+    await discardTemp(root, { tries: 60, pause: 100 }); // the browser's helper can hold TEMP a while after it closes
   });
   return { app, server, dataDir, root };
 }
@@ -199,7 +199,7 @@ test("only the end of a long update log is read: at most 400 lines, each cut sho
   const root = await mkdtemp(join(tmpdir(), "branch-update-tail-"));
   const saved = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
   Object.assign(process.env, { TEMP: root, TMP: root, TMPDIR: root });
-  t.after(async () => { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; await discardTemp(root); });
+  t.after(async () => { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; await discardTemp(root, { tries: 60, pause: 100 }); }); // the browser's helper can hold TEMP a while after it closes
   await mkdir(join(root, "branch-agent-update"), { recursive: true });
   const lines = ["x".repeat(3_000_000), ...Array.from({ length: 600 }, (_, i) => `[step ${i}] ${"y".repeat(i === 599 ? 5000 : 10)}`)];
   await writeFile(join(root, "branch-agent-update", "apply-update.log"), lines.join("\n"));
