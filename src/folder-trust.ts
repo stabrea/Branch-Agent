@@ -239,13 +239,14 @@ export function decideFolder(store: Store, owner: string, workspace: string, inp
   const { folder, decision } = FolderTrustInputSchema.parse(input);
   const path = workspaceFolder(workspace, folder);
   // The same folder written another way (letter case on Windows, a link) replaces the old answer. An answer whose
-  // path has since been pointed elsewhere is the same folder only by what it was decided about, or as written:
-  // where it leads now is another folder, so deciding that one never drops it (NAS ca01bb3).
+  // path has since been pointed elsewhere is the same only as written: deciding where it leads now, or the folder
+  // it was meant for, never drops it, and a newer answer on either still wins there as the closer one (NAS ca01bb3,
+  // 160ac63).
   const decided = decidedReals(store, owner), here = realFolder(path);
   const same = (other: string) => {
     const now = realFolder(other), was = decided[other];
-    const meant = was && was !== now ? was : now;
-    return other === path || (folderContains(meant, here) && folderContains(here, meant));
+    if (was && was !== now) return other === path;
+    return other === path || (folderContains(now, here) && folderContains(here, now));
   };
   const kept = saved(store, owner).folders.filter((entry) => !same(entry.path));
   const folders = [...kept, { path, decision, decidedAt: new Date().toISOString() }].slice(-200);

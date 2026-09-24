@@ -957,3 +957,24 @@ test("Q116: deciding the folder a moved link leads to now keeps the don't-trust 
   decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "trust" });
   assert.equal(folderTrust(app.store, owner, join(work, "third")), "trusted", "the owner's own new answer for lib");
 });
+
+test("Q116: deciding the folder a moved don't-trust was meant for keeps that don't-trust on where the link leads now",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  // NAS 160ac63: matching a moved answer by the folder it was meant for dropped the lib don't-trust when the owner
+  // decided third, so lib (now leading to other) and other read trusted through the workspace's own trust.
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const work = join(workspace, "work");
+  for (const folder of ["third", "other"]) await mkdir(join(work, folder), { recursive: true });
+  await symlink("third", join(work, "lib"), "dir");
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "distrust" }); // meant for third
+  await rm(join(work, "lib"));
+  await symlink("other", join(work, "lib"), "dir");
+  for (const decision of ["distrust", "trust"]) {
+    decideFolder(app.store, owner, workspace, { folder: "work/third", decision });
+    assert.equal(folderTrust(app.store, owner, join(work, "other")), "untrusted", `where lib leads now, after deciding third (${decision})`);
+    assert.equal(folderTrust(app.store, owner, join(work, "lib")), "untrusted", `and lib itself (${decision})`);
+  }
+  assert.equal(folderTrust(app.store, owner, join(work, "third")), "trusted", "the owner's newer answer on third wins there");
+});
