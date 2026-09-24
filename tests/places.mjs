@@ -85,6 +85,9 @@ export async function openPlace(page, view) {
 export async function pressUntil(target, happened, what = "the press to take") {
   let mouseFailure = "the mouse click completed but its effect did not appear";
   try {
+    // Ensure the target is enabled and visible before clicking
+    await target.isEnabled({ timeout: 10000 });
+    await target.isVisible({ timeout: 10000 });
     await target.click({ timeout: 20000 });
   } catch (error) {
     mouseFailure = `the mouse click failed: ${error instanceof Error ? error.message : String(error)}`;
