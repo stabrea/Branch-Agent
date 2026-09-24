@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -20,7 +20,9 @@ import { startCall } from "../windows-command.js";
  * src/asks/codex-app-server.ts, both read-only); this is the one door where they may change files, and it is
  * held three ways:
  * - Each program's own limits: Codex runs with `--sandbox workspace-write` in the folder; Claude Code runs with
- *   `--permission-mode acceptEdits` in the folder, and the only commands it may run are the ones listed here.
+ *   `--permission-mode acceptEdits` in the folder and runs no commands at all (the list below is only read-only Git
+ *   with no program of the folder's), since nothing walls its commands in the way Codex's sandbox does (NAS 22aa6e3,
+ *   Mac mini 2e70eda). The checks are run afterwards through Branch's own held tools.
  * - Branch's own check afterwards: every file the job changed is listed against where it started, and inside
  *   Branch's own source (a self-development worktree) anything outside the contract's allowed paths is put back
  *   and named, so the contract holds whatever the program did. Sending still goes through the contract's push check.
@@ -45,11 +47,18 @@ export const HandOffInputSchema = z.object({
 }).strict();
 export type HandOffInput = z.infer<typeof HandOffInputSchema>;
 
-/** The commands Claude Code may run by itself in the folder: the checks and read-only Git, nothing that sends. */
-export const claudeAllowedCommands = [
-  "Bash(node --test:*)", "Bash(npm run build)", "Bash(npm run build:*)", "Bash(npx tsc:*)",
-  "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-];
+/**
+ * The commands Claude Code may run by itself in the folder: none. A build or test runs the folder's own scripts,
+ * which the job may just have edited, with the owner's account and outside any wall; and Git reads the folder's own
+ * settings, which the job may edit too. Claude Code edits; Branch runs the checks afterwards.
+ */
+export const claudeAllowedCommands: readonly string[] = [];
+
+/** Handing a job over is asked every time, just this once: the program works with the owner's own sign-in. */
+export const handOffReason = "Your Claude Code or Codex would change files in that folder with your own sign-in, so this is asked every time.";
+export function handOffHold(tool: string): { reason: string; onceOnly: true } | null {
+  return tool === "code.hand_off" ? { reason: handOffReason, onceOnly: true } : null;
+}
 
 export interface ProgramCall { command: string; args: string[]; cwd: string }
 export function programCall(program: HandOffProgram, folder: string, model?: string, effort?: string): ProgramCall {
@@ -57,7 +66,7 @@ export function programCall(program: HandOffProgram, folder: string, model?: str
   if (program === "claude-code")
     return { command: "claude", cwd: folder, args: ["-p", "--output-format", "stream-json", "--verbose", ...chosen,
       ...(effort ? ["--effort", effort] : []),
-      "--permission-mode", "acceptEdits", "--allowedTools", ...claudeAllowedCommands] };
+      "--permission-mode", "acceptEdits", ...(claudeAllowedCommands.length ? ["--allowedTools", ...claudeAllowedCommands] : [])] };
   return { command: "codex", cwd: folder, args: ["exec", "--json", "--sandbox", "workspace-write", "--cd", folder, ...chosen,
     ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []), "-"] };
 }
@@ -169,13 +178,21 @@ export interface HandOffResult {
 export class HandOff {
   constructor(private readonly deps: HandOffDeps) {}
 
-  /** The folder from the workspace, refused when it leaves the workspace or is not a Git repository. */
+  /**
+   * The folder from the workspace, refused when it leaves the workspace or is not a Git repository. Judged where it
+   * really is: a link in the workspace that leads out of it is refused, not followed (NAS 22aa6e3).
+   */
   folderOf(folder: string): { absolute: string; fromWorkspace: string } {
-    const absolute = resolve(this.deps.workspace, folder);
-    const fromWorkspace = relative(this.deps.workspace, absolute).split(sep).join("/");
-    if (fromWorkspace.startsWith("..") || resolve(fromWorkspace) === fromWorkspace)
-      throw new Error("The folder must be inside the workspace.");
-    if (!existsSync(absolute) || !statSync(absolute).isDirectory()) throw new Error(`There is no folder ${fromWorkspace} in the workspace.`);
+    const written = resolve(this.deps.workspace, folder);
+    const inside = (root: string, path: string): string | null => {
+      const from = relative(root, path).split(sep).join("/");
+      return from.startsWith("..") || resolve(from) === from ? null : from;
+    };
+    if (inside(this.deps.workspace, written) === null) throw new Error("The folder must be inside the workspace.");
+    if (!existsSync(written) || !statSync(written).isDirectory()) throw new Error(`There is no folder ${folder} in the workspace.`);
+    const absolute = realpathSync.native(written);
+    const fromWorkspace = inside(realpathSync.native(this.deps.workspace), absolute);
+    if (fromWorkspace === null) throw new Error("The folder must be inside the workspace: that one leads out of it.");
     if (!existsSync(join(absolute, ".git"))) throw new Error(`${fromWorkspace} is not a Git repository, so what the job changed could not be told.`);
     return { absolute, fromWorkspace };
   }

@@ -1,14 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { ContractBook } from "../dist/self-development-contract.js";
-import { HandOff, claudeAllowedCommands, programCall, readClaude, readCodex } from "../dist/coding/hand-off.js";
+import { HandOff, claudeAllowedCommands, handOffReason, programCall, readClaude, readCodex } from "../dist/coding/hand-off.js";
+import { addPolicyRule } from "../dist/policy.js";
 
 /**
  * Branch builds Branch: a coding job handed to the owner's own Claude Code or Codex, inside one folder. The program
@@ -91,7 +92,7 @@ test("a job in a workspace repository is done by the program in that folder, and
   assert.equal(result.status, "done");
   assert.equal(result.summary, "Changed a to 2.");
   assert.deepEqual(result.changed, ["src/a.ts"]);
-  assert.equal(f.calls[0].call.cwd, join(f.workspace, "site"));
+  assert.equal(f.calls[0].call.cwd, realpathSync(join(f.workspace, "site")), "the folder where it really is");
   assert.equal(f.calls[0].prompt, "Set a to 2.");
   const steps = f.app.store.events(job.runId).filter((event) => event.kind === "code.hand_off.step");
   assert.equal(steps.length, 2, "each line the program printed is shown on the task as it comes");
@@ -200,4 +201,42 @@ test("the hand-off is a tool in the code toolbox that reaches outside this compu
   assert.equal(f.app.registry.groupOf("code.hand_off"), "code");
   assert.deepEqual(f.app.registry.targetsOf("code.hand_off", { program: "codex", folder: "site", task: "x" }, context(f.app)),
     [{ kind: "write", path: "site", folder: true }]);
+});
+
+test("Claude Code runs no commands of its own: nothing walls them in, so Branch runs the checks afterwards (NAS 22aa6e3)", () => {
+  assert.deepEqual([...claudeAllowedCommands], []);
+  const claude = programCall("claude-code", "/work/repo");
+  assert.ok(claude.args.includes("acceptEdits"));
+  assert.equal(claude.args.includes("--allowedTools"), false, "no command is allowed by name");
+  assert.equal(claude.args.some((arg) => /^Bash\(/.test(arg)), false);
+});
+
+test("a link in the workspace that leads out of it is refused, not followed (NAS 22aa6e3)", async (t) => {
+  const f = await fixture(t);
+  const outside = join(f.root, "outside-repo");
+  await mkdir(outside, { recursive: true });
+  await repository(outside);
+  await mkdir(f.workspace, { recursive: true });
+  await symlink(outside, join(f.workspace, "link"));
+  const never = f.handOff(async () => { throw new Error("the program was started"); });
+  await assert.rejects(never.run({ program: "codex", folder: "link", task: "x", minutes: 1 }, context(f.app)), /leads out of it/);
+  assert.equal(f.calls.length, 0);
+});
+
+test("handing a job over is asked every time, just this once, even with a standing yes for it", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-hand-off-ask-"));
+  let asked = false;
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: { name: "scripted", async complete() {
+    if (asked) return { content: "Done.", toolCalls: [] };
+    asked = true;
+    return { content: "", toolCalls: [{ id: "h1", name: "code.hand_off", arguments: JSON.stringify({ program: "codex", folder: "site", task: "fix it" }) }] };
+  } } });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  addPolicyRule(app.store, owner, { tool: "code.hand_off", match: "*", decision: "allow", remember: "always" });
+  const run = await app.runtime.run({ prompt: "hand it over" });
+  const question = app.runtime.approvals.questionFor(run.sessionId);
+  assert.ok(question, "asked, although a standing yes names it");
+  assert.equal(question.onceOnly, true);
+  assert.throws(() => app.runtime.approve(run.sessionId, "allow", "always", question.fingerprint));
+  assert.ok(handOffReason.length > 0);
 });
