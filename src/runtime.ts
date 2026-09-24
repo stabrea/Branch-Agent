@@ -1213,8 +1213,8 @@ ${run.output.slice(0, 6000)}`;
   /** Q122: why a Trunk's work cannot be carried on from here, or null when it can: asTrunkWork's own checks, asked first. */
   trunkWorkRefusal(trunkId: string): string | null {
     const marked = currentAccountCall()?.trunk;
-    if (marked?.id === trunkId) return null;
-    if (marked?.id) return "Another Trunk started this, so only that Trunk or the owner can carry it on.";
+    if (marked?.id && marked.id !== trunkId) return "Another Trunk started this, so only that Trunk or the owner can carry it on.";
+    // NAS e1e9dd2: asked even inside that Trunk's own mark, which can outlive the Trunk it names.
     return this.trunkKeysFor(trunkId) ? null : "The Trunk that started this is no longer here, so it does not carry on.";
   }
   /**
@@ -1223,10 +1223,10 @@ ${run.output.slice(0, 6000)}`;
    * Refused for a Trunk that is gone, and while another Trunk is at work.
    */
   async asTrunkWork<T>(trunkId: string, work: () => Promise<T>): Promise<T> {
-    const marked = currentAccountCall()?.trunk;
-    if (marked?.id === trunkId) return work();
     const refused = this.trunkWorkRefusal(trunkId);
     if (refused) throw new Error(refused);
+    const marked = currentAccountCall()?.trunk;
+    if (marked?.id === trunkId) return work();
     const keys = this.trunkKeysFor(trunkId)!;
     const inFolder = () => this.coding ? this.coding.inPlace(posix.join(trunkFilesHome, trunkId), work) : work();
     return withAccountCall({ owner: this.owner, sessionId: "", runId: "", trunk: { keys, id: trunkId } }, inFolder);

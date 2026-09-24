@@ -439,7 +439,7 @@ export class FlowGraphRunner {
     if (refused) {
       if (!this.runtime.trunkKeysFor(this.trunkOf(runId)!)) {
         this.save(runId, { status: "failed", error: refused, question: null });
-        this.store.sqlite.prepare("UPDATE tasks SET status='failed' WHERE id=?").run(runId);
+        this.store.finish(runId, "failed", refused); // NAS e1e9dd2: the task says why, and its listeners hear it ended
       }
       throw new Error(refused);
     }

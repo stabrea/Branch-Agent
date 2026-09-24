@@ -656,3 +656,40 @@ test("Q126: a yes to a guarded step of a workflow whose Trunk is gone grants not
     assert.equal(view.state.some((step) => step.status === "approved" || step.status === "done"), false, "nothing approved or run");
   }
 });
+
+test("a Trunk's mark that outlives the Trunk carries none of its work on, and another Trunk's mark is refused it", async (t) => {
+  // NAS e1e9dd2: work already marked as a Trunk was carried on without asking whether that Trunk is still here,
+  // and the "another Trunk" refusal had no test of its own.
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" }), bo = app.trunks.create({ name: "Bo" });
+  await app.trunks.introduced();
+  const asTrunk = (trunk, work) => withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: trunk.keys, id: trunk.id } }, work);
+  const graph = app.flows.saveGraph({ name: "Later", input: {}, state: {}, entry: "write",
+    nodes: [
+      { id: "write", name: "Write", kind: "tool", tool: "files.write", args: { path: "graph.md", content: "g" }, output: {} },
+      { id: "after", name: "After", kind: "tool", tool: "files.write", args: { path: "after.md", content: "a" }, output: {} },
+    ], edges: [{ from: "write", to: "after" }] });
+  const definition = app.flows.get(graph.id).definition ?? app.store.get("flow_graphs", app.runtime.owner, graph.id).data;
+  const started = async () => {
+    const { runId } = await asTrunk(ada, async () => app.flows.startGraph(graph.id, {}, undefined, "schedule")); // the write asks
+    assert.ok((await app.flows.settled(runId)).question, "it stopped to ask");
+    return runId;
+  };
+  const boxes = (runId) => Number(app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM flow_graph_nodes WHERE run_id=?").get(runId).n);
+  // Bo's own mark asking to carry Ada's live run on is refused, and her run is left exactly as it stopped.
+  const live = await started();
+  const before = { boxes: boxes(live), view: JSON.stringify(app.flows.runState(live)) };
+  await assert.rejects(asTrunk(bo, () => app.flows.graphs.resume(live, definition, { approve: true })), /Another Trunk started this/);
+  assert.equal(boxes(live), before.boxes);
+  assert.equal(JSON.stringify(app.flows.runState(live)), before.view, "nothing approved, nothing marked running");
+  // Ada removed, then a mark of hers that is still about carries her run on: refused, and the run ends saying why.
+  const stale = await started();
+  app.trunks.remove(ada.id);
+  await assert.rejects(asTrunk(ada, () => app.flows.graphs.resume(stale, definition, { approve: true })), /no longer here/);
+  const view = app.flows.runState(stale);
+  assert.equal(view.status, "failed");
+  assert.equal(boxes(stale), before.boxes, "no box after the question ran");
+  assert.match(String(app.store.run(stale).output ?? ""), /no longer here/, "and its task says why");
+});
