@@ -2413,8 +2413,10 @@ ${run.output.slice(0, 6000)}`;
         provider: preset.provider.name,
         model: preset.model,
       });
-      // Dogfood B7: a real model has answered, so the first-run card is done with (src/onboarding.ts).
-      if (!this.setupFinished) this.setupFinished = finishSetupOnFirstAnswer(this.store, this.owner, preset.provider.name);
+      // Dogfood B7: a real model has answered, so the first-run card is done with (src/onboarding.ts). An empty
+      // reply is no answer (NAS ca8db88): only words, or a tool call, count.
+      const answered = completion.toolCalls.length > 0 || withoutThinking(completion.content).trim().length > 0;
+      if (!this.setupFinished && answered) this.setupFinished = finishSetupOnFirstAnswer(this.store, this.owner, preset.provider.name);
       span?.end("ok", "", { "branch.tool_calls": completion.toolCalls.length, "branch.tokens.estimated_output": output });
       // Only a plain answer is kept; one that asks for a tool would replay whatever that tool does.
       this.requestCache.keep(cacheKey, completion);

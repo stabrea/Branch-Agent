@@ -31,6 +31,13 @@ test("the first answer from a real model ends setup, without the owner pressing 
   assert.deepEqual(await onboarding(), { done: true });
 });
 
+test("an empty reply is no answer: it does not end setup (NAS ca8db88)", async (t) => {
+  const empty = { name: "empty", async complete() { return { content: "", toolCalls: [], usage: { input: 5, output: 0 } }; } };
+  const { app, onboarding } = await fixture(t, [{ id: "empty", name: "Empty model", provider: empty, model: "e-1" }]);
+  await app.runtime.run({ prompt: "hello" }).catch(() => undefined);
+  assert.deepEqual(await onboarding(), { done: false });
+});
+
 test("the offline demonstration answering does not end setup", async (t) => {
   const { app, onboarding } = await fixture(t);
   assert.equal(app.runtime.provider.name, "offline-demo-fixture", "control: this Branch has only the demonstration");
