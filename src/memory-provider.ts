@@ -379,8 +379,21 @@ export class MemoryProvider implements MemoryBackend {
    * is listed in `notRemoved` with a plain `problem`, and is never read back from it again.
    */
   async forgetConversation(owner: string, input: unknown) {
-    const outside = await this.outsideFacts(owner);
-    const { ids, ...result } = this.store.forgetMemory(owner, input, outside.records);
+    // Marked forgotten before the outside service is asked what it keeps. A save it finishes after that answer
+    // was taken is not in it, and memory.put, seeing the mark once its save lands, takes that fact back itself.
+    const sessionId = (input as { sessionId?: unknown } | null)?.sessionId;
+    const early = this.isOutside(owner) && typeof sessionId === "string" && !this.store.memorySuppressed(owner, sessionId);
+    if (early) this.store.setMemorySuppressed(owner, sessionId, true);
+    let outside: Awaited<ReturnType<MemoryProvider["outsideFacts"]>>;
+    let forgotten: ReturnType<Store["forgetMemory"]>;
+    try {
+      outside = await this.outsideFacts(owner);
+      forgotten = this.store.forgetMemory(owner, input, outside.records);
+    } catch (error) {
+      if (early) this.store.setMemorySuppressed(owner, sessionId, false); // nothing was forgotten after all
+      throw error;
+    }
+    const { ids, ...result } = forgotten;
     const held = new Set(outside.records.map((record) => record.id));
     const notRemoved = await this.forgetOutside(owner, ids.filter((id) => held.has(id)));
     const problems = [outside.problem, notRemoved.length ? stillHeld(notRemoved.length) : undefined].filter(Boolean);

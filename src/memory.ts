@@ -438,8 +438,9 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       // "Forget this conversation" may have run while the service was still saving this fact, and it could not see
       // a fact the service did not have yet. What was saved is taken back (and never read back) and refused the same way.
       if (sessionId && store.memorySuppressed(owner, sessionId)) {
-        await provider.forget(owner, id).catch(() => false);
-        throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view.");
+        const deleted = await provider.forget(owner, id).then(() => true, () => false);
+        throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view."
+          + (deleted ? "" : " The outside memory service would not delete what it had just saved, so it may still keep it; Branch will not read it back."));
       }
       return saved;
     } });

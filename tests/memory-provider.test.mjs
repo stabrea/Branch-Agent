@@ -1205,3 +1205,57 @@ test("a fact still being saved when its conversation is forgotten is taken back,
   const preview = await post("memory/forget/preview", { sessionId });
   assert.deepEqual(preview.data.remove ?? [], [], "nothing of it is left to forget");
 });
+
+test("a save the service finishes after it answered Forget's question of what it keeps is still taken back", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, root, context } = await fixture(t, [putting("Garage code is 4321"), say("Saved.")]);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const post = await served(t, app, root);
+  const sessionId = app.store.createSession("local");
+  // NAS a8f52d2: the service takes its list before the held save lands, and answers with that list after it.
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  const order = [];
+  let putArrived;
+  const arrived = new Promise((resolve) => { putArrived = resolve; });
+  double.server.on("request", async (request, response) => {
+    const parts = new URL(request.url, "http://x").pathname.split("/").filter(Boolean);
+    if (request.method === "PUT") { order.push("PUT recv"); putArrived(); await new Promise((resolve) => setTimeout(resolve, 200)); order.push("PUT applied"); }
+    if (request.method === "GET" && parts.length === 2) {
+      const snapshot = [...double.byOwner.get("local")?.values() ?? []];
+      order.push("LIST snapshot");
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      order.push("LIST answered");
+      response.writeHead(200, { "content-type": "application/json" });
+      return response.end(JSON.stringify(snapshot));
+    }
+    if (request.method === "DELETE") order.push("DELETE");
+    return answer(request, response);
+  });
+  const running = app.runtime.run({ prompt: "remember the garage code", sessionId });
+  await arrived;
+  const forgotten = await post("memory/forget", { sessionId });
+  assert.equal(forgotten.status, 200);
+  await running;
+  const at = (step) => order.indexOf(step);
+  assert.deepEqual(order.slice(0, 3), ["PUT recv", "LIST snapshot", "PUT applied"], order.join(" → "));
+  assert.ok(at("PUT applied") < order.lastIndexOf("LIST answered"), "the list the service answered was taken before the save landed");
+  assert.ok(at("DELETE") > at("PUT applied"), "and the save was taken back after it landed");
+  assert.equal([...double.byOwner.get("local").values()].some((r) => r.data.text === "Garage code is 4321"), false, "the service does not keep it");
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "Garage" }, context), []);
+});
+
+test("a Forget that is refused leaves the conversation able to remember, as before", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, root } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const post = await served(t, app, root);
+  const sessionId = app.store.createSession("local");
+  const refused = await post("memory/forget", { sessionId, ids: ["not-in-the-preview"] });
+  assert.notEqual(refused.status, 200);
+  assert.equal(app.store.memorySuppressed("local", sessionId), false, "nothing was forgotten, so nothing is marked");
+});
