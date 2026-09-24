@@ -1453,6 +1453,7 @@ const MORE = [
     ["view", "inbox", "place.inbox", "Inbox"], ["view", "automations", "place.automations", "Automations"],
     ["view", "library", "place.library", "Library"], ["view", "customize", "place.customize", "Customize"],
     ["find", "", "rail.find", "Find anything"],
+    ["press", "topic-panes-open", "more.topicPanes", "Compare topics side by side"], // FQ-surfaces.panes (public/topic-panes.js)
   ]],
   ["more.window", "This window", [
     ["press", "thread-labels", "more.labels", "Labels for this conversation"],
