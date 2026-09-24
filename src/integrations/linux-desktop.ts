@@ -358,6 +358,8 @@ export class LinuxDesktopSandbox {
   async takeOver(owner: string): Promise<void> {
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
+    // Set control to 'user' first so any in-flight or new actions fail with takenOverMessage
+    session.control = 'user';
     // Abort any in-flight action and kill xdotool inside the container
     session.inFlightAbort.abort();
     // Close all open tunnels
@@ -367,7 +369,6 @@ export class LinuxDesktopSandbox {
     }
     session.tunnels.clear();
     await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined); // exit code 1 if nothing was running is fine
-    session.control = 'user';
     this.log(owner, 'shared-desktop.taken-over', {});
     await this.banner.hide().catch(() => undefined); // taken over from Settings: the notice has done its job
   }

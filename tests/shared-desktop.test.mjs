@@ -521,6 +521,53 @@ test("taking over stops a command the assistant already has running, not only th
   assert.notEqual(settled, "ran");
 });
 
+test("an in-flight action rejects with takenOverMessage when the owner takes over during its execution", async (t) => {
+  const { app } = await fixture(t);
+  const { desktop } = sandboxFixture(app);
+  await desktop.start("local");
+  const plain = desktop.runner;
+  // The typed text hangs until something aborts it, as a long xdotool run would.
+  desktop.runner = (file, args, timeoutMs, signal) => args.includes("type")
+    ? new Promise((resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))
+    : plain(file, args, timeoutMs, signal);
+  const acting = desktop.act("local", { type: "type", text: "a long message" });
+  await new Promise((resolve) => setImmediate(resolve));
+  await desktop.takeOver("local");
+  await assert.rejects(acting, (error) => {
+    assert.equal(error.message, takenOverMessage);
+    return true;
+  });
+});
+
+test("a new action called while pkill is hanging rejects with takenOverMessage and never reaches the runner", async (t) => {
+  const { app } = await fixture(t);
+  const { desktop } = sandboxFixture(app);
+  await desktop.start("local");
+  const plain = desktop.runner;
+  const execCalls = [];
+  // Track exec calls and make pkill hang
+  desktop.runner = (file, args, timeoutMs, signal) => {
+    if (args[0] === "exec") execCalls.push({ args });
+    // Make pkill hang until the test resolves it
+    if (args[4] === "pkill") {
+      return new Promise(() => {}); // never resolves
+    }
+    return plain(file, args, timeoutMs, signal);
+  };
+  // Start takeOver without awaiting it so it gets stuck on pkill
+  const takingOver = desktop.takeOver("local");
+  // Give takeOver a chance to get to the pkill call
+  await new Promise((resolve) => setImmediate(resolve));
+  // Now try to act while pkill is hanging
+  await assert.rejects(desktop.act("local", { type: "type", text: "hello" }), (error) => {
+    assert.equal(error.message, takenOverMessage);
+    return true;
+  });
+  // Verify the exec call for the act never happened (only the pkill is in the list)
+  const typeExecCalls = execCalls.filter((call) => call.args.some((arg) => arg.includes("type")));
+  assert.equal(typeExecCalls.length, 0, "the act never reached the runner");
+});
+
 test("the programs the shared desktop starts get their arguments as they are, with no shell to read them", { skip: process.platform === "win32" && "a POSIX echo is used" }, async (t) => {
   const { runProgram } = await import("../dist/integrations/linux-desktop.js");
   const root = await mkdtemp(join(tmpdir(), "branch-shared-desktop-shell-"));
