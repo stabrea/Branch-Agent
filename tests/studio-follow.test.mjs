@@ -67,7 +67,7 @@ test("DG-106 Follow my theme is the sample's switch row, and still follows the t
   if (!seen.checked) await page.locator("#studio-follow").click();
   await page.waitForFunction(() => document.getElementById("studio-follow")?.checked);
   assert.equal((await row(page)).pressedSwatches, 0, "following the theme, no colour of its own");
-  await page.getByRole("button", { name: "Colour 3", exact: true }).click();
+  await page.getByRole("button", { name: "Colour #E07033", exact: true }).click();
   await page.waitForFunction(() => document.getElementById("studio-follow")?.checked === false);
   assert.equal((await row(page)).pressedSwatches, 1, "a colour of its own");
   await page.locator("#studio-follow").click();
