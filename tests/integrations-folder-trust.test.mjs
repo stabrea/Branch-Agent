@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, decideFolder, saveFolderTrustSettings, integrationsFileTrusted } from "../dist/index.js";
 import { loadIntegrations } from "../dist/integrations/bootstrap.js";
@@ -439,4 +440,65 @@ test("Q89.12: a file link in a trusted folder to the owner's own file outside th
     "the owner's file named directly is the owner's");
   assert.equal(integrationsFileTrusted(app.store, owner, workspace, link), false,
     "reached through the workspace, it has no decision where it leads");
+});
+
+// Q100 (Legion's ruling on NAS d065ffd): a parallel copy Branch made takes its source repository's
+// decision; only Branch's own record of the copy counts, never the copy's own `.git` file.
+const gitIn = (cwd, ...args) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, stdio: "pipe" });
+async function projectRepo(workspace) {
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  return proj;
+}
+const signal = () => AbortSignal.timeout(20_000);
+
+test("Q100: a copy Branch makes of a trusted repository is trusted, and one it removes is forgotten",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  await app.git.planStart({ folder: "work/proj", name: "idea" }, signal());
+  const copy = join(proj, ".branch-worktrees", "exp");
+  assert.equal(folderTrust(app.store, owner, copy), "trusted", "a copy made with git.worktree_add");
+  assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "idea")), "trusted", "a copy made with plans.try");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(copy, "integrations.json")), true);
+  // Removed with the tool, then something else put at the same path with a `.git` file: the record is gone.
+  await app.git.worktree({ folder: "work/proj", action: "remove", name: "exp" }, signal());
+  await mkdir(copy, { recursive: true });
+  await writeFile(join(copy, ".git"), `gitdir: ${join(proj, ".git", "worktrees", "exp")}\n`);
+  assert.equal(folderTrust(app.store, owner, copy), "unknown", "a removed copy's place is not a copy any more");
+});
+
+test("Q100: a clone or a forged worktree in .branch-worktrees is not a copy Branch made",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  const clone = join(proj, ".branch-worktrees", "fake");
+  await mkdir(clone, { recursive: true });
+  gitIn(clone, "init", "-q");
+  assert.equal(folderTrust(app.store, owner, clone), "unknown", "a repository cloned there");
+  // A real worktree made by hand (the source's own admin entry exists), but not by Branch: not on record.
+  gitIn(proj, "worktree", "add", "-q", "--detach", join(proj, ".branch-worktrees", "forged"));
+  assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "forged")), "unknown", "the .git file and git's own entry grant nothing");
+});
+
+test("Q100: a copy takes its source's decision, whatever it is",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  // The source is a repository inside a trusted folder, with no decision of its own: undecided, and so is its copy.
+  decideFolder(app.store, owner, workspace, { folder: "work", decision: "trust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  const copy = join(proj, ".branch-worktrees", "exp");
+  assert.equal(folderTrust(app.store, owner, proj), "unknown");
+  assert.equal(folderTrust(app.store, owner, copy), "unknown", "undecided, like its source");
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+  assert.equal(folderTrust(app.store, owner, copy), "untrusted", "distrusted, like its source");
 });

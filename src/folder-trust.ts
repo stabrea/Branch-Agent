@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
 import { z } from "zod";
@@ -98,6 +98,31 @@ export function realFolder(path: string, platform: NodeJS.Platform = process.pla
   return parent === full ? full : join(realFolder(parent, platform), basename(full));
 }
 
+const copiesKey = "folder-trust-copies";
+const CopiesSchema = z.object({ copies: z.array(z.object({ source: z.string(), copy: z.string() }).strict()).max(500).default([]) }).strict();
+const copies = (store: Pick<Store, "get">, owner: string) => {
+  const parsed = CopiesSchema.safeParse(store.get("settings", owner, copiesKey)?.data ?? {});
+  return parsed.success ? parsed.data.copies : [];
+};
+/**
+ * Q100: Branch's own record of the parallel copies it made (git.worktree_add, plans.try, a forked
+ * conversation, a helper's copy), kept as real paths. Only this record lets a copy take its source's
+ * decision: a `.git` file inside the copy is the folder's own text and grants nothing.
+ */
+export function recordWorktreeCopy(store: Store, owner: string, source: string, copy: string, made: boolean): void {
+  const entry = { source: realFolder(source), copy: realFolder(copy) };
+  const kept = copies(store, owner).filter((one) => one.copy !== entry.copy);
+  store.save("settings", owner, copiesKey, { copies: made ? [...kept, entry].slice(-500) : kept });
+}
+/** A folder Branch made as a parallel copy of `source`'s repository: in its `.branch-worktrees`, on record, with a `.git` file. */
+function branchCopy(store: Pick<Store, "get">, owner: string, folder: string, pathApi: typeof posix): boolean {
+  const home = pathApi.dirname(folder);
+  if (pathApi.basename(home) !== ".branch-worktrees") return false;
+  try { if (!lstatSync(join(folder, ".git")).isFile()) return false; } catch { return false; }
+  const source = pathApi.dirname(home);
+  return copies(store, owner).some((one) => one.copy === folder && one.source === source);
+}
+
 /** How far a folder is trusted, from the closest folder the owner has decided about. */
 export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
   let best: { depth: number; decision: "trust" | "distrust"; path: string } | null = null;
@@ -121,7 +146,8 @@ export function folderTrust(store: Store, owner: string, folder: string, platfor
     const path = platform === "win32" ? win32 : posix;
     let current = inner;
     while (current !== best.path && current !== path.dirname(current)) {
-      if (existsSync(join(current, ".git"))) return "unknown";
+      // Q100: a copy Branch made of a repository takes that repository's decision, judged as the walk goes on.
+      if (existsSync(join(current, ".git")) && !branchCopy(store, owner, current, path)) return "unknown";
       current = path.dirname(current);
     }
   }

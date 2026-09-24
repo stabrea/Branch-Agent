@@ -25,6 +25,8 @@ export interface GitChange { path: string; state: string }
 
 export class GitTools {
   constructor(private readonly files: WorkspaceFiles, private readonly runner: GitRunner) {}
+  /** Q100: told of every parallel copy made or removed here (`source` is the repository folder), for folder trust. */
+  onCopy: (event: { source: string; copy: string; made: boolean }) => void = () => {};
 
   /** Resolves a workspace folder and refuses anything outside it, hidden, or not a folder. */
   private async folder(path: string): Promise<string> {
@@ -132,11 +134,13 @@ export class GitTools {
     const target = join(home, input.name);
     if (input.action === "remove") {
       await this.run(cwd, ["worktree", "remove", "--force", target], signal, { timeoutMs: 60000 });
+      this.onCopy({ source: cwd, copy: target, made: false });
       return { folder: input.folder, name: input.name, removed: true };
     }
     await mkdir(home, { recursive: true });
     const create = input.branch ? ["-b", input.branch] : ["--detach"];
     await this.run(cwd, ["worktree", "add", ...create, target], signal, { timeoutMs: 60000 });
+    this.onCopy({ source: cwd, copy: target, made: true });
     return { folder: input.folder, name: input.name, path: `${WORKTREE_HOME}/${input.name}`, branch: input.branch ?? null };
   }
 
@@ -153,6 +157,7 @@ export class GitTools {
     await mkdir(home, { recursive: true });
     const from = input.from ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["worktree", "add", "-b", branch, join(home, input.name), from], signal, { timeoutMs: 60000 });
+    this.onCopy({ source: cwd, copy: join(home, input.name), made: true });
     return { folder: input.folder, name: input.name, branch, from, path: `${WORKTREE_HOME}/${input.name}`,
       note: "Work in that folder. Ask for the difference when you are done, and merge it back only when it looks right." };
   }
@@ -175,8 +180,11 @@ export class GitTools {
     const branch = planBranch(input.name);
     const into = (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["merge", "--no-ff", "--no-edit", "-m", input.message ?? `Try "${input.name}"`, branch], signal, { timeoutMs: 60000 });
-    if (input.remove)
-      await this.run(cwd, ["worktree", "remove", "--force", join(cwd, WORKTREE_HOME, input.name)], signal, { timeoutMs: 60000 }).catch(() => undefined);
+    if (input.remove) {
+      const copy = join(cwd, WORKTREE_HOME, input.name);
+      await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).catch(() => undefined);
+      this.onCopy({ source: cwd, copy, made: false });
+    }
     return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: input.remove };
   }
 

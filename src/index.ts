@@ -49,7 +49,7 @@ import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
 import { McpConnections, readLifecycleSettings } from "./mcp-lifecycle.js";
-import { integrationsFileTrusted } from "./folder-trust.js";
+import { integrationsFileTrusted, recordWorktreeCopy } from "./folder-trust.js";
 import type { CachedMcpTool } from "./integrations/mcp.js";
 import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
@@ -423,6 +423,7 @@ export async function createBranch(options: {
   // Version control on this computer only; sending work to a server is switched on separately.
   const gitRunner = new GitRunner();
   const git = new GitTools(files, gitRunner);
+  git.onCopy = ({ source, copy, made }) => recordWorktreeCopy(store, options.owner ?? "local", source, copy, made);
   registerGit(registry, git);
   // Batch 26 (wave 8): a way back to before a set of changes was written, a project that carries
   // its own line of work, and folders on other computers reached with the OpenSSH client Windows
