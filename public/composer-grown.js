@@ -91,7 +91,9 @@ function paintModelMenu(menu, close) {
 function thinkingWord() {
   const select = $("session-reasoning");
   if ($("model-controls")?.hidden || !select?.value) return "";
-  return select.selectedOptions[0]?.textContent.trim() ?? "";
+  // The short word ("Balanced"), not the list's longer wording for a model that thinks by budget, or the note on
+  // a level the model does not take: the chip is a name, and it is cut at its width (NAS 62efb38).
+  return say(`thinking.effort.${select.value}`, select.selectedOptions[0]?.textContent.trim() ?? "");
 }
 
 function installModelPicker() {

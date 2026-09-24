@@ -122,7 +122,8 @@ async function refresh() {
   const mine = ++generation;
   // Another conversation's rounds are never left showing under this one's name.
   if (shownSession !== session) { box.replaceChildren(); shownSession = session; }
-  box.hidden = !on || !view || view.hidden || !session;
+  // Drawn, and fetched, only while Data & usage is on screen: #usage itself is never marked hidden (NAS f3a163d).
+  box.hidden = !on || !view || !(view.checkVisibility?.() ?? !view.hidden) || !session;
   if (box.hidden) return;
   try {
     const data = await get(`model-savings/rounds?session=${encodeURIComponent(session)}`);

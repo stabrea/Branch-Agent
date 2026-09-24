@@ -163,7 +163,9 @@ test("K5 dogfood B9: the model chip carries the thinking level, chosen from its 
   await menu.getByRole("menuitemradio", { name: balanced.trim(), exact: true }).click();
   await page.waitForFunction(async (id) => (await (await fetch(`/api/sessions/${id}/model`, {
     headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } })).json()).reasoning === "medium", sessionId);
-  await page.waitForFunction((word) => document.getElementById("lx-model-chip")?.innerText.includes(`· ${word}`), balanced.trim());
-  assert.match(await page.locator("#lx-model-chip").innerText(), /claude-sonnet-4-5 · /, "the chip says the model and how hard it thinks");
+  assert.match(balanced, /^Balanced: /, "control: the list gives a budget model the longer wording");
+  await page.waitForFunction(() => /· Balanced$/.test(document.getElementById("lx-model-chip")?.innerText.trim() ?? ""));
+  assert.equal((await page.locator("#lx-model-chip").innerText()).trim(), "claude-sonnet-4-5 · Balanced",
+    "the chip says the model and the short word for how hard it thinks (NAS 62efb38)");
   assert.deepEqual(errors, []);
 });

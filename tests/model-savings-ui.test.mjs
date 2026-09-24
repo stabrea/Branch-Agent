@@ -213,3 +213,20 @@ test("a round whose service never reported the cache is said to be unknown, neve
     "and a round reporting zero is not faded");
   assert.deepEqual(errors, []);
 });
+
+test("R17-049 the chart asks for rounds only while Data & usage is on screen", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  const run = await app.runtime.run({ prompt: "hello" });
+  await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
+  let asked = 0;
+  page.on("request", (request) => { if (request.url().includes("/api/model-savings/rounds")) asked += 1; });
+  saveSavings(app.store, "local", "roundChart", { mode: "on" });
+  await page.evaluate(() => window.branchModelSavings.refresh());
+  // Two of its four-second turns with Settings closed (NAS f3a163d: #usage is never marked hidden in this layout).
+  await page.waitForTimeout(9000);
+  assert.equal(asked, 0, "closed: the chart asks for nothing");
+  await openDataAndUsage(page);
+  await page.locator("#usage #round-chart svg rect").first().waitFor({ timeout: 10000 });
+  assert.ok(asked > 0, "open: it asks, and draws");
+  assert.deepEqual(errors, []);
+});

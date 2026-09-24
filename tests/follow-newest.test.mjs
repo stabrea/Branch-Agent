@@ -80,7 +80,10 @@ test("B5 sending and the answer follow the newest message, unless the person has
   await send(page, "First, a long answer please.");
   assert.ok((await gap(page)) <= 80, `after the answer the view is at the newest message (${await gap(page)} px above the bottom)`);
   // Reading further up is left alone while more arrives.
-  await page.evaluate(() => { const box = document.getElementById("workspace"); box.scrollTop = 0; box.dispatchEvent(new Event("scroll")); });
+  // Scrolled up with the wheel, as a person does.
+  const box = await page.locator("#workspace").boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
+  for (let i = 0; i < 20 && await page.evaluate(() => document.getElementById("workspace").scrollTop) > 0; i += 1) await page.mouse.wheel(0, -2000);
   await page.evaluate(() => { const note = document.createElement("div"); note.className = "message assistant"; note.textContent = "More."; document.getElementById("conversation").append(note); });
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await page.evaluate(() => document.getElementById("workspace").scrollTop), 0, "someone reading further up is not pulled away");

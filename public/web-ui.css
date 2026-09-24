@@ -226,7 +226,6 @@ button.code-copy:hover { background: var(--hover); color: var(--text); }
 /* ---- DG-101: what the conversation has probably cost, at the far end of the line under the box ---- */
 .conversation-cost { margin-left: auto; flex: none; color: var(--faint); font-size: 0.75rem; white-space: nowrap; }
 .conversation-cost:empty { display: none; }
-.conversation-cost + .status-bar { margin-left: 0.5rem; }
 
 /* ---- The developer playground ---- */
 .play-field { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.6rem; }

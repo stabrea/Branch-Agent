@@ -2415,6 +2415,11 @@ body.lx .composer-dock:has(.mode-menu:not([hidden])) {
 .composer-foot > .status-bar {
   min-height: 0;
 }
+/* DG-101: with a cost showing, the cost takes the far end's auto margin and the ring sits just after it; two auto
+   margins would split the line and leave the cost floating in the middle (NAS f3a163d). */
+.composer-foot > .conversation-cost:not(:empty) + .status-bar {
+  margin-left: 0;
+}
 .composer-foot > .status-bar .usage-ring {
   height: 18px;
   padding: 0 6px 0 2px;

@@ -21,7 +21,8 @@ export function followNewest() {
   cancelAnimationFrame(frame);
   frame = requestAnimationFrame(() => {
     const box = scroller();
-    if (box && chatShown()) box.scrollTop = box.scrollHeight;
+    // Someone who scrolled up before this frame came round is reading: they are not pulled back down.
+    if (box && following && chatShown()) box.scrollTop = box.scrollHeight;
   });
 }
 
@@ -30,7 +31,24 @@ function keepUp() {
 }
 
 const box = scroller();
-if (box) box.addEventListener("scroll", () => { following = atBottom(box); }, { passive: true });
+/* Only the person stops following, by moving up (the wheel, a finger, the keys, the scroll bar). The page itself
+   moves the view too: a redraw that empties the conversation for a moment pulls it up, and a scroll this file caused
+   can arrive after more was added, so what a scroll event says is never taken as the person's wish. Reaching the
+   bottom again, however they get there, follows again. */
+const reading = () => { following = false; };
+if (box) {
+  box.addEventListener("wheel", (event) => { if (event.deltaY < 0) reading(); }, { passive: true });
+  let touchY = null;
+  box.addEventListener("touchstart", (event) => { touchY = event.touches[0]?.clientY ?? null; }, { passive: true });
+  box.addEventListener("touchmove", (event) => { const y = event.touches[0]?.clientY; if (touchY !== null && y > touchY + 8) reading(); }, { passive: true });
+  box.addEventListener("keydown", (event) => {
+    if (event.target.closest?.("input, textarea, select, [contenteditable]")) return;
+    if (["ArrowUp", "PageUp", "Home"].includes(event.key)) reading();
+  });
+  /* A press on the box itself, not on anything in it, is its scroll bar. */
+  box.addEventListener("pointerdown", (event) => { if (event.target === box) reading(); });
+  box.addEventListener("scroll", () => { if (atBottom(box)) following = true; }, { passive: true });
+}
 $("chat-form")?.addEventListener("submit", followNewest);
 const watched = [$("conversation"), $("live-row")].filter(Boolean);
 const observer = new MutationObserver(keepUp);

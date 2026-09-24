@@ -882,6 +882,17 @@ test("Q5 the helper line and the conversation's cost share one row, clear of the
   assert.ok(boxes.foot.top >= boxes.composer.bottom - 1, "the quiet row still overlaps the message box");
   assert.ok(boxes.cost.left >= boxes.note.right - 1, "the cost and the helper line overlap each other");
   assert.ok(boxes.cost.top >= boxes.foot.top - 1 && boxes.cost.bottom <= boxes.foot.bottom + 1, "the cost sits on the line under the box");
+  // With Show everything on, the limits ring ends the line; the cost sits just before it, at the far end (NAS f3a163d).
+  await f.page.evaluate(() => { document.documentElement.dataset.everything = "on"; });
+  await f.page.waitForFunction(() => document.querySelector(".composer-foot > .status-bar"));
+  const end = await f.page.evaluate(() => {
+    const bar = document.querySelector(".composer-foot > .status-bar"), cost = document.getElementById("conversation-cost");
+    bar.style.minWidth = "24px"; // the ring's own size, whatever it has to say yet
+    return { gap: bar.getBoundingClientRect().left - cost.getBoundingClientRect().right,
+      toEnd: document.querySelector(".composer-foot").getBoundingClientRect().right - bar.getBoundingClientRect().right };
+  });
+  assert.ok(end.gap >= 0 && end.gap <= 16, `the cost sits just before the ring, not floating mid-line (${end.gap} px apart)`);
+  assert.ok(end.toEnd <= 24, `and the ring ends the line (${end.toEnd} px short)`);
   assert.deepEqual(f.errors, []);
 });
 
