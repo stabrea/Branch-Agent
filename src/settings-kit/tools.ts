@@ -225,6 +225,11 @@ function changeTool(loosen: boolean, store: Store, writers: () => Record<string,
     // settings.loosen would have asked for, and asking a second time made nothing change (dogfood A1).
     if (loosen && !loose.length)
       throw new Error("None of these makes Branch less careful. Use settings.change for them.");
+    // NAS b86e65a: a change that loosens only from where the owner set it by hand (a "custom" choice outside its
+    // list) was not asked about once-only, since the catalogue alone could not tell. Its yes may be a kept one, so
+    // settings.change does not make it: settings.loosen asks for it, every time.
+    if (!loosen && loose.length && !mayLoosen(input))
+      throw new Error(`${loose.map((change) => change.id).join(", ")}: from how the owner set it by hand, this makes Branch less careful. Ask with settings.loosen, which asks the owner every time.`);
     if (!changes.length) return { changed: [], refused, note: "Nothing needed changing: every setting is already as asked." };
     if (context.dryRun) return { wouldChange: changes.map(said), refused };
     const { applied, skipped } = applyWithPins(store, context.owner, changes, {

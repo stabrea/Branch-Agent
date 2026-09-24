@@ -207,3 +207,18 @@ test("outside work through the runtime's own path gets none of it, the look-only
   }
   assert.equal(app.learningCore.settings().mode, "off");
 });
+
+test("a change that loosens only from how the owner set things by hand is not made by settings.change (NAS b86e65a)", async (t) => {
+  const { app, owner, run } = await fixture(t);
+  const { readPolicy } = await import("../dist/policy.js");
+  const { mayLoosen } = await import("../dist/settings-kit/tools.js");
+  // The owner's own hand-made rules, saved as the approval card saves them.
+  savePolicy(app.store, owner, { preset: "custom", rules: [{ tool: "web.fetch", match: "*", decision: "deny", remember: "always" }] });
+  assert.equal(readPolicy(app.store, owner).preset, "custom", "control: the owner's own rule makes it custom");
+  const input = { changes: [{ setting: "policy.preset", value: "read-only" }] };
+  assert.equal(mayLoosen(input), false, "control: the catalogue alone sees no loosening, so the question was not once-only");
+  await assert.rejects(run("settings.change", input), /settings\.loosen/);
+  assert.ok(readPolicy(app.store, owner).rules.some((rule) => rule.tool === "web.fetch" && rule.decision === "deny"), "the owner's rule is still there");
+  const loosened = await run("settings.loosen", input);
+  assert.equal(loosened.changed.length, 1, "settings.loosen, which asks every time, can make it");
+});
