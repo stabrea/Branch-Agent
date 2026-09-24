@@ -1535,25 +1535,62 @@ for (const [id, key] of [["identity-name", "name"], ["identity-instructions", "i
     if (!identityBusy && identityDraft) { identityDraft[key] = $(id).value; identityDirty = true; }
   });
 }
-/** Plain language for one tool call, so the step row reads like a sentence. */
-function stepLabel(calls) {
-  const names = [...new Set(calls.map((call) => call.name.replace(/[._]/g, " ")))];
-  const shown = names.slice(0, 3).join(", ");
-  return calls.length === 1 ? `Used ${shown}` : `Worked with ${calls.length} tools · ${shown}`;
+/* Dogfood B2/B3: a step says what was done and what came of it, like Claude Code's tool lines, never only which tool
+   was used ("Used settings change" when nothing changed). The words come from the call and its result. */
+const stepArgs = (call) => { try { return JSON.parse(call.arguments || "{}"); } catch { return {}; } };
+const quoted = (value) => `“${String(value).slice(0, 60)}”`;
+const stepPhrases = {
+  "files.read": (a) => `Read ${a.path ?? "a file"}`, "files.write": (a) => `Wrote ${a.path ?? "a file"}`,
+  "files.edit": (a) => `Edited ${a.path ?? "a file"}`, "files.glob": (a) => `Listed files${a.pattern ? ` matching ${a.pattern}` : ""}`,
+  "files.grep": (a) => `Searched files for ${quoted(a.pattern ?? a.query ?? "")}`, "files.search": (a) => `Searched files for ${quoted(a.query ?? "")}`,
+  "shell.execute": (a) => `Ran \`${[a.executable, ...(a.args ?? [])].join(" ").slice(0, 80)}\``,
+  "device.run": (a) => `Ran \`${[a.executable, ...(a.args ?? [])].join(" ").slice(0, 80)}\` on ${a.device ? a.device : "a paired device"}`,
+  "settings.list": () => "Looked through the settings", "settings.find": (a) => `Looked for the setting for ${quoted(a.request ?? a.query ?? "")}`,
+  "settings.change": (a) => `Asked to change ${(a.changes ?? []).length} setting(s)`, "settings.loosen": (a) => `Asked to change ${(a.changes ?? []).length} setting(s)`,
+  "tools.search": (a) => `Looked for a tool to ${quoted(a.query ?? "")}`, "tools.describe": () => "Read how a tool works",
+  "tools.open": (a) => `Opened the ${(a.groups ?? []).join(", ") || "requested"} tools`, "checklist.write": () => "Updated its checklist",
+  "web.search": (a) => `Searched the web for ${quoted(a.query ?? "")}`, "web.fetch": (a) => `Read ${a.url ?? "a web page"}`,
+  "memory.search": (a) => `Searched memory for ${quoted(a.query ?? "")}`, "memory.put": () => "Saved something to memory",
+};
+function stepPhrase(call) {
+  const phrase = stepPhrases[call.name];
+  if (phrase) return phrase(stepArgs(call));
+  const words = call.name.replace(/[._]/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+/** What came of one call: null while it is not known, otherwise whether it worked and, briefly, what it said. */
+function stepOutcome(call, result) {
+  if (!result) return null;
+  if (result.ok === false) return { ok: false, words: `didn't work: ${String(result.error ?? "").slice(0, 140)}` };
+  const value = result.result ?? {};
+  if (Array.isArray(value.changed)) return { ok: value.changed.length > 0, words: value.changed.length ? `changed ${value.changed.length}` : "nothing changed" };
+  if (typeof value.exitCode === "number") return { ok: value.exitCode === 0, words: value.exitCode === 0 ? "finished" : `failed (exit ${value.exitCode})` };
+  return { ok: true, words: "done" };
+}
+function stepLabel(calls, results = {}) {
+  const outcomes = calls.map((call) => stepOutcome(call, results[call.id]));
+  const failed = outcomes.filter((one) => one && !one.ok).length;
+  if (calls.length === 1) return outcomes[0] ? `${stepPhrase(calls[0])} · ${outcomes[0].words}` : stepPhrase(calls[0]);
+  const shown = [...new Set(calls.map(stepPhrase))].slice(0, 2).join("; ");
+  return `${calls.length} steps: ${shown}${calls.length > 2 ? "…" : ""}${failed ? ` · ${failed} didn't work` : ""}`;
 }
 /** A tool step is one quiet row in the flow that opens, not a card of its own. */
 function toolStep(content, calls, source) {
+  const results = source?.results ?? {};
   const node = el("details", undefined, "message assistant-step tool-step");
   const summary = el("summary");
-  summary.append(el("span", stepLabel(calls)));
+  summary.append(el("span", stepLabel(calls, results)));
   // Wave 6: the row that says what it worked with also opens the whole task.
   if (source?.runId && globalThis.branchInspector) summary.append(globalThis.branchInspector.button(source.runId));
   node.append(summary);
   const body = el("div", undefined, "step-body");
   if (content.trim()) body.append(el("p", content));
   for (const call of calls) {
+    const outcome = stepOutcome(call, results[call.id]);
     const line = el("div", undefined, "step-line");
-    line.append(el("strong", call.name), el("span", call.arguments.slice(0, 160)));
+    if (outcome) line.dataset.ok = String(outcome.ok);
+    line.append(el("strong", `${outcome ? (outcome.ok ? "✓ " : "✗ ") : ""}${stepPhrase(call)}`),
+      el("span", outcome ? outcome.words : ""), el("code", `${call.name} ${call.arguments.slice(0, 160)}`));
     body.append(line);
   }
   node.append(body);
@@ -1752,6 +1789,19 @@ function renderConversation(value, status) {
      number in front of it, so on the way back the reply can be signed with its name again and
      what the owner typed can be shown without the machinery. */
   let answering = null;
+  // Each call's result, so a step can say what came of it (dogfood B2/B3). A result too long to keep whole is clipped, so
+  // one that no longer reads as JSON is simply left unknown.
+  const results = {};
+  for (const source of value.messages) {
+    if (source.role !== "tool" || !source.toolCallId) continue;
+    try { results[source.toolCallId] = JSON.parse(source.content); }
+    catch {
+      // A long result is clipped, so it no longer reads as JSON; how it starts still says whether it worked.
+      const error = /^\{"ok":false,"error":"((?:[^"\\]|\\.)*)/.exec(source.content);
+      if (error) results[source.toolCallId] = { ok: false, error: error[1].replace(/\\(.)/g, "$1") };
+      else if (source.content.startsWith('{"ok":true')) results[source.toolCallId] = { ok: true, result: {} };
+    }
+  }
   for (const source of value.messages) {
     if (!["user", "assistant"].includes(source.role)) continue;
     if (source.role === "user") {
@@ -1760,7 +1810,8 @@ function renderConversation(value, status) {
       message("user", asked.text, source);
       continue;
     }
-    message("assistant", source.content, answering ? { ...source, author: answering } : source);
+    const withResults = source.toolCalls?.length ? { ...source, results } : source;
+    message("assistant", source.content, answering ? { ...withResults, author: answering } : withResults);
   }
   if (status) $("session-label").textContent = status + (value.branch ? " · branched conversation" : value.imported ? " · imported conversation" : " · conversation saved");
 }
