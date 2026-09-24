@@ -1632,13 +1632,13 @@ body.lx #connection[data-state="lost"] {
 :root:not([data-everything="on"]) body.lx-calm-working #context-panel > .context-block:has(#goal-strip:not([hidden])) > :not(#goal-strip) {
   display: none;
 }
-/* a reply's own buttons appear when the pointer is on it, where there is a pointer */
+/* a message's own buttons (Copy on every one, dogfood B8) appear when the pointer is on it, where there is a pointer */
 @media (hover: hover) {
-  :root:not([data-everything="on"]) .message.assistant .message-controls {
+  :root:not([data-everything="on"]) .message:is(.assistant, .user) .message-controls {
     opacity: 0;
     transition: opacity 0.15s ease;
   }
-  :root:not([data-everything="on"]) .message.assistant:is(:hover, :focus-within) .message-controls {
+  :root:not([data-everything="on"]) .message:is(.assistant, .user):is(:hover, :focus-within) .message-controls {
     opacity: 1;
   }
 }

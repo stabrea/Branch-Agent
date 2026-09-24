@@ -1580,6 +1580,7 @@ function message(role, content, source) {
      through the voice service so the free Windows voice works with no key and no internet. */
   if (role === "assistant" && !source?.toolCalls?.length) {
     const controls = el("div", undefined, "message-controls");
+    controls.append(copyButton(content));
     if (source?.messageId)
       controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
     const readBtn = button("Read aloud", () => globalThis.branchSpeak?.(content));
@@ -1588,12 +1589,39 @@ function message(role, content, source) {
     stopBtn.classList.add("text-button");
     controls.append(readBtn, stopBtn);
     node.append(controls);
-  } else if (source?.messageId) {
+  } else {
+    // Dogfood B8: every message can be copied, what was typed as much as what came back.
     const controls = el("div", undefined, "message-controls");
-    controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
+    controls.append(copyButton(content));
+    if (source?.messageId) controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
     node.append(controls);
   }
   $("conversation").append(node);
+}
+/**
+ * Dogfood B8: copies one message as it was written (an answer's markdown, or exactly what was typed). The page's
+ * clipboard is tried first; a window that refuses it (no focus, an older engine) gets the selection's copy instead.
+ */
+function copyButton(content) {
+  const node = button(t("message.copy"), async () => {
+    const text = String(content ?? "");
+    let copied = false;
+    try { await navigator.clipboard.writeText(text); copied = true; }
+    catch {
+      const spare = el("textarea");
+      spare.value = text;
+      spare.setAttribute("readonly", "");
+      spare.style.cssText = "position:fixed;left:-9999px;top:0";
+      document.body.append(spare);
+      spare.select();
+      try { copied = document.execCommand("copy"); } catch { copied = false; }
+      spare.remove();
+    }
+    toast(copied ? t("message.copied") : t("message.copyFailed"));
+  });
+  node.classList.add("text-button", "message-copy");
+  node.dataset.t = "message.copy";
+  return node;
 }
 function conversationButton(label, handler) {
   const node = button(label, async () => {
