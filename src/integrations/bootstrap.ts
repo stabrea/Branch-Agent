@@ -1,4 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
+import { defaultShellConfig } from './default-shell.js';
 import { withLoginPath } from "../coding/shell-snapshot.js"; // mac7/r17-d
 import { channelPosition } from '../never-break/channel-position.js'; // mac3/never-break
 import { channelMark } from '../channels/catch-up.js'; // mac6/bucket-16
@@ -251,6 +252,25 @@ function noteLeftOut(config: LaunchConfig, path: string): LaunchSection[] {
   return left;
 }
 
+/**
+ * The settings loadIntegrations goes on with. With no settings file, the programs installed on this computer are
+ * still there to run (dogfood A2, src/integrations/default-shell.ts); null when there is nothing at all to set up.
+ */
+async function readConfig(path: string | undefined, env: NodeJS.ProcessEnv, channels?: ChannelHost): Promise<z.infer<typeof ConfigSchema> | null> {
+  if (!path) {
+    const shell = defaultShellConfig(env);
+    return shell ? ConfigSchema.parse({ shell }) : null;
+  }
+  const info = await stat(path);
+  if (!info.isFile() || info.size > 65536) throw new Error('Integration config must be a file of at most 64 KiB');
+  const listed = ConfigSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+  // Wave mac2 (guards): a file in a folder the owner has not trusted sets up nothing at all. What
+  // goes on from here is an empty file, so nothing below can read one of its sections by mistake.
+  const trusted = channels?.configTrusted?.(path) ?? true;
+  channels?.leftOut?.(trusted ? [] : noteLeftOut(listed, path));
+  return trusted ? listed : ConfigSchema.parse({});
+}
+
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
   /** The live browser, when one is configured, so Settings can offer the sign-in-once window. */
@@ -267,15 +287,8 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     const errors = results.filter(result => result.status === 'rejected');
     if (errors.length) throw new Error(`Failed to close ${errors.length} integration(s)`);
   };
-  if (!path) return { close, count: 0, hosted };
-  const info = await stat(path);
-  if (!info.isFile() || info.size > 65536) throw new Error('Integration config must be a file of at most 64 KiB');
-  const listed = ConfigSchema.parse(JSON.parse(await readFile(path, 'utf8')));
-  // Wave mac2 (guards): a file in a folder the owner has not trusted sets up nothing at all. What
-  // goes on from here is an empty file, so nothing below can read one of its sections by mistake.
-  const trusted = channels?.configTrusted?.(path) ?? true;
-  channels?.leftOut?.(trusted ? [] : noteLeftOut(listed, path));
-  const config = trusted ? listed : ConfigSchema.parse({});
+  const config = await readConfig(path, env, channels);
+  if (!config) return { close, count: 0, hosted };
   if (config.web) channels?.web?.configure(config.web);
   const policy = channels?.web?.policy;
   if (new Set(config.mcp.map(server => server.id)).size !== config.mcp.length)
