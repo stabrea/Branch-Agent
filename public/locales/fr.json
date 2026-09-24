@@ -6150,5 +6150,13 @@
   "updates.provenance.checked": "Un enregistrement de provenance de build a été trouvé pour ce téléchargement. Il désigne ce fichier précis et le workflow de publication de Branch exécuté pour une étiquette de version, et sa signature correspond au certificat qui l'accompagne. La chaîne de ce certificat jusqu'à Sigstore n'a pas été vérifiée.",
   "updates.provenance.checkedBeta": "Un enregistrement de provenance de build a été trouvé pour ce téléchargement. Il désigne ce fichier précis et le workflow bêta de Branch exécuté sur la branche mac/cross-platform, et sa signature correspond au certificat qui l'accompagne. La chaîne de ce certificat jusqu'à Sigstore n'a pas été vérifiée.",
   "updates.provenance.notChecked": "L'enregistrement de provenance de build de ce téléchargement n'a pas été vérifié : GitHub était injoignable, n'a pas répondu à temps ou a envoyé un enregistrement illisible. La mise à jour repose uniquement sur la somme de contrôle publiée, qu'elle a passée.",
-  "updates.provenance.none": "Aucun enregistrement de provenance de build n'est publié pour ce téléchargement. La mise à jour repose uniquement sur la somme de contrôle publiée, qu'elle a passée."
+  "updates.provenance.none": "Aucun enregistrement de provenance de build n'est publié pour ce téléchargement. La mise à jour repose uniquement sur la somme de contrôle publiée, qu'elle a passée.",
+  "host-bridge.add-computer": "Ajoutez d'abord un ordinateur",
+  "host-bridge.confirm": "Oui, l'exécuter",
+  "host-bridge.ran-on": "S'est exécuté sur {computer}",
+  "playback.remove-clip": "Retirer {name} de ce message",
+  "sandbox.remove-computer": "Retirer cet ordinateur",
+  "sandbox.runs": "Exécutions {runs}",
+  "sandbox.not-on-computer": "Pas sur cet ordinateur : exécutions {runs}",
+  "sandbox.delete-confirm": "Supprimer les conversations de cette liste ? Une copie sauvegardée vous est d'abord remise."
 }

@@ -1,6 +1,7 @@
 // Settings → Approvals: where scripts run, what can reach out, how much one person may ask for, and
 // how long conversations are kept. Plus the Remote computers card. Everything here reads a module
 // that already decided; nothing on these screens decides anything itself.
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 
 async function api(path, body) {
@@ -40,7 +41,7 @@ async function showSandboxes() {
     /* DG-024: a place a script can run is a line of the card, not a heading. */
     const title = document.createElement("p");
     title.append(document.createElement("b"));
-    title.firstChild.textContent = backend.available ? `Runs ${backend.runs}` : `Not on this computer: runs ${backend.runs}`;
+    title.firstChild.textContent = backend.available ? t("sandbox.runs", { runs: backend.runs }) : t("sandbox.not-on-computer", { runs: backend.runs });
     row.append(title, line(backend.protects, "subtle"));
     if (!backend.available) row.append(line(backend.reason, "subtle"));
     where.append(row);
@@ -99,7 +100,7 @@ async function showRemotes() {
       : "It may hold files and run nothing at all.";
     const drop = document.createElement("button");
     drop.type = "button";
-    drop.textContent = "Take this computer off";
+    drop.textContent = t("sandbox.remove-computer");
     drop.addEventListener("click", () => void removeRemote(computer.alias));
     row.append(title, line(`${computer.alias}, working in ${computer.root}. ${programs}`, "subtle"), drop);
     where.append(row);
@@ -160,7 +161,7 @@ async function saveRetention() {
 }
 
 async function prune() {
-  if (!window.confirm("Delete the conversations on this list? A saved copy is handed back first.")) return;
+  if (!window.confirm(t("sandbox.delete-confirm"))) return;
   try {
     const done = await api("retention/prune", { approve: true });
     say("retention-status", `${done.removed.length} conversation(s) deleted; ${done.exported.length} saved copy/copies handed back.`);
