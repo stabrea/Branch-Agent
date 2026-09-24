@@ -75,9 +75,9 @@ export class FlowTimeTravel {
   private readonly working = new Map<string, Promise<GraphRunView>>();
   constructor(private readonly deps: TimeTravelDeps) {}
 
-  /** Every step of one run with the state as it stood after it, oldest first. */
   /** Q119 (NAS 911afbf): the Trunk whose run this is, or null for the owner's own; read without stamping anyone. */
   whose(runId: string): string | null { return this.deps.graphs.trunkOf(runId); }
+  /** Every step of one run with the state as it stood after it, oldest first. */
   steps(runId: string): FlowSteps {
     requirePart(this.deps.store, this.deps.owner, "time-travel");
     const run = this.deps.graphs.view(runId);
