@@ -129,22 +129,37 @@ export class BrowserSession {
     try {
       this.browserSession ??= await this.context.browser()!.newBrowserCDPSession();
       const { targetInfos } = await this.browserSession.send('Target.getTargets') as { targetInfos: TargetInfo[] };
-      const ours = new Set(await Promise.all(this.pages.map(page => this.targetOf(page))));
+      const ours = await this.ourTargetIds();
       const byId = new Map(targetInfos.map(target => [target.targetId, target]));
-      const fromOurs = (target: TargetInfo): boolean => {
-        for (let seen = 0, at: TargetInfo | undefined = target; at?.openerId && seen < 10; seen++) {
-          if (ours.has(at.openerId)) return true;
-          at = byId.get(at.openerId);
-        }
-        return false;
-      };
-      const unloaded = targetInfos.filter(target => target.type === 'page' && !target.url && fromOurs(target));
+      const derived = targetInfos.filter(target => target.type === 'page' && this.tracesTo(target, byId, ours));
+      for (const target of derived) this.traced.add(target.targetId);
+      const unloaded = derived.filter(target => !target.url);
       for (const target of unloaded) void this.browserSession.send('Target.closeTarget', { targetId: target.targetId }).catch(() => undefined);
       return unloaded.length > 0;
     } catch {
       // Whose tab it is cannot be told, so it is refused: the owner can open theirs again, a tab of ours must send nothing.
       return true;
     }
+  }
+  /**
+   * Chrome's ids of every tab traced back to Branch's tab. They are kept after the tab closes (this code closes
+   * them itself), so a tab one of them opened is still traced once its opener has gone from Chrome's list.
+   */
+  private readonly traced = new Set<string>();
+  /** Whether a tab's openers lead back to Branch's tab or to a tab traced to it, however many there are. */
+  private tracesTo(target: TargetInfo, byId: Map<string, TargetInfo>, ours: Set<string>): boolean {
+    const seen = new Set<string>();
+    for (let at: TargetInfo | undefined = target; at?.openerId && !seen.has(at.openerId); at = byId.get(at.openerId)) {
+      if (ours.has(at.openerId) || this.traced.has(at.openerId)) return true;
+      seen.add(at.openerId);
+    }
+    return false;
+  }
+  /** Chrome's ids of Branch's own tabs. One that cannot be read makes the whole answer unknown, never a smaller set. */
+  private async ourTargetIds(): Promise<Set<string>> {
+    const ids = await Promise.all(this.pages.map(page => this.targetOf(page)));
+    if (ids.some(id => !id)) throw new Error('A tab of ours could not be told apart');
+    return new Set(ids);
   }
   private browserSession: CDPSession | undefined;
   private readonly targetIds = new WeakMap<Page, Promise<string>>();
@@ -155,7 +170,7 @@ export class BrowserSession {
         const { targetInfo } = await session.send('Target.getTargetInfo') as { targetInfo: TargetInfo };
         await session.detach().catch(() => undefined);
         return targetInfo.targetId;
-      }).catch(() => '');
+      }).catch(() => { this.targetIds.delete(page); return ''; }); // asked again next time, never kept as unknown
       this.targetIds.set(page, known);
     }
     return known;
@@ -176,11 +191,30 @@ export class BrowserSession {
     let known = this.openedFromOurs.get(page);
     if (!known) {
       known = page.opener().then(
-        async opener => !!opener && (await this.isOurs(opener) || await this.openedByUs(opener)),
-        () => false);
+        async opener => opener ? await this.isOurs(opener) || await this.openedByUs(opener) : this.openerTraced(page),
+        () => false).then(async fromOurs => {
+        if (fromOurs) { const id = await this.targetOf(page); if (id) this.traced.add(id); }
+        return fromOurs;
+      });
       this.openedFromOurs.set(page, known);
     }
     return known;
+  }
+  /**
+   * A tab with no opener Playwright still knows: its opener may be a traced tab already closed, which Chrome
+   * still names as its opener. Asked of Chrome only then, once per tab.
+   */
+  private async openerTraced(page: Page): Promise<boolean> {
+    if (!this.traced.size || !this.context) return false;
+    try {
+      const id = await this.targetOf(page);
+      this.browserSession ??= await this.context.browser()!.newBrowserCDPSession();
+      const { targetInfos } = await this.browserSession.send('Target.getTargets') as { targetInfos: TargetInfo[] };
+      const target = targetInfos.find(each => each.targetId === id);
+      return !!target && this.tracesTo(target, new Map(targetInfos.map(each => [each.targetId, each])), await this.ourTargetIds());
+    } catch {
+      return false;
+    }
   }
   private async closeTabWeOpened(page: Page): Promise<void> {
     if (await this.isOurs(page)) return;

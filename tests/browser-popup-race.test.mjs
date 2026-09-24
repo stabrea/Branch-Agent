@@ -163,3 +163,79 @@ test("in the owner's browser, a new tab's first request is refused when whose ta
   await windowRoute(route);
   assert.equal(route.outcome, "aborted");
 });
+
+/** The owner's window with Chrome's target list stood in for: `targets` is what Target.getTargets answers. */
+async function borrowedWindow() {
+  const ourTab = Object.assign(fakePage("ours"), { tid: "t0" });
+  const state = { targets: [{ targetId: "t0", type: "page", url: "http://allowed.test/" }], closed: [], route: null, ourTargetFails: false };
+  const browserSession = { send: async (method, params) => {
+    if (method === "Target.getTargets") return { targetInfos: state.targets.map((target) => ({ ...target })) };
+    if (method === "Target.closeTarget") { state.closed.push(params.targetId); state.targets = state.targets.filter((target) => target.targetId !== params.targetId); }
+    return {};
+  }, detach: async () => {} };
+  const context = Object.assign(events(), {
+    setDefaultTimeout() {},
+    route: async (_pattern, handler) => { state.route = handler; },
+    unroute: async () => {},
+    pages: () => [ourTab],
+    browser: () => ({ newBrowserCDPSession: async () => browserSession }),
+    newCDPSession: async (page) => {
+      if (page === ourTab && state.ourTargetFails) throw new Error("Target closed");
+      return { on() {}, detach: async () => {}, send: async () => ({ targetInfo: { targetId: page.tid } }) };
+    },
+    newPage: async () => { await null; context.emit("page", ourTab); return ourTab; },
+  });
+  const session = new BrowserSession(async () => { throw new Error("not launched in the owner's browser"); }, async () => {});
+  session.options = { attached: { context } };
+  await session.use({ owner: "o", runId: "r", signal: new AbortController().signal }, async () => undefined);
+  const request = (page) => {
+    const route = { outcome: null,
+      request: () => ({ url: () => "http://unlisted.test/", resourceType: () => "document", isNavigationRequest: () => true,
+        frame: () => (page ? { page: () => page, parentFrame: () => null } : (() => { throw new Error("Frame for this navigation request is not available"); })()) }),
+      abort: async () => { route.outcome = "aborted"; }, fallback: async () => { route.outcome = "passed on"; }, continue: async () => { route.outcome = "continued"; } };
+    return route;
+  };
+  return { state, context, ourTab, send: async (page) => { const route = request(page); await state.route(route); return route.outcome; } };
+}
+
+test("in the owner's browser, a tab opened by a tab Branch's tab opened is refused even once that one is closed", async () => {
+  const { state, send } = await borrowedWindow();
+  state.targets.push({ targetId: "p", type: "page", url: "", openerId: "t0" });
+  assert.equal(await send(), "aborted");
+  assert.deepEqual(state.closed, ["p"]);
+  // p has gone from Chrome's list, but the tab it opened still names it as its opener.
+  state.targets.push({ targetId: "g", type: "page", url: "", openerId: "p" });
+  assert.equal(await send(), "aborted", "the grandchild sends nothing");
+  assert.deepEqual(state.closed, ["p", "g"]);
+});
+
+test("in the owner's browser, a tab at the end of a long chain of tabs from Branch's tab is refused", async () => {
+  const { state, send } = await borrowedWindow();
+  for (let hop = 1; hop <= 12; hop++)
+    state.targets.push({ targetId: `c${hop}`, type: "page", url: hop === 12 ? "" : "http://x.test/", openerId: hop === 1 ? "t0" : `c${hop - 1}` });
+  assert.equal(await send(), "aborted");
+  assert.ok(state.closed.includes("c12"));
+});
+
+test("in the owner's browser, a new tab is refused when which tabs are Branch's cannot be read", async () => {
+  const { state, send } = await borrowedWindow();
+  state.ourTargetFails = true;
+  state.targets.push({ targetId: "p", type: "page", url: "", openerId: "t0" });
+  assert.equal(await send(), "aborted");
+});
+
+test("in the owner's browser, a page whose traced opener has closed is refused and closed; the owner's own is not", async () => {
+  const { state, context, send } = await borrowedWindow();
+  state.targets.push({ targetId: "p", type: "page", url: "", openerId: "t0" });
+  assert.equal(await send(), "aborted"); // p is traced, then closed
+  const orphan = Object.assign(fakePage("orphan"), { tid: "g", opener: async () => null });
+  const theirs = Object.assign(fakePage("theirs"), { tid: "o1", opener: async () => null });
+  state.targets.push({ targetId: "g", type: "page", url: "http://x.test/", openerId: "p" }, { targetId: "o1", type: "page", url: "http://mine.test/" });
+  context.emit("page", orphan);
+  context.emit("page", theirs);
+  assert.equal(await send(orphan), "aborted");
+  assert.equal(await send(theirs), "passed on");
+  for (let i = 0; i < 20 && orphan.closes === 0; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(orphan.closes, 1);
+  assert.equal(theirs.closes, 0);
+});
