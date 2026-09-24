@@ -71,7 +71,7 @@ test("DG-081 Data & usage leads with usage, in the sample's order, at each level
   const technical = await sections(page);
   assert.deepEqual(technical.map((one) => one.head), ["data:usage", "data:left", "data:save", "data:kept", "data:cost", "data:under"]);
   assert.deepEqual(technical[4].cards, ["usage-costs-card", "usage-report-card", "usage-prices-card"]);
-  assert.deepEqual(technical[5].cards, ["usage-sheet-card", "asks-analytics-card"], "the spreadsheet is under the hood");
+  assert.deepEqual(technical[5].cards, ["usage-sheet-card", "asks-analytics-card", "asks-forecasts-card", "asks-leads-card"], "the spreadsheet is under the hood");
   /* What moved is what the sample shows under each heading, and nothing is drawn twice. */
   const inside = await page.evaluate(() => ({
     left: !!document.querySelector("#usage-left-card #usage-limits"),
