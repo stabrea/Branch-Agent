@@ -187,7 +187,14 @@ function openPicker(anchor) {
   place();
   addEventListener("resize", place);
   const onDocClick = (event) => { if (!box.contains(event.target) && event.target !== anchor) closer(); };
-  const onKey = (event) => { if (event.key === "Escape") closer(); };
+  /* The picker's Escape is its own: kept from reaching the sheet and the floating side pane, which would close
+     too, and the keyboard goes back to "Add a topic". */
+  const onKey = (event) => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    closer();
+    anchor.focus();
+  };
   function closer() {
     box.remove();
     removeEventListener("resize", place);
@@ -223,6 +230,9 @@ function buildOverlay() {
   grid = make("div", "topic-panes-grid");
   emptyNote = worded("p", "topic-panes-empty", "topicPanes.empty", "Add two or more conversations to see them side by side.");
   sheet.append(head, emptyNote, grid);
+  /* A click on the heading or the empty note keeps focus in the sheet, so its Escape below still runs
+     rather than the page's, which would close the side pane behind it instead. */
+  sheet.tabIndex = -1;
   box.append(sheet);
   box.addEventListener("click", (event) => { if (event.target === box) closeTopicPanes(); });
   /* The sheet's Escape is its own: kept from the page's (public/layout.js), which would also close
