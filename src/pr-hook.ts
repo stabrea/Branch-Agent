@@ -11,6 +11,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 import type { WorkspaceFiles } from "./files.js";
 import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
+import { pushRefusal } from "./self-development-contract.js"; // Q12
 
 /**
  * Opening a pull request from a task's changes (A0300, after SWE-agent's "open PR" hook).
@@ -77,6 +78,8 @@ interface PullRequestInput {
   paths: string[] | null;
   signal: AbortSignal;
   runId?: string | undefined;
+  /** Q12: the finished task the hook sends work for, named in the record only (the hook still works as itself). */
+  auditRunId?: string | undefined;
   targetRepository?: string | undefined;
   base?: string | undefined;
 }
@@ -153,6 +156,10 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: PullR
   };
   const refusal = deps.preflight?.("github.open_pull_request", opening, input.runId);
   if (refusal) throw new Error(refusal);
+  // Q12: a push from Branch's own source is held to its contract here, where it happens, whoever asked for it.
+  const heldBack = await pushRefusal({ store: deps.store, owner: deps.owner, workspace: deps.files.root, git: deps.git,
+    folder: cwd, runId: input.runId ?? input.auditRunId, signal: input.signal });
+  if (heldBack) throw new Error(heldBack);
   await gitText(deps, cwd, ["switch", "--create", head], input.signal);
   // Names are taken literally (a "*" is a file called "*"), and only the named files are committed,
   // whatever else happened to be staged already.
@@ -232,7 +239,7 @@ export function watchFinishedTasks(deps: PullRequestDeps, track: (work: () => Pr
     const prompt = run?.prompt ?? "";
     const title = `Branch: ${prompt.split("\n")[0]!.trim().slice(0, 150) || "changes from a task"}`;
     const summary = `${prompt.trim().slice(0, 4000)}\n\nOpened by Branch when task ${runId.slice(0, 8)} finished.`;
-    track(() => pullRequestFromChanges(deps, { name: `task-${runId.slice(0, 8)}`, title, summary, paths, signal: AbortSignal.timeout(300000) })
+    track(() => pullRequestFromChanges(deps, { name: `task-${runId.slice(0, 8)}`, title, summary, paths, auditRunId: runId, signal: AbortSignal.timeout(300000) })
       .then((opened) => note(deps, runId, "pull_request.opened", { repository: opened.repository, branch: opened.branch, base: opened.base, files: opened.files.length }))
       .catch((error: unknown) => note(deps, runId, "pull_request.failed", { reason: error instanceof Error ? error.message.slice(0, 500) : "unknown" })));
   });

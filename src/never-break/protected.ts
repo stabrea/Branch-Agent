@@ -161,6 +161,152 @@ export function expandVariables(text: string, env: NodeJS.ProcessEnv = process.e
 /** A variable, a command's output or an escape this reading could not resolve. */
 export const unresolved = (text: string): boolean => /\$[{(A-Za-z_]|`|%[A-Za-z_]+%|\$env:/i.test(text);
 
+/** Q12: the most words one brace pattern, or one call, may stand for before the call is refused as unreadable. */
+const braceLimit = 64, callBraceLimit = 256;
+
+/** One character of a shell word, and whether quoting or a backslash made it plain text. */
+interface Letter { c: string; quoted: boolean }
+const lettersOf = (word: string): Letter[] => [...word].map((c) => ({ c, quoted: false }));
+const textOf = (word: readonly Letter[]): string => word.map((letter) => letter.c).join("");
+const bare = (letter: Letter | undefined, c: string): boolean => !!letter && !letter.quoted && letter.c === c;
+
+/** The words one brace group stands for, or null when it is not one the shell opens (undefined: too many). */
+function braceParts(word: Letter[], open: number, close: number, commas: number[], limit: number): Letter[][] | null | undefined {
+  if (commas.length) {
+    const cuts = [open, ...commas, close];
+    return cuts.slice(0, -1).map((at, part) => word.slice(at + 1, cuts[part + 1]));
+  }
+  const body = word.slice(open + 1, close);
+  if (body.some((letter) => letter.quoted)) return null;
+  const middles = sequence(textOf(body), limit);
+  return middles === undefined ? undefined : middles && middles.map(lettersOf);
+}
+
+/**
+ * Q12: brace groups spelled out the way bash, zsh and macOS's /bin/sh do it, on the word's unquoted
+ * structure: only a `{`, `,` or `}` that no quote or backslash covers counts, and a quoted part
+ * (`{branch-agent,"a b"}`) stays one piece of the word. Null past `limit` words.
+ */
+function expandLetters(word: Letter[], limit: number): Letter[][] | null {
+  for (let open = 0; open < word.length; open++) {
+    if (!bare(word[open], "{")) continue;
+    let depth = 0, close = -1;
+    const commas: number[] = [];
+    for (let at = open; at < word.length && close < 0; at++) {
+      if (bare(word[at], "{")) depth++;
+      else if (bare(word[at], "}") && --depth === 0) close = at;
+      else if (bare(word[at], ",") && depth === 1) commas.push(at);
+    }
+    if (close < 0) return [word];
+    const parts = braceParts(word, open, close, commas, limit);
+    if (parts === undefined) return null;
+    if (!parts) continue;
+    const out: Letter[][] = [];
+    for (const part of parts) {
+      const more = expandLetters([...word.slice(0, open), ...part, ...word.slice(close + 1)], limit - out.length);
+      if (!more || out.length + more.length > limit) return null;
+      out.push(...more);
+    }
+    return out;
+  }
+  return [word];
+}
+
+/**
+ * Q12: a word with its brace groups spelled out: `~/.local/share/{branch-agent,x}` is two paths,
+ * `branch-agent{,}` is the name twice, a group inside a group opens too, and `branch-agen{s..u}` is
+ * a sequence. Any other group is left as written. Null when the word stands for more than `limit`
+ * words, which the caller refuses rather than guess at.
+ */
+export function expandBraces(word: string, limit = braceLimit): string[] | null {
+  const out = expandLetters(lettersOf(word), limit);
+  return out && out.map(textOf);
+}
+
+type ShellPiece = { raw: string } | { raw: string; word: Letter[] };
+
+/** A command line cut into words (with what quoting and backslashes made plain) and the text between them. */
+function shellPieces(text: string): ShellPiece[] {
+  const pieces: ShellPiece[] = [];
+  let at = 0;
+  while (at < text.length) {
+    if (/[\s;|&<>()]/.test(text[at]!)) { pieces.push({ raw: text[at]! }); at++; continue; }
+    const start = at, word: Letter[] = [];
+    while (at < text.length && !/[\s;|&<>()]/.test(text[at]!)) {
+      const char = text[at]!;
+      if (char === "'") { const end = text.indexOf("'", at + 1); const stop = end < 0 ? text.length : end;
+        for (const c of text.slice(at + 1, stop)) word.push({ c, quoted: true }); at = stop + 1; continue; }
+      if (char === '"') { at++;
+        while (at < text.length && text[at] !== '"') {
+          if (text[at] === "\\" && /["\\$`]/.test(text[at + 1] ?? "")) at++;
+          word.push({ c: text[at]!, quoted: true }); at++;
+        }
+        at++; continue; }
+      if (char === "\\" && at + 1 < text.length) { word.push({ c: text[at + 1]!, quoted: true }); at += 2; continue; }
+      word.push({ c: char, quoted: false }); at++;
+    }
+    pieces.push({ raw: text.slice(start, at), word });
+  }
+  return pieces;
+}
+
+/** One word written back for the shell readers after it: in single quotes, so a space or quote in it stays inside it. */
+const quotedWord = (word: readonly Letter[]): string => `'${textOf(word).replace(/'/g, "'\\''")}'`;
+
+/**
+ * A brace sequence's words: `{a..e}`, `{1..10}`, `{10..1..3}` (single letters or whole numbers, an
+ * optional step), as the shell counts them. Null when the group is not a sequence; undefined when it
+ * stands for more than `limit` words.
+ */
+function sequence(body: string, limit: number): string[] | null | undefined {
+  const match = /^(-?\d+|[A-Za-z])\.\.(-?\d+|[A-Za-z])(?:\.\.(-?\d+))?$/.exec(body);
+  if (!match) return null;
+  const letters = /^[A-Za-z]$/.test(match[1]!) && /^[A-Za-z]$/.test(match[2]!);
+  if (!letters && (!/^-?\d+$/.test(match[1]!) || !/^-?\d+$/.test(match[2]!))) return null;
+  const from = letters ? match[1]!.charCodeAt(0) : Number(match[1]), to = letters ? match[2]!.charCodeAt(0) : Number(match[2]);
+  const step = Math.abs(Number(match[3] ?? 1)) || 1;
+  if (Math.floor(Math.abs(to - from) / step) + 1 > limit) return undefined;
+  const words: string[] = [];
+  for (let at = from; from <= to ? at <= to : at >= to; at += from <= to ? step : -step)
+    words.push(letters ? String.fromCharCode(at) : String(at));
+  return words;
+}
+
+/**
+ * A text with every brace pattern in it spelled out, word by word, read with the shell's quoting
+ * rules; a word the braces open is written back quoted. Null past the limits.
+ */
+function bracesSpelledOut(text: string): string | null {
+  if (!text.includes("{")) return text;
+  let count = 0;
+  const out = shellPieces(text).map((piece) => {
+    if (!("word" in piece) || !piece.word.some((letter) => bare(letter, "{"))) return piece.raw;
+    const spelled = expandLetters(piece.word, braceLimit);
+    count += spelled?.length ?? callBraceLimit + 1;
+    return spelled?.map(quotedWord).join(" ") ?? "";
+  });
+  return count > callBraceLimit ? null : out.join("");
+}
+
+/**
+ * A call with brace patterns spelled out in its target and every string it carries; null past the
+ * limits. Only a call that runs a command line goes through a shell: a file tool's path or content
+ * with braces in it (JSON, say) is taken literally, as the tool takes it.
+ */
+function withBracesSpelledOut(call: ProtectedCall): ProtectedCall | null {
+  const args = (call.args ?? {}) as { executable?: unknown; command?: unknown };
+  if (!/^(shell|terminal)\./.test(call.tool) && typeof args.executable !== "string" && typeof args.command !== "string") return call;
+  let refused = false;
+  const spell = (value: unknown, depth = 0): unknown => {
+    if (typeof value === "string") { const spelled = bracesSpelledOut(value); if (spelled === null) refused = true; return spelled ?? value; }
+    if (depth > 8 || !value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((item) => spell(item, depth + 1));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, spell(item, depth + 1)]));
+  };
+  const spelled = { ...call, target: spell(call.target) as string, args: spell(call.args) };
+  return refused ? null : spelled;
+}
+
 /**
  * Splits a command the way a shell would: quotes keep spaces, a backslash escapes the next character
  * (except on Windows, where it separates folders), and `; | & < > ( )` end a word. The value of
@@ -312,9 +458,24 @@ function movesInto(words: string[], base: string, platform: NodeJS.Platform): st
 const serviceTool = /\b(launchctl|systemctl|sc(?:\.exe)?|schtasks(?:\.exe)?|Stop-Service|Remove-Service|Set-Service|Stop-ScheduledTask|Disable-ScheduledTask|Unregister-ScheduledTask|Set-ScheduledTask)\b/i;
 const serviceVerb = /(\b|\/)(bootout|unload|remove|kill|disable|stop|kickstart|restart|mask|delete|config|end|change|reload|Stop-Service|Remove-Service|Set-Service|Stop-ScheduledTask|Disable-ScheduledTask|Unregister-ScheduledTask|Set-ScheduledTask)\b/i;
 const namesBranch = /branch[\s_-]*agent|keepoak|\bcli\.js\b/i;
+/**
+ * Q12: Branch's service names, matched as whole names only. A name is whole when nothing that could
+ * continue it (a letter, a digit, `-`, `_`, `.` or a further folder) comes right before or after it.
+ * `\b` alone matched "branch-agent" inside `branch-agent-source/...` (the owner's own copy of the
+ * source) and inside `stabrea/Branch-Agent` (the repository's name), so preparing or sending a change
+ * to Branch itself was refused as if it would stop Branch.
+ */
+const ends = `(?![^\\s'";|&)])`;
+const serviceName = (name: string): string => name.replace(/\./g, "\\.").replace(/-/g, "[-_]");
 const selfService = [
-  new RegExp(`\\b${launchdLabel.replace(/\./g, "\\.")}\\b`, "i"),
-  new RegExp(`\\b${systemdUnitName.replace(/\.service$/, "").replace(/-/g, "[-_]")}(\\.service)?\\b`, "i"),
+  // The launchd label, bare or in a domain target (gui/501/<label>) or as its .plist file.
+  new RegExp(`(?<![^\\s'"=:;|&(/])${serviceName(launchdLabel)}(?:\\.plist)?${ends}`, "i"),
+  // The systemd unit, bare (branch-agent, branch-agent.service, string:branch-agent.service) or as the unit file's own path.
+  new RegExp(`(?<![^\\s'"=:;|&(])${serviceName(systemdUnitName.replace(/\.service$/, ""))}(?:\\.service)?${ends}`, "i"),
+  // ...and its drop-in folder (branch-agent.service.d), whole or any file inside it.
+  new RegExp(`/${serviceName(systemdUnitName)}(?:\\.d(?:/[^\\s'";|&)]*)?)?${ends}`, "i"),
+  // ...and the drop-ins systemd also applies to it: every "branch-" unit's, and every service's.
+  new RegExp(`/(?:user|system)/(?:branch[-_]\\.service|service)\\.d(?:/[^\\s'";|&)]*)?${ends}`, "i"),
   /\b(cli\.js|branch)\s+(daemon|update|gateway)\b/i,
   /\b(pkill|killall|taskkill(\.exe)?|Stop-Process|spps)\b.*\b(branch|cli\.js|electron|node(\.exe)?)\b/i,
   /\bkill\b.*\b(pgrep|pidof)\b.*\b(branch|cli\.js|electron|node)\b/i,
@@ -337,8 +498,34 @@ function killsSelf(text: string, areas: ProtectedAreas): boolean {
   });
 }
 
+/**
+ * Q12: whether one command's words ask a JavaScript package manager to work globally, in any
+ * spelling: a short-flag cluster holding `g` (`-g`, `-gf`), `--global` with any value, `--location`
+ * global, yarn's `global` word, or npm's own settings given in the environment
+ * (`npm_config_global=…`, `npm_config_location=global`, before the command or through `env`).
+ */
+function globalMarker(words: readonly string[]): boolean {
+  return words.some((word, at) => /^-[A-Za-z]*g[A-Za-z]*$/.test(word) || /^--global(=|$)/i.test(word) || /^global$/i.test(word)
+    || /^--location=global$/i.test(word) || (/^--location$/i.test(word) && /^global$/i.test(words[at + 1] ?? ""))
+    || /^npm_config_(global|location)=/i.test(word));
+}
+
+/**
+ * Q12: a global install, reinstall, update or removal of Branch through a JavaScript package manager
+ * (npm, pnpm, yarn, bun), whether it names branch-agent by name and version, by a tarball or by a
+ * folder, with a global marker in any spelling (`globalMarker`). A package named through a variable
+ * set in the same command is read after the variable is filled in (`PACKAGE=./branch-agent-2.0.0.tgz;
+ * npm install -g "$PACKAGE"`, as the termux installer does).
+ */
+function reinstallsBranch(text: string): boolean {
+  return text.split(/[;|&\n]+/).some((part) => {
+    const words = part.trim().split(/\s+/);
+    return words.some((word) => /(^|\/)(npm|pnpm|yarn|bun)(\.cmd|\.exe)?$/i.test(word)) && /branch[-_]agent/i.test(part) && globalMarker(words);
+  });
+}
+
 function stopsBranch(text: string, areas: ProtectedAreas): boolean {
-  if (selfService.some((pattern) => pattern.test(text)) || killsSelf(text, areas)) return true;
+  if (selfService.some((pattern) => pattern.test(text)) || killsSelf(text, areas) || reinstallsBranch(text)) return true;
   if (serviceTool.test(text) && serviceVerb.test(text) && (namesBranch.test(text) || unresolved(text))) return true;
   const port = process.env.BRANCH_PORT ?? "3210";
   return /\b(lsof|fuser|netstat|ss|Get-NetTCPConnection)\b/i.test(text) && /\b(kill|Stop-Process|taskkill)\b|\s-k\b/i.test(text)
@@ -413,7 +600,10 @@ function namedByWord(call: ProtectedCall, places: string[], areas: ProtectedArea
  * place and for commands aimed at Branch's own service or process. When a command removes or moves
  * something it names only through a variable, it is refused too, because it cannot be told apart.
  */
-export function protectedTarget(call: ProtectedCall, areas: ProtectedAreas): string | null {
+export function protectedTarget(written: ProtectedCall, areas: ProtectedAreas): string | null {
+  // Q12: read the call as the shell will run it, with brace patterns spelled out first.
+  const call = withBracesSpelledOut(written);
+  if (!call) return refusal("run a command whose brace patterns stand for more places than Branch can check");
   const platform = areas.platform, paths = pathsOf(platform);
   const home = call.workspace ?? areas.workspace;
   const base = call.cwd && paths.isAbsolute(call.cwd) ? call.cwd : paths.join(home, call.cwd ?? ".");

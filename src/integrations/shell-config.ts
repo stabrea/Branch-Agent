@@ -1,4 +1,4 @@
-import { basename, isAbsolute } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { z } from 'zod';
 
@@ -106,4 +106,13 @@ export async function validateExecutables(config: ShellConfig): Promise<void> {
       throw new Error('Configure a native executable; Windows npm may use node.exe with a fixed npm-cli.js argument');
     if (!(await stat(executable.path)).isFile()) throw new Error('Configured executable is not a file');
   }
+}
+
+/**
+ * Q12: the one answer to "where does this command run". A command's `cwd` is read from the
+ * workspace itself, never from the active project's folder. `shell.execute` runs there, and the
+ * self-development contract (src/self-development-contract.ts) judges exactly the same folder.
+ */
+export function commandFolder(workspace: string, cwd: string | undefined): string {
+  return resolve(workspace, cwd ?? '.');
 }

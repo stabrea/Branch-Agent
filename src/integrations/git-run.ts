@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ShellProcess, type ProcessResult } from "./shell-process.js";
@@ -31,10 +32,44 @@ export function gitEnvironment(source: NodeJS.ProcessEnv = process.env, platform
   return { ...result, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", NO_COLOR: "1", GCM_INTERACTIVE: "never" };
 }
 
+/**
+ * Q12: settings a repository's own `.git/config` could use to make Git start a program, each pinned
+ * to a harmless value. `-c` outranks every config file, and Git hands these to the Git processes it
+ * starts itself (a submodule's), so a folder a task wrote cannot run anything through them.
+ * `diff.external` cannot be emptied, so it names `false`: a patch Branch asks for passes
+ * `--no-ext-diff` (src/integrations/git.ts), and any other would stop loudly rather than run a program.
+ * The owner's own sign-in (credential helpers, askPass, sshCommand, the computer-wide config file
+ * where macOS keeps its keychain helper) is left alone: Branch's pushes use it. A planted repository
+ * never reaches those, because Git tools are kept out of nested repositories in Branch's source and a
+ * held command cannot make a `.git` (src/self-development-contract.ts, src/sandbox-seatbelt.ts).
+ */
+export const pinnedGitConfig: readonly string[] = [
+  "core.fsmonitor=false", "core.pager=cat", "core.editor=:", "sequence.editor=:", "diff.external=false", "protocol.ext.allow=never",
+];
+
+/**
+ * Q12: more pins, only for Git run inside Branch's own source (`branch-agent-source`), where the
+ * owner's preferences matter less than what a self-development task could have left behind:
+ * signing programs, submodules and a bare repository found by walking up.
+ */
+export const pinnedInSource: readonly string[] = [
+  "commit.gpgSign=false", "tag.gpgSign=false", "gpg.program=false", "submodule.recurse=false", "diff.ignoreSubmodules=all",
+  "core.gitProxy=", "safe.bareRepository=explicit", "protocol.file.allow=never",
+];
+export const inBranchSource = (cwd: string): boolean => {
+  try {
+    const resolved = realpathSync.native(cwd);
+    return /(^|[\\/])branch-agent-source([\\/\.\s]|$)/i.test(resolved);
+  } catch {
+    return /(^|[\\/])branch-agent-source([\\/\.\s]|$)/i.test(cwd);
+  }
+};
+
 /** Settings forced on every call; they come before the subcommand so no repository can override them. */
-function hardening(cwd: string): string[] {
+export function hardening(cwd: string): string[] {
+  const pins = inBranchSource(cwd) ? [...pinnedGitConfig, ...pinnedInSource] : pinnedGitConfig;
   return ["-c", `safe.directory=${cwd}`, "-c", `core.hooksPath=${NO_HOOKS}`, "-c", "core.quotepath=false",
-    "-c", "credential.interactive=never", "--no-pager"];
+    "-c", "credential.interactive=never", ...pins.flatMap((setting) => ["-c", setting]), "--no-pager"];
 }
 
 let located: Promise<string | null> | undefined;
