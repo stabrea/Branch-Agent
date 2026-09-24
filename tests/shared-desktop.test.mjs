@@ -1,7 +1,7 @@
 // FQ-execution.desktop: the shared Linux desktop (VNC/Xvfb) and the owner taking it over. Every
 // "docker"/"xdotool" call here is a fake that only records what it was asked, so this file needs
 // no Docker and touches no real display; the pure argv builders prove the real commands are right.
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -107,6 +107,16 @@ test("Docker missing is reported as the external part that is not done, not a cr
   await assert.rejects(desktop.start("local"), /Docker is not installed/);
 });
 
+/** Every loopback listener a test desktop opened. A test that never stops its desktop would leave
+ * them listening, and the file would never exit; they are all closed once the file is done. */
+const listeners = new Set();
+after(() => { for (const server of listeners) server.close(); });
+function tracked(desktop) {
+  const make = desktop.createListener;
+  desktop.createListener = async (...args) => { const server = await make(...args); listeners.add(server); return server; };
+  return desktop;
+}
+
 /** A sandbox wired to a fake docker/xdotool and a VNC probe that answers on the second try. The
  * notice window is a stand-in too, so no real popup appears on whoever's screen the tests run on. */
 function sandboxFixture(app) {
@@ -136,6 +146,7 @@ function sandboxFixture(app) {
       server.listen(0, "127.0.0.1", () => resolve(server));
     });
   };
+  tracked(desktop);
   return { desktop, calls };
 }
 
@@ -297,6 +308,7 @@ function heldFixture(app, desktop = new LinuxDesktopSandbox(app.store)) {
   desktop.pauseMs = 1;
   desktop.probe = async () => true;
   const ran = (verb) => calls.filter((call) => call.args[0] === verb);
+  tracked(desktop);
   return { desktop, calls, hold, banner, ran };
 }
 const settle = async (until) => { for (let i = 0; i < 200 && !until(); i++) await new Promise((done) => setTimeout(done, 5)); };
