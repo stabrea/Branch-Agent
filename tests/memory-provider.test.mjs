@@ -1587,3 +1587,35 @@ test("the owner bringing back an earlier wording of a Trunk's fact keeps it the 
   assert.deepEqual((await app.registry.execute("memory.search", { query: "ADAKEEP4" }, ada)).map((record) => record.data.text),
     ["Ada's bins go out on Monday ADAKEEP4"], "she still finds it");
 });
+
+for (const where of ["this computer's memory", "an outside memory service"]) {
+  test(`with approval on, a fact a Trunk saves is its own once the owner accepts it, on ${where}`, async (t) => {
+    const double = memoryDouble();
+    const base = await double.listen();
+    t.after(() => double.close());
+    const { app, context } = await fixture(t);
+    const outside = where !== "this computer's memory";
+    if (outside) await app.memory.backend.configure("local", { mode: "outside", url: base });
+    app.store.review.configure("local", { requireApproval: true });
+    const ada = { ...context, agent: "trunk:ada-test" };
+    const staged = await app.registry.execute("memory.put", { text: "Ada's piano lesson is on Friday ADAKEEP5", source: "owner", entity: "piano lesson", attribute: "day", project: "music" }, ada);
+    assert.equal(staged.staged, true, "the save waits for the owner");
+    await app.store.review.decide("local", staged.proposalId, true);
+    const saved = outside ? [...double.byOwner.get("local").values()] : app.store.list("memory", "local");
+    const found = saved.filter((record) => record.data.text.includes("ADAKEEP5"));
+    assert.equal(found.length, 1);
+    assert.deepEqual(keptOf(found[0].data), { scope: "agent:trunk:ada-test", layer: "long-term", entity: "piano lesson", attribute: "day", project: "music" },
+      "saved as hers, as memory.put would have saved it");
+    assert.deepEqual((await app.registry.execute("memory.search", { query: "ADAKEEP5" }, ada)).map((record) => record.data.text),
+      ["Ada's piano lesson is on Friday ADAKEEP5"], "she finds it");
+  });
+}
+
+test("a memory suggestion cannot choose whose fact it is: only memory.put's own save says so", async (t) => {
+  const { app } = await fixture(t);
+  const made = app.store.review.propose("local", { kind: "put", text: "Planted PLANT6", fact: { scope: "agent:trunk:ada-test" } });
+  assert.equal(made.fact, null, "a scope inside the suggestion itself is dropped");
+  await app.store.review.decide("local", made.id, true);
+  const found = app.store.list("memory", "local").filter((record) => record.data.text === "Planted PLANT6");
+  assert.equal(found[0]?.data.scope, undefined, "it is saved as the owner's, never as a Trunk's");
+});
