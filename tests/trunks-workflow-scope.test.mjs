@@ -283,3 +283,33 @@ test("Q123: a Trunk's workflow step cannot export the owner's task or branch the
   assert.equal((await app.workflows.run(owner, owners.id)).status, "completed");
   assert.equal(branches(), 1);
 });
+
+test("Q123: a side model call made from a Trunk's workflow step goes as that Trunk's, with its keys", async (t) => {
+  // NAS d830e7a (B2): the review's claim that a step's side call carries the Trunk's mark had no test.
+  const { currentAccountCall } = await import("../dist/accounts/context.js");
+  const { z } = await import("zod");
+  const marks = [];
+  const { app } = await fixture(t, [({ last }) => {
+    if (last?.role !== "user" || last.content !== "SIDEQ7701") return null;
+    marks.push(currentAccountCall()?.trunk ?? null);
+    return "fine";
+  }, ...rules]);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.registry.register({ name: "probe.aside", permission: "probe.read", description: "Asks the model one side question.",
+    parameters: z.object({}).strict(), execute: async (_input, context) => {
+      const preset = app.runtime.models.plan(app.runtime.owner, "").candidates[0];
+      return { said: await app.runtime.completeAside(app.store.createRun(app.runtime.owner, "aside"), context, preset, "SIDEQ7701") };
+    } });
+  app.trunks.edit(ada.id, { permissions: ["workflows.manage", "workflows.read", "probe.read"] });
+  await app.trunks.introduced();
+  const step = [{ name: "ask", kind: "tool", tool: "probe.aside", args: {} }];
+  const owners = await app.registry.execute("workflows.create", { name: "owners", steps: step }, app.runtime.context());
+  await app.workflows.run(app.runtime.owner, owners.id);
+  assert.equal(marks.pop(), null, "the control: the owner's own step's side call is not a Trunk's");
+  await app.trunks.say(ada.id, `tool workflows.create ${JSON.stringify({ name: "adas", steps: step })}`);
+  const id = app.store.list("workflows", app.runtime.owner).find((record) => record.data.name === "adas").id;
+  await app.trunks.say(ada.id, `tool workflows.run ${JSON.stringify({ id })}`);
+  const mark = marks.pop();
+  assert.ok(mark?.keys, "Ada's step's side call is marked as a Trunk's, with her keys");
+});
