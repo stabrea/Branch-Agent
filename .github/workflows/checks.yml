@@ -70,12 +70,12 @@ jobs:
               add(os, ["self-hosted", label], idle, { own: label, exclude: keepOff, concurrency: spare });
               rows.push({ os, labels: hosted, shard: 1, total: 1, only: keepOff });
             };
-            if (legion > 0) own("windows", "branch-legion", legion, "windows-latest", "8,3"); else add("windows", "windows-latest", 6);
+            if (legion > 0) own("windows", "branch-legion", legion, "windows-latest", "4,1"); else add("windows", "windows-latest", 6);
             if (macmini > 0) own("macos", "branch-macmini", macmini, "macos-latest", "4,2"); else add("macos", "macos-latest", 5);
             add("linux", "ubuntu-latest", 8);
             require("fs").appendFileSync(process.env.GITHUB_OUTPUT, "matrix=" + JSON.stringify({ include: rows }) + "\n");
             console.log(`Windows on ${legion || "no"} Legion runner(s), macOS on ${macmini || "no"} Mac mini runner(s); ${rows.length} shares.`);
-          ' "$(idle branch-legion 3)" "$(idle branch-macmini 2)" '^tests/(desktop[^/]*|[^/]*uninstall[^/]*|windows-hidden[^/]*|[^/]*console[^/]*)\.test\.mjs$'
+          ' "$(idle branch-legion 6)" "$(idle branch-macmini 2)" '^tests/(desktop[^/]*|[^/]*uninstall[^/]*|windows-hidden[^/]*|[^/]*console[^/]*)\.test\.mjs$'
   test:
     name: test (${{ matrix.os }}${{ matrix.own && format(' on {0}', matrix.own) || '' }}${{ matrix.only && ' desktop' || '' }}, ${{ matrix.shard }}/${{ matrix.total }})
     needs: pick
