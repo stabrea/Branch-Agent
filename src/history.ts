@@ -29,13 +29,22 @@ type Read = z.input<typeof HistoryReadSchema>;
  * visibleTo keeps for the owner's private facts and history.meaning keeps for every agent — and
  * leaving it open would let a Trunk reach another Trunk's chat one delegation away.
  */
+/**
+ * Q133 (Mac mini b8516c0): a conversation the owner chooses who answers in (src/trunks/conversations.ts keeps
+ * the choice as `trunk-conversation:<id>`) is a Trunk's to look back on only while that Trunk is the one chosen.
+ * Once the owner takes it back, or hands it to another Trunk, what is said there next is not the first Trunk's
+ * to read. A Trunk's own chat, its side of a room and a room have no such choice, so a turn there still counts.
+ */
+const chosenElsewhere = (session: string): string => ` AND NOT EXISTS (SELECT 1 FROM governance g
+  WHERE g.id='trunk-conversation:'||${session} AND COALESCE(json_extract(g.data,'$.trunkId'),'')<>?)`;
 export function participation(agent: string | undefined): { clause: string; args: string[] } {
   if (!agent) return { clause: "", args: [] };
   if (!agent.startsWith("trunk:")) return { clause: " AND 0", args: [] };
+  const trunkId = agent.slice("trunk:".length);
   return {
     clause: ` AND EXISTS (SELECT 1 FROM tasks t JOIN events e ON e.run_id=t.id
-      WHERE t.session_id=s.id AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?)`,
-    args: [agent.slice("trunk:".length)],
+      WHERE t.session_id=s.id AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?)${chosenElsewhere("s.id")}`,
+    args: [trunkId, trunkId],
   };
 }
 /** Check if an agent can access a session. Owner (undefined) can access any. Specialist ("-") cannot. Trunk needs a trunk.turn event. */
@@ -44,7 +53,8 @@ export function canAccessSession(db: DatabaseSync, sessionId: string, agent: str
   if (!agent.startsWith("trunk:")) return false;
   const trunkId = agent.slice("trunk:".length);
   const row = db.prepare(`SELECT 1 FROM tasks t JOIN events e ON e.run_id=t.id
-    WHERE t.session_id=? AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?`).get(sessionId, trunkId);
+    WHERE t.session_id=? AND e.kind='trunk.turn' AND json_extract(e.data,'$.trunkId')=?${chosenElsewhere("t.session_id")}`)
+    .get(sessionId, trunkId, trunkId);
   return !!row;
 }
 
