@@ -443,14 +443,27 @@ export class Scheduler {
   remove(context: ToolContext, id: string): { id: string; removed: boolean } {
     if (!context.permissions.has("schedules.manage"))
       throw new Error("Permission denied: schedules.manage");
-    if (!this.store.get("schedules", context.owner, id)) return { id, removed: false };
+    const record = this.store.get("schedules", context.owner, id);
+    if (!record || !this.visibleTo(context, record)) return { id, removed: false };
     return { id, removed: this.store.delete("schedules", context.owner, id) };
+  }
+  /** The schedules the caller may see: all of them for the owner, and only its own for a Trunk. */
+  list(context: ToolContext): SavedRecord[] {
+    return this.store.list("schedules", context.owner).filter((record) => this.visibleTo(context, record));
+  }
+  /**
+   * The owner sees and changes every schedule; a Trunk only the ones it made, taken the same way
+   * `create` records it. Any other schedule gets the same answer as one that does not exist.
+   */
+  private visibleTo(context: ToolContext, record: SavedRecord): boolean {
+    const trunk = context.trunk ?? this.runtime.trunkAtWork();
+    return !trunk || record.data.startedBy === trunk;
   }
   setPaused(context: ToolContext, id: string, paused: boolean): SavedRecord {
     if (!context.permissions.has("schedules.manage"))
       throw new Error("Permission denied: schedules.manage");
     const record = this.store.get("schedules", context.owner, id);
-    if (!record || !["pending", "paused"].includes(String(record.data.status)))
+    if (!record || !this.visibleTo(context, record) || !["pending", "paused"].includes(String(record.data.status)))
       throw new Error(
         "Only pending or paused schedules may be paused or resumed",
       );
@@ -524,7 +537,7 @@ export function registerSchedules(
     description: "List owner schedules and their durable execution status.",
     permission: "schedules.read",
     parameters: z.object({}).strict(),
-    execute: async (_a, c) => scheduler.store.list("schedules", c.owner)
+    execute: async (_a, c) => scheduler.list(c)
       .map((record) => ({ ...record, health: scheduleHealth(record.data) })),
   });
 }
