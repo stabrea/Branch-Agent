@@ -25,8 +25,15 @@ import { writeUpdateBackup } from "./update-backup.js";
  * closed for the swap and opened again only if its window was open before.
  */
 
-/** The same repository the app's Update button reads (`updateSource` in src/desktop/updater-ipc.ts). */
-export const releaseRepo = "stabrea/Branch-Agent";
+import { primaryRepo } from "../desktop/repo-pair.js";
+
+/**
+ * The same repository the app's Update button reads (`updateSource` in src/desktop/updater-ipc.ts).
+ * Uses the primary repo from the trusted pair, with fallback to the other on 404.
+ * Note: for backward compatibility during the transfer, this points to the primary repo.
+ * The Updater class implements the fallback logic internally.
+ */
+export const releaseRepo = primaryRepo;
 
 export interface HeadlessUpdateInput {
   installRoot: string;

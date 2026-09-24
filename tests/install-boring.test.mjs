@@ -381,6 +381,8 @@ function releaseServer(archive, digest) {
   const asked = [];
   const fetch = async (url) => {
     asked.push(url);
+    // Before the move the new name has no releases yet, so the lookup falls back to the old one.
+    if (url.startsWith("https://api.github.com/repos/KeepOak/")) return new Response("Not Found", { status: 404 });
     if (url.endsWith("/releases/latest")) return Response.json(release);
     if (url.endsWith(".sha256")) return new Response(`${digest}  Branch-Agent-linux-x64.tar.gz\n`);
     return new Response(archive);
@@ -411,15 +413,16 @@ async function updateSetup(t) {
 test("`branch update --yes` checks the download, keeps a safety copy, closes Branch and swaps with the app's own script", { skip: posixOnly }, async (t) => {
   const s = await updateSetup(t);
   const server = releaseServer(s.archive, s.digest);
-  assert.equal(releaseRepo, "stabrea/Branch-Agent");
+  assert.equal(releaseRepo, "KeepOak/Branch-Agent");
   const ipc = await readFile("src/desktop/updater-ipc.ts", "utf8");
-  assert.ok(ipc.includes(`repo: "${releaseRepo}"`), "the same repository as the Update button");
+  assert.match(ipc, /repo: primaryRepo,/, "the same repository as the Update button");
   assert.equal(await headlessUpdate({ ...s.input, yes: false, deps: { ...s.deps, fetch: server.fetch } }), 0);
   assert.match(s.lines.at(-1), /Version 2\.0\.0 is ready \(you have 1\.0\.0\)\. Run `branch update --yes`/);
   assert.deepEqual(s.events, [], "only checking changes nothing");
 
   assert.equal(await headlessUpdate({ ...s.input, deps: { ...s.deps, fetch: server.fetch } }), 0);
-  assert.equal(server.asked[0], "https://api.github.com/repos/stabrea/Branch-Agent/releases/latest");
+  assert.deepEqual(server.asked.slice(0, 2), ["https://api.github.com/repos/KeepOak/Branch-Agent/releases/latest",
+    "https://api.github.com/repos/stabrea/Branch-Agent/releases/latest"], "the new name first, then the old one it moved from");
   assert.deepEqual(s.events.slice(0, 2), ["backup", "quit"], "the safety copy comes before Branch is closed");
   const [, script, args] = s.events[2];
   assert.equal(args[1], "stay", "nothing was open, so nothing is opened afterwards");

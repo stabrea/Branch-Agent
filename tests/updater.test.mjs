@@ -70,6 +70,10 @@ test("version comparison handles tags, prefixes and uneven lengths", () => {
   assert.equal(compareVersions("1.2.3+build.7", "1.2.3"), 0);
 });
 
+/** GitHub as it answers before the move: the new name, KeepOak/Branch-Agent, does not exist yet (404). */
+const beforeTheMove = (fake) => async (url, ...rest) => String(url).includes("/repos/KeepOak/Branch-Agent/")
+  ? { ok: false, status: 404, json: async () => ({ message: "Not Found" }) } : fake(url, ...rest);
+
 test("beta sees newest published prerelease, stable ignores it, and switching back never downgrades", async () => {
   const asset = (tag) => [
     { name: "Branch-Agent-windows-x64.zip", browser_download_url: `https://github.com/stabrea/Branch-Agent/releases/download/${tag}/Branch-Agent-windows-x64.zip`, size: 100 },
@@ -84,21 +88,66 @@ test("beta sees newest published prerelease, stable ignores it, and switching ba
     [beta9, { ...release("v0.19.2-beta.11", true), draft: true }, beta10, stable] });
   const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.1", channel: "stable",
     installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
-    scratchDir: "C:/scratch", fetch: call });
+    scratchDir: "C:/scratch", fetch: beforeTheMove(call) });
   assert.equal((await updater.check()).phase, "current");
   updater.setChannel("beta");
   assert.equal((await updater.check()).release.latestVersion, "0.19.2-beta.10");
   const onBeta = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.2-beta.10", channel: "beta",
     installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
-    scratchDir: "C:/scratch", fetch: call });
+    scratchDir: "C:/scratch", fetch: beforeTheMove(call) });
   assert.equal((await onBeta.check()).phase, "current");
   onBeta.setChannel("stable");
   assert.equal((await onBeta.check()).phase, "current", "returning to stable does not install the older version");
   const final = release("v0.19.2", false);
   const finalAhead = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.2-beta.10", channel: "beta",
     installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
-    scratchDir: "C:/scratch", fetch: async () => ({ ok: true, status: 200, json: async () => [beta10, final, stable] }) });
+    scratchDir: "C:/scratch", fetch: beforeTheMove(async () => ({ ok: true, status: 200, json: async () => [beta10, final, stable] })) });
   assert.equal((await finalAhead.check()).release.latestVersion, "0.19.2", "the final stable release outranks its betas");
+});
+
+/* After the move KeepOak answers with releases of its own: each check asks it once, takes the release from it, and
+   says so; a Beta whose files live under the new name belongs to it. When neither name has a release, it says so. */
+test("after the move each channel reads KeepOak once and takes the release from it", async () => {
+  const at = "https://github.com/KeepOak/Branch-Agent/releases";
+  const release = (tag, prerelease) => ({ tag_name: tag, name: tag, body: "", published_at: "2026-09-24T00:00:00Z",
+    html_url: `${at}/tag/${tag}`, prerelease, draft: false, assets: [
+      { name: "Branch-Agent-windows-x64.zip", browser_download_url: `${at}/download/${tag}/Branch-Agent-windows-x64.zip`, size: 100 },
+      { name: "Branch-Agent-windows-x64.zip.sha256", browser_download_url: `${at}/download/${tag}/Branch-Agent-windows-x64.zip.sha256`, size: 96 },
+    ] });
+  const stable = release("v0.20.0", false), beta = release("v0.20.1-beta.1", true);
+  const asked = [];
+  const fetch = async (url) => {
+    asked.push(String(url));
+    if (!String(url).includes("/repos/KeepOak/Branch-Agent/")) return { ok: false, status: 500, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => String(url).endsWith("/latest") ? stable : [beta, stable] };
+  };
+  const updater = new Updater({ repo: "KeepOak/Branch-Agent", currentVersion: "0.19.1", channel: "stable",
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch });
+  const onStable = await updater.check();
+  assert.equal(onStable.phase, "available");
+  assert.equal(onStable.release.latestVersion, "0.20.0");
+  assert.equal(onStable.release.sourceRepo, "KeepOak/Branch-Agent");
+  assert.deepEqual(asked, ["https://api.github.com/repos/KeepOak/Branch-Agent/releases/latest"], "one question, to the new name");
+  asked.length = 0;
+  updater.setChannel("beta");
+  const onBeta = await updater.check();
+  assert.equal(onBeta.phase, "available", onBeta.message);
+  assert.equal(onBeta.release.latestVersion, "0.20.1-beta.1");
+  assert.equal(onBeta.release.sourceRepo, "KeepOak/Branch-Agent");
+  assert.equal(asked.length, 1, asked.join(" "));
+  assert.match(asked[0], /^https:\/\/api\.github\.com\/repos\/KeepOak\/Branch-Agent\/releases\?/);
+});
+
+test("when neither name has a release yet, the check says so rather than guessing", async () => {
+  for (const channel of ["stable", "beta"]) {
+    const updater = new Updater({ repo: "KeepOak/Branch-Agent", currentVersion: "0.19.1", channel,
+      installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+      scratchDir: "C:/scratch", fetch: async () => ({ ok: false, status: 404, json: async () => ({ message: "Not Found" }) }) });
+    const status = await updater.check();
+    assert.equal(status.phase, "error", channel);
+    assert.match(status.message, /No release has been published yet\./, channel);
+  }
 });
 
 /* Q37: measured on v0.19.3-beta.2, minutes after publication GitHub's release list showed no assets while the
@@ -114,13 +163,13 @@ test("a newest release whose listed assets lag is read from its own assets list,
   const asked = [];
   const make = (channel, own, current = "0.19.2") => new Updater({ repo, currentVersion: current, channel,
     installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: name, scratchDir: "C:/scratch",
-    fetch: async (url) => {
+    fetch: beforeTheMove(async (url) => {
       asked.push(url.replace(`https://api.github.com/repos/${repo}/`, ""));
       const assets = /releases\/(\d+)\/assets/.exec(url);
       if (assets) return { ok: true, status: 200, json: async () => own[assets[1]] ?? [] };
       if (url.endsWith("/latest")) return { ok: true, status: 200, json: async () => release(2, "v0.19.2", false, []) };
       return { ok: true, status: 200, json: async () => [release(3, "v0.19.3-beta.2", true, []), release(2, "v0.19.2", false, files("v0.19.2"))] };
-    } });
+    }) });
   /* The list lags, the release's own list is current: the Beta is found, with its own files. */
   const found = await make("beta", { 3: files("v0.19.3-beta.2") }).check();
   assert.equal(found.phase, "available", found.message);
@@ -353,4 +402,89 @@ test("the Update button holds the claim through the hand-over and gives it back 
   assert.equal((handler.match(/updater\.(?:release|failed)\(/g) ?? []).length, 1, "and nowhere else");
   // Q55: the words say the background engine was stopped only when this install really closed it.
   assert.match(handler, /throw new Error\(updater\.backgroundStopped\s*\?/, "the stopped-engine sentence follows what the updater did");
+});
+
+// Repo-move fallback tests: when KeepOak is 404, fall back to stabrea
+test("release lookup tries KeepOak first; on 404, falls back to stabrea", async () => {
+  const assetUrl = "https://example.com/branch-agent.zip";
+  const checksumUrl = "https://example.com/branch-agent.zip.sha256";
+  const responses = {};
+  responses["KeepOak/Branch-Agent"] = { status: 404 }; // KeepOak not found yet
+  responses["stabrea/Branch-Agent"] = {
+    status: 200,
+    json: async () => ({
+      tag_name: "v0.3.0", name: "v0.3.0", body: "Release notes", published_at: "2026-09-23T00:00:00Z",
+      html_url: "https://github.com/stabrea/Branch-Agent/releases/tag/v0.3.0",
+      assets: [
+        { name: "Branch-Agent-windows-x64.zip", browser_download_url: assetUrl, size: 1000 },
+        { name: "Branch-Agent-windows-x64.zip.sha256", browser_download_url: checksumUrl, size: 96 },
+      ],
+    }),
+  };
+  const requested = [];
+  const mockFetch = async (url) => {
+    for (const [repo, response] of Object.entries(responses)) {
+      if (url.includes(`repos/${repo}/releases`)) {
+        requested.push(repo);
+        return { ok: response.status === 200, status: response.status, json: response.json };
+      }
+    }
+    return { ok: false, status: 404 };
+  };
+  const updater = new Updater({
+    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: "C:/installed",
+    executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: mockFetch,
+  });
+  const status = await updater.check();
+  assert.equal(status.phase, "available", status.message);
+  assert.equal(status.release?.latestVersion, "0.3.0");
+  assert.equal(status.release?.assetUrl, assetUrl);
+  assert.deepEqual(requested, ["KeepOak/Branch-Agent", "stabrea/Branch-Agent"], "tried KeepOak first, then stabrea");
+});
+
+test("release lookup does NOT fall back on HTTP 500 or other errors", async () => {
+  const responses = {};
+  responses["KeepOak/Branch-Agent"] = { status: 500 }; // Server error, not 404
+  responses["stabrea/Branch-Agent"] = { status: 200, json: async () => ({}) };
+  const requested = [];
+  const mockFetch = async (url) => {
+    for (const [repo, response] of Object.entries(responses)) {
+      if (url.includes(`repos/${repo}/releases`)) {
+        requested.push(repo);
+        return { ok: false, status: response.status, json: response.json };
+      }
+    }
+    return { ok: false, status: 404 };
+  };
+  const updater = new Updater({
+    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: "C:/installed",
+    executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: mockFetch,
+  });
+  const status = await updater.check();
+  assert.equal(status.phase, "error", status.message);
+  assert.match(status.message, /HTTP 500/);
+  assert.deepEqual(requested, ["KeepOak/Branch-Agent"], "did not fall back to stabrea on 500");
+});
+
+test("release lookup does NOT fall back when fetch throws (network error)", async () => {
+  const requested = [];
+  const mockFetch = async (url) => {
+    if (url.includes("repos/KeepOak/Branch-Agent/releases")) {
+      requested.push("KeepOak/Branch-Agent");
+      throw new Error("Network timeout");
+    }
+    requested.push("stabrea/Branch-Agent");
+    return { ok: false, status: 404 };
+  };
+  const updater = new Updater({
+    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: "C:/installed",
+    executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: mockFetch,
+  });
+  const status = await updater.check();
+  assert.equal(status.phase, "error", status.message);
+  assert.match(status.message, /Network timeout/);
+  assert.deepEqual(requested, ["KeepOak/Branch-Agent"], "did not fall back to stabrea on network error");
 });

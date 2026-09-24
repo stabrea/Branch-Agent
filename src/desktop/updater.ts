@@ -9,6 +9,7 @@ import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js
 import { checksumAssetName } from "./release-assets.js";
 import { buildDev, devToolsMissing, realRun, remoteHead, type DevPhase, type Run } from "./dev-build.js";
 import { fetchAttestationBundles, isBuildProvenance, verifyAttestationBundle, type AttestationLookup } from "./provenance.js";
+import { primaryRepo, fallbackRepo, isTrustedRepo } from "./repo-pair.js";
 
 /**
  * One-button updates from GitHub Releases. The app downloads the published archive, checks it
@@ -76,6 +77,8 @@ export interface ReleaseInfo {
   channel: UpdateChannel;
   /** Dev: the commit that would be built. */
   commit?: string;
+  /** The repository this release was found from (used for provenance checks). */
+  sourceRepo?: string;
 }
 export type UpdatePhase =
   | "idle" | "checking" | "current" | "available" | "downloading" | "verifying"
@@ -367,19 +370,32 @@ export class Updater {
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     if (this.channel === "dev") return this.newestDevBuild();
+    // The repository is moving from stabrea to KeepOak: the new name is asked first, and the old one only when GitHub
+    // says the new one does not exist (404). Any other answer, or no answer, stops here. One request per name asked.
+    const primary = await this.releaseList(primaryRepo);
+    if (primary.status !== 404) return this.lookupLatestRelease(primaryRepo, primary);
+    const fallback = await this.releaseList(fallbackRepo);
+    if (fallback.status === 404) throw new Error("No release has been published yet.");
+    return this.lookupLatestRelease(fallbackRepo, fallback);
+  }
+
+  /** GitHub's list of releases for one repository name: the newest final, or the newest hundred for Beta. */
+  private releaseList(repo: string): Promise<Response> {
     const path = this.channel === "stable" ? "releases/latest" : "releases?per_page=100";
-    const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/${path}`, {
+    return this.fetch(`https://api.github.com/repos/${repo}/${path}`, {
       headers: { accept: "application/vnd.github+json", "user-agent": `BranchAgent/${this.options.currentVersion}` },
       signal: AbortSignal.timeout(15000),
     });
-    if (response.status === 404) throw new Error("No release has been published yet.");
+  }
+
+  private async lookupLatestRelease(sourceRepo: string, response: Response): Promise<ReleaseInfo> {
     if (!response.ok) throw new Error(`GitHub did not answer (HTTP ${response.status}). Try again later.`);
     const raw = await response.json();
     const candidates = this.channel === "stable" ? [releaseSchema.parse(raw)] : betaCandidates(raw);
     for (const data of candidates) {
       if (data.draft || (this.channel === "stable" && data.prerelease))
         throw new Error("The newest stable release is not a published final release.");
-      const assets = await this.releaseAssets(data);
+      const assets = await this.releaseAssets(data, sourceRepo);
       const asset = assets.find((entry) => entry.name === this.options.assetName);
       const checksum = assets.find((entry) => entry.name === checksumAssetName(this.options.assetName ?? ""));
       if (!asset || !checksum) {
@@ -388,7 +404,7 @@ export class Updater {
         throw new Error(`The newest release is missing its ${systemName(this.platform)} download or checksum.`);
       }
       if (this.channel === "beta" &&
-        (!betaAssetMatches(data, this.options.repo, asset) || !betaAssetMatches(data, this.options.repo, checksum)))
+        (!betaAssetMatches(data, sourceRepo, asset) || !betaAssetMatches(data, sourceRepo, checksum)))
         throw new Error("The beta download does not belong to the selected Branch release.");
       const latestVersion = data.prerelease ? betaReleaseVersion(data.tag_name) : finalReleaseVersion(data.tag_name);
       return {
@@ -398,22 +414,31 @@ export class Updater {
         assetUrl: asset.browser_download_url, checksumUrl: checksum.browser_download_url, assetBytes: asset.size,
         pageUrl: data.html_url,
         channel: this.channel,
+        sourceRepo,
       };
     }
     throw new Error("No published Branch release is available yet.");
+  }
+  /**
+   * Dev reads and builds with git, which has no answer to fall back on: the new name does not exist until the
+   * move, and asking it fails as a sign-in prompt, not a 404. So Dev uses the name Branch has now, which GitHub
+   * keeps sending to the new one after the move. A repository outside Branch's two names is used as given.
+   */
+  private devRepo(): string {
+    return isTrustedRepo(this.options.repo) ? fallbackRepo : this.options.repo;
   }
   /** Dev: the newest merged change on Branch's main line, offered when it is not the one this copy was built from. */
   private async newestDevBuild(): Promise<ReleaseInfo> {
     const run = this.options.devRun ?? realRun(this.platform);
     const missing = await devToolsMissing(run);
     if (missing) throw new Error(missing);
-    const commit = await remoteHead(run, this.options.repo);
+    const commit = await remoteHead(run, this.devRepo());
     const short = commit.slice(0, 7);
     return {
       currentVersion: this.options.currentVersion, latestVersion: this.options.currentVersion, tag: `dev-${short}`,
       available: commit !== this.options.currentCommit,
       title: `Dev build of change ${short}`, notes: "", publishedAt: null,
-      assetUrl: "", checksumUrl: "", assetBytes: 0, pageUrl: `https://github.com/${this.options.repo}/commit/${commit}`,
+      assetUrl: "", checksumUrl: "", assetBytes: 0, pageUrl: `https://github.com/${this.devRepo()}/commit/${commit}`,
       channel: "dev", commit,
     };
   }
@@ -429,7 +454,7 @@ export class Updater {
     // In the updater's own folder, which the assistant may never change and which this install has just emptied.
     const sourceDir = join(this.options.scratchDir, "dev-source");
     const built = await buildDev(this.options.devRun ?? realRun(this.platform), {
-      repo: this.options.repo, sourceDir, commit: release.commit, running: this.options.currentCommit ?? null, assetName: this.options.assetName!,
+      repo: this.devRepo(), sourceDir, commit: release.commit, running: this.options.currentCommit ?? null, assetName: this.options.assetName!,
       onPhase: (phase) => this.set("downloading", words[phase], null, release),
     });
     // Without the change the running version was built from, its version is the only way to see going back.
@@ -453,11 +478,11 @@ export class Updater {
    * assets while the release's own assets list already has them all (measured on v0.19.3-beta.2). When the listed
    * assets lack this computer's download or checksum, ask that list, which is current.
    */
-  private async releaseAssets(release: z.infer<typeof releaseSchema>): Promise<z.infer<typeof assetSchema>[]> {
+  private async releaseAssets(release: z.infer<typeof releaseSchema>, sourceRepo: string): Promise<z.infer<typeof assetSchema>[]> {
     const names = new Set(release.assets.map((entry) => entry.name));
     if (!release.id || (names.has(this.options.assetName ?? "") && names.has(checksumAssetName(this.options.assetName ?? ""))))
       return release.assets;
-    const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/releases/${release.id}/assets?per_page=100`, {
+    const response = await this.fetch(`https://api.github.com/repos/${sourceRepo}/releases/${release.id}/assets?per_page=100`, {
       headers: { accept: "application/vnd.github+json", "user-agent": `BranchAgent/${this.options.currentVersion}` },
       signal: AbortSignal.timeout(15000),
     });
@@ -532,15 +557,17 @@ export class Updater {
     this.set("verifying", "Checking for a build provenance record…", null, release);
     let lookup: AttestationLookup | null;
     try {
+      // Fetch from the source repo that served this release. Verify against all trusted repos.
       lookup = await fetchAttestationBundles({
-        fetch: this.fetch, repo: this.options.repo, digestHex,
+        fetch: this.fetch, repo: release.sourceRepo ?? this.options.repo, digestHex,
         userAgent: `BranchAgent/${this.options.currentVersion}`,
       });
     } catch { return this.provenanceFound("not-checked", release); }
     const failures: string[] = [];
     for (const bundle of (lookup?.bundles ?? []).filter(isBuildProvenance)) {
       try {
-        verifyAttestationBundle(bundle, { repo: this.options.repo, digestHex, version: release.latestVersion });
+        // Verify against the trusted repos; don't limit to just the source repo.
+        verifyAttestationBundle(bundle, { repo: release.sourceRepo ?? this.options.repo, digestHex, version: release.latestVersion });
         return this.provenanceFound("checked", release);
       } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
     }

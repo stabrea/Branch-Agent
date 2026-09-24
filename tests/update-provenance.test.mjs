@@ -499,9 +499,9 @@ async function installFixture(t, { attestationFor = () => null, blobs = {}, real
  * operating system, and reaching the unpack step is the proof the check let the update through.
  */
 const reachedUnpack = "reached the unpack step";
-function gateUpdater(fixture, { platform = "win32", fetch = fixture.fetchViaFixture } = {}) {
+function gateUpdater(fixture, { platform = "win32", fetch = fixture.fetchViaFixture, repo = "stabrea/Branch-Agent" } = {}) {
   return new Updater({
-    repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir: fixture.installDir, platform,
+    repo, currentVersion: "0.2.0", installDir: fixture.installDir, platform,
     executableName: "Branch Agent Test.exe", assetName: "Branch-Agent-windows-x64.zip",
     scratchDir: join(fixture.root, "scratch"), fetch,
     extract: async () => { throw new Error(reachedUnpack); },
@@ -551,6 +551,18 @@ test("install refuses a provenance record for a different file, and removes what
     await assert.rejects(updater.install(), /provenance record did not check out/, platform);
     await assert.rejects(readFile(join(fixture.root, "scratch", "Branch-Agent-windows-x64.zip")), /ENOENT/);
   }
+});
+
+/* Before the move a copy set to KeepOak finds the release under stabrea (KeepOak answers 404). The provenance
+   record is asked of the repository that served the release, so a bad one is found and stops the update; asked
+   of KeepOak, there would be no record at all and the update would go on with the checksum alone. */
+test("a release found under the old name has its provenance record asked of the old name, and a bad one stops it", async (t) => {
+  const fixture = await installFixture(t, {
+    realArchive: false, attestationFor: () => makeBundle(createHash("sha256").update("some other file entirely").digest("hex")),
+  });
+  await assert.rejects(gateUpdater(fixture, { repo: "KeepOak/Branch-Agent" }).install(), /provenance record did not check out \(the provenance record is for a different file\)/);
+  assert.equal(fixture.attestationHits(), 1, "the record was asked of stabrea/Branch-Agent, which served the release");
+  assert.ok(fixture.hits.includes("/repos/KeepOak/Branch-Agent/releases/latest"), "the new name was asked first");
 });
 
 test("install refuses a self-signed record naming anything but the release workflow for a version tag", async (t) => {
@@ -738,4 +750,77 @@ test("a Beta install refuses a record from the final release workflow", async (t
   const fixture = await installFixture(t, { realArchive: false, attestationFor: (digestHex) => makeBundle(digestHex) });
   const { done } = await betaOutcome(fixture);
   await assert.rejects(done, /provenance record did not check out/);
+});
+
+// Repo-move tests: both stabrea and KeepOak are trusted repos.
+const keepOakRepo = "KeepOak/Branch-Agent";
+const keepOakWorkflow = `https://github.com/${keepOakRepo}/.github/workflows/package.yml@refs/tags/v0.3.0`;
+const keepOakBetaWorkflow = `https://github.com/${keepOakRepo}/.github/workflows/beta.yml@refs/heads/mac/cross-platform`;
+
+test("verifyAttestationBundle accepts KeepOak's release workflow for a final version", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, { uri: keepOakWorkflow });
+  const result = verifyAttestationBundle(bundle, { repo, digestHex });
+  assert.equal(result.workflow, keepOakWorkflow);
+});
+
+test("verifyAttestationBundle accepts stabrea's release workflow for a final version", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, { uri: workflowUri });
+  const result = verifyAttestationBundle(bundle, { repo, digestHex });
+  assert.equal(result.workflow, workflowUri);
+});
+
+test("verifyAttestationBundle accepts KeepOak's beta workflow for a Beta version", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, { uri: keepOakBetaWorkflow });
+  const result = verifyAttestationBundle(bundle, { repo, digestHex, version: "0.19.4-beta.5" });
+  assert.equal(result.workflow, keepOakBetaWorkflow);
+});
+
+test("verifyAttestationBundle refuses KeepOak's beta.yml for a final version", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const bundle = makeBundle(digestHex, { uri: keepOakBetaWorkflow });
+  assert.throws(
+    () => verifyAttestationBundle(bundle, { repo, digestHex, version: "0.19.4" }),
+    /does not name this repository's release workflow for a version tag/
+  );
+});
+
+test("verifyAttestationBundle refuses look-alike repos (KeepOak-x, keepoak lowercase, etc.)", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const lookAlikes = [
+    "KeepOak-x",
+    "KeepOakx",
+    "keepoak",
+    "KEEPOAK",
+    "keepoak.evil",
+    "KeepOak/Branch-Agent-fork",
+    "someone/Branch-Agent",
+    // Whole names that differ from Branch's two only in case or in the owner.
+    "keepoak/Branch-Agent",
+    "KeepOak/branch-agent",
+    "Stabrea/Branch-Agent",
+    "stabrea/branch-agent",
+    "KeepOak-x/Branch-Agent",
+  ];
+  for (const lookAlike of lookAlikes) {
+    const fakeUri = `https://github.com/${lookAlike}/.github/workflows/package.yml@refs/tags/v0.3.0`;
+    const bundle = makeBundle(digestHex, { uri: fakeUri });
+    assert.throws(
+      () => verifyAttestationBundle(bundle, { repo, digestHex }),
+      /does not name this repository's release workflow for a version tag/,
+      lookAlike
+    );
+  }
+});
+
+test("verifyAttestationBundle refuses evil domains that look like the URI", () => {
+  const digestHex = createHash("sha256").update("archive bytes").digest("hex");
+  const evilUri = `https://evil.example/URI:https://github.com/${keepOakRepo}/.github/workflows/package.yml@refs/tags/v0.3.0`;
+  const bundle = makeBundle(digestHex, { uri: evilUri });
+  assert.throws(
+    () => verifyAttestationBundle(bundle, { repo, digestHex }),
+    /does not name this repository's release workflow for a version tag/
+  );
 });
