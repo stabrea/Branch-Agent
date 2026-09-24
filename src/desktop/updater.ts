@@ -9,7 +9,7 @@ import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js
 import { checksumAssetName } from "./release-assets.js";
 import { buildDev, devToolsMissing, realRun, remoteHead, type DevPhase, type Run } from "./dev-build.js";
 import { fetchAttestationBundles, isBuildProvenance, verifyAttestationBundle, type AttestationLookup } from "./provenance.js";
-import { primaryRepo, fallbackRepo } from "./repo-pair.js";
+import { primaryRepo, fallbackRepo, isTrustedRepo } from "./repo-pair.js";
 
 /**
  * One-button updates from GitHub Releases. The app downloads the published archive, checks it
@@ -419,18 +419,26 @@ export class Updater {
     }
     throw new Error("No published Branch release is available yet.");
   }
+  /**
+   * Dev reads and builds with git, which has no answer to fall back on: the new name does not exist until the
+   * move, and asking it fails as a sign-in prompt, not a 404. So Dev uses the name Branch has now, which GitHub
+   * keeps sending to the new one after the move. A repository outside Branch's two names is used as given.
+   */
+  private devRepo(): string {
+    return isTrustedRepo(this.options.repo) ? fallbackRepo : this.options.repo;
+  }
   /** Dev: the newest merged change on Branch's main line, offered when it is not the one this copy was built from. */
   private async newestDevBuild(): Promise<ReleaseInfo> {
     const run = this.options.devRun ?? realRun(this.platform);
     const missing = await devToolsMissing(run);
     if (missing) throw new Error(missing);
-    const commit = await remoteHead(run, this.options.repo);
+    const commit = await remoteHead(run, this.devRepo());
     const short = commit.slice(0, 7);
     return {
       currentVersion: this.options.currentVersion, latestVersion: this.options.currentVersion, tag: `dev-${short}`,
       available: commit !== this.options.currentCommit,
       title: `Dev build of change ${short}`, notes: "", publishedAt: null,
-      assetUrl: "", checksumUrl: "", assetBytes: 0, pageUrl: `https://github.com/${this.options.repo}/commit/${commit}`,
+      assetUrl: "", checksumUrl: "", assetBytes: 0, pageUrl: `https://github.com/${this.devRepo()}/commit/${commit}`,
       channel: "dev", commit,
     };
   }
@@ -446,7 +454,7 @@ export class Updater {
     // In the updater's own folder, which the assistant may never change and which this install has just emptied.
     const sourceDir = join(this.options.scratchDir, "dev-source");
     const built = await buildDev(this.options.devRun ?? realRun(this.platform), {
-      repo: this.options.repo, sourceDir, commit: release.commit, running: this.options.currentCommit ?? null, assetName: this.options.assetName!,
+      repo: this.devRepo(), sourceDir, commit: release.commit, running: this.options.currentCommit ?? null, assetName: this.options.assetName!,
       onPhase: (phase) => this.set("downloading", words[phase], null, release),
     });
     // Without the change the running version was built from, its version is the only way to see going back.
