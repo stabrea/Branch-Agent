@@ -9,6 +9,7 @@ import {BranchBrowser, registerBrowser} from '../dist/integrations/browser.js';
 import {BrowserProfiles} from '../dist/integrations/browser-profiles.js';
 import {WorkspaceFiles} from '../dist/files.js';
 import {RunArtifacts, ToolRegistry, Budget, createBranch, savePolicy, OpenAIProvider, AnthropicProvider} from '../dist/index.js';
+import { chromium } from "playwright";
 
 const key = {key: async () => Buffer.alloc(32, 7)};
 const runContext = (runId, owner = 'test', signal = new AbortController().signal) => ({
@@ -74,6 +75,14 @@ async function harness(label, config = {}) {
   return {root, workspace, data, origin, browser, registry, server,
     close: async () => { await browser.close(); await stop(); await rm(root, {recursive: true, force: true}); }};
 }
+
+
+test("this test needs a real browser, and says so", () => {
+  // It drives one through Branch's own browser tool rather than importing Playwright to steer it, so
+  // without this the file looks like a test that needs nothing and the lane that runs it installs no
+  // browser. The import above is what the test selector reads; this asserts it is really there.
+  assert.equal(chromium.name(), "chromium", "this test declares the browser engine it requires");
+});
 
 test('a saved sign-in keeps a cookie across two tasks and holds nothing readable on disk', async () => {
   const h = await harness('browser-profile');
