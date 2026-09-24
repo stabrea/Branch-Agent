@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -683,4 +683,42 @@ test("Q100: a loop between a copy and its source under a don't-trust stays untru
   await mkdir(inCopy, { recursive: true });
   await symlink(inCopy, join(proj, "Y"), "dir");
   assert.equal(folderTrust(app.store, owner, inCopy), "untrusted");
+});
+
+test("Q100: a real folder in a copy is not judged through a link its source has now",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const outside = await mkdtemp(join(tmpdir(), "branch-q100-outside-"));
+  t.after(() => discardTemp(outside));
+  // Where the source's `sub` points once it has moved on, and the decision that would otherwise reach the copy.
+  const setups = {
+    "a link up to the trusted workspace": { link: "..", decide: null },
+    "a link to a trusted sibling": { link: "../lib", decide: "work/lib" },
+    "a link to a trusted folder inside the source": { link: "docs", decide: "work/proj/docs" },
+    "a link out of every decision": { link: outside, decide: null },
+  };
+  for (const [name, { link, decide }] of Object.entries(setups)) {
+    const { app, workspace, owner } = await fixture(t);
+    const proj = join(workspace, "work", "proj");
+    await mkdir(join(proj, "sub"), { recursive: true });
+    await mkdir(join(proj, "docs"), { recursive: true });
+    await mkdir(join(workspace, "work", "lib"), { recursive: true });
+    await writeFile(join(proj, "sub", "AGENTS.md"), "planted");
+    await writeFile(join(proj, "sub", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+    await writeFile(join(proj, "docs", "readme.md"), "docs");
+    gitIn(proj, "init", "-q", "-b", "main");
+    gitIn(proj, "add", ".");
+    gitIn(proj, "commit", "-q", "-m", "first");
+    decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+    decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+    if (decide) decideFolder(app.store, owner, workspace, { folder: decide, decision: "trust" });
+    await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+    const sub = join(proj, ".branch-worktrees", "exp", "sub");
+    assert.equal(folderTrust(app.store, owner, sub), "untrusted", `${name}: before the source moves on`);
+    // The source moves on (a pull, a checkout) to where `sub` is a link; the copy keeps its real folder.
+    await rm(join(proj, "sub"), { recursive: true });
+    await symlink(link, join(proj, "sub"), "dir");
+    assert.equal(folderTrust(app.store, owner, sub), "untrusted", `${name}: the copy's own place decides`);
+    assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(sub, "integrations.json")), false, name);
+  }
 });

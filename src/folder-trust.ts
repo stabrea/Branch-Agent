@@ -152,10 +152,6 @@ function listedBy(source: string, copy: string): boolean {
 
 /** How far a folder is trusted, from the closest folder the owner has decided about. */
 export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
-  return trustAt(store, owner, folder, platform, new Set());
-}
-/** `folderTrust`, carrying the copies already mapped to their source, so links between them cannot loop. */
-function trustAt(store: Store, owner: string, folder: string, platform: NodeJS.Platform, mapped: Set<string>): FolderTrust {
   let best: { depth: number; decision: "trust" | "distrust"; path: string } | null = null;
   const entries = saved(store, owner).folders;
   if (!entries.length) return "unknown";
@@ -171,16 +167,18 @@ function trustAt(store: Store, owner: string, folder: string, platform: NodeJS.P
   // Q100: inside a copy Branch made, what was not decided in the copy itself is judged where it came from:
   // the same place in the source, so every decision there (a "don't trust" on a subfolder too) holds in the copy.
   // Only when the closest decision covers the source too: a decision between the two is closer, and wins. A
-  // repository inside the copy still stops trust, as it would in the source, and a copy met again gives no answer.
+  // repository inside the copy still stops trust, as it would in the source. Never through a link in the source:
+  // the copy's real folder would take the decision of wherever the source's link points now, so it is judged
+  // where it is instead. Each step drops `.branch-worktrees/<name>`, so the check always ends.
   if (platform === process.platform) {
     const path = platform === "win32" ? win32 : posix;
     let nested = false;
     for (let current = inner; current !== best.path && current !== path.dirname(current); current = path.dirname(current)) {
       const source = path.dirname(path.dirname(current));
       if (branchCopy(store, owner, current, path) && folderContains(best.path, source, platform)) {
-        if (mapped.has(current)) return best.decision === "distrust" ? "untrusted" : "unknown";
-        mapped.add(current);
-        const there = trustAt(store, owner, path.join(source, path.relative(current, inner)), platform, mapped);
+        const same = path.join(source, path.relative(current, inner));
+        if (realFolder(same, platform) !== same) break;
+        const there = folderTrust(store, owner, same, platform);
         return nested && there === "trusted" ? "unknown" : there;
       }
       if (existsSync(join(current, ".git"))) nested = true;
