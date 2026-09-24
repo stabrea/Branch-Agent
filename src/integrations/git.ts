@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
@@ -23,8 +23,27 @@ function canonical(path: string): string {
 }
 export interface GitChange { path: string; state: string }
 
+/**
+ * Q100: where a new parallel copy called `name` goes, in the repository's copies folder (made when missing).
+ * Git writes the copy through every folder on the way, so the copies folder must be a real folder in the
+ * repository, and nothing may be at the copy's own place yet: a link the repository carries at either would
+ * put Branch's copy somewhere else, outside the folder it was asked about (and out of reach of its trust).
+ */
+async function copyPlace(cwd: string, name: string): Promise<string> {
+  const home = join(cwd, WORKTREE_HOME);
+  await mkdir(home, { recursive: true });
+  if (!(await lstat(home)).isDirectory() || canonical(home) !== join(canonical(cwd), WORKTREE_HOME))
+    throw new Error(`${WORKTREE_HOME} in this folder is a link, so no parallel copy is made here: it would land outside the folder.`);
+  const target = join(home, name);
+  if (await lstat(target).then(() => true, (error: NodeJS.ErrnoException) => error.code !== "ENOENT"))
+    throw new Error(`Something is already at ${WORKTREE_HOME}/${name} in this folder, so no parallel copy is made there.`);
+  return target;
+}
+
 export class GitTools {
   constructor(private readonly files: WorkspaceFiles, private readonly runner: GitRunner) {}
+  /** Q100: told of every parallel copy made or removed here (`source` is the repository folder), for folder trust. */
+  onCopy: (event: { source: string; copy: string; made: boolean }) => void = () => {};
 
   /** Resolves a workspace folder and refuses anything outside it, hidden, or not a folder. */
   private async folder(path: string): Promise<string> {
@@ -132,11 +151,13 @@ export class GitTools {
     const target = join(home, input.name);
     if (input.action === "remove") {
       await this.run(cwd, ["worktree", "remove", "--force", target], signal, { timeoutMs: 60000 });
+      this.onCopy({ source: cwd, copy: target, made: false });
       return { folder: input.folder, name: input.name, removed: true };
     }
-    await mkdir(home, { recursive: true });
+    await copyPlace(cwd, input.name);
     const create = input.branch ? ["-b", input.branch] : ["--detach"];
     await this.run(cwd, ["worktree", "add", ...create, target], signal, { timeoutMs: 60000 });
+    this.onCopy({ source: cwd, copy: target, made: true });
     return { folder: input.folder, name: input.name, path: `${WORKTREE_HOME}/${input.name}`, branch: input.branch ?? null };
   }
 
@@ -149,10 +170,10 @@ export class GitTools {
   async planStart(input: { folder: string; name: string; from?: string | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const branch = planBranch(input.name);
-    const home = join(cwd, WORKTREE_HOME);
-    await mkdir(home, { recursive: true });
+    const target = await copyPlace(cwd, input.name);
     const from = input.from ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
-    await this.run(cwd, ["worktree", "add", "-b", branch, join(home, input.name), from], signal, { timeoutMs: 60000 });
+    await this.run(cwd, ["worktree", "add", "-b", branch, target, from], signal, { timeoutMs: 60000 });
+    this.onCopy({ source: cwd, copy: target, made: true });
     return { folder: input.folder, name: input.name, branch, from, path: `${WORKTREE_HOME}/${input.name}`,
       note: "Work in that folder. Ask for the difference when you are done, and merge it back only when it looks right." };
   }
@@ -175,8 +196,11 @@ export class GitTools {
     const branch = planBranch(input.name);
     const into = (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["merge", "--no-ff", "--no-edit", "-m", input.message ?? `Try "${input.name}"`, branch], signal, { timeoutMs: 60000 });
-    if (input.remove)
-      await this.run(cwd, ["worktree", "remove", "--force", join(cwd, WORKTREE_HOME, input.name)], signal, { timeoutMs: 60000 }).catch(() => undefined);
+    if (input.remove) {
+      const copy = join(cwd, WORKTREE_HOME, input.name);
+      await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).catch(() => undefined);
+      this.onCopy({ source: cwd, copy, made: false });
+    }
     return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: input.remove };
   }
 
