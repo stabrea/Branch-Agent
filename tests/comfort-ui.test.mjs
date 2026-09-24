@@ -523,3 +523,24 @@ test("R17-S15 on Windows: the Windows key belongs to the system and cannot be gi
   assert.equal(readComfort(app.store, "local", "keys").newTrunk, "Ctrl+R", "the Windows key never reached the settings");
   assert.deepEqual(errors, []);
 });
+
+for (const mac of [false, true]) {
+  test(`R17-S15${mac ? " on a Mac" : ""}: a window without the owner's keys still folds the side list with the keys it has always had`, async (t) => {
+    // Not a Mac is said outright: the computer running the tests may be one.
+    const { page, errors } = await openApp(t, 1280, { mac, windows: !mac });
+    await page.evaluate(() => {
+      // As a window where public/comfort.js has not loaded: public/shell.js falls back to its own keys.
+      globalThis.branchComfort = undefined;
+      globalThis.__folds = 0;
+      document.getElementById("rail-toggle").addEventListener("click", () => { globalThis.__folds += 1; });
+    });
+    const folds = () => page.evaluate(() => globalThis.__folds);
+    await page.keyboard.press(mac ? "Meta+b" : "Control+b");
+    assert.equal(await folds(), 1, mac ? "Cmd+B folds it" : "Ctrl+B folds it");
+    await page.keyboard.press(mac ? "Control+b" : "Meta+b");
+    await page.keyboard.press(mac ? "Meta+Shift+b" : "Control+Shift+b");
+    assert.equal(await folds(), 1, "the other modifier, or Shift as well, does not");
+    await page.keyboard.press(mac ? "Meta+b" : "Control+b"); // and back
+    assert.deepEqual(errors, []);
+  });
+}
