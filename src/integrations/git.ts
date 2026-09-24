@@ -83,6 +83,9 @@ export class GitTools {
     const fields = await this.runner.run({ cwd, args: ["worktree", "list", "--porcelain", "-z"] }, signal);
     if (fields.status === "completed")
       return fields.stdout.split("\0").filter((field) => field.startsWith("worktree ")).map((field) => field.slice(9));
+    // Only a Git that does not know -z is read line by line: 129 is Git's answer to a switch it does not know
+    // (its words are translated). Any other failure is the call's own, as it would be without -z.
+    if (fields.exitCode !== 129) throw new Error(explainGit(fields));
     const stdout = (await this.run(cwd, ["worktree", "list", "--porcelain"], signal)).stdout;
     return stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9).trim());
   }
