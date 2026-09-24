@@ -72,6 +72,18 @@ export interface Checkpoint { id: string; label: string; memories: number; skill
 const reviewPrompt = "You review a batch of finished tasks. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"which task showed it\"}]}. Include only things worth keeping for future tasks; an empty list is the normal answer.";
 export const memorySnapshotLimits = { facts: 20, chars: 2000 };
 /** Suggestions that tidy the store: they set facts aside in the archive and never delete anything. */
+/**
+ * What a model writes as a suggestion's source when it changes facts: the look back, and tidying by the
+ * owner's instructions. Such a change may only land on the owner's own private facts, which are all
+ * either is shown. It is checked again when the owner says yes, because a row staged before that rule
+ * (or with a fact moved since) would otherwise put a model's words on another person's fact (NAS d2ca9b8).
+ */
+export const lookBackSource = "Looked back over messages";
+export const tidyByInstructionsSource = "Tidying by your instructions:";
+const modelWritten = (source: string): boolean => [lookBackSource, tidyByInstructionsSource].some((start) => source.startsWith(start));
+/** Whose a fact is: missing means the owner's own. */
+const whose = (data: Record<string, unknown>): string => String(data.scope ?? "private");
+const notTheOwners = "A suggestion a model wrote can only change the owner's own facts, and this one names someone else's, so it is not made. Decline it, then tidy again.";
 export const tidyingKinds: Proposal["kind"][] = ["merge", "archive", "forget"];
 
 export class MemoryReview {
@@ -186,6 +198,7 @@ export class MemoryReview {
       const apply = async () => {
         const current = proposal.memoryId ? await (outside ? outside.read(owner, proposal.memoryId) : this.memories.get(owner, proposal.memoryId)) : undefined;
         if (!current) throw new Error("The memory this suggestion changes no longer exists");
+        if (modelWritten(proposal.source) && whose(current.data) !== "private") throw new Error(notTheOwners);
         // Only the words change: an accepted change keeps whose fact it is, as memory.update does.
         const data = reworded(current.data, { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId });
         return outside ? outside.write(owner, current.id, data) : this.memories.save(owner, current.id, data);
@@ -223,6 +236,17 @@ export class MemoryReview {
     if (proposal.kind === "merge" && proposal.memoryId && proposal.text) {
       const current = this.memories.get(owner, proposal.memoryId);
       if (!current) throw new Error("The fact this suggestion would keep no longer exists");
+      // The kept fact takes the merged words, so every fact merged into it must be the same person's. Checked here, when
+      // the owner says yes, because a suggestion may have been made before tidying knew that, or by the look back,
+      // which groups what the model saw (Mac mini 5c2e4f6, NAS ea14643).
+      // A fact named in the merge that is gone by now (deleted, forgotten, expired) still has its words in the merged
+      // text, and whose they were can no longer be told, so the merge is refused (NAS ec65398).
+      const others = proposal.memoryIds.filter((id) => id !== current.id).map((id) => this.memories.get(owner, id));
+      if (others.some((record) => record === undefined))
+        throw new Error("A fact this merge names is gone, so it is not merged. Decline it, then tidy again.");
+      if (others.some((record) => whose(record!.data) !== whose(current.data)))
+        throw new Error("These facts belong to different people, so they are not merged. Each stays as it is.");
+      if (modelWritten(proposal.source) && whose(current.data) !== "private") throw new Error(notTheOwners);
       this.memories.save(owner, current.id, { ...current.data, text: proposal.text, source: proposal.source || String(current.data.source) });
     }
     const setAside: string[] = [];

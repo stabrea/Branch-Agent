@@ -28,6 +28,12 @@ export const nearDuplicateMeaning = 0.92;
 export const nearlyFullAt = 0.9;
 
 const factText = (record: MemoryRecord): string => String(record.data.text ?? "");
+/**
+ * Whose a fact is. Tidying never groups facts that belong to different people: a merge writes the longest wording onto
+ * the fact it keeps, so the owner's private words landed in a Trunk's fact, where the Trunk could read them, and a
+ * newer fact of one person's set another's aside (Mac mini 5c2e4f6).
+ */
+const scopeOf = (record: MemoryRecord): string => String(record.data.scope ?? "private");
 /** Same words, ignoring case, accents, punctuation and filler spacing. */
 export function normaliseFact(text: string): string {
   return text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()
@@ -99,7 +105,7 @@ export class MemoryHygiene {
       let similarity = 0, by: DuplicateGroup["by"] = "words";
       for (let j = i + 1; j < records.length; j++) {
         const right = records[j]!;
-        if (taken.has(right.id)) continue;
+        if (taken.has(right.id) || scopeOf(right) !== scopeOf(left)) continue;
         const alike = this.alike(left, right, vectors);
         if (!alike) continue;
         drop.push(right.id); texts.push(factText(right)); taken.add(right.id);
@@ -123,10 +129,12 @@ export class MemoryHygiene {
     for (const record of records.filter(current)) {
       const subject = subjectOf(record);
       if (!subject) continue;
-      bySubject.set(subject, [...(bySubject.get(subject) ?? []), record]);
+      const key = `${scopeOf(record)}\u0000${subject}`;
+      bySubject.set(key, [...(bySubject.get(key) ?? []), record]);
     }
     const pairs: ContradictionPair[] = [];
-    for (const [subject, group] of bySubject) {
+    for (const [key, group] of bySubject) {
+      const subject = key.slice(key.indexOf("\u0000") + 1);
       if (group.length < 2) continue;
       const ordered = [...group].sort((a, b) => startedAt(a).localeCompare(startedAt(b)) || a.updatedAt.localeCompare(b.updatedAt));
       const newest = ordered.at(-1)!;
