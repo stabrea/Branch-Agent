@@ -203,6 +203,9 @@ export function registerChannelTools(registry: ToolRegistry, router: ChannelRout
     name: "channels.digest", permission: "channels.send",
     description: "Send the morning brief as it stands right now to one chat, whichever chat app it is on.",
     parameters: DigestSchema,
+    // The chat it goes to, written as a broadcast writes each of its chats, so the owner's rules about
+    // that chat, or its account, hold for the brief sent there as they do for a message.
+    targets: (input) => [{ kind: "write", path: `${input.channel}:${input.chatId}` }],
     // Q134: the brief is the owner's, so a Trunk or a delegated specialist is refused it here too.
     execute: async (input, context) => { briefOwnerOnly(context); people.requireOwner(onlyTheOwner); return digest(router, brief, context.owner, input); },
   });

@@ -109,7 +109,11 @@ export function registerSpokenBrief(registry: Pick<ToolRegistry, "register">, br
     } });
   registry.register({ name: "brief.send_voice", permission: "channels.send",
     description: "Make the owner's daily briefing, read it aloud, and send it to one linked chat as a voice note.",
-    parameters: SpokenBriefSchema, execute: async (input, context) => {
+    parameters: SpokenBriefSchema,
+    // The chat it goes to, written as a broadcast writes each of its chats, so the owner's rules about
+    // that chat, or its account, hold here too. With no chat named it goes nowhere.
+    targets: (input) => (input.channel && input.chatId ? [{ kind: "write", path: `${input.channel}:${input.chatId}` }] : []),
+    execute: async (input, context) => {
       briefOwnerOnly(context); // Q134
       const { text, sentTo } = await brief.run(input);
       return { text, sentTo };
