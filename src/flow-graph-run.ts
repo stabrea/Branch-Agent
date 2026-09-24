@@ -104,6 +104,11 @@ export class FlowGraphRunner {
     const trunk = this.heldTrunk(runId);
     return trunk ? this.runtime.asTrunkWork(trunk, () => this.boxes(runId, compiled, options)) : this.boxes(runId, compiled, options);
   }
+  /** Q114: a copy of a run (time-travel's fork) is the same Trunk's work as the run it was copied from. */
+  carryTrunk(from: string, to: string): void {
+    const saved = this.store.get("settings", this.owner, trunkKey(from))?.data as { trunk?: unknown } | undefined;
+    if (typeof saved?.trunk === "string") this.store.save("settings", this.owner, trunkKey(to), { trunk: saved.trunk });
+  }
   /** Q114: taken from whoever is at work when the run first works, then kept as it was, whoever carries it on. */
   private heldTrunk(runId: string): string | null {
     const saved = this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined;

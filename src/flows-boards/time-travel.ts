@@ -127,6 +127,7 @@ export class FlowTimeTravel {
     // A copy of a run a task started keeps that task's limit (mac7/lockdown-fix), even though the owner made it.
     const within = this.deps.graphs.limitOf(runId);
     // mac7/outside-resume: and a copy of a run set going from outside is held as that run was.
+    this.deps.graphs.carryTrunk(runId, copy.id); // Q114: and a copy of a Trunk's run is still that Trunk's
     const work = this.deps.graphs.work(copy.id, compiled, { source: this.deps.graphs.sourceOf(runId), ...(within ? { within } : {}) })
       .catch(() => this.deps.graphs.view(copy.id));
     this.working.set(copy.id, work);

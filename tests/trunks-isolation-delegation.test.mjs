@@ -425,3 +425,48 @@ test("a flow a Trunk set going carries on as that Trunk when the owner approves 
   assert.ok(exists(join(app.runtime.workspace, ".branch-agents", ada.id, "graph.md")), "written in Ada's own folder");
   assert.equal(exists(join(app.runtime.workspace, "graph.md")), false);
 });
+
+test("saving a Trunk's paused workflow again, or forking its flow run, still carries it on as that Trunk", async (t) => {
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app } = await fixture(t, [({ last }) => {
+    if (last?.role !== "user") return null;
+    const text = String(last.content ?? "");
+    if (text.startsWith("run ")) return call("workflows.run", { id: text.slice("run ".length) });
+    return null;
+  }, ({ last }) => (last?.role === "tool" ? "Done." : null)]);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  await app.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, app.runtime.context());
+  const steps = [{ name: "ok?", kind: "approval", question: "Carry on?" },
+    { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }];
+  const workflow = await app.registry.execute("workflows.create", { name: "later", steps }, app.runtime.context());
+  await app.trunks.say(ada.id, `run ${workflow.id}`);
+  assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "waiting_approval");
+  // Saved again (here by the owner's own edit) while it waits: it is still Ada's.
+  await app.registry.execute("workflows.create", { id: workflow.id, name: "later, renamed", steps }, app.runtime.context());
+  const done = await app.workflows.resume(app.runtime.owner, workflow.id);
+  assert.equal(done.status, "completed");
+  assert.doesNotMatch(JSON.stringify(done.state), /OWNERPRIV3391/, "the rest ran as Ada, not as the owner");
+  // A flow run of Ada's, forked from its first step by the owner: the copy is Ada's work too.
+  app.flowsBoards.setMode("time-travel", { mode: "on" });
+  const graph = app.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  const { runId } = await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}));
+  const first = await app.flows.settled(runId);
+  assert.doesNotMatch(JSON.stringify(first), /OWNERPRIV3391/, "Ada's own run");
+  const copy = app.flowsBoards.timeTravel.fork(runId, { seq: 1 });
+  let view;
+  for (let tries = 0; tries < 200; tries++) {
+    view = app.flows.runState(copy.runId);
+    if (view.status !== "running") break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(view.status, "completed", JSON.stringify(view).slice(0, 300));
+  assert.doesNotMatch(JSON.stringify(view), /OWNERPRIV3391/, "the copy runs as Ada too");
+});

@@ -138,6 +138,8 @@ export class Workflows {
       taskLimit: Array.isArray(existing?.taskLimit) ? existing.taskLimit : null,
       // mac7/outside-resume: nor who set a paused run going.
       ...(typeof existing?.startedFrom === "string" ? { startedFrom: existing.startedFrom } : {}),
+      // Q114: nor the Trunk whose work it is, so saving the steps again never hands the rest to someone else.
+      ...(typeof existing?.startedBy === "string" ? { startedBy: existing.startedBy } : {}),
     });
     return this.view(owner, id);
   }
