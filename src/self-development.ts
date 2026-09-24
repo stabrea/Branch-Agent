@@ -1,5 +1,5 @@
 import { stat, realpath } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { join, relative, isAbsolute } from "node:path";
 import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
@@ -32,6 +32,7 @@ export interface SelfDevelopmentDeps {
   store?: Store;
   runtime?: Pick<Runtime, "run">;
   files?: WorkspaceFiles;
+  openDraft?: (input: { repo: string; head: string; base: string; title: string; body: string; draft: true }) => Promise<unknown>;
 }
 
 const sourceSchema = z.object({ name: nameSchema, repository: repositorySchema, base: baseSchema.default("mac/cross-platform") }).strict();
@@ -44,17 +45,50 @@ function requests(deps: SelfDevelopmentDeps): Store {
     id TEXT PRIMARY KEY, owner TEXT NOT NULL, run_id TEXT NOT NULL,
     input TEXT NOT NULL, expires_at INTEGER NOT NULL, status TEXT NOT NULL)`);
   const columns = deps.store.sqlite.prepare("PRAGMA table_info(branch_source_requests)").all() as Array<{ name: string }>;
-  for (const name of ["task_run_id", "worktree_folder", "result_summary"])
+  for (const name of ["task_run_id", "worktree_folder", "result_summary", "review_digest", "published_sha"])
     if (!columns.some((column) => column.name === name)) deps.store.sqlite.exec(`ALTER TABLE branch_source_requests ADD COLUMN ${name} TEXT`);
   return deps.store;
 }
 
 export function reviewedBranchSourceChanges(deps: SelfDevelopmentDeps) {
   const store = requests(deps);
-  const rows = store.sqlite.prepare("SELECT id, input, status, task_run_id, worktree_folder, result_summary FROM branch_source_requests WHERE owner = ? AND status IN ('approved', 'review', 'failed') ORDER BY rowid DESC LIMIT 30")
-    .all(deps.owner) as Array<{ id: string; input: string; status: string; task_run_id: string | null; worktree_folder: string | null; result_summary: string | null }>;
+  const rows = store.sqlite.prepare("SELECT id, input, status, task_run_id, worktree_folder, result_summary, published_sha FROM branch_source_requests WHERE owner = ? AND status IN ('approved', 'review', 'failed', 'publishing', 'published') ORDER BY rowid DESC LIMIT 30")
+    .all(deps.owner) as Array<{ id: string; input: string; status: string; task_run_id: string | null; worktree_folder: string | null; result_summary: string | null; published_sha: string | null }>;
   return rows.map((row) => ({ id: row.id, ...requestSchema.parse(JSON.parse(row.input)), status: row.status,
-    taskRunId: row.task_run_id, folder: row.worktree_folder, summary: row.result_summary }));
+    taskRunId: row.task_run_id, folder: row.worktree_folder, summary: row.result_summary, publishedSha: row.published_sha }));
+}
+
+async function publicationState(deps: SelfDevelopmentDeps, input: z.infer<typeof requestSchema>, folder: string, signal: AbortSignal) {
+  if (folder !== `${sourceFolder}/.branch-worktrees/self-${input.name}`) throw new Error("Source-change worktree is invalid.");
+  const cwd = sourceChangeFolder(deps.workspace, input.name);
+  const root = await realpath(join(deps.workspace, sourceFolder));
+  const actual = await realpath(cwd);
+  const inside = relative(root, actual);
+  if (inside.startsWith("..") || isAbsolute(inside)) throw new Error("Source-change worktree escapes the source checkout.");
+  const branch = await run(deps, cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"], signal);
+  if (branch !== `branch/self-${input.name}`) throw new Error("Source-change branch changed.");
+  const origin = repositoryAddress(await run(deps, cwd, ["remote", "get-url", "origin"], signal));
+  if (origin.repo.toLowerCase() !== repositoryAddress(input.repository).repo.toLowerCase()) throw new Error("Source-change remote changed.");
+  const pushUrls = await run(deps, cwd, ["remote", "get-url", "--push", "--all", "origin"], signal);
+  if (!pushUrls || pushUrls.split("\n").some((url) => repositoryAddress(url).repo.toLowerCase() !== origin.repo.toLowerCase()))
+    throw new Error("Source-change push destination differs from reviewed repository.");
+  await deps.policy.assertAllowed(origin.url, "Branch Agent source repository");
+  const base = await run(deps, cwd, ["merge-base", "HEAD", "origin/" + input.base], signal);
+  const head = await run(deps, cwd, ["rev-parse", "HEAD"], signal);
+  if (base !== head) throw new Error("Source-change branch contains unreviewed commits or diverged from base.");
+  // Git add may execute repository-defined clean filters; never run one from a chat-edited tree.
+  const attributes = await run(deps, cwd, ["ls-files", "--", ".gitattributes", "**/.gitattributes"], signal);
+  if (attributes) throw new Error("Source-change checkout has Git attributes; publication requires manual review.");
+  const filters = await deps.git({ cwd, args: ["config", "--get-regexp", "^filter\\..*\\.(clean|process)$"], timeoutMs: 10_000 }, signal);
+  if (filters.status === "completed" || (filters.status !== "failed" && filters.exitCode !== 1))
+    throw new Error("Git filter configuration cannot be ruled out; publication requires manual review.");
+  const status = await run(deps, cwd, ["-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--untracked-files=all"], signal);
+  if (!status || status.split("\n").some((line) => line.startsWith("??") || line.startsWith("!!")))
+    throw new Error("Review requires tracked changes and no untracked files.");
+  const diff = await run(deps, cwd, ["-c", "core.fsmonitor=false", "diff", "HEAD", "--binary", "--no-ext-diff", "--no-textconv", "--", "."], signal);
+  if (!diff || diff.length >= 65536) throw new Error("Review requires a complete nonempty diff below 64 KiB.");
+  const digest = createHash("sha256").update(JSON.stringify([input, folder, branch, head, diff])).digest("hex");
+  return { cwd, branch, head, diff, digest, status };
 }
 
 export async function branchSourceDiff(deps: SelfDevelopmentDeps, id: string, signal: AbortSignal) {
@@ -78,8 +112,57 @@ export async function branchSourceDiff(deps: SelfDevelopmentDeps, id: string, si
   if (outcome.status !== "completed") throw new Error(explainGit(outcome));
   const status = await deps.git({ cwd, args: ["-c", "core.fsmonitor=false", "status", "--short", "--untracked-files=normal", "--", "."], timeoutMs: 10_000 }, signal);
   if (status.status !== "completed") throw new Error(explainGit(status));
-  return { id, diff: outcome.stdout.slice(0, 65536), truncated: outcome.stdout.length > 65536,
-    files: status.stdout.slice(0, 8192), filesTruncated: status.stdout.length > 8192 };
+  let publishDigest: string | null = null;
+  let reviewedDiff: string | null = null;
+  // Only a complete, cleanly bounded review can authorize the later irreversible publish.
+  try {
+    const state = await publicationState(deps, input, row.worktree_folder, signal);
+    publishDigest = state.digest;
+    reviewedDiff = state.diff;
+    store.sqlite.prepare("UPDATE branch_source_requests SET review_digest = ? WHERE id = ? AND owner = ? AND status = 'review'")
+      .run(publishDigest, id, deps.owner);
+  } catch { /* Display the diff, but do not offer publication for an incomplete review. */ }
+  return { id, diff: (reviewedDiff ?? outcome.stdout).slice(0, 65536), truncated: (reviewedDiff ?? outcome.stdout).length > 65536,
+    files: status.stdout.slice(0, 8192), filesTruncated: status.stdout.length > 8192, publishDigest };
+}
+
+/** Owner-only, single-use publication; a failed attempt is not silently retried. */
+export async function publishBranchSourceChange(deps: SelfDevelopmentDeps, id: string, digest: string, signal: AbortSignal) {
+  const store = requests(deps);
+  const row = store.sqlite.prepare("SELECT input, status, worktree_folder, review_digest, run_id FROM branch_source_requests WHERE id = ? AND owner = ?")
+    .get(id, deps.owner) as { input: string; status: string; worktree_folder: string | null; review_digest: string | null; run_id: string } | undefined;
+  if (!row || row.status !== "review" || !row.worktree_folder || !row.review_digest || row.review_digest !== digest)
+    throw new Error("No matching reviewed source-change request is available.");
+  const origin = store.run(row.run_id) && runOrigin(store, row.run_id);
+  if (!origin || origin.source !== "channel" || origin.shortLivedKey) throw new Error("Source-change provenance is invalid.");
+  const input = requestSchema.parse(JSON.parse(row.input));
+  const before = await publicationState(deps, input, row.worktree_folder, signal);
+  if (before.digest !== digest) throw new Error("Source-change diff or branch changed since review.");
+  if (!deps.openDraft) throw new Error("GitHub draft publisher is not connected.");
+  if (store.sqlite.prepare("UPDATE branch_source_requests SET status = 'publishing' WHERE id = ? AND owner = ? AND status = 'review' AND review_digest = ?")
+    .run(id, deps.owner, digest).changes !== 1) throw new Error("Source-change request has already been used.");
+  // From here failures remain in publishing: the owner must inspect partial remote state before recovery.
+  const { cwd, branch } = before;
+  const priorRemote = await run(deps, cwd, ["ls-remote", "origin", `refs/heads/${branch}`], signal);
+  if (priorRemote) throw new Error("Source-change branch already exists remotely; nothing was pushed.");
+  await run(deps, cwd, ["-c", "core.fsmonitor=false", "add", "--update", "--", "."], signal);
+  const staged = await run(deps, cwd, ["-c", "core.fsmonitor=false", "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "--", "."], signal);
+  if (staged !== before.diff) throw new Error("Source-change diff changed while staging; nothing was pushed.");
+  await run(deps, cwd, ["-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "user.name=Branch Agent", "-c", "user.email=branch-agent@users.noreply.github.com", "commit", "-m", `Draft: ${input.goal.slice(0, 120)}`], signal);
+  const sha = await run(deps, cwd, ["rev-parse", "HEAD"], signal);
+  const committed = await run(deps, cwd, ["-c", "core.fsmonitor=false", "diff", "HEAD^", "HEAD", "--binary", "--no-ext-diff", "--no-textconv", "--", "."], signal);
+  if (committed !== before.diff) throw new Error("Committed source-change diff differs from review; nothing was pushed.");
+  const dirty = await run(deps, cwd, ["-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--untracked-files=all"], signal);
+  if (dirty) throw new Error("Worktree changed during publication; nothing was pushed.");
+  await run(deps, cwd, ["push", "--force-with-lease=refs/heads/" + branch + ":", "origin", `refs/heads/${branch}:refs/heads/${branch}`], signal, 180_000);
+  const remoteSha = await run(deps, cwd, ["ls-remote", "origin", `refs/heads/${branch}`], signal);
+  if (remoteSha.split(/\s/)[0] !== sha) throw new Error("Remote branch SHA differs from published commit.");
+  const repo = repositoryAddress(input.repository).repo;
+  const pullRequest = await deps.openDraft({ repo: branchRepository, head: repo.toLowerCase() === branchRepository.toLowerCase() ? branch : `${repo.split("/")[0]}:${branch}`,
+    base: input.base, title: `Draft: ${input.goal.slice(0, 120)}`,
+    body: `Owner-reviewed source-change request ${id}.\n\nGoal: ${input.goal}\n\nReviewed SHA-256: ${digest}\nPublished commit: ${sha}\n\nTests: not run locally. GitHub CI must validate this exact SHA before review; do not merge without matching checks.`, draft: true });
+  store.sqlite.prepare("UPDATE branch_source_requests SET status = 'published', published_sha = ? WHERE id = ? AND owner = ? AND status = 'publishing'").run(sha, id, deps.owner);
+  return { id, status: "published", sha, pullRequest };
 }
 
 export function pendingBranchSourceChanges(deps: SelfDevelopmentDeps): Array<{ id: string; runId: string; name: string; goal: string; repository: string; base: string; expiresAt: string }> {
@@ -219,9 +302,9 @@ function projectInstructions(name: string, base: string): string {
     "You are modifying Branch Agent itself inside an isolated Git worktree.",
     "Never edit the installed application, its private data, credentials, or the protected source checkout.",
     "Keep the requested change scoped, preserve the Branch Grown Up design direction, and do not remove provider support or legal notices.",
-    "Run the relevant focused tests and npm run build, then inspect git.diff before offering the result.",
-    `When the owner asks for a pull request, use github.pull_request_from_changes with name ${name}, targetRepository ${branchRepository}, and base ${base}.`,
-    "The pull-request summary must include a Why merge this section. Open a draft; never merge it or change a shared branch yourself.",
+    "Do not execute local tests or build scripts from chat-influenced source. Show the diff to the owner in the Branch app.",
+    `Only the owner may publish a draft from the source-change review card after a separate confirmation; never use github.pull_request_from_changes for ${name} or ${base}.`,
+    "Remote CI must validate the exact published SHA. Never merge or change a shared branch.",
   ].join(" ");
 }
 

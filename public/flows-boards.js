@@ -414,12 +414,22 @@ async function sourceRequestsCard() {
     line.append(plain("p", item.goal));
     if (item.taskRunId) line.append(plain("p", `Run: ${item.taskRunId}`));
     if (item.summary) line.append(plain("pre", item.summary));
+    if (item.publishedSha) line.append(plain("p", `Published commit: ${item.publishedSha}. Check GitHub CI for this exact SHA before review.`));
     if (item.folder && (item.status === "review" || item.status === "failed")) {
       const diff = plain("pre", "");
+      const publish = button("branch.source.publish", "Publish reviewed draft PR", () => {});
+      publish.disabled = true;
       line.append(button("branch.source.diff", "View read-only diff", () => act(status, async () => {
         const result = await api(`branch/source-change/diff?id=${encodeURIComponent(item.id)}`);
         diff.textContent = `Changed files (including untracked; untracked contents are not shown):\n${result.files}${result.filesTruncated ? "\n[List truncated]" : ""}\nTracked diff:\n${result.diff}${result.truncated ? "\n[Diff truncated]" : ""}`;
+        publish.disabled = item.status !== "review" || !result.publishDigest;
+        publish.onclick = () => act(status, async () => {
+          if (!globalThis.confirm(`Publish a draft PR for ${item.name}? This pushes only the exact reviewed diff. No local tests run; verify CI at the published commit before review.`)) return;
+          await api("branch/source-change/publish", { id: item.id, digest: result.publishDigest, confirm: "publish-draft" });
+          await drawCards();
+        });
       })));
+      if (item.status === "review") line.append(publish);
       line.append(diff);
     }
     list.append(line);

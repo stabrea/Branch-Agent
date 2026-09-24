@@ -37,6 +37,9 @@ test("source-change inbox and decisions require owner HTTP authentication", asyn
   assert.deepEqual(await inbox.json(), { requests: [], reviews: [] });
   assert.equal((await fetch(path + "/diff?id=00000000-0000-4000-8000-000000000000")).status, 401);
   assert.equal((await fetch(path + "/diff?id=00000000-0000-4000-8000-000000000000", { headers })).status, 400);
+  assert.equal((await fetch(path + "/publish", { method: "POST" })).status, 401);
+  assert.equal((await fetch(path + "/publish", { method: "POST", headers, body: JSON.stringify({ id: "bad", digest: "bad", confirm: "publish-draft" }) })).status, 400);
+  assert.equal((await fetch(path + "/publish", { method: "POST", headers, body: JSON.stringify({ id: "00000000-0000-4000-8000-000000000000", digest: "0".repeat(64), confirm: "publish-draft" }) })).status, 400);
   assert.equal((await fetch(path, { method: "POST", headers, body: JSON.stringify({ id: "bad", decision: "deny" }) })).status, 400);
   assert.equal(app.store.profiles.isOwner(), true);
 });

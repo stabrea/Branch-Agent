@@ -52,13 +52,13 @@ test("an owner's fork becomes an isolated Branch Agent project without touching 
 
   assert.equal(result.ready, true);
   assert.equal(result.pullRequestTarget, "stabrea/Branch-Agent");
-  assert.match(result.instructions, /Run the relevant focused tests and npm run build/);
+  assert.match(result.instructions, /Do not execute local tests or build scripts/);
   assert.ok(calls.some((call) => call.includes("clone")), "the owner's fork is cloned into the workspace, not the installation");
   assert.ok(calls.some((call) => call.join(" ").includes("remote add upstream https://github.com/stabrea/Branch-Agent.git")));
   assert.ok(calls.some((call) => call.join(" ").includes("fetch upstream mac/cross-platform")));
   assert.ok(calls.some((call) => call.join(" ").includes("worktree add -b branch/self-remove-button .branch-worktrees/self-remove-button upstream/mac/cross-platform")));
   assert.match(saved[0].folder, /^branch-agent-source\/\.branch-worktrees\//);
-  assert.match(saved[0].instructions, /Why merge this/);
+  assert.match(saved[0].instructions, /Only the owner may publish a draft/);
   assert.deepEqual(active, [{ active: "branch-agent-remove-button" }]);
   assert.ok(sites.every((site) => site.startsWith("https://github.com/")));
 
@@ -157,7 +157,7 @@ test("owner approval runs bounded coding in the isolated copy without publish pe
   await assert.rejects(branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), /missing/);
   deps.exists = async () => true;
   deps.git = async ({ args }) => completed(args.includes("diff") ? "sample diff" : "");
-  assert.deepEqual(await branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), { id: proposal.id, diff: "sample diff", truncated: false, files: "", filesTruncated: false });
+  assert.deepEqual(await branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), { id: proposal.id, diff: "sample diff", truncated: false, files: "", filesTruncated: false, publishDigest: null });
   store.sqlite.prepare("UPDATE branch_source_requests SET worktree_folder = ? WHERE id = ?").run("../other", proposal.id);
   await assert.rejects(branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), /invalid/);
   assert.equal(runs.length, 1);
