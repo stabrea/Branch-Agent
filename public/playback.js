@@ -4,7 +4,6 @@
  * turning). This file adds the other half: a small player, first on the message box while the
  * file is still attached, then again inside the message once it is sent.
  */
-import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 function el(tag, className) {
   const node = document.createElement(tag);
@@ -41,7 +40,9 @@ function renderComposerClips() {
     const remove = el("button");
     remove.type = "button";
     remove.textContent = "×";
-    remove.title = t("playback.remove-clip", { name: clip.name });
+    // The words come from the locale files once they load; this file also runs as a plain script (no static import).
+    remove.title = clip.name;
+    void import("./i18n.js").then(({ t }) => { remove.title = t("playback.remove-clip", { name: clip.name }); }, () => undefined);
     remove.addEventListener("click", () => {
       pending = pending.filter((other) => other !== clip);
       URL.revokeObjectURL(clip.url);
