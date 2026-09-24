@@ -2,8 +2,8 @@ import { z } from "zod";
 import type { Store } from "../store.js";
 import { audit } from "../audit.js";
 import { lockedDown } from "../lockdown.js";
-import { settingsCatalogue } from "./catalogue.js";
-import { applyWithPins, changesFor, currentValue, resetProposals, type Proposal, type Writer } from "./changes.js";
+import { settingsCatalogue, switchPositions, type FieldSpec } from "./catalogue.js";
+import { applyWithPins, changesFor, currentValue, loosens, resetProposals, type Proposal, type Value, type Writer } from "./changes.js";
 import { pinnedIds, pinId, pins, savePins, type Pin } from "./pins.js"; // mac7/wake-pins
 import { fileMap, lastSave, openFile, saveFile, SlotSchema, undoFile } from "./file-map.js";
 import { perFileBytes } from "../context-files.js"; // phase2/accounts
@@ -159,15 +159,37 @@ function why(deps: SettingsKitDeps, setting: string) {
  * Q65 review: the way out for a setting whose saved record cannot be read (voice): the whole record is put
  * back to how Branch ships, because neither the kit nor the setting's own card can change a record they
  * cannot read. The owner's alone, like every route here, and not while Lockdown holds the settings.
+ * Q83: it always asks for confirmLoosening, since a record that cannot be read cannot say what it held,
+ * unless every field already ships at its most careful value.
  */
-const PutBackBody = z.object({ key: z.string().max(80) }).strict();
+const PutBackBody = z.object({ key: z.string().max(80), confirmLoosening: z.boolean().default(false) }).strict();
+
+/** Every value a field can hold (a number's two ends): enough to tell whether one value is its most careful. */
+function holdable(field: FieldSpec): Value[] {
+  const kind = field.kind;
+  if (kind.type === "switch") return [...switchPositions];
+  if (kind.type === "yes-no") return [true, false];
+  if (kind.type === "choice") return [...kind.options];
+  return [kind.min, kind.max];
+}
 function putBack(deps: SettingsKitDeps, input: unknown) {
   if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
-  const spec = settingsCatalogue.find((entry) => entry.key === PutBackBody.parse(input).key);
+  const body = PutBackBody.parse(input);
+  const spec = settingsCatalogue.find((entry) => entry.key === body.key);
   if (!spec?.putBack) throw new SettingsKitError(404, "That setting has no way to be put back as shipped.");
   // Only a record that cannot be read: a readable one is changed through the kit or its card, where a
   // loosening asks and a pin holds (a stale button in another window must not wipe what the owner just set).
   if (!spec.refuses?.(deps.store, deps.owner)) throw new SettingsKitError(409, `${spec.name} reads as it should, so there is nothing to put back. Change it in its card or with Put settings back.`);
+  // Q83: check if putting back to shipped values is loosening by comparing actual saved record values
+  // to the shipped defaults. Use raw saved values, not the app's parsed reading.
+  // Q83 (NAS 1024d5f): put-back is offered only for a record that cannot be read, and such a record cannot be
+  // trusted to say what it held, however its keys are spelt or nested. So it always asks, unless every field
+  // Branch weighs already ships at its most careful value.
+  const loosenings = spec.fields
+    .filter((field) => holdable(field).some((value) => loosens(field, value, field.initial as Value, spec)))
+    .map((field) => field.label);
+  if (loosenings.length && !body.confirmLoosening)
+    throw new SettingsKitError(409, `${loosenings.length} of these make Branch less careful (${loosenings.join(", ")}). Tick "Yes, make it less careful" to go ahead, or untick them.`);
   spec.putBack(deps.store, deps.owner);
   audit(deps.store, deps.owner, { action: "policy.changed", actor: deps.owner, subject: `${spec.name}: put back as shipped`,
     reason: "The saved record could not be read, so the whole of it was started again from how Branch ships", outcome: "saved" });

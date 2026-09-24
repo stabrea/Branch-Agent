@@ -137,7 +137,7 @@ export const putBackVoiceLabel = "Put voice settings back as shipped";
 const voiceUnreadable = (store: Store, owner: string): string | null =>
   VoiceSettingsSchema.safeParse(store.get("settings", owner, "voice")?.data ?? {}).success ? null
     : `The voice settings saved on this computer cannot be read, so they are not changed from here: changing one would bring back everything else in that record. "${putBackVoiceLabel}", under Settings, Put settings back, starts them again from how Branch ships.`;
-const voiceHooks: Pick<SettingSpec, "read" | "write" | "refuses" | "putBack"> = {
+const voiceHooks: Pick<SettingSpec, "read" | "write" | "refuses" | "putBack" | "shipped"> = {
   read: (store, owner) => {
     try { return { ...voiceSettings(store, owner) }; } catch { return {}; }
   },
@@ -150,6 +150,7 @@ const voiceHooks: Pick<SettingSpec, "read" | "write" | "refuses" | "putBack"> = 
   },
   // The whole record is replaced, not merged: the voice card's own save cannot read what is there either.
   putBack: (store, owner) => { store.save("settings", owner, "voice", VoiceSettingsSchema.parse({})); },
+  shipped: () => VoiceSettingsSchema.parse({}),
 };
 
 /** Q65: the files you write, saved through their module, which takes one nested record ("files.soul" is `{ files: { soul } }`). */
@@ -201,6 +202,8 @@ export interface SettingSpec {
   refuses?: (store: Store, owner: string) => string | null;
   /** Q65 review: puts a record that cannot be read back to how Branch ships, the way out of `refuses`. */
   putBack?: (store: Store, owner: string) => void;
+  /** The whole record `putBack` writes, so put-back can tell a key the record should not have. */
+  shipped?: () => Record<string, unknown>;
 }
 
 const sw = (field: string, label: string, t: string, guard: Guard): FieldSpec =>

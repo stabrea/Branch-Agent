@@ -206,17 +206,22 @@ function resetCard(overview) {
 function putBackRows(overview, status) {
   return overview.settings.filter((spec) => spec.refused && spec.canPutBack).flatMap((spec) => {
     const why = el("p", undefined, spec.refused, "field-note");
+    // Q83: what is shipped may be less careful than what the unreadable record held, and then this asks too.
+    const confirm = document.createElement("input");
+    confirm.type = "checkbox";
+    const asks = confirmRow(confirm);
     const button = quiet(`settings-kit.put-back.${spec.key}`, `Put ${spec.name.toLowerCase()} settings back as shipped`, async () => {
       button.disabled = true;
       try {
-        await api("settings-kit/put-back", { key: spec.key });
+        await api("settings-kit/put-back", { key: spec.key, confirmLoosening: confirm.checked });
         why.remove();
+        for (const node of asks) node.remove();
         button.remove();
         status.textContent = say("settings-kit.put-back-done", "Put back as shipped.");
         globalThis.branchVoiceReady?.();
       } catch (error) { status.textContent = error.message; button.disabled = false; }
     });
-    return [why, button];
+    return [why, ...asks, button];
   });
 }
 
