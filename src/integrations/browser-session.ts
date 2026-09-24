@@ -113,14 +113,38 @@ export class BrowserSession {
     this.borrowed = true;
     context.setDefaultTimeout(10000);
     await context.route('**/*', this.borrowedRoute);
-    context.on('page', page => { void this.closeTabWeOpened(page); });
+    context.on('page', page => {
+      // A new tab's first navigation reaches the route before its page exists (Playwright: "issued before
+      // the frame is created"); it waits there for this, the tab it belongs to, found by its address.
+      for (const waiting of [...this.tabless]) if (waiting.url === page.url()) waiting.found(page);
+      // And the other way round: the tab may be told of before its first navigation reaches the route.
+      this.recentTabs.set(page.url(), page);
+      setTimeout(() => { if (this.recentTabs.get(page.url()) === page) this.recentTabs.delete(page.url()); }, 5000).unref?.();
+      void this.closeTabWeOpened(page);
+    });
     return this.newPage();
+  }
+  /** New tabs by the address they opened at, for a few seconds (see openBorrowed). */
+  private readonly recentTabs = new Map<string, Page>();
+  /** First navigations of new tabs, waiting for the tab they belong to (see openBorrowed). */
+  private readonly tabless = new Set<{ url: string; found: (page: Page) => void }>();
+  /** The tab a request belongs to; for a new tab's first navigation, the tab once it exists, or null if it never does. */
+  private async pageOf(request: ReturnType<Route['request']>): Promise<Page | null> {
+    try { return request.frame().page(); } catch { /* no frame yet, or a service worker's request */ }
+    if (!request.isNavigationRequest()) return null; // a worker of theirs: nothing to decide
+    const seen = this.recentTabs.get(request.url());
+    if (seen) return seen;
+    return new Promise<Page | null>(resolve => {
+      const waiting = { url: request.url(), found: (page: Page) => { settle(page); } };
+      const timer = setTimeout(() => { settle(null); }, 3000);
+      const settle = (page: Page | null): void => { clearTimeout(timer); this.tabless.delete(waiting); resolve(page); };
+      this.tabless.add(waiting);
+    });
   }
   private readonly borrowedRoute = (route: Route): Promise<void> => this.answerBorrowed(route);
   /** In the owner's window: Branch's tab by the website list, a tab it opened by nothing, anything else as it was. */
   private async answerBorrowed(route: Route): Promise<void> {
-    let page: Page | undefined;
-    try { page = route.request().frame().page(); } catch { page = undefined; } // a service worker of theirs
+    const page = await this.pageOf(route.request());
     if (page && await this.isOurs(page)) return this.answerRoute(route);
     if (page && await this.openedByUs(page)) { await route.abort().catch(() => undefined); return; }
     await route.fallback().catch(() => undefined);
