@@ -135,14 +135,26 @@ export class RemoteMemoryBackend implements MemoryBackend {
     const headers: Record<string, string> = {};
     if (this.config.auth) headers[this.config.auth.header] = await this.config.auth.key();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
     const init: RequestInit = { method, redirect: "error", signal: controller.signal, headers };
     if (body !== undefined) { headers["content-type"] = "application/json"; init.body = JSON.stringify(body); }
+
+    // Create a timeout promise that aborts the controller
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        controller.abort();
+        reject(new Error("Request timeout"));
+      }, this.config.timeoutMs);
+    });
+
     try {
-      return await this.config.fetch(url, init);
+      // Race the fetch against the timeout
+      return await Promise.race([
+        this.config.fetch(url, init),
+        timeoutPromise,
+      ]);
     } catch (error) {
       throw new Error(`The outside memory service could not be reached: ${error instanceof Error ? error.message : String(error)}`);
-    } finally { clearTimeout(timer); }
+    }
   }
   async read(owner: string, id: string): Promise<MemoryRecord | undefined> {
     const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`);
@@ -163,7 +175,9 @@ export class RemoteMemoryBackend implements MemoryBackend {
     return mine(owner, parseOne(await response.json()), id);
   }
   async search(owner: string, query: string, agent?: string): Promise<MemoryRecord[]> {
-    const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}/search?q=${encodeURIComponent(query)}`);
+    // Redact any secrets from the search query before sending to the outside service
+    const { value: cleanQuery } = redactLeaksIn(query);
+    const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}/search?q=${encodeURIComponent(cleanQuery)}`);
     if (!response.ok) throw new Error(`The outside memory service refused to search facts (status ${response.status})`);
     const records = parseMany(await response.json()).map((record) => mine(owner, record));
     return records.filter((record) => visibleTo(record, agent));

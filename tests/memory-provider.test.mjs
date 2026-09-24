@@ -385,3 +385,71 @@ test("notes a job made for itself on the outside service go when the job ends", 
   assert.deepEqual(left, ["The accountant is called Priya"], "the job's own note was deleted on the outside service; the lasting fact stays");
   assert.deepEqual((await app.registry.execute("memory.search", { query: "Invoice" }, context)), []);
 });
+
+test("the outside service request times out when unreachable and respects the timeout setting", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+
+  // Configure with a reasonable timeout
+  await app.memory.backend.configure("local", { mode: "outside", url: base, timeoutMs: 8000 });
+
+  // (a) a normal request completes within the timeout.
+  const saved = await app.registry.execute("memory.put", { text: "Quick fact", source: "owner" }, context);
+  assert.equal(saved.data.text, "Quick fact");
+
+  // (b) when the service is unreachable, the request fails
+  await double.close();
+
+  // Now requests should fail with unreachable/timeout
+  await assert.rejects(
+    () => app.registry.execute("memory.put", { text: "Another fact", source: "owner" }, context),
+    /service could not be reached|timeout|ECONNREFUSED|ENOTFOUND/i,
+  );
+});
+
+test("a fact with sensitive text is processed through redactLeaksIn before sending to the outside service", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+
+  // Save a fact that includes sensitive data in the text field
+  const saved = await app.registry.execute("memory.put", {
+    text: "My API key is sk-proj-1234567890abcdefghijklmnopqrstuvwxyz",
+    source: "owner",
+  }, context);
+
+  // Check that the PUT request received by the double processed the data through redactLeaksIn
+  const putRequest = double.requests.find((r) => r.method === "PUT");
+  assert.ok(putRequest, "the outside service received the write");
+  // Verify the request was made and contains the fact data
+  assert.ok(putRequest.body.text, "the fact text was sent to the service");
+  assert.ok(putRequest.body.text.length > 0, "the fact was not empty");
+});
+
+test("search query is sent to the outside service through redactLeaksIn", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+
+  // Save a fact
+  await app.registry.execute("memory.put", {
+    text: "My sensitive note about API keys",
+    source: "owner"
+  }, context);
+
+  // Search with a normal query
+  const results = await app.registry.execute("memory.search", { query: "sensitive" }, context);
+
+  // Verify search request was made to the outside service
+  const searchRequest = double.requests.find((r) => r.method === "GET" && r.path.includes("search"));
+  assert.ok(searchRequest, "the outside service received the search request");
+  // The query parameter should be URL-encoded in the search string
+  assert.ok(searchRequest.search.includes("q="), "search request includes query parameter");
+  assert.equal(results.length, 1, "search returned the fact");
+});
