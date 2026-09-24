@@ -23,6 +23,9 @@ const rules = [({ last }) => {
   const remind = /^remind (\S+)$/.exec(text);
   if (remind) return call("schedules.create", { prompt: remind[1], kind: "reminder", dueAt: inMinutes(1).toISOString(),
     deliverTo: { channel: "hand", chatId: "stranger-9" } });
+  const narrow = /^deliver narrow (\S+)$/.exec(text);
+  if (narrow) return call("schedules.create", { prompt: `say ${narrow[1]}`, kind: "task", dueAt: inMinutes(1).toISOString(),
+    permissions: [], deliverTo: { channel: "hand", chatId: "stranger-9" } });
   if (text === "brief to stranger") return call("brief.configure", { deliverTo: { channel: "hand", chatId: "stranger-9" } });
   if (text === "send brief") return call("brief.send", {});
   if (text === "broadcast") return call("channels.broadcast", { text: "BROADCAST7711", to: [{ channel: "hand", chatId: "stranger-9" }] });
@@ -106,4 +109,26 @@ test("a Trunk cannot point the owner's morning brief at a chat, whatever it may 
   await app.registry.execute("brief.send", {}, app.runtime.context({ source: "owner" }));
   for (let i = 0; i < 50 && !chat.sent.length; i++) await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(chat.sent.map((one) => one.chatId), ["friend-1"]);
+});
+
+test("a Trunk that may not send to chats cannot send the owner's brief to the chat the owner chose", async (t) => {
+  const { app, ada, chat } = await setup(t, ["brief.manage"]);
+  await app.registry.execute("brief.configure", { deliverTo: { channel: "hand", chatId: "friend-1" } }, app.runtime.context({ source: "owner" }));
+  assert.match((await app.trunks.say(ada.id, "send brief")).output ?? "", /Permission denied: channels\.send/);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(chat.sent, [], "nothing reached the chat");
+  // The control: once the owner lets her send, the brief goes to the chat the owner chose.
+  app.trunks.edit(ada.id, { permissions: ["brief.manage", "channels.send"] });
+  await app.trunks.say(ada.id, "send brief");
+  for (let i = 0; i < 50 && !chat.sent.length; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(chat.sent.map((one) => one.chatId), ["friend-1"]);
+});
+
+test("a Trunk that may send has its schedule's result sent, even when the schedule's own run was given no tools", async (t) => {
+  // The sending is the schedule's, not its run's tools: what counts is whether the Trunk may send now (NAS ADV-P).
+  const { app, ada, hers, sent } = await setup(t, ["schedules.manage", "channels.send"]);
+  await app.trunks.say(ada.id, "deliver narrow NARROW7717");
+  assert.equal(hers().length, 1);
+  await app.scheduler.tick(inMinutes(5));
+  assert.equal((await sent("NARROW7717")).length, 1, JSON.stringify(hers()[0].data.delivery));
 });

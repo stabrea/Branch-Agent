@@ -33,6 +33,8 @@ const GUARDS = [
   { file: "src/channels/connectors.ts", tool: "channels.digest", args: { channel: "telegram", chatId: "1" } },
   // Choosing the chat the morning brief goes to is choosing where the owner's messages go.
   { file: "src/brief.ts", tool: "brief.configure", args: { deliverTo: { channel: "telegram", chatId: "1" } } },
+  { file: "src/brief.ts", tool: "brief.send", args: {},
+    setup: (app) => app.store.save("settings", app.runtime.owner, "brief", { deliverTo: { channel: "telegram", chatId: "1" } }) },
   // A schedule that sends its result to a chat is sending to the owner's chats, only later.
   { file: "src/scheduler.ts", tool: "schedules.create",
     args: { prompt: "hello", kind: "task", dueAt: "2099-01-01T00:00:00.000Z", deliverTo: { channel: "telegram", chatId: "1" } } },
