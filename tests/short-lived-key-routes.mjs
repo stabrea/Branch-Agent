@@ -1099,6 +1099,11 @@ export const ROUTES = {
   "/api/webhooks/:id/preview": "other POST",
   "/api/webhooks/:id/remove": "owner POST",
   "/api/webhooks/:id/test": "owner POST",
+  // The wiki: pages the owner and the assistant have written together, and what those pages used
+  // to say. All of it is the owner's — a script's key neither reads a page nor writes one.
+  "/api/wiki": "owner GET POST",
+  "/api/wiki/page": "owner GET DELETE",
+  "/api/wiki/history": "owner GET",
   "/api/workflows": "other POST",
   "/api/workflows/:id": "look",
   "/api/workflows/:id/pause": "task POST",
