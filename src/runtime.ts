@@ -8,7 +8,7 @@ import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
 import { personalHold } from "./personal/guard.js"; // R17-C integration review
-import { settingsHold } from "./settings-kit/tools.js";
+import { settingsHold, settingsPreview } from "./settings-kit/tools.js";
 import { conversationCarrier, outsideSourceOf, type OutsideSource } from "./outside-origin.js"; // mac7/outside-resume
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
@@ -2545,7 +2545,10 @@ ${run.output.slice(0, 6000)}`;
     // A once-only question is never answered by a kept yes (R17-S-C integration review).
     const answered = decision === "ask" && !hold?.onceOnly
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact) : undefined;
-    const noted = extra.note ? `${label} — ${extra.note}` : label; // mac7/r17-g
+    // Q50: a change to Branch's own settings is asked about with its exact before and after.
+    const preview = settingsPreview(this.store, tool, args, context);
+    const shown = preview ? `${label}: ${preview}` : label;
+    const noted = extra.note ? `${shown} — ${extra.note}` : shown; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
       remember: hold?.onceOnly ? "never" : extra.exact ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
