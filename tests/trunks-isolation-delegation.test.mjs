@@ -1030,3 +1030,33 @@ test("Q144: carrying on the flow run of a Trunk that is gone still ends it sayin
   assert.equal(app.store.run(runId).status, "failed", "its task ended too");
   assert.match(String(app.store.run(runId).output ?? ""), /no longer here/, "and says why");
 });
+
+test("Q149 (NAS 839e64b): forking the flow run of a Trunk set to start elsewhere is refused as Q44's 409, and no copy is made", async (t) => {
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { startServer } = await import("../dist/server.js");
+  const { app, root } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  app.flowsBoards.setMode("time-travel", { mode: "on" }); // so each run's steps are kept to fork from
+  const graph = app.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  const { runId } = await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}));
+  await app.flows.settled(runId);
+  startsOnTower(app, ada);
+  const runs = () => Number(app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM flow_graph_runs").get().n);
+  const before = runs();
+  assert.throws(() => app.flowsBoards.timeTravel.fork(runId, { seq: 1 }), (error) => onTower.test(error.message) && error.status === 409);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  t.after(() => server.close());
+  const answer = await fetch(new URL(`/api/flows-boards/flows/${runId}/fork`, server.url), { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ seq: 1 }) });
+  const body = await answer.json();
+  assert.equal(answer.status, 409, JSON.stringify(body));
+  assert.match(String(body.error), onTower);
+  assert.equal(runs(), before, "no copy was made");
+});

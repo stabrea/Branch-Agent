@@ -123,6 +123,11 @@ export class FlowGraphRunner {
     const trunk = this.trunkOf(runId);
     return trunk ? this.runtime.trunkWorkRefusal(trunk) : null;
   }
+  /** The same refusal as the error to throw: Q44's own kind (answered 409) when that is why (Q149, NAS 839e64b). */
+  whyNotError(runId: string): Error | null {
+    const trunk = this.trunkOf(runId);
+    return trunk ? this.runtime.trunkWorkError(trunk) : null;
+  }
   /** Q119: whose run this is, read without stamping anyone on it: null for the owner's own, or one never worked. */
   trunkOf(runId: string): string | null {
     const saved = this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined;
