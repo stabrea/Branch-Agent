@@ -14,10 +14,11 @@ import type { Store } from "../store.js";
  *
  * The short list is what a conversation needs to read and answer: ask the person a question, read
  * files, read what Branch remembers, look something up on the web, and read the instructions of an
- * installed skill. Searching is not its own permission — searching files is `files.read`, searching
- * memory is `memory.read`, and searching the web is `web.read`. Every one of them only looks:
- * `isReadOnlyPermission` in src/policy.ts holds for all five, and `tests/chat-allowlist.test.mjs`
- * checks that it still does.
+ * installed skill. A proposal may only record a pending request for owner review: it cannot run Git.
+ * Searching is not its own permission — searching files is `files.read`, searching
+ * memory is `memory.read`, and searching the web is `web.read`. `isReadOnlyPermission` in
+ * src/policy.ts marks these as safe to run without a separate approval; the proposal's only effect
+ * is an inert request record, and tests assert it cannot acquire `git.remote`.
  *
  * Integration review (mac7/chat-allowlist): `skills.read` is on the list because a skill is
  * instructions a task reads, not power it gains. Loading one hands the model words; every tool the
@@ -25,7 +26,7 @@ import type { Store } from "../store.js";
  * a skill can describe running a command and the command is still refused. Without it, "/commands"
  * and every skill the owner installed quietly stop working over chat, with no message saying why.
  */
-export const chatSafePermissions = ["user.ask", "files.read", "memory.read", "skills.read", "web.read"] as const;
+export const chatSafePermissions = ["user.ask", "files.read", "memory.read", "skills.read", "web.read", "branch.propose_source_change"] as const;
 
 /**
  * Things a chat's task never gets, whatever the owner's settings say. Most of them the tools behind
@@ -55,7 +56,7 @@ export const neverFromChatFamilies: readonly string[] = [
 ];
 /** Whether the owner may hand this one to a chat at all. The owner's own devices never are. */
 export const grantableToChat = (permission: string): boolean =>
-  !neverFromChat.includes(permission) && !neverFromChatFamilies.some((family) => permission.startsWith(family));
+  permission !== "git.remote" && !neverFromChat.includes(permission) && !neverFromChatFamilies.some((family) => permission.startsWith(family));
 
 /** One line of the owner's list: who it is about, and what those chats may also use. */
 export const ChatPermissionRuleSchema = z.object({
