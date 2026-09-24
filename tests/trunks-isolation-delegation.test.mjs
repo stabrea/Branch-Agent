@@ -349,3 +349,79 @@ test("a workflow one Trunk runs because another Trunk messaged it remembers as t
   assert.ok(kept, "Bo's workflow ran and kept its fact");
   assert.equal(kept.data.scope, `agent:trunk:${bo.id}`, "as Bo, not as Ada who sent the message");
 });
+
+test("a workflow a Trunk started carries on as that Trunk, whoever resumes it, and never as another Trunk", async (t) => {
+  const { mkdir: makeFolder, writeFile: write } = await import("node:fs/promises");
+  const { app } = await fixture(t, [({ system, last }) => {
+    if (last?.role !== "user") return null;
+    const text = String(last.content ?? "");
+    if (text.startsWith("run ")) return call("workflows.run", { id: text.slice("run ".length) });
+    if (text.startsWith("resume ")) return call("workflows.resume", { id: text.slice("resume ".length) });
+    if (text.startsWith("remember ")) return call("memory.put", { text: text.slice("remember ".length), source: "me" });
+    return null;
+  }, ({ last }) => (last?.role === "tool" ? `Result: ${last.content}` : null)]);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" }), bo = app.trunks.create({ name: "Bo" });
+  for (const trunk of [ada, bo])
+    app.trunks.edit(trunk.id, { permissions: ["memory.read", "memory.write", "files.read", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  await app.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, app.runtime.context());
+  await app.trunks.say(ada.id, "remember zebra Ada ADAOWN5150");
+  await write(join(app.runtime.workspace, "note.md"), "SHARED-NOTE");
+  await makeFolder(join(app.runtime.workspace, ".branch-agents", ada.id), { recursive: true });
+  await write(join(app.runtime.workspace, ".branch-agents", ada.id, "note.md"), "ADA-NOTE");
+  const workflow = await app.registry.execute("workflows.create", { name: "later", steps: [
+    { name: "ok?", kind: "approval", question: "Carry on?" },
+    { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } },
+    { name: "read", kind: "tool", tool: "files.read", args: { path: "note.md" } }] }, app.runtime.context());
+  await app.trunks.say(ada.id, `run ${workflow.id}`); // Ada starts it; it stops to ask the owner
+  assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "waiting_approval");
+  // Bo cannot carry Ada's work on: here a wait Ada's workflow stopped at, which asks nobody.
+  const waiting = await app.registry.execute("workflows.create", { name: "wait", steps: [
+    { name: "a while", kind: "wait", waitMinutes: 60 }, { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] }, app.runtime.context());
+  await app.trunks.say(ada.id, `run ${waiting.id}`);
+  assert.equal(app.workflows.view(app.runtime.owner, waiting.id).status, "waiting_time");
+  const after = lastEvent(app);
+  await app.trunks.say(bo.id, `resume ${waiting.id}`);
+  assert.match(outcomesSince(app, after, "workflows.resume").join(""), /Another Trunk started this/);
+  // The owner says yes on their own screen: the rest runs as Ada, not with the owner's whole memory and files.
+  const done = await app.workflows.resume(app.runtime.owner, workflow.id);
+  const text = JSON.stringify(done.state);
+  assert.equal(done.status, "completed", text.slice(0, 400));
+  assert.doesNotMatch(text, /OWNERPRIV3391/, "the owner's private fact is not handed to Ada's workflow");
+  assert.match(text, /ADAOWN5150/, "Ada's own fact");
+  assert.match(text, /ADA-NOTE/, "Ada's own folder");
+  assert.doesNotMatch(text, /SHARED-NOTE/);
+  // Run again by Ada and stopped again, then Ada is removed: nobody carries her work on.
+  await app.trunks.say(ada.id, `run ${workflow.id}`);
+  app.trunks.remove(ada.id);
+  await assert.rejects(app.workflows.resume(app.runtime.owner, workflow.id), /no longer here/);
+});
+
+test("a flow a Trunk set going carries on as that Trunk when the owner approves it later", async (t) => {
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { existsSync: exists } = await import("node:fs");
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  await app.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, app.runtime.context());
+  const saved = app.flows.saveGraph({ name: "Later", input: {}, state: { found: "text" }, entry: "write",
+    nodes: [
+      { id: "write", name: "Write", kind: "tool", tool: "files.write", args: { path: "graph.md", content: "g" }, output: {} },
+      { id: "look", name: "Look", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { found: "text" } },
+    ],
+    edges: [{ from: "write", to: "look" }] });
+  // Set going by Ada's own work (as a flow tool in her turn would), held as a schedule so its write stops to ask.
+  const { runId } = await withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(saved.id, {}, undefined, "schedule"));
+  const paused = await app.flows.settled(runId);
+  assert.ok(paused.question, `it stopped to ask: ${paused.status} ${paused.error ?? ""}`);
+  app.flows.resumeGraph(saved.id, { runId, approve: true }); // the owner, on their own screen
+  const done = await app.flows.settled(runId);
+  const text = JSON.stringify(done);
+  assert.equal(done.status, "completed", text.slice(0, 400));
+  assert.doesNotMatch(text, /OWNERPRIV3391/, "the owner's private fact is not handed to Ada's flow");
+  assert.ok(exists(join(app.runtime.workspace, ".branch-agents", ada.id, "graph.md")), "written in Ada's own folder");
+  assert.equal(exists(join(app.runtime.workspace, "graph.md")), false);
+});

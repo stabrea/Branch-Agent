@@ -80,6 +80,7 @@ export class Trunks {
       scrub: (value) => runtime.hideSecrets(value) });
     this.refresh();
     runtime.trunkShape = (options) => this.shapeOf(options);
+    runtime.trunkKeysFor = (id) => this.records.find(id)?.keys ?? null; // Q114
     runtime.modeFollows = (sessionId) => this.followsRoom.get(sessionId) ?? null; // phase2/rooms
     byRuntime.set(runtime, this);
     scheduler.routeRun = (id) => this.routines.route(id, this.mode("routines") !== "off");

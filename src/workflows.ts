@@ -175,6 +175,15 @@ export class Workflows {
       .run(id, owner, index, step.name, step.kind, patch.status ?? "running", patch.attempts ?? 0,
         (patch.output ?? "").slice(0, 4000), patch.runId ?? null, patch.startedAt ?? now, now);
   }
+  /**
+   * Q114: the Trunk whose work this is. A fresh start takes whoever is at work now (none for the owner);
+   * carrying on keeps the one that started it, whoever presses resume.
+   */
+  private startedBy(owner: string, id: string, fresh: boolean): string | null {
+    const saved = (this.store.get("workflows", owner, id)?.data as { startedBy?: unknown } | undefined)?.startedBy;
+    if (!fresh && typeof saved === "string") return saved;
+    return this.runtime.trunkAtWork() ?? null;
+  }
   private setStatus(owner: string, id: string, patch: Record<string, unknown>): WorkflowView {
     const record = this.store.get("workflows", owner, id);
     if (!record) throw new Error("Workflow not found");
@@ -263,11 +272,13 @@ export class Workflows {
     const fresh = ["idle", "completed", "failed"].includes(current.status);
     const limit = this.limitFor(owner, id, fresh, within); // mac7/lockdown-fix
     const held = this.heldSource(owner, id, fresh, source); // mac7/outside-resume
+    const startedBy = this.startedBy(owner, id, fresh); // Q114
     current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit,
-      startedFrom: held, ...(fresh ? { cursor: 0 } : {}) });
+      startedFrom: held, startedBy, ...(fresh ? { cursor: 0 } : {}) });
     for (let index = current.cursor; index < current.steps.length; index++) {
-      const step = current.steps[index]!;
-      const outcome = await this.step(owner, id, index, step, current, held, chain, limit);
+      const step = current.steps[index]!, view = current;
+      const work = () => this.step(owner, id, index, step, view, held, chain, limit);
+      const outcome = startedBy ? await this.runtime.asTrunkWork(startedBy, work) : await work();
       if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
       // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).
       current = this.setStatus(owner, id, { cursor: outcome.cursor ?? index + 1, ...outcome.patch });

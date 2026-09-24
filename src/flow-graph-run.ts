@@ -65,6 +65,8 @@ type GraphWorkOptions = { source?: RunSource; chain?: readonly string[]; within?
 const limitKey = (runId: string): string => `flow-run-limit:${runId}`;
 /** mac7/outside-resume: who set a run going, when that was from outside (a schedule, a chat, another program). */
 const sourceKey = (runId: string): string => `flow-run-source:${runId}`;
+/** Q114: the Trunk whose work a run is, kept with it so whoever carries it on later does so as that Trunk. */
+const trunkKey = (runId: string): string => `flow-run-trunk:${runId}`;
 
 export class FlowGraphRunner {
   constructor(
@@ -97,8 +99,21 @@ export class FlowGraphRunner {
     return { runId: run.id, compiled };
   }
 
-  /** Works through the boxes from wherever the checkpoint says, writing the state after each one. */
+  /** Works through the boxes from wherever the checkpoint says, as the Trunk whose run it is (Q114), if any. */
   async work(runId: string, compiled: CompiledGraph, options: GraphWorkOptions = {}): Promise<GraphRunView> {
+    const trunk = this.heldTrunk(runId);
+    return trunk ? this.runtime.asTrunkWork(trunk, () => this.boxes(runId, compiled, options)) : this.boxes(runId, compiled, options);
+  }
+  /** Q114: taken from whoever is at work when the run first works, then kept as it was, whoever carries it on. */
+  private heldTrunk(runId: string): string | null {
+    const saved = this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined;
+    if (saved) return typeof saved.trunk === "string" ? saved.trunk : null;
+    const trunk = this.runtime.trunkAtWork() ?? null;
+    this.store.save("settings", this.owner, trunkKey(runId), { trunk });
+    return trunk;
+  }
+  /** Works through the boxes from wherever the checkpoint says, writing the state after each one. */
+  private async boxes(runId: string, compiled: CompiledGraph, options: GraphWorkOptions = {}): Promise<GraphRunView> {
     // mac7/lockdown-fix: a task's limit is kept with the run, so the owner's yes later does not widen it.
     if (options.within) this.store.save("settings", this.owner, limitKey(runId), { within: [...options.within] });
     options = { ...options, source: this.holdSource(runId, options.source) }; // mac7/outside-resume

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
 import { memoryAgent } from "./trunks/memory-scope.js"; // FQ-routing.isolated-agents
+import { trunkFilesHome } from "./trunks/file-root.js"; // Q114
 import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
@@ -149,7 +150,7 @@ import { autonomyPrompt } from "./autonomy/hooks.js"; // r17-b
 import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
 import { walkCheck, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
 import { underTask } from "./task-scope.js"; // mac7/walk-rules
-import { resolve as resolvePath } from "node:path"; // mac7/walk-rules
+import { posix, resolve as resolvePath } from "node:path"; // mac7/walk-rules
 
 // R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -1203,6 +1204,24 @@ ${run.output.slice(0, 6000)}`;
    * connects it; on its own every task is an ordinary one.
    */
   trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
+  /** Q114: a Trunk's own key choices, by its id, or null once it is gone (set by src/trunks). */
+  trunkKeysFor: (id: string) => TrunkRunShape["keys"] | null = () => null;
+  /** Q114: the Trunk whose work is going on here (a turn, or something it set going), if any. */
+  trunkAtWork(): string | undefined { return currentAccountCall()?.trunk?.id; }
+  /**
+   * Q114: work a Trunk started and someone carries on later (a workflow step or a flow box after the owner's
+   * yes, or anyone's resume) goes on as that Trunk: its mark, so its keys and memory, and its own folder.
+   * Refused for a Trunk that is gone, and while another Trunk is at work.
+   */
+  async asTrunkWork<T>(trunkId: string, work: () => Promise<T>): Promise<T> {
+    const marked = currentAccountCall()?.trunk;
+    if (marked?.id === trunkId) return work();
+    if (marked?.id) throw new Error("Another Trunk started this, so only that Trunk or the owner can carry it on.");
+    const keys = this.trunkKeysFor(trunkId);
+    if (!keys) throw new Error("The Trunk that started this is no longer here, so it does not carry on.");
+    const inFolder = () => this.coding ? this.coding.inPlace(posix.join(trunkFilesHome, trunkId), work) : work();
+    return withAccountCall({ owner: this.owner, sessionId: "", runId: "", trunk: { keys, id: trunkId } }, inFolder);
+  }
   /**
    * phase2/rooms: the conversation whose mode this one follows. A Trunk's turn in a room runs in that
    * Trunk's own conversation for the room, so it is held to the room's conversation (src/trunks/).
