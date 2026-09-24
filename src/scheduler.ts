@@ -188,6 +188,7 @@ export class Scheduler {
     if (definition.kind === "evaluation" && startedFromChat(context, this.store))
       throw new Error("Running an evaluation suite is for the owner only, and a message from a chat app cannot prove who is typing. Do it in the Branch app.");
     const { webhook, ...rest } = definition;
+    const startedBy = context.trunk ?? this.runtime.trunkAtWork();
     // A check script is a program on this computer: it waits for the owner's own yes, whoever asked.
     return this.store.save("schedules", context.owner, randomUUID(), {
       ...rest,
@@ -196,6 +197,8 @@ export class Scheduler {
       // mac7/chat-source: a schedule a chat message's task makes stays the chat's, so its turns are
       // held to the same guards. Without this, a chat could put owner-only work behind a due time.
       ...(startedFromChat(context, this.store) ? { fromChat: true } : {}),
+      // Q118: a schedule a Trunk makes stays that Trunk's work, so each turn runs as it, never as the owner.
+      ...(startedBy ? { startedBy } : {}),
       status: definition.gate ? "paused" : "pending",
       ...(definition.gate ? { gateApproved: null, pausedBecause: awaitingApproval } : {}),
       history: [],
@@ -279,12 +282,15 @@ export class Scheduler {
       // A Trunk's routine that cannot run as its Trunk does not run at all, never as the owner.
       if (routed && "refuse" in routed) throw new Error(routed.refuse);
       const route = routed;
-      const run = data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
+      const work = async (): Promise<Run> => data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
         prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[],
         source: data.fromChat === true ? "channel" : "schedule", ...route?.options,
         onStarted: (started) => { entry.runId = started.id; if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late }); },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
+      // Q118: a schedule a Trunk made (not one of its routines, which run as it already) runs as that Trunk,
+      // and not at all once the Trunk is gone.
+      const run = !route && typeof data.startedBy === "string" ? await this.runtime.asTrunkWork(data.startedBy, work) : await work();
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
       route?.finished(run); // R17-A (Trunks)
       this.runtime.notifyEvent("schedule.fired", { scheduleId: record.id, runId: run.id, status: run.status, trigger });

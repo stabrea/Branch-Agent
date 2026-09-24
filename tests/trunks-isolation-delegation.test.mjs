@@ -470,3 +470,34 @@ test("saving a Trunk's paused workflow again, or forking its flow run, still car
   assert.equal(view.status, "completed", JSON.stringify(view).slice(0, 300));
   assert.doesNotMatch(JSON.stringify(view), /OWNERPRIV3391/, "the copy runs as Ada too");
 });
+
+test("a schedule a Trunk made fires as that Trunk, never with the owner's whole memory, and not at all once it is gone", async (t) => {
+  const { app } = await fixture(t, [({ last }) => {
+    if (last?.role !== "user") return null;
+    const text = String(last.content ?? "");
+    if (text.startsWith("remember ")) return call("memory.put", { text: text.slice("remember ".length), source: "me" });
+    if (text.startsWith("schedule ")) return call("schedules.create", { prompt: "look for zebra", kind: "task",
+      dueAt: new Date(Date.now() + Number(text.slice("schedule ".length)) * 60000).toISOString() });
+    if (text.endsWith("look for zebra")) return call("memory.search", { query: "zebra" });
+    return null;
+  }, ({ last }) => (last?.role === "tool" ? `Found: ${last.content}` : null)]);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "memory.write", "schedules.manage", "schedules.read"] });
+  await app.trunks.introduced();
+  await app.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, app.runtime.context());
+  await app.trunks.say(ada.id, "remember zebra Ada ADAOWN5150");
+  await app.trunks.say(ada.id, "schedule 1");
+  await app.trunks.say(ada.id, "schedule 120");
+  const mine = () => app.store.list("schedules", app.runtime.owner).sort((a, b) => a.data.dueAt.localeCompare(b.data.dueAt));
+  assert.equal(mine().length, 2, "Ada made two schedules");
+  await app.scheduler.tick(new Date(Date.now() + 5 * 60000));
+  const fired = mine()[0].data;
+  assert.doesNotMatch(String(fired.lastResult ?? ""), /OWNERPRIV3391/, "the owner's private fact never reaches Ada's schedule");
+  assert.match(String(fired.lastResult ?? ""), /ADAOWN5150/, "Ada's own fact does");
+  app.trunks.remove(ada.id);
+  await app.scheduler.tick(new Date(Date.now() + 180 * 60000));
+  const after = mine()[1].data;
+  assert.equal(after.history?.at(-1)?.status, "failed", "a schedule of a Trunk that is gone does not run");
+  assert.doesNotMatch(JSON.stringify(after), /OWNERPRIV3391/);
+});
