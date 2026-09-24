@@ -429,3 +429,23 @@ test("put-back always asks for a record it cannot read, whatever it holds, and p
     else assert.match(JSON.stringify(back.body), /reads as it should/, `${JSON.stringify(saved).slice(0, 80)}: a record voice reads is not put back`);
   }
 });
+
+test("Q99: put-back asks when a saved value the kit does not weigh differs from shipped; an unknown key is not one of those values", async (t) => {
+  const { store, owner, call } = await served(t);
+  const { VoiceSettingsSchema } = await import("../dist/voice.js");
+  // Unreadable (systemVoice), every weighed field as shipped or more careful, but a spending cap and the speech route set.
+  const record = { systemVoice: "bogus", liveMaxDollars: 0.2, liveMaxMinutes: 2, sttRoute: "local" };
+  store.save("settings", owner, "voice", record);
+  const refused = await call("/api/settings-kit/put-back", { key: "voice" });
+  assert.equal(refused.status, 409, JSON.stringify(refused.body));
+  assert.match(refused.body.error, /liveMaxDollars/);
+  assert.deepEqual(store.get("settings", owner, "voice").data, record, "nothing written without the yes");
+  assert.equal((await call("/api/settings-kit/put-back", { key: "voice", confirmLoosening: true })).status, 200);
+  assert.deepEqual(voiceSettings(store, owner), VoiceSettingsSchema.parse({}));
+  // A key the voice record does not have is not one of the values weighed here (Q83 asks for it instead,
+  // because a guard may have gone there): the refusal names the guard, not "other saved values".
+  store.save("settings", owner, "voice", { systemVoice: "bogus", somethingElse: 5 });
+  const stray = await call("/api/settings-kit/put-back", { key: "voice" });
+  assert.equal(stray.status, 409, JSON.stringify(stray.body));
+  assert.doesNotMatch(stray.body.error, /other saved values/);
+});
