@@ -970,3 +970,19 @@ test("backend cache eviction: old configs are cleared when settings change", asy
   sizes = memoryProviderTestHook(provider);
   assert.equal(sizes.backendCacheSize, 0, "cache cleared when switched to built-in");
 });
+
+test("a fact that hiding a key would make too long is refused before it is sent, and the service stays readable", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  await app.memory.backend.write("local", "kept", { text: "Owner prefers oat milk" });
+  const key = "AKIA" + "Q7XZ3M9K2P4R6T8W";
+  const text = "x".repeat(4000 - key.length - 1) + " " + key;
+  assert.equal(text.length, 4000);
+  await assert.rejects(app.memory.backend.write("local", "long", { text }), /too long once the key-like values in it are hidden/);
+  assert.equal(double.requests.filter((r) => r.method === "PUT" && r.path.endsWith("/long")).length, 0, "nothing was sent");
+  const listed = await app.memory.backend.list("local");
+  assert.deepEqual(listed.map((r) => r.id), ["kept"], "the service still lists what it holds");
+});

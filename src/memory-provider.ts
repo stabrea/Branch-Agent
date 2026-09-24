@@ -198,7 +198,11 @@ export class RemoteMemoryBackend implements MemoryBackend {
     const key = `${owner}:${id}`;
     const doWrite = async (): Promise<MemoryRecord> => {
       const checked = MemoryDataSchema.parse(data); // never sends anything off this computer unvalidated
-      const clean = redactLeaksIn(checked).value; // remove any accidental secrets before sending to the outside service
+      // Remove any accidental secrets before sending, then check again: a hidden value's marker can be longer than
+      // the value, and a fact the service keeps but Branch cannot read back would break listing and forgetting.
+      const hidden = MemoryDataSchema.safeParse(redactLeaksIn(checked).value);
+      if (!hidden.success) throw new Error(tooLongOnceHidden);
+      const clean = hidden.data;
       const response = await this.request("PUT", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`, clean);
       if (!response.ok) throw new Error(`The outside memory service refused to save a fact (status ${response.status})`);
       return mine(owner, parseOne(await this.readResponseWithBytesCap(response)), id);
@@ -406,6 +410,7 @@ export class MemoryProvider implements MemoryBackend {
   }
 }
 
+const tooLongOnceHidden = "This fact would be too long once the key-like values in it are hidden, so it was not sent to the outside memory service. Shorten it and save it again.";
 const stillHeld = (count: number): string => `${count === 1 ? "One fact" : `${count} facts`} could not be deleted from the outside memory service and may still be kept there. Branch will not use ${count === 1 ? "it" : "them"} again.`;
 
 /** For tests: how many update locks and outside connections a provider is holding right now. */
