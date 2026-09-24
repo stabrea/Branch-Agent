@@ -192,13 +192,20 @@ export class GitTools {
     // Q98: publishing is a push too, so in Branch's source it gets the same checks, on the address Git will really use.
     // Q101: they run on a remote of their own, so a refused publish leaves the folder's own remote as it was (in a
     // worktree the remotes are the source checkout's).
-    await this.run(cwd, ["remote", "remove", publishCheckRemote], signal).catch(() => undefined);
-    await this.run(cwd, ["remote", "add", publishCheckRemote, address.href], signal);
-    const refused = await this.validateRemoteURL(cwd, publishCheckRemote, true, signal).finally(() =>
-      this.run(cwd, ["remote", "remove", publishCheckRemote], signal).catch(() => undefined));
-    if (refused) throw new Error(refused);
+    if (inBranchSource(cwd)) {
+      await this.run(cwd, ["remote", "remove", publishCheckRemote], signal).catch(() => undefined);
+      await this.run(cwd, ["remote", "add", publishCheckRemote, address.href], signal);
+      // Taken away even when the run is being stopped, so the unchecked address never stays behind.
+      const refused = await this.validateRemoteURL(cwd, publishCheckRemote, true, signal).finally(() =>
+        this.run(cwd, ["remote", "remove", publishCheckRemote], AbortSignal.timeout(10_000)).catch(() => undefined));
+      if (refused) throw new Error(refused);
+    }
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
+    // And once more on the name that is pushed: settings for that name kept outside the repository (the
+    // computer's own Git settings) can still send it somewhere else.
+    const renamed = await this.validateRemoteURL(cwd, input.remote, true, signal);
+    if (renamed) throw new Error(renamed);
     const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branchRef(branch)], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
   }

@@ -447,6 +447,17 @@ test("Q101: a refused publish leaves the folder's own remote as it was", { skip:
   assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "origin", "the check's own remote is gone");
 });
 
+test("Q101: settings for the pushed name kept in the computer's own Git settings are checked too", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  const home = await mkdtemp(join(tmpdir(), "branch-q101-home-"));
+  await writeFile(join(home, ".gitconfig"), "[remote \"origin\"]\n\tpushurl = https://evil.example/global.git\n");
+  const before = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
+  process.env.HOME = home; process.env.XDG_CONFIG_HOME = join(home, ".config");
+  t.after(() => { for (const [key, value] of Object.entries(before)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
+});
+
 
 test("Q98: git.push and publishing send the branch as refs/heads/<name>, the ref the contract walks", { skip: posixOnly }, async (t) => {
   const { app, folder, cwd } = await plantedBare(t);
