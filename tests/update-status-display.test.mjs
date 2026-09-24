@@ -44,6 +44,7 @@ async function openApp(t) {
         };
       },
       checkForUpdates: async () => ({ phase: "checking", message: "", progress: null, release: null }),
+      modelSettings: async () => ({}),
     };
   });
   await page.goto(server.url);
