@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { Completion, CompletionRequest, Provider } from "../contracts.js";
 import { refuseSignInForTrunk } from "../accounts/context.js"; // mac7/lockdown-fix
+import { startCall } from "../windows-command.js";
 
 /**
  * Batch 20 (wave 8): using a coding assistant already installed on this computer as a model.
@@ -161,10 +162,10 @@ const limitWords = /usage limit|rate limit|limit reached|quota exceeded|exceeded
 
 export const runCliAgent: SpawnAgent = (row, prompt, signal, limits, home) =>
   new Promise((resolve) => {
-    const child = spawn(row.command, row.args, {
-      stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false,
-      env: home ? { ...strippedEnvironment(), [home.name]: home.path } : strippedEnvironment(),
-    });
+    const env = home ? { ...strippedEnvironment(), [home.name]: home.path } : strippedEnvironment();
+    // An npm-installed program is a .cmd launcher on Windows, which cannot be started without a shell (src/windows-command.ts).
+    const start = startCall(row.command, row.args, env);
+    const child = spawn(start.command, start.args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false, env });
     let stdout = "", stderr = "", settled = false;
     const finish = (code: number | null, missing?: boolean): void => {
       if (settled) return;

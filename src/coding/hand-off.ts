@@ -11,6 +11,7 @@ import type { ToolRegistry } from "../registry.js";
 import { globFits, worktreeOf, type ContractBook } from "../self-development-contract.js";
 import type { Store } from "../store.js";
 import type { GitOutcome, GitRunOptions } from "../integrations/git-run.js";
+import { startCall } from "../windows-command.js";
 
 /**
  * Handing a coding job to Claude Code or Codex, the programs the owner signed in to with their own plans, so the
@@ -37,6 +38,10 @@ export const HandOffInputSchema = z.object({
   /** Which of the owner's accounts for that program; absent means its usual sign-in. */
   account: z.string().trim().min(1).max(64).optional(),
   minutes: z.number().int().min(1).max(120).default(30),
+  /** The program's model for this job, when the one in its own settings is not the one wanted (or not on the plan). */
+  model: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/, "A model name has letters, digits, dots, dashes and colons only").optional(),
+  /** How hard it thinks: each program's own effort setting. */
+  effort: z.enum(["low", "medium", "high"]).optional(),
 }).strict();
 export type HandOffInput = z.infer<typeof HandOffInputSchema>;
 
@@ -47,11 +52,14 @@ export const claudeAllowedCommands = [
 ];
 
 export interface ProgramCall { command: string; args: string[]; cwd: string }
-export function programCall(program: HandOffProgram, folder: string): ProgramCall {
+export function programCall(program: HandOffProgram, folder: string, model?: string, effort?: string): ProgramCall {
+  const chosen = model ? ["--model", model] : [];
   if (program === "claude-code")
-    return { command: "claude", cwd: folder, args: ["-p", "--output-format", "stream-json", "--verbose",
+    return { command: "claude", cwd: folder, args: ["-p", "--output-format", "stream-json", "--verbose", ...chosen,
+      ...(effort ? ["--effort", effort] : []),
       "--permission-mode", "acceptEdits", "--allowedTools", ...claudeAllowedCommands] };
-  return { command: "codex", cwd: folder, args: ["exec", "--json", "--sandbox", "workspace-write", "--cd", folder, "-"] };
+  return { command: "codex", cwd: folder, args: ["exec", "--json", "--sandbox", "workspace-write", "--cd", folder, ...chosen,
+    ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []), "-"] };
 }
 
 export interface ProgramRun { code: number | null; lines: string[]; stderr: string; timedOut: boolean; missing: boolean }
@@ -59,7 +67,8 @@ export type RunProgram = (call: ProgramCall, prompt: string, env: NodeJS.Process
   timeoutMs: number, onLine: (line: string) => void) => Promise<ProgramRun>;
 
 export const runProgram: RunProgram = (call, prompt, env, signal, timeoutMs, onLine) => new Promise((done) => {
-  const child = spawn(call.command, call.args, { cwd: call.cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false });
+  const start = startCall(call.command, call.args, env);
+  const child = spawn(start.command, start.args, { cwd: call.cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false });
   const lines: string[] = [];
   let pending = "", stderr = "", timedOut = false, settled = false;
   const finish = (code: number | null, missing = false): void => {
@@ -217,7 +226,7 @@ export class HandOff {
     const onLine = (line: string): void => {
       if (shown++ < 200) this.deps.store.event(context.runId, "code.hand_off.step", { program: input.program, line: line.slice(0, 500) });
     };
-    const ran = await (this.deps.run ?? runProgram)(programCall(input.program, folder.absolute), input.task, env,
+    const ran = await (this.deps.run ?? runProgram)(programCall(input.program, folder.absolute, input.model, input.effort), input.task, env,
       context.signal, input.minutes * 60_000, onLine);
     if (ran.missing) throw new Error(`"${programCall(input.program, folder.absolute).command}" is not installed on this computer.`);
     const report = input.program === "codex" ? readCodex(ran.lines) : readClaude(ran.lines);
