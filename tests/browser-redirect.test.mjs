@@ -340,3 +340,45 @@ test("a page in Branch's own window cannot start a shared worker that fetches an
   await new Promise((resolve) => setTimeout(resolve, 1500));
   assert.equal(forbiddenHits, 0, "the unlisted website was never asked");
 });
+
+test("a page in Branch's own window cannot start a service worker round the block to fetch an unlisted website", async (t) => {
+  const hits = [];
+  const forbidden = createServer((request, response) => { hits.push(request.url); response.end("must not load"); });
+  forbidden.listen(0, "127.0.0.1");
+  await once(forbidden, "listening");
+  t.after(async () => { forbidden.close(); await once(forbidden, "close"); });
+  const forbiddenOrigin = `http://127.0.0.1:${forbidden.address().port}`;
+  const allowed = createServer((request, response) => {
+    if (request.url.startsWith("/sw.js")) {
+      // A worker that fetches the unlisted website as soon as it installs, and again whenever it is asked to.
+      response.setHeader("content-type", "text/javascript");
+      response.end(`self.addEventListener("install", (event) => { self.skipWaiting(); event.waitUntil(fetch(${JSON.stringify(`${forbiddenOrigin}/on-install`)}).catch(() => {})); });
+self.addEventListener("activate", (event) => event.waitUntil(clients.claim()));
+self.addEventListener("message", (event) => { fetch(event.data).catch(() => {}); });`);
+      return;
+    }
+    // Round the block: the prototype's own method, and the page's copy deleted.
+    response.setHeader("content-type", "text/html");
+    response.end(`<!doctype html><title>start</title><script>
+const to = ${JSON.stringify(`${forbiddenOrigin}/on-message`)}, said = [];
+const go = async (how, register) => { try { await register(); await navigator.serviceWorker.ready;
+  (await navigator.serviceWorker.getRegistration()).active?.postMessage(to); said.push(how + " registered"); } catch { said.push(how + " refused"); }
+  document.title = said.join(", "); };
+go("prototype", () => ServiceWorkerContainer.prototype.register.call(navigator.serviceWorker, "/sw.js?1"));
+try { delete navigator.serviceWorker.register; } catch {}
+go("deleted", () => navigator.serviceWorker.register("/sw.js?2"));
+</script>`);
+  });
+  allowed.listen(0, "127.0.0.1");
+  await once(allowed, "listening");
+  t.after(async () => { allowed.close(); await once(allowed, "close"); });
+  const allowedOrigin = `http://127.0.0.1:${allowed.address().port}`;
+  const browser = new BranchBrowser({ allowedOrigins: [allowedOrigin] });
+  t.after(() => browser.close());
+  const registry = new ToolRegistry();
+  const { registerBrowser } = await import("../dist/integrations/browser.js");
+  registerBrowser(registry, browser);
+  await registry.execute("browser.navigate", { url: allowedOrigin }, context());
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  assert.deepEqual(hits, [], "the unlisted website was never asked, by a worker started either way");
+});
