@@ -148,3 +148,31 @@ test("a Trunk's own schedule does not run, nor send, while Trunks are switched o
     assert.equal(saved.runId ?? null, null, "no run was made");
   }
 });
+
+/** The owner's own task, allowed the brief's tools and whatever else is named: no Trunk and no agent. */
+const ownersTask = (app, ...more) => app.runtime.context({ source: "owner", permissions: ["brief.manage", ...more] });
+
+test("the owner's own task that may not send to chats cannot choose the chat the morning brief goes to", async (t) => {
+  const { app } = await setup(t, ["brief.manage"]); // the Trunk setup makes plays no part here
+  const settings = () => JSON.stringify(app.store.get("settings", app.runtime.owner, "brief")?.data ?? null);
+  await app.registry.execute("brief.configure", { deliverTo: { channel: "hand", chatId: "friend-1" } }, app.runtime.context({ source: "owner" }));
+  const before = settings();
+  await assert.rejects(app.registry.execute("brief.configure", { deliverTo: { channel: "hand", chatId: "stranger-9" } }, ownersTask(app)),
+    /Permission denied: channels\.send/);
+  assert.equal(settings(), before, "the brief still goes to the chat the owner chose");
+  // The control: the same call from a task that may also send to chats is saved.
+  await app.registry.execute("brief.configure", { deliverTo: { channel: "hand", chatId: "stranger-9" } }, ownersTask(app, "channels.send"));
+  assert.deepEqual(app.store.get("settings", app.runtime.owner, "brief")?.data?.deliverTo, { channel: "hand", chatId: "stranger-9" });
+});
+
+test("the owner's own task that may not send to chats cannot send the morning brief to the chat the owner chose", async (t) => {
+  const { app, chat } = await setup(t, ["brief.manage"]); // the Trunk setup makes plays no part here
+  await app.registry.execute("brief.configure", { deliverTo: { channel: "hand", chatId: "friend-1" } }, app.runtime.context({ source: "owner" }));
+  await assert.rejects(app.registry.execute("brief.send", {}, ownersTask(app)), /Permission denied: channels\.send/);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(chat.sent, [], "nothing reached the chat");
+  // The control: the same call from a task that may also send to chats goes to the owner's chat, once.
+  await app.registry.execute("brief.send", {}, ownersTask(app, "channels.send"));
+  for (let i = 0; i < 50 && !chat.sent.length; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(chat.sent.map((one) => one.chatId), ["friend-1"]);
+});
