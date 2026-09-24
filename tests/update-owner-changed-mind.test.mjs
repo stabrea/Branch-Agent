@@ -54,10 +54,26 @@ test("an automatic install that finds the channel just changed only switches it,
   const handler = source.slice(source.indexOf('"branch:update-install"'));
   const moved = handler.indexOf("const moved = updater.selectedChannel !== readiness.channel;");
   const setChannel = handler.indexOf("updater.setChannel(readiness.channel);");
-  const goesBack = handler.indexOf("if (automatic === true && moved) return updater.status;");
+  const goesBack = handler.indexOf("if (automatic === true && moved) throw new UpdateDeferredError(");
   const install = handler.indexOf("updater.install(");
   assert.ok(moved >= 0 && moved < setChannel, "the channel it was on is read before it is switched");
   assert.ok(goesBack > setChannel && goesBack < install, "and an automatic install goes back before installing anything");
   const { Updater } = await import("../dist/desktop/updater.js");
   assert.equal(typeof Object.getOwnPropertyDescriptor(Updater.prototype, "selectedChannel")?.get, "function", "the updater says which channel it is on");
+});
+
+test("a deferral gives the install claim back, so Check and Update work again (NAS 1f61d43)", async () => {
+  const { UpdateInstallClaim } = await import("../dist/desktop/update-install-claim.js");
+  const { UpdateDeferredError } = await import("../dist/desktop/updater.js");
+  const claim = new UpdateInstallClaim();
+  // The handler's shape: a switch-only automatic install defers.
+  await assert.rejects(claim.run(() => "idle", () => false, async () => { throw new UpdateDeferredError("The update channel was just changed"); }), /just changed/);
+  assert.equal(claim.active, false, "the claim is given back");
+  let looked = 0;
+  await claim.run(() => "idle", () => false, async () => { looked += 1; return "installed"; });
+  assert.equal(looked, 1, "the next install runs");
+  // Control: a plain return keeps the claim until hand-over, which is why the switch-only case must throw.
+  const kept = new UpdateInstallClaim();
+  await kept.run(() => "idle", () => false, async () => "switched");
+  assert.equal(kept.active, true);
 });

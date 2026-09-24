@@ -112,7 +112,9 @@ export function registerUpdaterIpc(
       // NAS 2e3ead6: an automatic install that finds the channel just changed only switches it. The release it
       // would take was never looked at on this channel (a Dev change that failed here, say), so the next turn looks
       // first, and the plan weighs what that look finds. The Update button, pressed by the owner, goes on.
-      if (automatic === true && moved) return updater.status;
+      // Thrown, not returned: the install claim is only given back on a throw (NAS 1f61d43), and the window's
+      // automatic look ignores a deferral.
+      if (automatic === true && moved) throw new UpdateDeferredError("The update channel was just changed, so Branch looks again before installing.");
       started = { channel: readiness.channel, automatic: automatic === true };
       await ensureIdle();
       diagnose("updater", "info", "Installing an update", { fields: { from: version, to: updater.status.release?.latestVersion ?? "" } });

@@ -53,6 +53,8 @@ import { readFile } from "node:fs/promises";
 import { createContext, runInContext } from "node:vm";
 import { allComfort, noteUpdateCheck } from "../dist/index.js";
 
+/** Set by the test once the page is loaded: resolves when its update look (comfort.js `updateAttempt`) is done. */
+let settled = async () => undefined;
 function clock() {
   let now = Date.parse("2026-09-24T12:00:00Z"), nextId = 0;
   const timers = new Map();
@@ -62,8 +64,8 @@ function clock() {
     async advance(ms) {
       const end = now + ms;
       for (;;) {
-        // The route is real, so the page may still be waiting on it: give it real time before looking at the timers.
-        await new Promise((r) => setTimeout(r, 150));
+        // The route is real: wait until the page's look has finished before looking at the timers (NAS 1f61d43).
+        await settled();
         const next = [...timers.entries()].sort((a, b) => a[1].at - b[1].at)[0];
         if (!next || next[1].at > end) break;
         timers.delete(next[0]); now = next[1].at; next[1].fn();
@@ -104,6 +106,12 @@ test("after one release fails, update by itself still looks when a look is due, 
   runInContext(renderer, context);
   context.Event = class { constructor(type) { this.type = type; } };
   context.document = { getElementById: (id) => id === "workspace" ? { hidden: true } : null, dispatchEvent: () => true };
+  settled = async () => {
+    for (let i = 0; i < 400; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      if (runInContext("updateAttempt", context) === false) return;
+    }
+  };
   context.testValues = allComfort(app.store, app.runtime.owner);
   runInContext("view = { values: testValues }; apply();", context);
   await time.advance(60_000);
