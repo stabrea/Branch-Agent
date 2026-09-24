@@ -2,7 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import { encodeQr, type QrMatrix } from "../remote/qr.js";
-import { isTailnetAddress } from "../remote/tailscale.js";
+import { isTailnetAddress, type ProbeTailscale, probeTailscale } from "../remote/tailscale.js";
 import { homeNetworkAddress } from "./address.js";
 import type { PhoneAppFile } from "./file.js";
 import { phoneAppDownloadName } from "./file.js";
@@ -92,10 +92,30 @@ export function doorHandler(state: DoorState) {
 
 export interface DoorView { url: string; address: string; port: number; expiresAt: string; qr: QrMatrix }
 
-/** Only one home network or Tailscale address; never every address, never a public one. */
-export function assertDoorAddress(address: string): void {
-  if (isIP(address) !== 4 || !(homeNetworkAddress(address) || isTailnetAddress(address)))
+/**
+ * Only one home network or Tailscale address; never every address, never a public one.
+ * A 100.64/10 address is accepted only when Tailscale reports it as this computer's own.
+ */
+export async function assertDoorAddress(address: string, probe: ProbeTailscale = probeTailscale): Promise<void> {
+  if (isIP(address) !== 4)
     throw new Error("The phone download only opens on a home network or Tailscale address.");
+  if (homeNetworkAddress(address)) return;
+  if (!isTailnetAddress(address))
+    throw new Error("The phone download only opens on a home network or Tailscale address.");
+  // A 100.64/10 address requires Tailscale verification
+  try {
+    const status = await probe();
+    if (!status.running)
+      throw new Error(`Tailscale is not running. The address ${address} is in Tailscale's range but cannot be verified.`);
+    if (!status.present)
+      throw new Error(`Tailscale is not installed. The address ${address} is in Tailscale's range but cannot be verified.`);
+    if (status.address !== address)
+      throw new Error(`This address (${address}) is in Tailscale's range but Tailscale does not report it as this computer's own address.`);
+  } catch (error) {
+    if (error instanceof Error)
+      throw error;
+    throw new Error(`Tailscale verification failed for ${address}: ${String(error)}`);
+  }
 }
 
 /** Makes one link on one address. `start` again replaces it; `stop` or the clock closes it. */
@@ -109,8 +129,8 @@ export class PhoneDoor {
     if (this.current && this.now() >= Date.parse(this.current.expiresAt)) this.stop();
     return this.server ? this.current : null;
   }
-  async start(input: { file: PhoneAppFile; bytes: Buffer; address: string; dictionaries: Dictionaries; lifetimeMs?: number; port?: number }): Promise<DoorView> {
-    assertDoorAddress(input.address);
+  async start(input: { file: PhoneAppFile; bytes: Buffer; address: string; dictionaries: Dictionaries; lifetimeMs?: number; port?: number; tailscale?: ProbeTailscale }): Promise<DoorView> {
+    await assertDoorAddress(input.address, input.tailscale);
     this.stop();
     const token = randomBytes(18).toString("base64url");
     const expiresAt = this.now() + (input.lifetimeMs ?? doorLifetimeMs);

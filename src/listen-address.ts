@@ -6,7 +6,7 @@ import { tunnelMark } from "./auth-limits.js";
 import { runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
 import { lockdownActive } from "./lockdown.js";
 import { currentPerson } from "./people/context.js";
-import { isTailnetAddress } from "./remote/tailscale.js";
+import { isTailnetAddress, probeTailscale, type ProbeTailscale } from "./remote/tailscale.js";
 import type { Store } from "./store.js";
 
 /**
@@ -30,14 +30,18 @@ import type { Store } from "./store.js";
  * Lockdown is on, when this computer answers on an address that is not private (a server with a
  * public address would be putting Branch on the internet), or when there is no local key for the
  * door to ask callers for. A refusal always lands on 127.0.0.1 — the safe answer is the one Branch
- * falls back to, never the wide one.
+ * falls back to, never the wide one. An IPv6 address that is not private is the one thing found that
+ * does not refuse: the wider door is the IPv4 wildcard, which a connection over IPv6 never reaches, so
+ * beside a private IPv4 network the door opens on private IPv4 networks only, and says so.
  *
  * "Private" here is stricter than the network rules' idea of a private address (src/network-policy.ts).
  * Those rules refuse to REACH an address, so they count an IPv6 address as private when the IPv4
  * address it carries is, and multicast and site-local besides. Opening a door is the other direction:
  * a 6to4, Teredo, NAT64 or IPv4-compatible address routes across the internet whatever it carries, so
- * `isLanListenAddress` accepts only an address a private network really hands out, plus a Tailscale
- * address, which Branch already treats as private for the paired door (src/remote/tailscale.ts).
+ * `isLanListenAddress` accepts only an address a private network really hands out, plus the address
+ * Tailscale itself reports as this computer's (src/remote/tailscale.ts). Tailscale's addresses come
+ * from 100.64.0.0/10, which is shared address space other networks hand out too, so being in that
+ * range is not enough on its own.
  */
 
 export const listenKey = "listen-address";
@@ -195,6 +199,11 @@ export interface ListenDecision {
   beyond: boolean;
   /** Why a wider door was refused, in plain words, or null when nothing was refused. */
   refusal: string | null;
+  /**
+   * When the wider door is open on private IPv4 networks only, because this computer also answers
+   * on an IPv6 address that is not private: that, in plain words. Null otherwise.
+   */
+  ipv4Only: string | null;
 }
 
 /** Every address this computer answers on, as `decideListen` wants them. */
@@ -205,13 +214,13 @@ export function ownAddresses(): OwnAddress[] {
 }
 
 /**
- * IPv4 addresses on this computer's own network: private (RFC 1918), link-local, the shared range
- * Tailscale hands out, and this computer's own loopback, which every version before this allowed.
+ * IPv4 addresses on this computer's own network: private (RFC 1918), link-local, and this computer's
+ * own loopback, which every version before this allowed. The shared range Tailscale hands out is not
+ * here: an address in it counts only when Tailscale reports it (see `isLanListenAddress`).
  */
 const lanV4 = new BlockList();
 for (const [base, bits] of [
-  ["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16], ["169.254.0.0", 16], ["100.64.0.0", 10],
-  ["127.0.0.0", 8],
+  ["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16], ["169.254.0.0", 16], ["127.0.0.0", 8],
 ] as const) lanV4.addSubnet(base, bits, "ipv4");
 
 /** IPv6 addresses on this computer's own network: unique local, link-local and loopback. */
@@ -222,11 +231,14 @@ for (const [base, bits] of [["fc00::", 7], ["fe80::", 10], ["::1", 128]] as cons
  * Whether the door may open on this address. Only a real address on the private network passes, and
  * an IPv4-mapped (::ffff:) spelling of one. Multicast, site-local, 6to4, Teredo, NAT64, translated and
  * IPv4-compatible addresses do not, whatever IPv4 address they carry.
+ *
+ * An address in Tailscale's range passes only when it is one of `tailnet`, the addresses Tailscale
+ * itself reports as this computer's, and never in its IPv6 spelling, which Tailscale does not report.
  */
-export function isLanListenAddress(address: string): boolean {
+export function isLanListenAddress(address: string, tailnet: readonly string[] = []): boolean {
   const bare = address.replace(/%.*$/, "");
   const kind = isIP(bare);
-  if (kind === 4) return lanV4.check(bare, "ipv4") || isTailnetAddress(bare);
+  if (kind === 4) return lanV4.check(bare, "ipv4") || (isTailnetAddress(bare) && tailnet.includes(bare));
   if (kind !== 6) return false;
   // node:net matches an IPv4 rule against the ::ffff:0:0/96 spelling of that IPv4 address, and only that one.
   return lanV6.check(bare, "ipv6") || lanV4.check(bare, "ipv6");
@@ -234,6 +246,45 @@ export function isLanListenAddress(address: string): boolean {
 
 /** An address is written into a Host header with brackets when it is IPv6. */
 const asHost = (address: string): string => (isIP(address) === 6 ? `[${address}]` : address);
+
+/** Every IPv4 address, to tell the IPv4-mapped (::ffff:) spelling of one from a real IPv6 address. */
+const anyV4 = new BlockList();
+anyV4.addSubnet("0.0.0.0", 0, "ipv4");
+
+/**
+ * Whether a connection reaches this address over IPv6 only: an IPv6 address that is not the mapped
+ * spelling of an IPv4 one. The wider door is the IPv4 wildcard, which such a connection never
+ * reaches (tests/listen-door-ipv4-only.test.mjs checks that with real sockets).
+ */
+function reachedOverIPv6Only(address: string): boolean {
+  const bare = address.replace(/%.*$/, "");
+  return isIP(bare) === 6 && !anyV4.check(bare, "ipv6");
+}
+
+/**
+ * The wider door, answering to the names of `reached`. `leftOut` is an IPv6 address that is not
+ * private, when there is one: the door then opens on private IPv4 networks only, and says so.
+ */
+function wideDoor(reached: readonly OwnAddress[], leftOut: string | null): ListenDecision {
+  return {
+    address: everyAddress, beyond: true, refusal: null,
+    ipv4Only: leftOut === null ? null : `This computer also answers on ${leftOut}, which is not a private`
+      + " address, so Branch listens on private IPv4 networks only.",
+    // "localhost" is here because a container's published port is reached by that name as often as
+    // by 127.0.0.1, and both mean this same door.
+    extraHosts: ["localhost", thisComputerAddress, "[::1]", ...reached.map((entry) => asHost(entry.address))],
+  };
+}
+
+/** Why an address this computer answers on keeps the door on this computer. */
+function notPrivate(address: string): string {
+  if (isTailnetAddress(address))
+    return `This computer answers on ${address}, which Tailscale does not report as this computer's own`
+      + " address, so Branch is listening on this computer only. If it is this computer's Tailscale address,"
+      + " connect Tailscale and start Branch again.";
+  return `This computer answers on ${address}, which is not a private address, so Branch is listening on`
+    + " this computer only. Branch listens beyond this computer on a private network and nowhere else.";
+}
 
 /**
  * Where the door goes, and why. The safe answer — 127.0.0.1, this computer only — is what every
@@ -245,9 +296,14 @@ export function decideListen(input: {
   /** The local key the door asks every caller for. */
   token: string;
   addresses: readonly OwnAddress[];
+  /**
+   * The addresses Tailscale itself reports as this computer's. Of the addresses in Tailscale's range,
+   * only these count as private; left out, none do.
+   */
+  tailnet?: readonly string[];
 }): ListenDecision {
   const stay = (refusal: string | null): ListenDecision =>
-    ({ address: thisComputerAddress, extraHosts: [], beyond: false, refusal });
+    ({ address: thisComputerAddress, extraHosts: [], beyond: false, refusal, ipv4Only: null });
   if (input.where === "this-computer") return stay(null);
   if (input.lockdown)
     return stay("Lockdown is on, so Branch is listening on this computer only.");
@@ -263,16 +319,47 @@ export function decideListen(input: {
   if (!outward.length)
     return stay("This computer answers on no address beyond itself, so Branch is listening on this"
       + " computer only.");
-  const open = outward.filter((entry) => !isLanListenAddress(entry.address));
-  if (open.length)
-    return stay(`This computer answers on ${open[0]!.address}, which is not a private address, so Branch is`
-      + " listening on this computer only. Branch listens beyond this computer on a private network and nowhere else.");
-  return {
-    address: everyAddress, beyond: true, refusal: null,
-    // "localhost" is here because a container's published port is reached by that name as often as
-    // by 127.0.0.1, and both mean this same door.
-    extraHosts: ["localhost", thisComputerAddress, "[::1]", ...outward.map((entry) => asHost(entry.address))],
-  };
+  const open = outward.filter((entry) => !isLanListenAddress(entry.address, input.tailnet));
+  // An IPv4 address that is not private would put the door on that network, so it refuses and is the
+  // one named, whichever came first. An IPv6 one would not, as the door is the IPv4 wildcard: the door
+  // opens on the private IPv4 networks alone, when there is one to open on.
+  const openV4 = open.find((entry) => !reachedOverIPv6Only(entry.address));
+  if (openV4) return stay(notPrivate(openV4.address));
+  const ipv4 = outward.filter((entry) => isIP(entry.address) === 4);
+  if (open.length && !ipv4.length) return stay(notPrivate(open[0]!.address));
+  return open.length ? wideDoor(ipv4, open[0]!.address) : wideDoor(outward, null);
+}
+
+/**
+ * `decideListen` for this computer: its own addresses, and what Tailscale itself reports about them.
+ * Tailscale is asked only when the wider door is asked for and this computer answers on an address in
+ * Tailscale's range. Tailscale missing, not running or not answering confirms nothing, so such an
+ * address keeps the door on this computer.
+ */
+export async function decideListenHere(input: {
+  where: ListenPlace;
+  lockdown: boolean;
+  token: string;
+  /** This computer's addresses; `ownAddresses()` when left out. */
+  addresses?: readonly OwnAddress[] | undefined;
+  /** How Tailscale is asked; `probeTailscale` when left out. */
+  tailscale?: ProbeTailscale | undefined;
+}): Promise<ListenDecision> {
+  const addresses = input.addresses ?? ownAddresses();
+  const asks = input.where === "private-network"
+    && addresses.some((entry) => !entry.internal && isTailnetAddress(entry.address));
+  const tailnet = asks ? await reportedTailnet(input.tailscale ?? probeTailscale) : [];
+  return decideListen({ where: input.where, lockdown: input.lockdown, token: input.token, addresses, tailnet });
+}
+
+/** The address Tailscale reports as this computer's, while it is running; nothing otherwise. */
+async function reportedTailnet(probe: ProbeTailscale): Promise<string[]> {
+  try {
+    const status = await probe();
+    return status.running && status.address ? [status.address] : [];
+  } catch {
+    return [];
+  }
 }
 
 /** What the owner's screen and `GET /api/listen` are told. */
@@ -285,5 +372,6 @@ export function listenView(store: Pick<Store, "get">, owner: string, decision: L
     listeningOn: decision.address,
     beyondThisComputer: decision.beyond,
     refusal: decision.refusal,
+    ipv4Only: decision.ipv4Only,
   };
 }

@@ -4390,7 +4390,12 @@ a note left behind by a crash is removed rather than trusted.
 
 **Reaching Branch from a phone.** Off by default. `POST /api/deployment/remote` with
 `{ "enabled": true }` asks `tailscale status --json` where this computer sits on its private network
-and opens a *second* listener bound to that address alone. The address must be inside
+and opens a *second* listener bound to that address alone. Tailscale's program is looked for where
+Tailscale installs it first (on a Mac the app's own
+`/Applications/Tailscale.app/Contents/MacOS/Tailscale`, then `/usr/local/bin` and `/opt/homebrew/bin`;
+on Linux `/usr/bin`, `/usr/local/bin` and `/usr/sbin`; on Windows the Tailscale folders under Program
+Files), and on `PATH` last. The whole check gets three seconds: a program still running then is
+ended, and nothing counts as confirmed. The address must be inside
 `100.64.0.0/10`, which is the range Tailscale hands out; anything else, including `0.0.0.0`, is
 refused. The loopback listener is untouched. While remote access is on, the Host and Origin checks
 (one shared `hostAllowed` used by the request handler, the API authorisation and the WebSocket
@@ -4482,7 +4487,7 @@ Settings → Computer, with two positions:
 | `where` | What it means |
 | --- | --- |
 | `this-computer` | `127.0.0.1`. Only this computer can reach Branch. This is how it ships. |
-| `private-network` | Every address this computer answers on. Anything that can reach this computer over your private network — another machine in the house, the computer running a container, a phone on the same Wi-Fi — can now open a connection to Branch. |
+| `private-network` | Every IPv4 address this computer answers on. Anything that can reach this computer over your private network — another machine in the house, the computer running a container, a phone on the same Wi-Fi — can now open a connection to Branch. |
 
 Be plain with yourself about the second one: you are moving Branch from "nobody but me, on this
 machine" to "anybody who is already on my network, if they have the key". That is a real change and
@@ -4531,8 +4536,18 @@ Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
 - **This computer answers at an address that is not private.** A machine with a public address would
   be putting Branch on the internet, which this setting is not for and will not do. "Private" is the
   same idea the network rules already use for addresses the assistant may not reach
-  (`10.x`, `172.16–31.x`, `192.168.x`, `169.254.x`, link-local and unique-local IPv6), plus a
-  Tailscale address, which Branch already treats as private for the phone door.
+  (`10.x`, `172.16–31.x`, `192.168.x`, `169.254.x`, link-local and unique-local IPv6), plus the
+  address Tailscale itself reports as this computer's. Tailscale's addresses come from
+  `100.64.0.0/10`, which other networks hand out too, so an address in that range counts as private
+  only when Tailscale, running on this computer, says it is this computer's own. With Tailscale not
+  installed, not connected or not answering within three seconds (the same check as for reaching
+  Branch from a phone, above), such an address keeps Branch on `127.0.0.1`; connect Tailscale and
+  start Branch again.
+  An IPv6 address that is not private is the one exception. The wider door is `0.0.0.0`, the IPv4
+  wildcard, which a connection over IPv6 never reaches. So when every IPv4 address this computer
+  answers on is private, Branch listens on those private IPv4 networks only and says so, on the
+  start-up line and as `ipv4Only` in `GET /api/listen`; the names it answers to then leave out the
+  IPv6 addresses. With no IPv4 network at all, it stays on `127.0.0.1`.
 - **There is no local key.** Without the session token there would be nothing for the door to ask
   for, so Branch will not open it.
 - **This computer answers on no address beyond itself.** With no network address there is nowhere to
