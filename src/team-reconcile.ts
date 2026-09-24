@@ -82,7 +82,7 @@ function linkedRuns(store: Store, runId: string): string[] {
 }
 
 /** The last run in this run's chain of carry-ons after restarts (itself when it was never carried on). */
-function latestCarryOn(store: Store, runId: string): string {
+export function latestCarryOn(store: Store, runId: string): string {
   let latest = runId;
   for (const seen = new Set<string>(); !seen.has(latest);) {
     seen.add(latest);
