@@ -3,7 +3,7 @@ import { mkdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
-import { explainGit, inBranchSource, type GitOutcome, type GitRunner } from "./git-run.js";
+import { branchRef, explainGit, inBranchSource, type GitOutcome, type GitRunner } from "./git-run.js";
 
 /**
  * Everyday version control for the owner: see what changed, look back through saved versions, work
@@ -189,7 +189,13 @@ export class GitTools {
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
-    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branch], signal, { timeoutMs: 180000 });
+    // Q98: publishing is a push too, so in Branch's source it gets the same checks, on the address Git will really use.
+    const refused = await this.validateRemoteURL(cwd, input.remote, true, signal);
+    if (refused) {
+      await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
+      throw new Error(refused);
+    }
+    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branchRef(branch)], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
   }
 
@@ -291,7 +297,7 @@ export class GitTools {
     const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     if (/^(main|master)$/i.test(branch) && !input.confirmed)
       throw new NeedsInputError(`This would send your work straight to "${branch}" on ${input.remote}, the copy everyone shares. Shall I go ahead?`);
-    const outcome = await this.run(cwd, ["push", input.remote, branch], signal, { timeoutMs: 120000 });
+    const outcome = await this.run(cwd, ["push", input.remote, branchRef(branch)], signal, { timeoutMs: 120000 });
     return { folder: input.folder, remote: input.remote, branch, sent: true, notes: notes(outcome) };
   }
   async pull(input: { folder: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {

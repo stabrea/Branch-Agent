@@ -394,3 +394,58 @@ test("Q96: a remote Git reads from an old .git/remotes or .git/branches file is 
     await assert.rejects(app.git.pull({ folder, remote, branch: "feature" }, signal), /not set in Git's settings/, remote);
   }
 });
+
+test("Q98: publishing from Branch's source gets the push checks: a rewritten address or a local helper is refused, and no remote is left", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://github.com/"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
+  assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "", "the refused address is not left behind");
+  execFileSync("git", ["config", "--local", "--unset", "url.https://evil.com/.insteadOf"], { cwd });
+  execFileSync("git", ["config", "--local", "credential.https://github.com.helper", "!echo planted"], { cwd });
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /credential helper/);
+  assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "");
+});
+
+test("Q98: publishing is held to the worktree-root rule like the Git tools", { skip: process.platform === "win32" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-publish-root-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const { marker } = await plantedRepository(workspace);
+  new ContractBook(app.store.sqlite).create(app.runtime.owner, { taskRunId: "run-1", sourceSha: sha, worktreePath: worktree, terms: {
+    allowedPaths: ["src/ui/**"], permissions: ["github.publish_repo"], expectedTests: ["t"], definitionOfDone: "d", sideEffects: [], rollbackPlan: "r" } });
+  // Publishing is registered only once GitHub access is set up; the refusal comes before GitHub is ever asked.
+  const { GitHubAccess } = await import("../dist/integrations/github.js");
+  const { registerGitHubProject } = await import("../dist/integrations/git-tools.js");
+  const { NetworkPolicy } = await import("../dist/network-policy.js");
+  registerGitHubProject(app.registry, new GitHubAccess({ apiBase: "http://127.0.0.1:9" }, new NetworkPolicy({ allowPrivateAddresses: true }), async () => "ghp_fake"), app.git);
+  const run = app.store.createRun(app.runtime.owner, "publish");
+  const context = app.runtime.context({ runId: run.id, source: "owner" });
+  await assert.rejects(app.registry.execute("github.publish_repo", { folder: `${worktree}/src/ui/x`, name: "demo" }, context),
+    /Git runs in Branch's own source only at a self-development worktree's root/);
+  assert.equal(existsSync(marker), false, "the planted program never ran");
+});
+
+test("Q98: publishing checks the address Git will push to, so a push-only rewrite is refused too", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.pushInsteadOf", "https://github.com/"], { cwd });
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd }); // should the check ever miss, nothing leaves this computer
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /insteadOf.*redirect/);
+  assert.equal(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }).trim(), "", "no remote is left");
+});
+
+test("Q98: git.push and publishing send the branch as refs/heads/<name>, the ref the contract walks", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
+  execFileSync("git", ["remote", "add", "origin", "https://github.com/o/r.git"], { cwd });
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  const pushed = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "push") pushed.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; });
+  for (const branch of ["worktrees/self-x/HEAD", "ORIG_HEAD", "side"])
+    await app.git.push({ folder, remote: "origin", branch }, AbortSignal.timeout(10_000)).catch(() => undefined);
+  await app.git.publish({ folder, url: "https://github.com/o/p.git", remote: "upstream", branch: "main-worktree/HEAD" }, AbortSignal.timeout(10_000)).catch(() => undefined);
+  assert.deepEqual(pushed, ["refs/heads/worktrees/self-x/HEAD", "refs/heads/ORIG_HEAD", "refs/heads/side", "refs/heads/main-worktree/HEAD"]);
+});

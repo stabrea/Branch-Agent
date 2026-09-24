@@ -5,7 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { audit, auditOrigins, type AuditOrigin } from "./audit.js";
 import type { ToolContext } from "./contracts.js";
-import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
+import { branchRef, type GitOutcome, type GitRunOptions } from "./integrations/git-run.js";
 import { commandFolder } from "./integrations/shell-config.js";
 import { cwdOf } from "./never-break/protected.js";
 import { isReadOnlyPermission } from "./policy.js";
@@ -370,7 +370,8 @@ const remotePermissions = new Set(["git.remote", "github.manage"]);
  * Branch pins the known settings (src/integrations/git-run.ts); this keeps Git out of such folders.
  */
 function gitBelowRoot(deps: ContractGuardDeps, name: string, args: unknown): string | null {
-  if (!/^(git|plans)\./.test(name)) return null;
+  // Q98: publishing runs `git remote` and `git push` in its folder too.
+  if (!/^(git|plans)\./.test(name) && name !== "github.publish_repo") return null;
   const named = (args as { folder?: unknown } | null)?.folder;
   const scope = workspacePath(deps.workspace, "", deps.registry.pathScope() || ".") ?? "";
   const folder = workspacePath(deps.workspace, scope, typeof named === "string" && named ? named : ".");
@@ -453,9 +454,12 @@ export function contractGuard(deps: ContractGuardDeps): (name: string, args: unk
     if (startsProgram(deps, name, args) && sourceCheckedOut(deps.workspace)) return confineCommand(deps, name, args, context);
     const held = heldTerms(deps, name, args, context);
     if (!held || !remotePermissions.has(held.permission)) return;
-    // git.push sends the branch it names (or the one checked out); that ref is the one walked.
+    // git.push and publishing send the branch they name (or the one checked out); that ref is the one walked.
     const named = (args as { branch?: unknown } | null)?.branch;
-    const ref = name === "git.push" && typeof named === "string" && named ? named : "HEAD";
+    const sends = (name === "git.push" || name === "github.publish_repo") && typeof named === "string" && named ? named : "";
+    // Walked as the branch itself (refs/heads/<name>), which is what the push sends: a bare name would let Git pick
+    // one of its own files first (ORIG_HEAD, worktrees/<id>/HEAD), so the walk and the push could differ.
+    const ref = branchRef(sends || "HEAD");
     const broken = await remoteBroken(deps, held.contract, context.signal, ref);
     if (broken) refuse(deps, context, name, held.contract.worktreePath, broken);
   };
