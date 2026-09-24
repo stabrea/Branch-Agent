@@ -150,14 +150,14 @@ test("F6 steps that keep working are offered as a skill idea, once, and acceptin
   assert.deepEqual(ideas[0].learned.evidence, ["files.write", "files.read"], "and carries the steps, in order");
   const memories = state.app.store.list("memory", "local").length;
   const skills = state.app.store.skills.list("local").length;
-  const decided = state.app.store.review.decide("local", ideas[0].id, true);
+  const decided = await state.app.store.review.decide("local", ideas[0].id, true);
   const draft = decided.applied.skillDraft;
   assert.match(draft.document, /^---\nname: [a-z-]+-steps\n/, "a skill file the editor can open");
   assert.match(draft.document, /1\. Use `files\.write`\.\n2\. Use `files\.read`\./);
   assert.equal(state.app.store.list("memory", "local").length, memories, "nothing is remembered by accepting it");
   assert.equal(state.app.store.skills.list("local").length, skills, "and nothing is installed");
   const other = state.app.store.review.propose("local", { kind: "skill-note", skillId: null, text: "a model's note" });
-  assert.deepEqual(state.app.store.review.decide("local", other.id, true).applied, { noted: true }, "other skill notes still only note");
+  assert.deepEqual((await state.app.store.review.decide("local", other.id, true)).applied, { noted: true }, "other skill notes still only note");
 });
 
 test("F7 a correction in the next message counts against what the previous task did", async (t) => {

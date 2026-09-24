@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import { copyFile, lstat, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
 import { randomUUID } from "node:crypto";
@@ -40,6 +40,21 @@ async function copyPlace(cwd: string, name: string): Promise<string> {
   return target;
 }
 
+/**
+ * Q107: the parallel copy called `name`, checked before it is removed. `git worktree remove --force` follows a
+ * link at the copies folder or at the copy itself to whatever worktree it leads to, so the copy must be a real
+ * folder at its own place in this repository; otherwise nothing is removed. Null when the copy is already gone:
+ * its place is then never handed to Git, since a link could appear there before Git looks (NAS 88d4a92).
+ */
+async function copyToRemove(cwd: string, name: string): Promise<string | null> {
+  const target = join(cwd, WORKTREE_HOME, name);
+  const found = await lstat(target).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; });
+  if (!found) return null;
+  if (!found.isDirectory() || canonical(target) !== join(canonical(cwd), WORKTREE_HOME, name))
+    throw new Error(`${WORKTREE_HOME}/${name} here is not a parallel copy Branch made in this folder (it is a link, or leads elsewhere), so nothing is removed.`);
+  return target;
+}
+
 export class GitTools {
   constructor(private readonly files: WorkspaceFiles, private readonly runner: GitRunner) {}
   /** Q100: told of every parallel copy made or removed here (`source` is the repository folder), for folder trust. */
@@ -50,6 +65,44 @@ export class GitTools {
     const target = await this.files.checked(path, true);
     if (!(await stat(target).catch(() => null))?.isDirectory()) throw new Error("That is not a folder in your workspace.");
     return target;
+  }
+  /**
+   * Q107 (NAS 28ba0db): the copy called `name` exactly as Git registered it, or null. Git is handed only that
+   * path, so it finds the copy by what it registered and never resolves the place through a link put there after
+   * the check. A folder the repository itself carries at that place is no copy, and is never handed to Git.
+   */
+  private async registered(cwd: string, name: string, signal: AbortSignal): Promise<string | null> {
+    const home = canonical(join(cwd, WORKTREE_HOME));
+    return (await this.worktreePaths(cwd, signal)).find((path) => basename(path) === name && canonical(dirname(path)) === home) ?? null;
+  }
+  /**
+   * Every folder on Git's worktree list, exactly as Git wrote it. With `-z` each field ends in a NUL, so a newline
+   * in a folder somebody made by hand cannot pass for a line of its own. Git before 2.36 has no `-z`: its lines, as before.
+   */
+  private async worktreePaths(cwd: string, signal: AbortSignal): Promise<string[]> {
+    const fields = await this.runner.run({ cwd, args: ["worktree", "list", "--porcelain", "-z"] }, signal);
+    if (fields.status === "completed")
+      return fields.stdout.split("\0").filter((field) => field.startsWith("worktree ")).map((field) => field.slice(9));
+    // Only a Git that does not know -z is read line by line: 129 is Git's answer to a switch it does not know
+    // (its words are translated). Any other failure is the call's own, as it would be without -z.
+    if (fields.exitCode !== 129) throw new Error(explainGit(fields));
+    const stdout = (await this.run(cwd, ["worktree", "list", "--porcelain"], signal)).stdout;
+    return stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9).trim());
+  }
+  /** Q107: removals in one repository go one at a time, so another cannot take a copy off Git's list mid-check. */
+  private readonly removing = new Map<string, Promise<unknown>>();
+  private async oneRemoveAt<T>(cwd: string, work: () => Promise<T>): Promise<T> {
+    const key = canonical(cwd);
+    const mine = (this.removing.get(key) ?? Promise.resolve()).catch(() => undefined).then(work);
+    this.removing.set(key, mine.catch(() => undefined));
+    return mine;
+  }
+  /** Q107: the copy checked on disk and on Git's list: its registered path, null when gone, or an error. */
+  private async removable(cwd: string, name: string, signal: AbortSignal): Promise<string | null> {
+    if (!(await copyToRemove(cwd, name))) return null;
+    const copy = await this.registered(cwd, name, signal);
+    if (!copy) throw new Error(`${WORKTREE_HOME}/${name} here is not a parallel copy Git knows of, so nothing is removed.`);
+    return copy;
   }
   private async run(cwd: string, args: string[], signal: AbortSignal, options: { timeoutMs?: number; maxOutputBytes?: number } = {}): Promise<GitOutcome> {
     const outcome = await this.runner.run({ cwd, args, ...options }, signal);
@@ -139,20 +192,33 @@ export class GitTools {
     const cwd = await this.folder(input.folder);
     const home = join(cwd, WORKTREE_HOME);
     if (input.action === "list") {
-      const stdout = (await this.run(cwd, ["worktree", "list", "--porcelain"], signal)).stdout;
-      const paths = stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9).trim());
+      const paths = await this.worktreePaths(cwd, signal);
       // Git may print a folder in a different spelling (Windows short names, case); compare real paths.
       const base = canonical(home);
       const inside = (path: string) => { const rel = relative(base, canonical(path)); return rel !== "" && !rel.startsWith(".."); };
       const mine = paths.filter(inside);
-      return { folder: input.folder, copies: mine.map((path) => ({ name: relative(base, canonical(path)).replace(/\\/g, "/") })) };
+      // Q128 (NAS 9730120): a copy whose folder was deleted by hand is still on Git's list; it is shown as gone, so a
+      // name that cannot be used again is explained rather than silently listed as a working copy.
+      return { folder: input.folder, copies: await Promise.all(mine.map(async (path) => {
+        const name = relative(base, canonical(path)).replace(/\\/g, "/");
+        const there = await lstat(path).then(() => true, () => false);
+        return there ? { name } : { name, gone: true };
+      })) };
     }
     if (!input.name) throw new Error("Tell me what to call this parallel copy.");
     const target = join(home, input.name);
     if (input.action === "remove") {
-      await this.run(cwd, ["worktree", "remove", "--force", target], signal, { timeoutMs: 60000 });
-      this.onCopy({ source: cwd, copy: target, made: false });
-      return { folder: input.folder, name: input.name, removed: true };
+      const name = input.name;
+      return this.oneRemoveAt(cwd, async () => {
+        const copy = await this.removable(cwd, name, signal);
+        if (!copy) {
+          this.onCopy({ source: cwd, copy: target, made: false });
+          throw new Error(`There is no parallel copy called "${name}" here any more, so nothing was removed.`);
+        }
+        await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 });
+        this.onCopy({ source: cwd, copy: target, made: false });
+        return { folder: input.folder, name, removed: true };
+      });
     }
     await copyPlace(cwd, input.name);
     const create = input.branch ? ["-b", input.branch] : ["--detach"];
@@ -194,14 +260,23 @@ export class GitTools {
   async planMerge(input: { folder: string; name: string; message?: string | undefined; remove: boolean }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const branch = planBranch(input.name);
+    // Checked before the merge, so a copy that is not Branch's own leaves everything as it was.
+    if (input.remove) await this.removable(cwd, input.name, signal);
     const into = (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
     await this.run(cwd, ["merge", "--no-ff", "--no-edit", "-m", input.message ?? `Try "${input.name}"`, branch], signal, { timeoutMs: 60000 });
+    // Q107: checked again right before the remove, since the merge itself can put a link at the copy's place.
+    // Reported as removed only when the remove really ran and finished; a copy already gone is left to Git never.
+    let removed = false;
     if (input.remove) {
-      const copy = join(cwd, WORKTREE_HOME, input.name);
-      await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).catch(() => undefined);
-      this.onCopy({ source: cwd, copy, made: false });
+      const name = input.name;
+      removed = await this.oneRemoveAt(cwd, async () => {
+        const copy = await this.removable(cwd, name, signal).catch(() => undefined); // undefined: refused; null: gone
+        const done = !!copy && await this.run(cwd, ["worktree", "remove", "--force", copy], signal, { timeoutMs: 60000 }).then(() => true, () => false);
+        if (done || copy === null) this.onCopy({ source: cwd, copy: join(cwd, WORKTREE_HOME, name), made: false });
+        return done;
+      });
     }
-    return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: input.remove };
+    return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: removed };
   }
 
   /**
@@ -209,12 +284,12 @@ export class GitTools {
    * address is set as a plain remote with no sign-in details in it: the push uses whatever Git
    * sign-in this computer already has, so no token is ever written into the repository's settings.
    */
-  async publish(input: { folder: string; url: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
+  async publish(input: { folder: string; url: string; remote: string; branch?: string | undefined }, signal: AbortSignal, walked: Walked = {}) {
     const cwd = await this.folder(input.folder);
     const address = new URL(input.url);
     if (address.protocol !== "https:" || address.username || address.password)
       throw new Error("The address of a repository on a server starts with https:// and carries no sign-in details.");
-    const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
+    const ref = walked.ref ?? await this.sendRef(cwd, input.branch, signal), branch = shortBranch(ref);
     // Q98: publishing is a push too, so in Branch's source it gets the same checks, on the address Git will really use.
     // Q101: they run on a remote of their own, so a refused publish leaves the folder's own remote as it was (in a
     // worktree the remotes are the source checkout's).
@@ -241,7 +316,7 @@ export class GitTools {
     }
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
     await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
-    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branchRef(branch)], signal, { timeoutMs: 180000 });
+    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, sendsTo(ref, walked.commit)], signal, { timeoutMs: 180000 });
     return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
   }
 
@@ -341,6 +416,19 @@ export class GitTools {
   }
 
   /**
+   * Q98: the full ref a push sends: the branch named, or (none named, or `HEAD`) the branch checked out, read
+   * from HEAD itself. Never a bare `HEAD`, which Git could send as a tag of that name while the contract walks
+   * the worktree's HEAD; a detached HEAD has no branch to send.
+   */
+  private async sendRef(cwd: string, branch: string | undefined, signal: AbortSignal): Promise<string> {
+    if (branch && branch !== "HEAD") return branchRef(branch);
+    const outcome = await this.runner.run({ cwd, args: ["symbolic-ref", "-q", "HEAD"], timeoutMs: 10_000 }, signal);
+    const ref = outcome.status === "completed" ? outcome.stdout.trim() : "";
+    if (!/^refs\/heads\/./.test(ref)) throw new Error("No branch is checked out here (HEAD is detached), so name the branch to send.");
+    return ref;
+  }
+
+  /**
    * Q12, C: when Git run inside Branch's source, validate that a remote is configured
    * and uses only https:// or ssh:// (including scp-like user@host:path).
    * Refuses file://, plain paths, ext::, and other transports that could execute code.
@@ -353,14 +441,14 @@ export class GitTools {
   }
 
   /** Sending work to a shared server; pushing the branch everyone shares asks the person first. */
-  async push(input: { folder: string; remote: string; branch?: string | undefined; confirmed?: boolean | undefined }, signal: AbortSignal) {
+  async push(input: { folder: string; remote: string; branch?: string | undefined; confirmed?: boolean | undefined }, signal: AbortSignal, walked: Walked = {}) {
     const cwd = await this.folder(input.folder);
     const urlError = await this.validateRemoteURL(cwd, input.remote, true, signal);
     if (urlError) throw new Error(urlError);
-    const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
-    if (/^(main|master)$/i.test(branch) && !input.confirmed)
+    const ref = walked.ref ?? await this.sendRef(cwd, input.branch, signal), branch = shortBranch(ref);
+    if (/^refs\/heads\/(main|master)$/i.test(ref) && !input.confirmed)
       throw new NeedsInputError(`This would send your work straight to "${branch}" on ${input.remote}, the copy everyone shares. Shall I go ahead?`);
-    const outcome = await this.run(cwd, ["push", input.remote, branchRef(branch)], signal, { timeoutMs: 120000 });
+    const outcome = await this.run(cwd, ["push", input.remote, sendsTo(ref, walked.commit)], signal, { timeoutMs: 120000 });
     return { folder: input.folder, remote: input.remote, branch, sent: true, notes: notes(outcome) };
   }
   async pull(input: { folder: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
@@ -373,6 +461,15 @@ export class GitTools {
   }
 }
 
+const shortBranch = (ref: string): string => ref.replace(/^refs\/heads\//, "");
+/**
+ * Q104: the ref is sent to the same name on the server, written out (`ref:ref`), as the pull-request push does.
+ * A bare ref lets Git pick where it lands: a branch that is an alias of main (a symbolic ref) lands on main, and
+ * so does a `remote.<name>.push` mapping, neither of which the main/master question sees.
+ */
+const sendsTo = (ref: string, commit?: string): string => `${commit ?? ref}:${ref}`;
+/** Q109: what the self-development guard walked for this push, when it ran (in Branch's own source). */
+export interface Walked { ref?: string | undefined; commit?: string | undefined }
 const notes = (outcome: GitOutcome): string => `${outcome.stdout}\n${outcome.stderr}`.trim().slice(0, 2000);
 
 /**

@@ -29,7 +29,7 @@ const Name = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
  * settings record in plain text, so anything that looks like one, or is not a plain name, is refused.
  */
 const lockerRefusal = "Give the name of a key in the locker, such as MEM0_KEY, not the key itself.";
-const SecretName = z.string().trim().max(64).regex(/^([A-Z][A-Z0-9_]*)?$/, lockerRefusal) // the locker's own names (src/locker.ts)
+export const SecretName = z.string().trim().max(64).regex(/^([A-Z][A-Z0-9_]*)?$/, lockerRefusal) // the locker's own names (src/locker.ts)
   .refine((name) => redactLeaks(name).kinds.length === 0, lockerRefusal);
 /** The most of an answer read back from an outside service. */
 const answerBytes = 1024 * 1024;

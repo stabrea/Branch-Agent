@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { visibleTo, type MemoryFacts, type MemoryRecord } from "./memory.js";
+import { takeBackFact, visibleTo, type MemoryFacts, type MemoryRecord, type OutsideMemoryProvider } from "./memory.js";
 import { FactKindSchema } from "./memory-layers.js";
 import type { Runtime } from "./runtime.js";
 import { checkResult } from "./delegation.js";
@@ -91,6 +91,16 @@ export class MemoryReview {
    * in at start-up like `acceptCard`. Without it a skill note is only noted.
    */
   applySkillNote?: (owner: string, proposal: Proposal) => unknown;
+  /**
+   * FQ-memory.providers: set at start-up once `src/memory-provider.ts` exists. When the owner has an
+   * outside memory service switched on, an accepted put/update/delete suggestion is written there
+   * instead of this computer's database, exactly as `memory.put`/`memory.update`/`memory.delete`
+   * already do — so a staged change does not land somewhere the owner switched away from. Every
+   * other kind of suggestion (tidying, knowledge cards, skill notes) stays on this computer's
+   * database either way: it is Branch's own bookkeeping on top of a fact, not a remembered fact
+   * itself, the same boundary `src/memory.ts` draws for `memory.keep`/`memory.at`/`memory.timeline`.
+   */
+  provider?: OutsideMemoryProvider;
   /** The consolidation under way for each person, so a second request shares it (see `consolidate`). */
   private readonly consolidating = new Map<string, Promise<ConsolidationReport>>();
   constructor(private readonly db: DatabaseSync, private readonly memories: MemoryFacts) {
@@ -125,30 +135,58 @@ export class MemoryReview {
     return rows.map((row) => ({ ...ProposalSchema.parse(JSON.parse(String(row.data))), id: String(row.id), status: String(row.status) as Proposal["status"], createdAt: String(row.created_at), decidedAt: row.decided_at === null ? null : String(row.decided_at) }));
   }
   /** Accepting applies the change exactly as staged; rejecting only records the decision. */
-  decide(owner: string, id: string, accept: boolean): { proposal: Proposal; applied: unknown } {
+  async decide(owner: string, id: string, accept: boolean): Promise<{ proposal: Proposal; applied: unknown }> {
     const proposal = this.proposals(owner, "all").find((p) => p.id === id);
     if (!proposal) throw new Error("No such suggestion");
     if (proposal.status !== "pending") throw new Error("That suggestion was already decided");
-    let applied: unknown = null;
-    if (accept) applied = this.apply(owner, proposal);
+    // Marked decided before it is applied, with nothing awaited between the check above and here, so a second
+    // Accept while an outside service is still answering the first finds it decided instead of applying it again.
+    // If applying fails it is pending again, as before.
     const decidedAt = new Date().toISOString();
-    this.db.prepare("UPDATE memory_proposals SET status=?, decided_at=? WHERE id=?").run(accept ? "accepted" : "rejected", decidedAt, id);
+    this.db.prepare("UPDATE memory_proposals SET status=?, decided_at=? WHERE id=? AND owner=?").run(accept ? "accepted" : "rejected", decidedAt, id, owner);
+    let applied: unknown = null;
+    if (accept) {
+      try { applied = await this.apply(owner, proposal); }
+      catch (error) {
+        this.db.prepare("UPDATE memory_proposals SET status='pending', decided_at=NULL WHERE id=? AND owner=?").run(id, owner);
+        throw error;
+      }
+    }
     return { proposal: { ...proposal, status: accept ? "accepted" : "rejected", decidedAt }, applied };
   }
-  private apply(owner: string, proposal: Proposal): unknown {
+  private async apply(owner: string, proposal: Proposal): Promise<unknown> {
+    // FQ-memory.providers: put/update/delete are exactly the three methods `memory.put`/`.update`/
+    // `.delete` already send to the outside service when one is switched on, so an accepted
+    // suggestion of the same kind goes the same way rather than always landing in SQLite.
+    const outside = this.provider?.isOutside(owner) ? this.provider : undefined;
     if (proposal.kind === "put") {
       // A suggestion the assistant noticed for itself says what sort of fact it is; anything else
       // is saved exactly as it always was, as a fact about the world.
       const kind = FactKindSchema.safeParse(proposal.learned?.kind).data;
-      return this.memories.save(owner, randomUUID(),
-        { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId, ...(kind ? { kind } : {}) });
+      const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId, ...(kind ? { kind } : {}) };
+      if (!outside) return this.memories.save(owner, randomUUID(), data);
+      // As memory.put: a save reported as failed is never read back, even if the service applies it late.
+      const id = randomUUID();
+      const service = outside.serviceFor?.(owner);
+      return outside.write(owner, id, data).catch(async (error: unknown) => {
+        await takeBackFact(outside, owner, id, service);
+        throw error;
+      });
     }
     if (proposal.kind === "update") {
-      const current = proposal.memoryId ? this.memories.get(owner, proposal.memoryId) : undefined;
-      if (!current) throw new Error("The memory this suggestion changes no longer exists");
-      return this.memories.save(owner, current.id, { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId });
+      const apply = async () => {
+        const current = proposal.memoryId ? await (outside ? outside.read(owner, proposal.memoryId) : this.memories.get(owner, proposal.memoryId)) : undefined;
+        if (!current) throw new Error("The memory this suggestion changes no longer exists");
+        const data = { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId };
+        return outside ? outside.write(owner, current.id, data) : this.memories.save(owner, current.id, data);
+      };
+      // Read and written under the same lock as memory.update, so neither overwrites the other unseen.
+      return outside?.withFactLock && proposal.memoryId ? outside.withFactLock(owner, proposal.memoryId, apply) : apply();
     }
-    if (proposal.kind === "delete") return { removed: proposal.memoryId ? this.memories.delete(owner, proposal.memoryId, `accepted suggestion ${proposal.id}`) : false };
+    if (proposal.kind === "delete") {
+      if (!proposal.memoryId) return { removed: false };
+      return { removed: outside ? await outside.forget(owner, proposal.memoryId) : this.memories.delete(owner, proposal.memoryId, `accepted suggestion ${proposal.id}`) };
+    }
     if (tidyingKinds.includes(proposal.kind)) return this.tidy(owner, proposal);
     if (proposal.kind === "knowledge-card") {
       if (!proposal.card) throw new Error("That card suggestion has nothing in it");
@@ -285,7 +323,9 @@ export class MemoryReview {
   }
   /** The memory snapshot a conversation started with; the same one is returned for the rest of that conversation. */
   sessionSnapshot(owner: string, sessionId: string, agent?: string): { text: string; count: number; reused: boolean; takenAt: string } {
-    const key = `memory-snapshot:${sessionId}`;
+    // FQ-routing.isolated-agents: one per conversation and per whoever answers in it, so a conversation the owner
+    // re-chose for another Trunk never hands it the facts the first one was shown (the owner's own key is unchanged).
+    const key = `memory-snapshot:${sessionId}${agent ? `:${agent}` : ""}`;
     const saved = this.db.prepare("SELECT data FROM settings WHERE owner=? AND id=?").get(owner, key);
     if (saved) return { ...(JSON.parse(String(saved.data)) as { text: string; count: number; takenAt: string }), reused: true };
     const lines: string[] = []; let chars = 0;

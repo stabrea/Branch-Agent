@@ -1,5 +1,6 @@
 import { createVerify, X509Certificate } from "node:crypto";
 import { z } from "zod";
+import { TRUSTED_REPOS } from "./repo-pair.js";
 
 /**
  * Build provenance for an update, on top of the SHA-256 match (`Updater`'s own `verify`) and the
@@ -258,6 +259,16 @@ function betaWorkflowIdentity(repo: string): RegExp {
   return new RegExp(String.raw`^URI:https://github\.com/` + escaped + String.raw`/\.github/workflows/beta\.yml@refs/heads/mac/cross-platform$`);
 }
 
+/** Build workflow identity patterns for all trusted repos. */
+function allTrustedReleaseWorkflows(): RegExp[] {
+  return TRUSTED_REPOS.map(releaseWorkflowIdentity);
+}
+
+/** Build beta workflow identity patterns for all trusted repos. */
+function allTrustedBetaWorkflows(): RegExp[] {
+  return TRUSTED_REPOS.map(betaWorkflowIdentity);
+}
+
 /**
  * Verifies one build-provenance bundle: its statement is about this exact file, the signature over
  * it matches the certificate GitHub returned with it, and that certificate names this repository's
@@ -295,10 +306,11 @@ export function verifyAttestationBundle(bundle: AttestationBundle, expected: Pro
 
   const names = (cert.subjectAltName ?? "").split(",").map((entry) => entry.trim());
   // Beta releases accept ONLY beta.yml@refs/heads/mac/cross-platform; final releases accept ONLY package.yml@refs/tags/vX.Y.Z.
+  // Both trusted repos are accepted, regardless of which repo is being looked up.
   const isBeta = isBetaVersion(expected.version);
   const acceptedWorkflows = isBeta
-    ? [betaWorkflowIdentity(expected.repo)]
-    : [releaseWorkflowIdentity(expected.repo)];
+    ? allTrustedBetaWorkflows()
+    : allTrustedReleaseWorkflows();
   const workflowEntry = names.find((entry) => acceptedWorkflows.some((pattern) => pattern.test(entry)));
   if (!workflowEntry) throw new Error("the provenance record's signing certificate does not name this repository's release workflow for a version tag");
 

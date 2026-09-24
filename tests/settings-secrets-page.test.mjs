@@ -77,6 +77,10 @@ for (const available of [true, false]) {
         await level(page, one);
         await secrets(page);
         if (available && one === "advanced") assert.equal(await page.locator("#keychain-card").isVisible(), true, `${width} px: the Keychain card is on show`);
+        // The Keychain card is placed and filled by its own script on its own schedule, and the "N more" line counts it
+        // only once it is (measured with the CPU slowed, as on GitHub's Windows machines). Wait for the count to settle.
+        for (let tries = 0; more && tries < 100 && JSON.stringify((await seen(page)).more) !== JSON.stringify(more); tries++)
+          await page.waitForTimeout(100);
         const { headings, more: line } = await seen(page);
         assert.deepEqual(headings, ["H2 Secrets", "H3 Keys your commands use", "H3 Passwords and keys"], `${width} px, ${one}`);
         if (more) assert.deepEqual(line, more, `${width} px, ${one}: what is out of sight`);

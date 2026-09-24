@@ -1412,6 +1412,30 @@
             <div class="identity-actions">
               <button id="updates-install" type="button" hidden data-t="action.update-and-restart">Update and restart</button>
             </div>
+            <!-- Tasks working when Update is pressed: wait for them, or update now and they are offered back after. -->
+            <div id="updates-busy" class="updates-busy" hidden>
+              <p id="updates-busy-text" role="status"></p>
+              <div class="identity-actions">
+                <button id="updates-wait" type="button" data-t="updates.busy.wait">Wait for them</button>
+                <button id="updates-now" type="button" class="quiet" data-t="updates.busy.now">Update now</button>
+                <button id="updates-busy-cancel" type="button" class="quiet" data-t="updates.busy.cancel">Not now</button>
+              </div>
+            </div>
+            <!-- Owner item 19: an update that did not go through, and one file that explains it, sent by the owner. -->
+            <div id="updates-failed" class="updates-busy" hidden>
+              <p id="updates-failed-text" role="status"></p>
+              <div class="identity-actions">
+                <button id="updates-failed-fix" type="button" data-t="updates.fix.button">Fix update</button>
+                <button id="updates-failed-log" type="button" class="quiet" data-t="updates.failed.download">Download what happened</button>
+              </div>
+              <p id="updates-failed-saved" class="subtle" data-t="updates.failed.send">Send the file to us yourself, on Discord for example. Nothing is sent by itself.</p>
+            </div>
+            <!-- Owner item 21: the Trunk that looks after updates (src/update-fix.ts). -->
+            <label for="updates-keeper" data-t="updates.fix.keeper">Who fixes updates</label>
+            <select id="updates-keeper" aria-describedby="updates-keeper-note">
+              <option value="" data-t="updates.fix.keeper-default">Update keeper, made the first time it's needed</option>
+            </select>
+            <p id="updates-keeper-note" class="field-note" data-t="updates.fix.keeper-note">A Trunk with its own memory that looks at what happened and says how to fix it. It never changes anything without asking.</p>
           </section>
           <form id="projects-form" class="card">
             <h2 data-t="settings.card.projects">Projects</h2>
@@ -2414,6 +2438,8 @@
     <!-- r17-h: flows and boards — going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus view, install requests. -->
     <script src="/flows-boards.js" type="module"></script>
     <script src="/learning-more.js" type="module"></script>
+    <!-- FQ-memory.providers: "Where facts are kept" — this computer's database, or an outside memory service. -->
+    <script src="/memory-provider-ui.js" type="module"></script>
     <!-- R17-S-A: understandable settings (descriptions, scope chips, presets, reset, one settings file, first-run offers). -->
     <script src="/settings-describe.js" type="module"></script>
     <script src="/agent-files.js" type="module"></script><!-- phase2/accounts -->

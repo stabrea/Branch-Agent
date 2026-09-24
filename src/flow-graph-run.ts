@@ -65,6 +65,8 @@ type GraphWorkOptions = { source?: RunSource; chain?: readonly string[]; within?
 const limitKey = (runId: string): string => `flow-run-limit:${runId}`;
 /** mac7/outside-resume: who set a run going, when that was from outside (a schedule, a chat, another program). */
 const sourceKey = (runId: string): string => `flow-run-source:${runId}`;
+/** Q114: the Trunk whose work a run is, kept with it so whoever carries it on later does so as that Trunk. */
+const trunkKey = (runId: string): string => `flow-run-trunk:${runId}`;
 
 export class FlowGraphRunner {
   constructor(
@@ -97,17 +99,67 @@ export class FlowGraphRunner {
     return { runId: run.id, compiled };
   }
 
-  /** Works through the boxes from wherever the checkpoint says, writing the state after each one. */
+  /** Works through the boxes from wherever the checkpoint says, as the Trunk whose run it is (Q114), if any. */
   async work(runId: string, compiled: CompiledGraph, options: GraphWorkOptions = {}): Promise<GraphRunView> {
+    const trunk = this.heldTrunk(runId);
+    if (!trunk) return this.boxes(runId, compiled, options);
+    // NAS d2cd104: a run started from a mark that outlived its Trunk ends saying why, not left looking as if it works.
+    const refused = this.runtime.trunkWorkRefusal(trunk);
+    if (refused && !this.runtime.trunkKeysFor(trunk)) this.endGone(runId, refused);
+    return this.runtime.asTrunkWork(trunk, () => this.boxes(runId, compiled, options));
+  }
+  /** Q122: a run whose Trunk is gone can never carry on, so it and its task end as failed, with the reason. */
+  private endGone(runId: string, reason: string): void {
+    this.save(runId, { status: "failed", error: reason, question: null });
+    this.store.finish(runId, "failed", reason);
+  }
+  /** Q114: a copy of a run (time-travel's fork) is the same Trunk's work as the run it was copied from. */
+  carryTrunk(from: string, to: string): void {
+    const saved = this.store.get("settings", this.owner, trunkKey(from))?.data as { trunk?: unknown } | undefined;
+    if (typeof saved?.trunk === "string") this.store.save("settings", this.owner, trunkKey(to), { trunk: saved.trunk });
+  }
+  /** Q122: why this run cannot be carried on from here (its Trunk gone, or another Trunk asking), or null. */
+  whyNot(runId: string): string | null {
+    const trunk = this.trunkOf(runId);
+    return trunk ? this.runtime.trunkWorkRefusal(trunk) : null;
+  }
+  /** The same refusal as the error to throw: Q44's own kind (answered 409) when that is why (Q149, NAS 839e64b). */
+  whyNotError(runId: string): Error | null {
+    const trunk = this.trunkOf(runId);
+    return trunk ? this.runtime.trunkWorkError(trunk) : null;
+  }
+  /** Q119: whose run this is, read without stamping anyone on it: null for the owner's own, or one never worked. */
+  trunkOf(runId: string): string | null {
+    const saved = this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined;
+    return typeof saved?.trunk === "string" ? saved.trunk : null;
+  }
+  /** Q114: taken from whoever is at work when the run first works, then kept as it was, whoever carries it on. */
+  private heldTrunk(runId: string): string | null {
+    const saved = this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined;
+    if (saved) return typeof saved.trunk === "string" ? saved.trunk : null;
+    const trunk = this.runtime.trunkAtWork() ?? null;
+    this.store.save("settings", this.owner, trunkKey(runId), { trunk });
+    return trunk;
+  }
+  /** Works through the boxes from wherever the checkpoint says, writing the state after each one. */
+  private async boxes(runId: string, compiled: CompiledGraph, options: GraphWorkOptions = {}): Promise<GraphRunView> {
     // mac7/lockdown-fix: a task's limit is kept with the run, so the owner's yes later does not widen it.
     if (options.within) this.store.save("settings", this.owner, limitKey(runId), { within: [...options.within] });
     options = { ...options, source: this.holdSource(runId, options.source) }; // mac7/outside-resume
+    // Q119 (NAS da81dfd): a Trunk's run keeps to what that Trunk may use now, whoever carries it on, as its workflows do.
+    const trunk = this.trunkOf(runId);
+    const trunkMay = trunk ? this.runtime.trunkPermissionsFor(trunk) : null;
+    if (trunkMay) options = { ...options, within: options.within ? options.within.filter((p) => trunkMay.includes(p)) : [...trunkMay] };
     const limit = compiled.definition.loopLimit;
     let saved = this.checkpoint(runId);
     let at = saved.nextNode, state = saved.state, loops = saved.loops, seq = this.lastSeq(runId);
     while (at) {
       const node = compiled.nodes.get(at);
       if (!node) return this.stop(runId, "failed", `The flow points at a box "${at}" that is not there.`);
+      // Q121 (NAS 7af12b6): a Trunk removed while its run works stops it before the next box.
+      const trunk = (this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined)?.trunk;
+      if (typeof trunk === "string" && !this.runtime.trunkKeysFor(trunk))
+        return this.stop(runId, "failed", "The Trunk that started this is no longer here, so it does not carry on.");
       this.writeNode(runId, ++seq, node, "running", "");
       this.store.event(runId, "flow.node.started", { node: node.id, name: node.name, kind: node.kind, seq });
       const result = await this.attempt(runId, seq, node, state, compiled, options);
@@ -193,8 +245,11 @@ export class FlowGraphRunner {
     if (node.kind === "map") return this.mapOver(node, state, options);
     if (node.kind === "subflow") return this.subflow(node, state, options);
     if (node.kind === "prompt") {
+      // Q119: a Trunk's box is shaped as that Trunk's turn: its tools now, and none of the owner's documents.
+      const trunkId = this.runtime.trunkAtWork();
       const run = await this.runtime.run({ prompt: fillIn(node.prompt!, state),
-        signal: AbortSignal.timeout(node.timeoutMs), source: options.source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...this.limited(options) });
+        signal: AbortSignal.timeout(node.timeoutMs), source: options.source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...this.limited(options),
+        ...(trunkId ? { trunkId } : {}) });
       if (run.status !== "completed") throw new Error(`the assistant stopped (${run.status})`);
       return { patch: this.asPatch(node, run.output), output: run.output.slice(0, 2000), childRunId: run.id /* bucket 13: run monitor */ };
     }
@@ -400,6 +455,13 @@ export class FlowGraphRunner {
     options: { source?: RunSource; approve?: boolean; interrupted?: "again" | "past"; within?: readonly string[] } = {}): Promise<GraphRunView> {
     const current = this.view(runId);
     if (current.status === "completed") throw new Error("That flow has already finished");
+    // Q122: asked before anything is approved or marked running. A run whose Trunk is gone can never carry on,
+    // so it ends, saying why; one that another Trunk is asking about is left exactly as it stopped.
+    const refused = this.whyNot(runId);
+    if (refused) {
+      if (!this.runtime.trunkKeysFor(this.trunkOf(runId)!)) this.endGone(runId, refused); // NAS e1e9dd2: the task says why
+      throw new Error(refused);
+    }
     const graph = compileGraph(flow);
     const half = this.interrupted(runId, graph);
     if (half && !options.interrupted) return this.askAboutInterrupted(runId, half);

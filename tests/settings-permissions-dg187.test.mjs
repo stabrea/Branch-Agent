@@ -246,6 +246,8 @@ test("the rules preset and the cards are separate: changing one leaves the other
   for (let tries = 0; tries < 40 && (await savedPreset(call)) !== other; tries++) await page.waitForTimeout(100);
   assert.equal(await savedPreset(call), other);
   assert.equal(await savedDefault(call), "auto", "the preset does not change the new-conversation default");
+  // The cards are drawn again once the preset is saved; on a slow machine that lands after the save is read back.
+  for (let tries = 0; tries < 40 && !(await card(page, "Auto").isChecked()); tries++) await page.waitForTimeout(100);
   assert.equal(await card(page, "Auto").isChecked(), true);
   assert.deepEqual(errors, []);
 });

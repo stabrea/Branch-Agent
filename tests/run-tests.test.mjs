@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { loadWeights, parseFilesFrom, parseShard, shareFiles, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
+import { loadWeights, onlyGroups, parseFilesFrom, parseShard, shareFiles, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
 
 test("npm test isolates browser and desktop files while keeping ordinary tests together", () => {
   const listing = {
@@ -23,7 +23,7 @@ test("npm test isolates browser and desktop files while keeping ordinary tests t
     ["tests/desktop-export.test.mjs", "tests/desktop-identity.test.mjs", "tests/desktop-settings.test.mjs", "tests/desktop-window.test.mjs", "tests/desktop.test.mjs"]);
   assert.equal(real.shared.some((file) => /^tests[\\/]desktop/.test(file)), false);
   assert.ok(real.browser.includes(join("tests", "glass-select.test.mjs")));
-  assert.ok(real.browser.includes(join("tests", "settings-grown.test.mjs")));
+  assert.ok(real.browser.includes(join("tests", "settings-grown-1.test.mjs")));
   assert.equal(real.shared.some((file) => real.browser.includes(file)), false);
   assert.ok(real.shared.includes(join("tests", "run-tests.test.mjs")));
 });
@@ -94,20 +94,20 @@ test("a renamed or new file still runs, and a weight for a file that is gone cha
 });
 
 /** The shares the pick job lays out when the owner's computers have so many idle runners, from its own script. */
-function sharesFor(workflow, legion, macmini) {
+function sharesFor(workflow, legion, macmini, screens = "on", wsl = 0) {
   const script = workflow.jobs.pick.steps[0].run;
   const body = /node -e '([\s\S]*?)\n\s*' "/.exec(script)[1];
   const keepOff = /'(\^tests\/[^']*)'\s*$/.exec(script.trim())[1];
   const output = join(mkdtempSync(join(tmpdir(), "branch-pick-")), "out");
-  const run = spawnSync(process.execPath, ["-e", body, String(legion), String(macmini), keepOff], { env: { ...process.env, GITHUB_OUTPUT: output }, encoding: "utf8" });
+  const run = spawnSync(process.execPath, ["-e", body, String(legion), String(macmini), String(wsl), screens, keepOff], { env: { ...process.env, GITHUB_OUTPUT: output }, encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   return { keepOff, rows: JSON.parse(readFileSync(output, "utf8").replace(/^matrix=/, "")).include };
 }
 
 test("the build machines run every share, 1 to N, on every system, so no share of the suite is dropped", () => {
   const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
-  for (const [legion, macmini] of [[0, 0], [3, 0], [0, 2], [3, 2], [1, 1]]) {
-    const { keepOff, rows } = sharesFor(workflow, legion, macmini);
+  for (const [legion, macmini, wsl] of [[0, 0, 0], [3, 0, 0], [0, 2, 0], [3, 2, 0], [1, 1, 0], [0, 2, 4], [0, 0, 2]]) {
+    const { keepOff, rows } = sharesFor(workflow, legion, macmini, "on", wsl);
     assert.deepEqual([...new Set(rows.map((row) => row.os))].sort(), ["linux", "macos", "windows"], `${legion}/${macmini}: every system`);
     // Shares that split the suite between them: grouped by the machines they run on; each group covers 1..N.
     const groups = new Map();
@@ -125,7 +125,7 @@ test("the build machines run every share, 1 to N, on every system, so no share o
       assert.equal(own.exclude, keepOff, `${own.os}: the owner's computer leaves out exactly the desktop and uninstall tests`);
       assert.ok(rows.some((row) => row.os === own.os && row.only === keepOff && !row.own), `${own.os}: a hosted share runs what it leaves out`);
     }
-    assert.equal(rows.filter((row) => row.own).length, legion + macmini, `${legion}/${macmini}: one share per idle runner`);
+    assert.equal(rows.filter((row) => row.own).length, legion + macmini + wsl, `${legion}/${macmini}/${wsl}: one share per idle runner`);
   }
   assert.deepEqual(workflow.jobs.verify.needs, ["test", "package"], "verify waits for every share and every package");
 });
@@ -137,4 +137,33 @@ test("a test worker killed without an exit code names its signal and assigned fi
   assert.match(messages[0], /terminated by SIGKILL/);
   assert.match(messages[0], /tests\/slow\.test\.mjs/);
   assert.equal(testProcessStatus({ status: 7, signal: null }, [], () => assert.fail("ordinary exits are silent")), 7);
+});
+
+test("the pick step is a shell script bash can read: nothing inside its quoted node program ends the quotes", () => {
+  const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
+  const check = spawnSync("bash", ["-n"], { input: workflow.jobs.pick.steps[0].run, encoding: "utf8" });
+  assert.equal(check.status, 0, check.stderr);
+});
+
+test("a train's Windows and macOS shares leave the browser files to Linux, and every share still gets a browser", () => {
+  const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
+  for (const [legion, macmini] of [[0, 0], [3, 0], [0, 2]]) {
+    const { rows } = sharesFor(workflow, legion, macmini, "off");
+    for (const row of rows) {
+      if (row.os === "linux") assert.equal(row.groups, undefined, "Linux still runs every group");
+      else assert.equal(row.groups, "shared,desktop", `${legion}/${macmini}: ${JSON.stringify(row)}`);
+    }
+    assert.ok(rows.some((row) => row.os === "linux" && row.labels === "ubuntu-latest"), "the browser files still run on Linux");
+    assert.ok(sharesFor(workflow, legion, macmini, "on").rows.every((row) => row.groups === undefined), "with screens on, every system runs every group");
+  }
+  const steps = workflow.jobs.test.steps;
+  assert.equal(steps.find((step) => /playwright install/.test(step.run ?? "")).if, undefined, "no share goes without a browser");
+  assert.match(workflow.jobs.pick.steps[0].run, /refs\/heads\/main\|refs\/heads\/mac\/cross-platform\) echo on/, "the trunks keep the screens on Windows");
+});
+
+test("only the named test groups run, the rest left empty, and a misspelt group is refused", () => {
+  const groups = { shared: ["tests/a.test.mjs"], browser: ["tests/b.test.mjs"], desktop: ["tests/desktop.test.mjs"] };
+  assert.equal(onlyGroups(groups, undefined), groups);
+  assert.deepEqual(onlyGroups(groups, "shared,desktop"), { shared: ["tests/a.test.mjs"], browser: [], desktop: ["tests/desktop.test.mjs"] });
+  assert.throws(() => onlyGroups(groups, "shared,screens"), /Unknown test group "screens"/);
 });

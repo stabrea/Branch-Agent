@@ -150,20 +150,40 @@ function listedBy(source: string, copy: string): boolean {
   });
 }
 
+/**
+ * Q108: each decided folder's real path when the owner decided, by the path as saved (older answers have none).
+ * Q115: kept apart from the answers themselves, so an older build, which reads those strictly, still reads them
+ * all after a rollback.
+ */
+const realsKey = "folder-trust-real";
+const RealsSchema = z.object({ reals: z.record(z.string().max(1000), z.string().min(1).max(4096)).default({}) }).strict();
+const decidedReals = (store: Pick<Store, "get">, owner: string): Record<string, string> => {
+  const parsed = RealsSchema.safeParse(store.get("settings", owner, realsKey)?.data ?? {});
+  return parsed.success ? parsed.data.reals : {};
+};
+type Decided = Saved["folders"][number] & { real?: string | undefined };
+
 /** The owner's decision closest above `inner` (a real path), or null when none covers it. */
-function closestDecision(entries: Saved["folders"], inner: string, platform: NodeJS.Platform) {
+function closestDecision(entries: Decided[], inner: string, platform: NodeJS.Platform) {
   let best: { depth: number; decision: "trust" | "distrust"; path: string } | null = null;
   for (const entry of entries) {
     const outer = realFolder(entry.path, platform);
-    if (!folderContains(outer, inner, platform)) continue;
-    const depth = outer.length;
-    if (!best || depth >= best.depth) best = { depth, decision: entry.decision, path: outer };
+    const moved = !!entry.real && platform === process.platform && outer !== entry.real;
+    // Q108: a trust covers the folder the owner trusted. Once its path leads somewhere else (a pulled commit made
+    // it, or a folder above it, a link), it no longer counts. Q116: a "don't trust" holds both on the folder the
+    // owner meant and wherever its path leads now, so re-pointing a link never moves it off that folder.
+    if (entry.decision === "trust" && moved) continue;
+    for (const place of moved ? [outer, entry.real!] : [outer]) {
+      if (!folderContains(place, inner, platform)) continue;
+      if (!best || place.length >= best.depth) best = { depth: place.length, decision: entry.decision, path: place };
+    }
   }
   return best;
 }
 /** How far a folder is trusted, from the closest folder the owner has decided about. */
 export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
-  const entries = saved(store, owner).folders;
+  const reals = decidedReals(store, owner);
+  const entries: Decided[] = saved(store, owner).folders.map((entry) => ({ ...entry, real: reals[entry.path] }));
   if (!entries.length) return "unknown";
   const inner = realFolder(folder, platform);
   const best = closestDecision(entries, inner, platform);
@@ -218,11 +238,21 @@ export function folderTrust(store: Store, owner: string, folder: string, platfor
 export function decideFolder(store: Store, owner: string, workspace: string, input: unknown): { path: string; trust: FolderTrust } {
   const { folder, decision } = FolderTrustInputSchema.parse(input);
   const path = workspaceFolder(workspace, folder);
-  // The same folder written another way (letter case on Windows, a link) replaces the old answer.
-  const same = (other: string) => folderContains(realFolder(other), realFolder(path)) && folderContains(realFolder(path), realFolder(other));
+  // The same folder written another way (letter case on Windows, a link) replaces the old answer. An answer whose
+  // path has since been pointed elsewhere is the same only as written: deciding where it leads now, or the folder
+  // it was meant for, never drops it, and a newer answer on either still wins there as the closer one (NAS ca01bb3,
+  // 160ac63).
+  const decided = decidedReals(store, owner), here = realFolder(path);
+  const same = (other: string) => {
+    const now = realFolder(other), was = decided[other];
+    if (was && was !== now) return other === path;
+    return other === path || (folderContains(now, here) && folderContains(here, now));
+  };
   const kept = saved(store, owner).folders.filter((entry) => !same(entry.path));
   const folders = [...kept, { path, decision, decidedAt: new Date().toISOString() }].slice(-200);
   store.save("settings", owner, settingsKey, { folders });
+  const reals = { ...decided, [path]: here };
+  store.save("settings", owner, realsKey, { reals: Object.fromEntries(folders.flatMap((entry) => reals[entry.path] ? [[entry.path, reals[entry.path]!]] : [])) });
   audit(store, owner, {
     action: "policy.changed", actor: owner, subject: `Folder ${decision === "trust" ? "trusted" : "not trusted"}: ${path}`.slice(0, 300),
     reason: decision === "trust"

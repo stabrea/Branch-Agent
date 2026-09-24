@@ -56,7 +56,7 @@ test("S1 a fact learned from finished tasks is only ever offered, never saved", 
   assert.ok(waiting, "the suggestion says which habit noticed it");
   assert.deepEqual(waiting.learned.evidence, file.evidence, "and carries the evidence to the review screen");
 
-  app.store.review.decide("local", waiting.id, true);
+  await app.store.review.decide("local", waiting.id, true);
   assert.equal(facts(app).length, 1, "only accepting it saves the fact");
   assert.match(String(facts(app)[0].data.text), /reports\/quarter\.md/);
   assert.equal(facts(app)[0].data.kind, "project-note");
@@ -68,7 +68,7 @@ test("S2 turning a suggestion down stops that same thing being offered again", a
   const first = app.learning.propose("local");
   const one = first.proposals.find((p) => p.learned?.signal === "file-revisited");
   assert.ok(one);
-  app.store.review.decide("local", one.id, false);
+  await app.store.review.decide("local", one.id, false);
   assert.equal(facts(app).length, 0, "rejecting saves nothing");
 
   const again = app.learning.notice("local");
@@ -113,7 +113,7 @@ test("S4 a fact learned in one conversation is cited, with its knowledge base na
   assert.equal(written.staged.length, 1, "the conversation produced one card to consider");
   const proposal = written.staged[0];
   assert.equal(app.knowledgeBases.one("local", base.id).documents, 0, "nothing is in the collection yet");
-  app.store.review.decide("local", proposal.id, true);
+  await app.store.review.decide("local", proposal.id, true);
   assert.equal(app.knowledgeBases.one("local", base.id).documents, 1, "accepting folds the card into the collection");
   app.knowledgeBases.attach("local", base.id, true);
 
@@ -157,7 +157,7 @@ test("S5 the refresh says what it would cost before it reads anything", async (t
   assert.equal(refreshed.staged.length, 1, "the refresh suggests a card");
   assert.equal(refreshed.cost.conversations, 1, "and reports the cost it actually incurred");
   assert.equal(app.knowledgeBases.one("local", base.id).documents, 0, "nothing was added on its own");
-  app.store.review.decide("local", refreshed.staged[0].id, true);
+  await app.store.review.decide("local", refreshed.staged[0].id, true);
   assert.equal(app.knowledgeBases.one("local", base.id).documents, 1, "the owner accepting it is what adds it");
 });
 

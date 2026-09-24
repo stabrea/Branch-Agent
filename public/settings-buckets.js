@@ -141,7 +141,7 @@ export const BUCKETS = {
     ["cost", "coins", "What it costs", "Spending limits, and what each model costs.",
       [["usage-costs-card", R], ["usage-report-card", R], ["usage-prices-card", T]]],
     ["under", "wrench", "Under the hood", "Counting how Branch is used, and the spreadsheet of this month. Rarely needed.",
-      [["usage-sheet-card", T], ["asks-analytics-card", T]]],
+      [["usage-sheet-card", T], ["asks-analytics-card", T], ["asks-forecasts-card", T], ["asks-leads-card", T]]],
   ],
   /* DG-191: the sample's two sections, each card in the sample's order; the activity log and JEV decision support
      have no card in the sample, so they close their sections. Under the hood is the sample's own, at Technical. */

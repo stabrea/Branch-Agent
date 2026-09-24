@@ -19,8 +19,16 @@ export const GitHubConfigSchema = z.object({
 export type GitHubConfig = z.infer<typeof GitHubConfigSchema>;
 export type TokenSource = () => Promise<string>;
 
-export const repositoryName = z.string().regex(/^[A-Za-z0-9._-]{1,100}$/, "Repository names use letters, digits, dots, dashes and underscores");
-export const repositoryPath = z.string().regex(/^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/, "Write the repository as owner/name");
+/**
+ * GitHub allows neither "." nor ".." as an owner or a repository name, so both are refused, while a
+ * name that only contains or starts with a dot (".github") still passes. It is a check beside the
+ * pattern, not a lookahead in it, because a tool's pattern cannot hold one (see git-tools.ts).
+ */
+const isDotName = (part: string): boolean => part === "." || part === "..";
+export const repositoryName = z.string().regex(/^[A-Za-z0-9._-]{1,100}$/, "Repository names use letters, digits, dots, dashes and underscores")
+  .refine((value) => !isDotName(value), "A repository name cannot be . or ..");
+export const repositoryPath = z.string().regex(/^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/, "Write the repository as owner/name")
+  .refine((value) => !value.split("/").some(isDotName), "The owner and the name cannot be . or ..");
 
 export class GitHubAccess {
   private readonly config: GitHubConfig;

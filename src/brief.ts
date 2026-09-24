@@ -1,4 +1,4 @@
-import { chatOwnerOnly, startedFromChat } from "./key-context.js";
+import { briefOwnerOnly, chatOwnerOnly, startedFromChat } from "./key-context.js";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -151,14 +151,21 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     name: "brief.preview", permission: "brief.read",
     description: "Put together the morning brief for right now and show it, without sending it anywhere.",
     parameters: z.object({}).strict(),
-    execute: async (_input, context) => brief.preview(context.owner),
+    execute: async (_input, context) => { briefOwnerOnly(context); return brief.preview(context.owner); },
   });
   registry.register({
     name: "brief.configure", permission: "brief.manage",
     description: "Turn the morning brief on or off, choose the time of day and timezone, choose which parts it covers, change its wording, and choose the chat it is sent to.",
     parameters: optionalFields(BriefSettingsSchema),
     execute: async (input, context) => {
+      briefOwnerOnly(context);
       if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Changing the morning brief");
+      // The chat the brief goes to is the owner's to choose, as sending to it now is (channels.broadcast).
+      if ((input as { deliverTo?: unknown }).deliverTo) {
+        brief.store.profiles.requireOwner("Sending messages to your chats");
+        if (context.trunk || context.agent?.startsWith("trunk:")) throw new Error("The chat the morning brief goes to is the owner's to choose.");
+        if (!context.permissions.has("channels.send")) throw new Error("Permission denied: channels.send");
+      }
       return brief.configure(context.owner, input);
     },
   });
@@ -167,7 +174,13 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     description: "Send the morning brief now: it appears in the conversation list and goes to the chosen chat.",
     parameters: z.object({}).strict(),
     execute: async (_input, context) => {
+      briefOwnerOnly(context);
       if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Sending the morning brief to a chat");
+      // With a chat chosen, sending the brief is sending to that chat, which asks what sending asks.
+      if (brief.settings(context.owner).deliverTo) {
+        brief.store.profiles.requireOwner("Sending messages to your chats");
+        if (!context.permissions.has("channels.send")) throw new Error("Permission denied: channels.send");
+      }
       return brief.send(context.owner);
     },
   });

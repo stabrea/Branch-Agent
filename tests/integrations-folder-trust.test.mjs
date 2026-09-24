@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { mkdtemp, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { accessSync, constants as fsConstants, existsSync, lstatSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -817,4 +817,425 @@ test("Q100: a recorded copy of a folder the owner does not trust is not trusted 
   assert.equal(folderTrust(app.store, owner, join(stray, "sub")), "trusted", "a decision made inside the copy comes first");
   decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
   assert.equal(folderTrust(app.store, owner, stray), "trusted", "a trusted source adds nothing: the workspace decides");
+});
+
+test("Q107: removing a copy never follows a link the repository carries to another worktree",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj"), side = join(workspace, "work", "side");
+  await mkdir(join(proj, ".branch-worktrees"), { recursive: true });
+  await symlink("../../side", join(proj, ".branch-worktrees", "x"), "dir");
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "add", ".");
+  gitIn(proj, "commit", "-q", "-m", "a copy's place planted as a link");
+  gitIn(proj, "worktree", "add", "-q", "--detach", side); // the owner's own worktree, made by hand
+  for (const name of ["x", "side"]) gitIn(proj, "branch", `plan/${name}`); // so a merge would go through
+  await writeFile(join(side, "unsaved.txt"), "the owner's unsaved work");
+  const head = () => execFileSync("git", ["rev-parse", "HEAD"], { cwd: proj, encoding: "utf8" }).trim();
+  const before = head();
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "x" }, signal()), /nothing is removed/);
+  await assert.rejects(app.git.planMerge({ folder: "work/proj", name: "x", remove: true }, signal()), /nothing is removed/);
+  // The copies folder itself as a link: the copy's place leads to the same worktree.
+  await rm(join(proj, ".branch-worktrees"), { recursive: true });
+  await symlink("..", join(proj, ".branch-worktrees"), "dir");
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "side" }, signal()), /nothing is removed/);
+  await assert.rejects(app.git.planMerge({ folder: "work/proj", name: "side", remove: true }, signal()), /nothing is removed/);
+  assert.equal(readFileSync(join(side, "unsaved.txt"), "utf8"), "the owner's unsaved work", "the owner's worktree is untouched");
+  assert.equal(head(), before, "nothing was merged either");
+});
+
+test("Q107: a plan's merge that brings a link to the copy's place never gets the owner's worktree removed",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace } = await fixture(t);
+  const external = await mkdtemp(join(tmpdir(), "branch-q107-owner-worktree-"));
+  t.after(() => discardTemp(external));
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "config", "user.name", "t"); // a real identity, so the merge really goes through
+  gitIn(proj, "config", "user.email", "t@t");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await rm(external, { recursive: true });
+  gitIn(proj, "worktree", "add", "-q", "--detach", external); // the owner's own worktree, outside the workspace
+  await writeFile(join(external, "unsaved.txt"), "the owner's unsaved work");
+  // The plan's branch carries the copy's place as a link to it; main does not, so the first check passes.
+  gitIn(proj, "switch", "-q", "-c", "plan/x");
+  await mkdir(join(proj, ".branch-worktrees"), { recursive: true });
+  await symlink(external, join(proj, ".branch-worktrees", "x"), "dir");
+  gitIn(proj, "add", ".branch-worktrees/x");
+  gitIn(proj, "commit", "-q", "-m", "the copy's place, as a link");
+  gitIn(proj, "switch", "-q", "main");
+  assert.equal(existsSync(join(proj, ".branch-worktrees", "x")), false);
+  const result = await app.git.planMerge({ folder: "work/proj", name: "x", remove: true }, signal());
+  assert.ok(existsSync(join(external, "unsaved.txt")), "the owner's worktree is untouched");
+  assert.equal(result.merged, true);
+  assert.equal(result.copyRemoved, false, "nothing was removed, and it says so");
+});
+
+test("Q107: a copy already gone is never handed to Git to remove, so a link that appears there meanwhile is never followed",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "config", "user.name", "t");
+  gitIn(proj, "config", "user.email", "t@t");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  const runner = app.git.runner, real = runner.run.bind(runner), removes = [];
+  runner.run = async (options, signal) => { if (options.args[0] === "worktree" && options.args[1] === "remove") removes.push(options.args.at(-1)); return real(options, signal); };
+  t.after(() => { runner.run = real; });
+  for (const name of ["gone", "merged"]) {
+    await app.git.planStart({ folder: "work/proj", name }, signal());
+    await rm(join(proj, ".branch-worktrees", name), { recursive: true, force: true }); // put away by hand
+  }
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "gone" }, signal()), /nothing was removed/);
+  const result = await app.git.planMerge({ folder: "work/proj", name: "merged", remove: true }, signal());
+  assert.equal(result.copyRemoved, false, "nothing was removed, and it says so");
+  assert.deepEqual(removes, [], "Git was never asked to remove a place that is not there");
+});
+
+test("Q107: a folder the repository carries at a copy's place, swapped for a link as Git is called, never gets another worktree removed",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  // NAS 28ba0db: a real folder passed the check, then a branch switch (Branch's own git.branch, in another run)
+  // put a link there before Git looked, and Git followed it to the owner's worktree. Here the switch is made at
+  // the moment Git is asked to remove, which is the widest that window can be.
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj"), side = join(workspace, "work", "side");
+  await mkdir(join(proj, ".branch-worktrees", "x"), { recursive: true });
+  await writeFile(join(proj, ".branch-worktrees", "x", "keep.txt"), "a folder the repository carries");
+  gitIn(proj, "init", "-q", "-b", "with-dir");
+  gitIn(proj, "config", "user.name", "t");
+  gitIn(proj, "config", "user.email", "t@t");
+  gitIn(proj, "add", ".");
+  gitIn(proj, "commit", "-q", "-m", "a real folder at the copy's place");
+  gitIn(proj, "switch", "-q", "-c", "with-link");
+  await rm(join(proj, ".branch-worktrees", "x"), { recursive: true });
+  await symlink("../../side", join(proj, ".branch-worktrees", "x"), "dir");
+  gitIn(proj, "add", "-A");
+  gitIn(proj, "commit", "-q", "-m", "a link at the copy's place");
+  gitIn(proj, "switch", "-q", "with-dir");
+  gitIn(proj, "branch", "plan/x"); // so a merge would go through
+  gitIn(proj, "worktree", "add", "-q", "--detach", side); // the owner's own worktree, made by hand
+  await writeFile(join(side, "unsaved.txt"), "the owner's unsaved work");
+  const runner = app.git.runner, real = runner.run.bind(runner), removes = [];
+  runner.run = async (options, signal) => {
+    if (options.args[0] === "worktree" && options.args[1] === "remove") {
+      removes.push(options.args.at(-1));
+      gitIn(proj, "switch", "-q", "with-link"); // the other run's switch lands now
+    }
+    return real(options, signal);
+  };
+  t.after(() => { runner.run = real; });
+  const head = () => execFileSync("git", ["rev-parse", "HEAD"], { cwd: proj, encoding: "utf8" }).trim();
+  const before = head();
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "x" }, signal()), /not a parallel copy Git knows of/);
+  await assert.rejects(app.git.planMerge({ folder: "work/proj", name: "x", remove: true }, signal()), /not a parallel copy Git knows of/);
+  assert.deepEqual(removes, [], "Git was never asked to remove a folder it has no copy at");
+  assert.equal(readFileSync(join(side, "unsaved.txt"), "utf8"), "the owner's unsaved work", "the owner's worktree is untouched");
+  assert.match(execFileSync("git", ["worktree", "list"], { cwd: proj, encoding: "utf8" }), /side/, "and still registered");
+  assert.equal(head(), before, "nothing was merged either");
+});
+
+test("Q107: a copy Branch made is still removed, by the path Git registered for it", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "config", "user.name", "t");
+  gitIn(proj, "config", "user.email", "t@t");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "mine" }, signal());
+  await app.git.planStart({ folder: "work/proj", name: "plan" }, signal());
+  assert.deepEqual(await app.git.worktree({ folder: "work/proj", action: "remove", name: "mine" }, signal()),
+    { folder: "work/proj", name: "mine", removed: true });
+  const merged = await app.git.planMerge({ folder: "work/proj", name: "plan", remove: true }, signal());
+  assert.equal(merged.copyRemoved, true);
+  assert.deepEqual((await app.git.worktree({ folder: "work/proj", action: "list" }, signal())).copies, []);
+});
+
+test("Q107: two removes of one copy at once go one at a time, so Git is asked once and the other says it is gone", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "twice" }, signal());
+  const runner = app.git.runner, real = runner.run.bind(runner), removes = [];
+  runner.run = async (options, signal) => {
+    if (options.args[0] === "worktree" && options.args[1] === "remove") {
+      removes.push(options.args.at(-1));
+      await new Promise((resolve) => setTimeout(resolve, 200)); // Git is slow; the other remove is checking meanwhile
+    }
+    return real(options, signal);
+  };
+  t.after(() => { runner.run = real; });
+  const both = await Promise.allSettled([1, 2].map(() => app.git.worktree({ folder: "work/proj", action: "remove", name: "twice" }, signal())));
+  assert.equal(removes.length, 1, "Git was asked once");
+  assert.equal(both.filter((one) => one.status === "fulfilled").length, 1);
+  assert.match(String(both.find((one) => one.status === "rejected")?.reason?.message), /nothing was removed/);
+});
+
+test("Q107: a folder the repository carries at a copy's place is never taken for a worktree of that name elsewhere, or for another copy", async (t) => {
+  // NAS p50: Git's list is matched by the copy's name and by its place under the real .branch-worktrees, both.
+  // The owner's own worktree called x outside that folder, and Branch's copy y inside it, are never handed to Git.
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj"), own = join(workspace, "work", "x");
+  await mkdir(join(proj, ".branch-worktrees", "x"), { recursive: true });
+  await writeFile(join(proj, ".branch-worktrees", "x", "keep.txt"), "a folder the repository carries");
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "add", ".");
+  gitIn(proj, "commit", "-q", "-m", "a real folder at the copy's place");
+  gitIn(proj, "switch", "-q", "-c", "plan/x"); // a commit ahead, so a merge that ran would move HEAD
+  await writeFile(join(proj, "planned.txt"), "the plan's work");
+  gitIn(proj, "add", "planned.txt");
+  gitIn(proj, "commit", "-q", "-m", "the plan's work");
+  gitIn(proj, "switch", "-q", "main");
+  gitIn(proj, "worktree", "add", "-q", "--detach", own); // the owner's own worktree called x, made by hand
+  await writeFile(join(own, "unsaved.txt"), "the owner's unsaved work");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "y" }, signal()); // Branch's own copy y
+  const runner = app.git.runner, real = runner.run.bind(runner), removes = [];
+  runner.run = async (options, signal) => {
+    if (options.args[0] === "worktree" && options.args[1] === "remove") removes.push(options.args.at(-1));
+    return real(options, signal);
+  };
+  t.after(() => { runner.run = real; });
+  const head = () => execFileSync("git", ["rev-parse", "HEAD"], { cwd: proj, encoding: "utf8" }).trim();
+  const before = head();
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "x" }, signal()), /not a parallel copy Git knows of/);
+  await assert.rejects(app.git.planMerge({ folder: "work/proj", name: "x", remove: true }, signal()), /not a parallel copy Git knows of/);
+  assert.deepEqual(removes, [], "Git was never asked to remove anything");
+  assert.equal(readFileSync(join(own, "unsaved.txt"), "utf8"), "the owner's unsaved work", "the owner's worktree called x is untouched");
+  assert.deepEqual((await app.git.worktree({ folder: "work/proj", action: "list" }, signal())).copies, [{ name: "y" }], "Branch's copy y is still there");
+  assert.equal(head(), before, "nothing was merged either");
+});
+
+/**
+ * A temporary folder reached through a root-owned system link, which Branch accepts as a workspace (src/files.ts):
+ * macOS's own temporary folder sits under /var, a link to /private/var; on Linux, /run/shm or /var/run/user/<uid>
+ * lead to a writable place. Null where there is none, and the test that needs one is skipped there.
+ */
+function systemLinkedTemp() {
+  const uid = typeof process.getuid === "function" ? process.getuid() : -1;
+  const candidates = process.platform === "darwin" ? [tmpdir()] : ["/run/shm", `/var/run/user/${uid}`];
+  for (const candidate of candidates) {
+    try {
+      let at = candidate, linked = false;
+      for (;;) { // some folder on the way is a link owned by root
+        const info = lstatSync(at);
+        if (info.isSymbolicLink() && info.uid === 0) { linked = true; break; }
+        const up = dirname(at);
+        if (up === at) break;
+        at = up;
+      }
+      if (!linked) continue;
+      accessSync(candidate, fsConstants.W_OK);
+      return candidate;
+    } catch { /* not there, or not ours to write */ }
+  }
+  return null;
+}
+
+test("Q107: where the workspace is reached through a system link, a copy swapped for a link as Git is called never gets another worktree removed",
+  { skip: (process.platform === "win32" && "links need privileges on Windows") || (!systemLinkedTemp() && "no temporary folder behind a system link here") }, async (t) => {
+  // NAS 14825b4, e76ae38: Git is handed the copy by the path it registered, which it finds by that exact string.
+  // Where the workspace is reached through a system link, the path Branch would join differs from the one Git
+  // printed, and Git looks a joined path up by where it leads: through a link put at the copy's place, it can
+  // reach the owner's worktree, when Git lists that one first. Both orders of making them are tried.
+  for (const ownerFirst of [true, false]) {
+    const root = await mkdtemp(join(systemLinkedTemp(), "branch-q107-linked-"));
+    const workspace = join(root, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const provider = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
+    const app = await createBranch({ workspace, dataDir: join(root, "data"), provider });
+    t.after(async () => { await app.close(); await discardTemp(root); });
+    const proj = join(workspace, "work", "proj"), side = join(workspace, "work", "side");
+    await mkdir(proj, { recursive: true });
+    gitIn(proj, "init", "-q", "-b", "main");
+    gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+    const ownersOwn = async () => {
+      gitIn(proj, "worktree", "add", "-q", "--detach", side); // the owner's own worktree, made by hand
+      await writeFile(join(side, "unsaved.txt"), "the owner's unsaved work");
+    };
+    if (ownerFirst) await ownersOwn();
+    await app.git.worktree({ folder: "work/proj", action: "add", name: "x" }, signal());
+    if (!ownerFirst) await ownersOwn();
+    const place = join(proj, ".branch-worktrees", "x");
+    const runner = app.git.runner, real = runner.run.bind(runner), asked = [];
+    runner.run = async (options, signal) => {
+      if (options.args[0] === "worktree" && options.args[1] === "remove") {
+        asked.push(options.args.at(-1));
+        // Something else in this repository swaps Branch's copy for a link to the owner's worktree, just now.
+        await rename(place, `${place}-away`);
+        await symlink("../../side", place, "dir");
+      }
+      return real(options, signal);
+    };
+    await app.git.worktree({ folder: "work/proj", action: "remove", name: "x" }, signal()).catch(() => undefined);
+    runner.run = real;
+    const order = ownerFirst ? "owner's worktree made first" : "copy made first";
+    assert.equal(asked.length, 1, `Git was asked to remove the copy (${order})`);
+    assert.ok(existsSync(join(side, "unsaved.txt")), `the owner's worktree is untouched (${order})`);
+    assert.match(execFileSync("git", ["worktree", "list"], { cwd: proj, encoding: "utf8" }), /side/, `and still registered (${order})`);
+  }
+});
+
+test("Q127: a remove Git refuses after every check passed leaves the copy, its record, and says so", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "held" }, signal());
+  await app.git.planStart({ folder: "work/proj", name: "plan" }, signal());
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  runner.run = async (options, signal) => {
+    if (options.args[0] === "worktree" && options.args[1] === "remove") throw new Error("fatal: Git would not remove it");
+    return real(options, signal);
+  };
+  const told = [], heard = app.git.onCopy;
+  app.git.onCopy = (event) => { told.push(event); heard(event); };
+  t.after(() => { runner.run = real; app.git.onCopy = heard; });
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "held" }, signal()), /Git would not remove it/);
+  const merged = await app.git.planMerge({ folder: "work/proj", name: "plan", remove: true }, signal());
+  assert.equal(merged.merged, true);
+  assert.equal(merged.copyRemoved, false, "the merge says the copy was not removed");
+  assert.deepEqual(told, [], "no copy is reported as removed, so its folder-trust record stays");
+  for (const name of ["held", "plan"]) assert.ok(existsSync(join(proj, ".branch-worktrees", name)), `${name} is still there`);
+  const listed = (await app.git.worktree({ folder: "work/proj", action: "list" }, signal())).copies.map((copy) => copy.name).sort();
+  assert.deepEqual(listed, ["held", "plan"]);
+});
+
+test("Q128: a copy deleted by hand is listed as gone, not as a working copy", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  for (const name of ["kept", "binned"]) await app.git.worktree({ folder: "work/proj", action: "add", name }, signal());
+  await rm(join(proj, ".branch-worktrees", "binned"), { recursive: true, force: true }); // put away by hand
+  const { copies } = await app.git.worktree({ folder: "work/proj", action: "list" }, signal());
+  assert.deepEqual([...copies].sort((a, b) => a.name.localeCompare(b.name)), [{ name: "binned", gone: true }, { name: "kept" }]);
+});
+
+test("Q107: a folder made by hand with a line break in its name cannot add a copy to the list",
+  { skip: process.platform === "win32" && "a folder name cannot hold a line break on Windows" }, async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "kept" }, signal());
+  // Git's plain list writes this folder's name over two lines, the second naming a copy that was never made.
+  // Spelled as Git spells the repository (its real path, so /private/var on macOS), as a real copy of it would be.
+  const phantom = join(String(gitIn(proj, "rev-parse", "--show-toplevel")).trim(), ".branch-worktrees", "phantom");
+  gitIn(proj, "worktree", "add", "-q", "-b", "odd", join(workspace, `hand\nworktree ${phantom}`));
+  const { copies } = await app.git.worktree({ folder: "work/proj", action: "list" }, signal());
+  assert.deepEqual(copies, [{ name: "kept" }]);
+});
+
+test("Q108: a trust covers the folder the owner trusted, not wherever its path leads after it became a link",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = join(workspace, "work", "proj");
+  for (const folder of ["docs/api", "sub", "other/api"]) await mkdir(join(proj, folder), { recursive: true });
+  await writeFile(join(proj, "sub", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj/docs", decision: "trust" });
+  assert.equal(folderTrust(app.store, owner, join(proj, "docs")), "trusted", "the folder the owner trusted");
+  // A pulled commit turns docs into a link: into the repository's root, or to another of its folders.
+  const relink = async (target) => { await rm(join(proj, "docs"), { recursive: true, force: true }); await symlink(target, join(proj, "docs"), "dir"); };
+  await relink(".");
+  assert.equal(folderTrust(app.store, owner, proj), "untrusted", "the repository's root, reached through docs");
+  await relink("sub");
+  assert.equal(folderTrust(app.store, owner, join(proj, "sub")), "untrusted");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(proj, "sub", "integrations.json")), false);
+  // A link above the trusted folder: the trust on docs/api does not follow docs to other/api.
+  await rm(join(proj, "docs"));
+  await mkdir(join(proj, "docs", "api"), { recursive: true });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj/docs/api", decision: "trust" });
+  assert.equal(folderTrust(app.store, owner, join(proj, "docs", "api")), "trusted");
+  await relink("other");
+  assert.equal(folderTrust(app.store, owner, join(proj, "other", "api")), "untrusted");
+  // A "don't trust" still holds wherever its path leads now: that can only be more careful.
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  const lib = join(workspace, "work", "lib"), pub = join(workspace, "work", "pub");
+  await mkdir(lib, { recursive: true });
+  await mkdir(pub, { recursive: true });
+  decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "distrust" });
+  await rm(lib, { recursive: true });
+  await symlink("pub", lib, "dir");
+  assert.equal(folderTrust(app.store, owner, pub), "untrusted");
+});
+
+test("Q115: the saved answers keep the shape an older build reads, so a rollback loses none of them", async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  await mkdir(join(workspace, "work", "proj", "docs"), { recursive: true });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj/docs", decision: "trust" });
+  const saved = app.store.get("settings", owner, "folder_trust").data;
+  assert.equal(saved.folders.length, 2);
+  for (const entry of saved.folders)
+    assert.deepEqual(Object.keys(entry).sort(), ["decidedAt", "decision", "path"], "nothing an older build's strict reading refuses");
+  assert.deepEqual(Object.keys(saved), ["folders"]);
+});
+
+test("Q116: a don't-trust stays on the folder the owner meant when its link is pointed somewhere else",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const work = join(workspace, "work");
+  for (const folder of ["third", "other"]) await mkdir(join(work, folder), { recursive: true });
+  await writeFile(join(work, "third", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  await symlink("third", join(work, "lib"), "dir");
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "distrust" }); // meant for what lib is: third
+  await rm(join(work, "lib"));
+  await symlink("other", join(work, "lib"), "dir");
+  assert.equal(folderTrust(app.store, owner, join(work, "third")), "untrusted", "the folder the owner meant");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(work, "third", "integrations.json")), false);
+  assert.equal(folderTrust(app.store, owner, join(work, "other")), "untrusted", "and where the path leads now");
+});
+
+test("Q116: deciding the folder a moved link leads to now keeps the don't-trust on the folder the owner meant",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  // NAS ca01bb3: the same-folder check compared where each saved path leads now, so an answer for "other" took
+  // the place of the don't-trust written for "lib" while lib led to "third", and third read as trusted again.
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const work = join(workspace, "work");
+  for (const folder of ["third", "other"]) await mkdir(join(work, folder), { recursive: true });
+  await symlink("third", join(work, "lib"), "dir");
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "distrust" }); // meant for third
+  await rm(join(work, "lib"));
+  await symlink("other", join(work, "lib"), "dir");
+  for (const decision of ["trust", "distrust"]) {
+    decideFolder(app.store, owner, workspace, { folder: "work/other", decision });
+    assert.equal(folderTrust(app.store, owner, join(work, "third")), "untrusted", `the folder the owner meant, after deciding other (${decision})`);
+  }
+  // Deciding lib again, as written, still replaces its own answer.
+  decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "trust" });
+  assert.equal(folderTrust(app.store, owner, join(work, "third")), "trusted", "the owner's own new answer for lib");
+});
+
+test("Q116: deciding the folder a moved don't-trust was meant for keeps that don't-trust on where the link leads now",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  // NAS 160ac63: matching a moved answer by the folder it was meant for dropped the lib don't-trust when the owner
+  // decided third, so lib (now leading to other) and other read trusted through the workspace's own trust.
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const work = join(workspace, "work");
+  for (const folder of ["third", "other"]) await mkdir(join(work, folder), { recursive: true });
+  await symlink("third", join(work, "lib"), "dir");
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/lib", decision: "distrust" }); // meant for third
+  await rm(join(work, "lib"));
+  await symlink("other", join(work, "lib"), "dir");
+  for (const decision of ["distrust", "trust"]) {
+    decideFolder(app.store, owner, workspace, { folder: "work/third", decision });
+    assert.equal(folderTrust(app.store, owner, join(work, "other")), "untrusted", `where lib leads now, after deciding third (${decision})`);
+    assert.equal(folderTrust(app.store, owner, join(work, "lib")), "untrusted", `and lib itself (${decision})`);
+  }
+  assert.equal(folderTrust(app.store, owner, join(work, "third")), "trusted", "the owner's newer answer on third wins there");
 });

@@ -37,7 +37,7 @@ const local: readonly string[] = [
   "schedules.read", "schedules.manage", "workflows.read", "workflows.manage", "procedures.use", "procedures.manage",
   "automations.read", "automations.propose", "boards.read", "boards.write", "widgets.read", "widgets.propose",
   "installs.read", "installs.request", "intents.read", "labels.read", "labels.manage", "projects.read",
-  "projects.manage", "pages.write", "research.read", "blocks.read", "sources.read", "addons.wasm", "addons.draft",
+  "projects.manage", "pages.write", "forecasts.read", "forecasts.write", "leads.read", "leads.write", "research.read", "blocks.read", "sources.read", "addons.wasm", "addons.draft",
   "gateway.propose",
   // Branch's own settings (Q48/Q49 settings.why and settings.undo, Q50 talk) and its bundled help: nothing leaves the computer.
   "settings.read", "settings.write", "help.read",

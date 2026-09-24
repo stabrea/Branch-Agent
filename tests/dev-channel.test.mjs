@@ -100,6 +100,21 @@ test("Dev offers the newest merged change when it is not the one running, read w
   assert.equal(same.message, "You have the newest Dev build (change bbbbbbb).");
 });
 
+/* The Update button names KeepOak/Branch-Agent, which does not exist until the move, and git cannot fall back on a
+   404 the way the release lookup does: asking it fails as a sign-in prompt. So Dev reads and builds the name Branch
+   has now, which GitHub keeps sending on after the move (NAS 4896293). */
+test("Dev reads and builds Branch's current name even when the Update button names the new one", async (t) => {
+  const where = await folders(t), tools = fakeTools(where);
+  const dev = updater(where, tools, { repo: "KeepOak/Branch-Agent", canary: async () => {} });
+  const status = await dev.check();
+  assert.equal(status.phase, "available", status.message);
+  assert.ok(tools.calls.includes(`git ls-remote https://github.com/stabrea/Branch-Agent.git refs/heads/${devBranch}`), tools.calls.join("\n"));
+  assert.equal(status.release.pageUrl, `https://github.com/stabrea/Branch-Agent/commit/${NEW}`);
+  await dev.install();
+  assert.ok(tools.calls.some((call) => call.startsWith(`git clone --no-tags --single-branch --branch ${devBranch} https://github.com/stabrea/Branch-Agent.git `)));
+  assert.equal(tools.calls.some((call) => call.includes("KeepOak")), false, "git is never pointed at the new name");
+});
+
 test("installing a Dev build clones afresh in the updater's own folder, proves it goes forward, builds, and hands over", async (t) => {
   const where = await folders(t), tools = fakeTools(where), checked = [];
   const dev = updater(where, tools, { canary: async (_dir, version) => { checked.push(version); } });

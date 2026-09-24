@@ -6,6 +6,7 @@ import type { MemoryRetrieval } from "./memory-retrieval.js";
 import type { Proposal } from "./memory-review.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
+import { memoryAgent } from "./trunks/memory-scope.js";
 
 /**
  * "Tidy my memory" as one thing the owner can run, rather than four checks spread across the app.
@@ -127,7 +128,7 @@ export function registerMemoryTidy(registry: ToolRegistry, tidy: MemoryTidy): vo
     name: "memory.tidy", permission: "memory.write",
     description: "Find repeated, contradicting, stale and never-used facts. Suggests only; deletes nothing.",
     parameters: TidySchema,
-    execute: async (input, context) => tidy.run(memoryScope(tidy.store, context), input, Date.now(), context.agent),
+    execute: async (input, context) => tidy.run(memoryScope(tidy.store, context), input, Date.now(), memoryAgent(context)),
   });
   // There is deliberately no separate health tool: `memory.tidy` already returns the same counts,
   // and the Memory screen and the diagnostics folder read them through `GET /api/memory/health`.

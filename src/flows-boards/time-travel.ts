@@ -75,6 +75,8 @@ export class FlowTimeTravel {
   private readonly working = new Map<string, Promise<GraphRunView>>();
   constructor(private readonly deps: TimeTravelDeps) {}
 
+  /** Q119 (NAS 911afbf): the Trunk whose run this is, or null for the owner's own; read without stamping anyone. */
+  whose(runId: string): string | null { return this.deps.graphs.trunkOf(runId); }
   /** Every step of one run with the state as it stood after it, oldest first. */
   steps(runId: string): FlowSteps {
     requirePart(this.deps.store, this.deps.owner, "time-travel");
@@ -118,6 +120,9 @@ export class FlowTimeTravel {
       throw new Error(`Those values do not fit this flow: ${error instanceof z.ZodError ? error.issues.map((i) => i.path.join(".") || i.message).join(", ") : errorText(error)}`);
     }
     const state = { ...point.state, ...changes };
+    // Q122: a copy of a run that cannot be carried on from here (its Trunk gone, or another Trunk asking) is never made.
+    const refused = this.deps.graphs.whyNotError(runId);
+    if (refused) throw refused;
     const copy = store.createRun(owner, `Flow: ${compiled.definition.name} (from step ${seq})`, undefined, false, "schedule");
     this.copyAcross(runId, copy.id, seq, point, state);
     const changed = Object.keys(changes);
@@ -127,6 +132,7 @@ export class FlowTimeTravel {
     // A copy of a run a task started keeps that task's limit (mac7/lockdown-fix), even though the owner made it.
     const within = this.deps.graphs.limitOf(runId);
     // mac7/outside-resume: and a copy of a run set going from outside is held as that run was.
+    this.deps.graphs.carryTrunk(runId, copy.id); // Q114: and a copy of a Trunk's run is still that Trunk's
     const work = this.deps.graphs.work(copy.id, compiled, { source: this.deps.graphs.sourceOf(runId), ...(within ? { within } : {}) })
       .catch(() => this.deps.graphs.view(copy.id));
     this.working.set(copy.id, work);

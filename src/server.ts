@@ -199,6 +199,8 @@ import { browserContainerApi, handlesBrowserContainer } from "./browser-containe
 import { handlesPageNotes, pageNotesApi } from "./browser-notes-api.js"; // w911 (A2144) hook: page notes
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+import { handlesUpdateFailurePath, updateFailureApi } from "./update-failure.js";
+import { handlesUpdateFixPath, updateFixApi } from "./update-fix.js";
 import { diagnosticApi, handlesDiagnosticPath, installTypeOf, newRequestId, startDiagnosticLog } from "./diagnostic-api.js"; // mac7/diagnostics
 import { diagnose } from "./diagnostic-log.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -538,6 +540,7 @@ async function staticFile(
     "/vault-autofill.js": ["vault-autofill.js", "text/javascript; charset=utf-8"], // mac7/vault-autofill
     "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
     "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
+    "/memory-provider-ui.js": ["memory-provider-ui.js", "text/javascript; charset=utf-8"], // FQ-memory.providers
     "/adapt.js": ["adapt.js", "text/javascript; charset=utf-8"], // mac7/adapt
     "/learn.js": ["learn.js", "text/javascript; charset=utf-8"], // mac7/learn
     "/popover.js": ["popover.js", "text/javascript; charset=utf-8"], // 0.18.1: how every popover opens and closes
@@ -1823,6 +1826,12 @@ async function api(
   if (handlesDiagnosticPath(path))
     return diagnosticApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt },
       request.method ?? "GET", path, new URL(request.url ?? "/", "http://local"), () => readBody(request, 8 * 1024 * 1024));
+  // Owner item 19: an update that did not go through, and its file (src/update-failure.ts), the owner's alone.
+  // Owner item 21: Fix update and who does it (src/update-fix.ts), the owner's alone.
+  if (handlesUpdateFixPath(path))
+    return updateFixApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt }, request.method ?? "GET", path, () => readBody(request));
+  if (handlesUpdateFailurePath(path))
+    return updateFailureApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt }, request.method ?? "GET", path);
   if (request.method === "POST" && path === "/api/diagnostics/bundle")
     return writeDiagnosticsBundle(app.store, app.runtime.owner, dataDir, {
       health: await healthReport(app), version: app.version, memory: app.memory.tidy.health(app.runtime.owner),
@@ -2067,13 +2076,20 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return app.store.configureMemory(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/memory/forget/preview") {
     const { sessionId } = z.object({ sessionId: z.string().uuid() }).strict().parse(await readBody(request));
-    return app.store.forgetMemoryPreview(owner, sessionId);
+    return app.memory.backend.forgetPreview(owner, sessionId); // FQ-memory.providers: wherever the facts were saved
   }
   if (request.method === "POST" && path === "/api/memory/forget")
-    return app.store.forgetMemory(owner, await readBody(request));
+    return app.memory.backend.forgetConversation(owner, await readBody(request));
   if (path === "/api/memory/retrieval") {
     if (request.method === "GET") return app.memory.retrieval.view(owner);
     if (request.method === "POST") return app.memory.retrieval.configure(owner, await readBody(request));
+  }
+  // FQ-memory.providers: where facts are kept — this computer's database, or an outside memory
+  // service the owner has switched on instead. Reading and saving both go through the same object
+  // that decides, at every call, which one actually answers `memory.put`/`memory.search`/etc.
+  if (path === "/api/memory/provider") {
+    if (request.method === "GET") return app.memory.backend.view(owner);
+    if (request.method === "POST") return app.memory.backend.configure(owner, await readBody(request));
   }
   if (request.method === "POST" && path === "/api/memory/index") {
     z.object({}).strict().parse(await readBody(request));
@@ -4271,6 +4287,10 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // mac7/diagnostics: the activity log and problem reports are the owner's alone, reading included.
   if (path.startsWith("/api/diagnostics/"))
     return "A short-lived key cannot read the activity log or make a problem report. Do that in the app window.";
+  if (handlesUpdateFixPath(path))
+    return "A short-lived key cannot fix an update or choose who does. Do that in the app window.";
+  if (handlesUpdateFailurePath(path))
+    return "A short-lived key cannot read an update's problem or make its file. Do that in the app window.";
   if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered
@@ -4304,6 +4324,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // bucket-18 (A2317): a copy of what is remembered may be sent to a remote; only the owner names it.
   if (path === "/api/memory/history")
     return "A short-lived key cannot change where the history of what is remembered is kept. Do that in the app window.";
+  // FQ-memory.providers: where facts are kept is the owner's setting and the locker secret is the owner's alone.
+  if (path === "/api/memory/provider")
+    return "A short-lived key cannot change where facts are kept or which key an outside memory service uses. Do that in the app window.";
   // bucket-18 (A0300): where work is sent on GitHub is the owner's to decide.
   if (path === "/api/developer/pull-requests")
     return "A short-lived key cannot change how work is sent to GitHub. Do that in the app window.";

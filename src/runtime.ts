@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
+import { memoryAgent } from "./trunks/memory-scope.js"; // FQ-routing.isolated-agents
+import { trunkFilesHome } from "./trunks/file-root.js"; // Q114
 import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
@@ -151,7 +153,7 @@ import { autonomyPrompt } from "./autonomy/hooks.js"; // r17-b
 import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
 import { walkCheck, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
 import { underTask } from "./task-scope.js"; // mac7/walk-rules
-import { resolve as resolvePath } from "node:path"; // mac7/walk-rules
+import { posix, resolve as resolvePath } from "node:path"; // mac7/walk-rules
 
 // R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -494,6 +496,10 @@ export class Runtime {
       agent?: string;
     } = {},
   ): ToolContext {
+    // FQ-routing.isolated-agents: work a Trunk set going (a workflow or flow step, a procedure it replays)
+    // remembers as that Trunk, never with the owner's whole memory (see memoryAgent).
+    const mark = currentAccountCall()?.trunk;
+    const trunkWork = mark?.id;
     return {
       owner: this.owner,
       workspace: this.workspace,
@@ -510,6 +516,10 @@ export class Runtime {
       ...(options.unattended ? { unattended: true } : {}),
       ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
       ...(options.agent ? { agent: options.agent } : {}),
+      ...(trunkWork ? { trunk: trunkWork } : {}),
+      // Q123 (NAS 24f2b9c): and with that Trunk's keys, so every guard that knows a Trunk by them (a saved sign-in
+      // filled, Branch removed, a program installed, a sign-in connection) knows its work too, not only its turn.
+      ...(mark?.keys ? { trunkKeys: mark.keys } : {}),
     };
   }
   cancel(id: string): boolean {
@@ -915,11 +925,14 @@ ${run.output.slice(0, 6000)}`;
    * (which may be a second of the owner's own plans, reached after the first ran out).
    */
   private asTrunk<T>(context: ToolContext, work: () => Promise<T>): Promise<T> {
-    if (currentAccountCall()?.trunk) return work();
-    if (!context.trunkKeys)
+    const marked = currentAccountCall()?.trunk;
+    // FQ-routing.isolated-agents: marked again when this is another Trunk's work, so what it sets going is its own.
+    if (marked && (!context.trunk || marked.id === context.trunk)) return work();
+    const keys = context.trunkKeys ?? marked?.keys;
+    if (!keys)
       return withAccountCall({ owner: this.owner, sessionId: this.accountSession(context.runId), runId: context.runId }, work);
     const sessionId = this.store.run(context.runId)?.sessionId ?? "";
-    return withAccountCall({ owner: this.owner, sessionId, runId: context.runId, trunk: { keys: context.trunkKeys } }, work);
+    return withAccountCall({ owner: this.owner, sessionId, runId: context.runId, trunk: { keys, ...(context.trunk ? { id: context.trunk } : {}) } }, work);
   }
   /**
    * mac7/pooling-review: the conversation whose account choice a task's model calls follow: the one
@@ -935,7 +948,7 @@ ${run.output.slice(0, 6000)}`;
     // R17-A (Trunks): a Trunk remembers in its own scope, and the task says whose it was.
     // mac7/lockdown-fix: trunkKeys. Work a Trunk set going (a workflow's prompt step, a flow box) is its work too.
     const inherited = given.trunkKeys ?? currentAccountCall()?.trunk?.keys;
-    const context = trunk ? { ...given, agent: trunk.agent, trunkKeys: trunk.keys } : inherited ? { ...given, trunkKeys: inherited } : given;
+    const context = trunk ? { ...given, agent: trunk.agent, trunk: trunk.trunkId, trunkKeys: trunk.keys } : inherited ? { ...given, trunkKeys: inherited } : given;
     if (trunk) this.store.event(run.id, "trunk.turn", { trunkId: trunk.trunkId });
     if (!this.store.sessionTemporary(run.sessionId)) return context;
     this.store.event(run.id, "session.temporary", { memoryWrites: false });
@@ -1300,6 +1313,48 @@ ${run.output.slice(0, 6000)}`;
    * connects it; on its own every task is an ordinary one.
    */
   trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
+  /** Q114: a Trunk's own key choices, by its id, or null once it is gone (set by src/trunks). */
+  trunkKeysFor: (id: string) => TrunkRunShape["keys"] | null = () => null;
+  /** Q119: the tools a Trunk may use now, by its id, or null once it is gone (set by src/trunks). */
+  trunkPermissionsFor: (id: string) => string[] | null = () => null;
+  /** Q144: Q44's refusal of a Trunk set to start on another computer, as its own error, or null (set by src/trunks). */
+  trunkStartsElsewhere: (id: string) => Error | null = () => null;
+  /** Q114: the Trunk whose work is going on here (a turn, or something it set going), if any. */
+  trunkAtWork(): string | undefined { return currentAccountCall()?.trunk?.id; }
+  /** Q122: why a Trunk's work cannot be carried on from here, or null when it can: asTrunkWork's own checks, asked first. */
+  trunkWorkRefusal(trunkId: string): string | null {
+    const marked = currentAccountCall()?.trunk;
+    if (marked?.id && marked.id !== trunkId) return "Another Trunk started this, so only that Trunk or the owner can carry it on.";
+    // NAS e1e9dd2: asked even inside that Trunk's own mark, which can outlive the Trunk it names.
+    if (!this.trunkKeysFor(trunkId)) return "The Trunk that started this is no longer here, so it does not carry on.";
+    // Q144: nor while it is set to start on another computer. Asked here, before anything is approved or marked
+    // running, rather than later inside its shape, where the refusal came after the yes was written down.
+    return this.trunkStartsElsewhere(trunkId)?.message ?? null;
+  }
+  /**
+   * Q144 (NAS ebeccfa): the same refusal, as the error to throw. Q44's is its own kind, which every route answers
+   * 409, as its other refusals are; the others are plain.
+   */
+  trunkWorkError(trunkId: string): Error | null {
+    const refused = this.trunkWorkRefusal(trunkId);
+    if (!refused) return null;
+    const elsewhere = this.trunkKeysFor(trunkId) ? this.trunkStartsElsewhere(trunkId) : null;
+    return elsewhere?.message === refused ? elsewhere : new Error(refused);
+  }
+  /**
+   * Q114: work a Trunk started and someone carries on later (a workflow step or a flow box after the owner's
+   * yes, or anyone's resume) goes on as that Trunk: its mark, so its keys and memory, and its own folder.
+   * Refused for a Trunk that is gone, and while another Trunk is at work.
+   */
+  async asTrunkWork<T>(trunkId: string, work: () => Promise<T>): Promise<T> {
+    const refused = this.trunkWorkError(trunkId);
+    if (refused) throw refused;
+    const marked = currentAccountCall()?.trunk;
+    if (marked?.id === trunkId) return work();
+    const keys = this.trunkKeysFor(trunkId)!;
+    const inFolder = () => this.coding ? this.coding.inPlace(posix.join(trunkFilesHome, trunkId), work) : work();
+    return withAccountCall({ owner: this.owner, sessionId: "", runId: "", trunk: { keys, id: trunkId } }, inFolder);
+  }
   /**
    * Q44: throws, in plain words, when a message queued for this conversation could never start here
    * (a Trunk set to start on another computer). `createBranch` connects it; on its own nothing is refused.
@@ -1411,7 +1466,8 @@ ${run.output.slice(0, 6000)}`;
     // mac7/smoke-fixes (B5): nobody can be asked about the plan. A chat app is a person who can
     // answer, so it is not one of them (nobodyToAskAboutPlan in src/coding/project-tests.ts).
     const conductor = this.orchestration.conductor(run,
-      { ...conduct, ...planned, nobodyToAsk: nobodyToAskAboutPlan(context), ...(checks ? { checks } : {}) },
+      { ...conduct, ...planned, nobodyToAsk: nobodyToAskAboutPlan(context), ...(checks ? { checks } : {}),
+        memory: { scope: memoryScope(this.store, context), agent: memoryAgent(context) } },
       (aside) => this.aside(run, context, route, aside));
     const opening = await this.openConductor(run, conductor);
     // mac7/smoke-fixes (B5): "Show me the plan first" with nobody to ask finishes with the plan.
@@ -1825,7 +1881,7 @@ ${run.output.slice(0, 6000)}`;
     ];
     // Read under whoever is using the app: with a household profile switched on, their task is
     // given their own remembered facts and never the owner's.
-    const snapshot = this.store.review.sessionSnapshot(memoryScope(this.store, context), run.sessionId, context.agent);
+    const snapshot = this.store.review.sessionSnapshot(memoryScope(this.store, context), run.sessionId, memoryAgent(context));
     if (snapshot.count) messages.push({ role: "system", content: `What you remember about the person (snapshot taken when this conversation started; use memory.search for anything newer):\n${snapshot.text}` });
     const aboutYou = knobs.aboutYouMessage(this.store, memoryScope(this.store, context)); // R17-S13
     if (aboutYou) messages.push(aboutYou);

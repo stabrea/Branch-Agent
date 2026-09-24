@@ -54,13 +54,13 @@ export class LearningLoop {
     }));
   }
   /** Says yes or no to every suggestion in a batch that is still waiting; one that fails is reported, not fatal. */
-  decideBatch(batchId: string, accept: boolean): { decided: number; problems: string[] } {
+  async decideBatch(batchId: string, accept: boolean): Promise<{ decided: number; problems: string[] }> {
     const batch = this.batches().find((entry) => entry.id === batchId);
     if (!batch) throw new Error("There is no such look back");
     const problems: string[] = [];
     let decided = 0;
     for (const proposal of batch.proposals.filter((p) => p.status === "pending")) {
-      try { this.store.review.decide(this.owner, proposal.id, accept); decided++; }
+      try { await this.store.review.decide(this.owner, proposal.id, accept); decided++; }
       catch (error) { problems.push(`${proposal.text.slice(0, 80) || proposal.kind}: ${error instanceof Error ? error.message : String(error)}`); }
     }
     return { decided, problems };

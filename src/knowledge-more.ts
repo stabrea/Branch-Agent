@@ -8,6 +8,7 @@ import { SummariseSchema, type KnowledgeSummaries } from "./knowledge-summary.js
 import type { Proposal } from "./memory-review.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
+import { accessAgent } from "./trunks/memory-scope.js";
 
 /**
  * The tools and routes for everything a knowledge base gained in this batch: a written summary, a
@@ -46,18 +47,18 @@ export const extrasView = (parts: KnowledgeParts, owner: string): KnowledgeExtra
  * Memory screen exactly as with every other thing the assistant proposes to remember.
  */
 export async function refreshFromConversations(
-  parts: KnowledgeParts, store: Store, owner: string, input: unknown, signal?: AbortSignal,
+  parts: KnowledgeParts, store: Store, owner: string, input: unknown, signal?: AbortSignal, agent?: string,
 ): Promise<{ collection: string; staged: Proposal[]; conversations: number; cost: RefreshCost | null; reason: string }> {
   const { collection, conversations } = RefreshSchema.parse(input);
   const target = parts.bases.one(owner, collection);
   if (!parts.cards) return { collection: target.id, staged: [], conversations: 0, cost: null, reason: "Writing up conversations is not available in this launch." };
   // Wave 9: what this reading actually cost, by the same reckoning the owner was shown beforehand.
-  const cost = parts.cards.cost(owner, conversations);
-  const recent = store.recentSessions(owner, conversations).sessions.slice(0, conversations);
+  const cost = parts.cards.cost(owner, conversations, agent);
+  const recent = parts.cards.recent(owner, conversations, agent);
   const staged: Proposal[] = [];
   const reasons: string[] = [];
-  for (const session of recent) {
-    const proposed = await parts.cards.propose(owner, { sessionId: session.sessionId, collection: target.id }, signal)
+  for (const sessionId of recent) {
+    const proposed = await parts.cards.propose(owner, { sessionId, collection: target.id }, signal, agent)
       .catch(() => ({ staged: [] as Proposal[], reason: "" }));
     staged.push(...proposed.staged);
     if (proposed.reason) reasons.push(proposed.reason);
@@ -110,7 +111,7 @@ export function registerKnowledgeExtras(registry: ToolRegistry, parts: Knowledge
     name: "knowledge.refresh", group: "documents", permission: "documents.write",
     description: "Suggest fact cards for a knowledge base from the last few conversations. Suggestions only; the owner accepts them.",
     parameters: RefreshSchema,
-    execute: async (input, context) => refreshFromConversations(parts, store, context.owner, input, context.signal),
+    execute: async (input, context) => refreshFromConversations(parts, store, context.owner, input, context.signal, accessAgent(context)), // Q143
   });
 }
 async function manage(parts: KnowledgeParts, owner: string, input: { rename?: unknown; merge?: unknown; split?: unknown }) {

@@ -1,4 +1,10 @@
-import test from "node:test";
+import nodeTest from "node:test";
+/* This file is split into parts so the build machines can run its minutes side by side: each
+   tests/surface-parity-N.test.mjs runs every 3th test declared here, starting from its own. Nothing is
+   skipped: the parts together declare every test, in the same order, with the same body. */
+const part = globalThis.branchTestPart ?? { index: 0, of: 1 };
+let declared = 0;
+const test = (...args) => (declared++ % part.of === part.index ? nodeTest(...args) : undefined);
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -53,7 +59,10 @@ for (const width of [1440, 860, 400]) {
       await page.waitForFunction((value) => document.documentElement.dataset.theme === value,
         mode === "dark" ? "forest" : "daylight");
       for (const contrast of [false, true]) {
-        await page.locator("#lx-contrast").setChecked(contrast);
+        /* Contrast is the sample's two choices now (DG-166), not a tick box. */
+        const choice = `#lx-contrast .segmented-option[data-value="${contrast ? "more" : "standard"}"]`;
+        await page.locator(choice).click();
+        await page.waitForFunction((one) => document.querySelector(one)?.getAttribute("aria-pressed") === "true", choice);
         for (const id of ids) {
           const seen = await page.evaluate((family) => {
             // Dispatch through the existing gallery control; do not write the surface or invoke applyLook.

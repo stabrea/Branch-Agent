@@ -28,7 +28,7 @@ export interface TeachDeps {
   owner: string;
   records: TrunkRecords;
   routines: TrunkRoutines;
-  workflows: { forOwner(owner: string): string; create(owner: string, input: unknown): { id: string; name: string } };
+  workflows: { forOwner(owner: string): string; create(owner: string, input: unknown, options?: { given?: string }): { id: string; name: string } };
   scrub: <T>(value: T) => T;
 }
 
@@ -84,7 +84,8 @@ export class TrunkTeaching {
     const value = TeachSchema.parse(input ?? {});
     const runId = this.lesson(trunkId, value.runId);
     const draft = recordingFlowDraft(store, runId, value.name || `${trunk.name}: learned`, scrub);
-    const saved = workflows.create(workflows.forOwner(owner), draft.definition);
+    // Q119: the owner hands what it learned to this Trunk, so the Trunk's own routine may run it, as the Trunk.
+    const saved = workflows.create(workflows.forOwner(owner), draft.definition, { given: trunkId });
     store.event(runId, "trunk.taught", { trunkId, workflowId: saved.id, steps: draft.definition.steps.length });
     records.put({ ...trunk, taught: [...trunk.taught, { workflowId: saved.id, name: saved.name, runId }].slice(-50), updatedAt: new Date().toISOString() });
     store.delete("settings", owner, watchKey(trunkId));

@@ -8,7 +8,10 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
-const canonical = "stabrea/Branch-Agent";
+/** The repository Beta publishes from: the one this workflow runs in, when it is Branch's own under either name
+ *  (it is moving from stabrea to KeepOak); any other repository, a fork included, is not Branch's. */
+const trustedRepos = new Set(["KeepOak/Branch-Agent", "stabrea/Branch-Agent"]);
+const canonical = trustedRepos.has(process.env.GITHUB_REPOSITORY ?? "") ? process.env.GITHUB_REPOSITORY : "stabrea/Branch-Agent";
 const branch = "mac/cross-platform";
 const archives = ["Branch-Agent-windows-x64.zip", "Branch-Agent-macos-arm64.zip",
   "Branch-Agent-macos-x64.zip", "Branch-Agent-linux-x64.tar.gz"];

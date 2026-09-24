@@ -19,6 +19,11 @@ on:
         type: choice
         options: [auto, 'on', 'off']
         default: auto
+      windows_screens:
+        description: Run the browser-screen tests on Windows and macOS too (auto does on the trunks and at night, and leaves them to Linux on trains)
+        type: choice
+        options: [auto, 'on', 'off']
+        default: auto
   schedule:
     - cron: '17 3 * * *'
 permissions:
@@ -54,6 +59,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
           REPO: ${{ github.repository }}
           ASKED: ${{ inputs.own_computers || 'auto' }}
+          SCREENS_ASKED: ${{ inputs.windows_screens || 'auto' }}
         run: |
           idle() {
             case "$ASKED" in
@@ -64,20 +70,36 @@ jobs:
               *) echo 0 ;;
             esac
           }
+          # The browser-screen files are 166 of Windows' 258 machine-minutes and 71 of macOS' 86, one at a time; Linux
+          # runs every one of them on every run. So a train's Windows and macOS shares leave them out, and the
+          # integration trunk and the nightly run still put all of them through all three systems before a release.
+          screens() {
+            case "$SCREENS_ASKED" in
+              on|off) echo "$SCREENS_ASKED" ;;
+              *) case "$GITHUB_REF" in refs/heads/main|refs/heads/mac/cross-platform) echo on ;; *) [ "$GITHUB_EVENT_NAME" = schedule ] && echo on || echo off ;; esac ;;
+            esac
+          }
           node -e '
-            const [legion, macmini] = process.argv.slice(1, 3).map(Number), keepOff = process.argv[3], rows = [];
+            const [legion, macmini, wsl] = process.argv.slice(1, 4).map(Number), screens = process.argv[4], keepOff = process.argv[5], rows = [];
+            const windows = screens === "off" ? { groups: "shared,desktop" } : {}, mac = windows;
             const add = (os, labels, total, extra = {}) => { for (let shard = 1; shard <= total; shard++) rows.push({ os, labels, shard, total, ...extra }); };
             // One of the owner computers: never the desktop or uninstall tests, which take one hosted share of their own.
-            const own = (os, label, idle, hosted, spare) => {
-              add(os, ["self-hosted", label], idle, { own: label, exclude: keepOff, concurrency: spare });
-              rows.push({ os, labels: hosted, shard: 1, total: 1, only: keepOff });
+            const own = (os, label, idle, hosted, spare, extra = {}) => {
+              add(os, ["self-hosted", label], idle, { own: label, exclude: keepOff, concurrency: spare, ...extra });
+              rows.push({ os, labels: hosted, shard: 1, total: 1, only: keepOff, ...extra });
             };
-            if (legion > 0) own("windows", "branch-legion", legion, "windows-latest", "4,1"); else add("windows", "windows-latest", 10);
-            if (macmini > 0) own("macos", "branch-macmini", macmini, "macos-latest", "4,2"); else add("macos", "macos-latest", 5);
-            add("linux", "ubuntu-latest", 8);
+            // With Linux on the Legion PC WSL runners, GitHub machines left over (about 20 at once) take more Windows shares.
+            if (legion > 0) own("windows", "branch-legion", legion, "windows-latest", "4,1", windows);
+            else add("windows", "windows-latest", wsl > 0 && screens === "off" ? 12 : 10, windows);
+            if (macmini > 0) own("macos", "branch-macmini", macmini, "macos-latest", "4,2", mac);
+            else add("macos", "macos-latest", screens === "off" ? 2 : 5, mac);
+            // Linux goes to the Legion PC WSL runners (label branch-wsl, a separate distro with no Windows drive) only when
+            // asked (own_computers: on). Measured on 2026-09-24: four shares there took 25 minutes against 13 to 18 on eight of
+            // GitHub machines, and running more files at once there shook out order and timing flakes.
+            if (wsl > 0) own("linux", "branch-wsl", wsl, "ubuntu-latest", "6,2"); else add("linux", "ubuntu-latest", 8);
             require("fs").appendFileSync(process.env.GITHUB_OUTPUT, "matrix=" + JSON.stringify({ include: rows }) + "\n");
-            console.log(`Windows on ${legion || "no"} Legion runner(s), macOS on ${macmini || "no"} Mac mini runner(s); ${rows.length} shares.`);
-          ' "$( [ "$ASKED" = on ] && idle branch-legion 6 || echo 0 )" "$(idle branch-macmini 2)" '^tests/(desktop[^/]*|[^/]*uninstall[^/]*|windows-hidden[^/]*|[^/]*console[^/]*)\.test\.mjs$'
+            console.log(`Windows on ${legion || "no"} Legion runner(s) (screens ${screens}), macOS on ${macmini || "no"} Mac mini runner(s), Linux on ${wsl || "no"} WSL runner(s); ${rows.length} shares.`);
+          ' "$( [ "$ASKED" = on ] && idle branch-legion 6 || echo 0 )" "$(idle branch-macmini 2)" "$( [ "$ASKED" = on ] && idle branch-wsl 4 || echo 0 )" "$(screens)" '^tests/(desktop[^/]*|[^/]*uninstall[^/]*|windows-hidden[^/]*|[^/]*console[^/]*)\.test\.mjs$'
   test:
     name: test (${{ matrix.os }}${{ matrix.own && format(' on {0}', matrix.own) || '' }}${{ matrix.only && ' desktop' || '' }}, ${{ matrix.shard }}/${{ matrix.total }})
     needs: pick
@@ -113,6 +135,8 @@ jobs:
       - id: playwright
         shell: bash
         run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      # Every share gets the browser, even one without the browser files: some ordinary files drive a real browser
+      # through Branch's own browser tool (tests/comfort.test.mjs), which the file grouping cannot see.
       - if: ${{ !matrix.own }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -121,23 +145,29 @@ jobs:
             ~/Library/Caches/ms-playwright
             ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-headless-shell
-      - run: npx playwright install --with-deps chromium --only-shell
+      # The owner's computers already have the browser's system libraries, and their runner users have no sudo.
+      - run: npx playwright install ${{ !matrix.own && '--with-deps' || '' }} chromium --only-shell
       # Ubuntu 24.04 turns off unprivileged user namespaces, which is what Electron's own sandbox is
       # built on, so every desktop test died with "Process failed to launch!" before reaching a
       # single assertion. This relaxes it on the build machine only. The app is not changed: the
       # alternative going around is passing --no-sandbox to Electron, which would mean shipping a
       # weaker sandbox to everyone in order to make a test pass here.
-      - if: runner.os == 'Linux'
+      - if: runner.os == 'Linux' && !matrix.own
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # Linux has no screen on the runner; Electron tests draw into a virtual one.
       - if: runner.os == 'Linux'
         run: xvfb-run -a npm test -- --shard=${{ matrix.shard }}/${{ matrix.total }}
         env:
           BRANCH_TEST_TIMINGS: ${{ runner.temp }}/test-timings.json
+          BRANCH_TEST_GROUPS: ${{ matrix.groups }}
+          BRANCH_TEST_EXCLUDE: ${{ matrix.exclude }}
+          BRANCH_TEST_ONLY: ${{ matrix.only }}
+          BRANCH_TEST_CONCURRENCY: ${{ matrix.concurrency }}
       - if: runner.os != 'Linux'
         run: npm test -- --shard=${{ matrix.shard }}/${{ matrix.total }}
         env:
           BRANCH_TEST_TIMINGS: ${{ runner.temp }}/test-timings.json
+          BRANCH_TEST_GROUPS: ${{ matrix.groups }}
           BRANCH_TEST_EXCLUDE: ${{ matrix.exclude }}
           BRANCH_TEST_ONLY: ${{ matrix.only }}
           BRANCH_TEST_CONCURRENCY: ${{ matrix.concurrency }}

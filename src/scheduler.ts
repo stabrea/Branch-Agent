@@ -15,6 +15,8 @@ import { nextCronOccurrence, nextWallOccurrence, validCron } from "./recurrence.
 const timezone = z.string().min(1).max(64).refine((zone) => {
   try { new Intl.DateTimeFormat("en-US", { timeZone: zone }); return true; } catch { return false; }
 }, "Unknown timezone");
+const sendingToChats = "Sending messages to your chats";
+const trunkMayNotSend = "The Trunk that made this schedule may no longer send to chats, so its result was kept here.";
 export const ScheduleSchema = z
   .object({
     prompt: z.string().min(1).max(8000),
@@ -164,6 +166,8 @@ export class Scheduler {
    * lands in the Trunk's own conversation (src/trunks/routines.ts). Nothing is changed until connected.
    */
   routeRun: (scheduleId: string) => { options: { trunkId: string }; finished: (run: Run) => void } | { refuse: string } | null = () => null;
+  /** Why a schedule a Trunk made may not run now (its part switched off), or null; set by src/trunks. */
+  trunkHeld: (trunkId: string) => string | null = () => null;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -182,12 +186,19 @@ export class Scheduler {
         );
     if (permissions.some((p) => !context.permissions.has(p)))
       throw new Error("Schedule permission escalation denied");
+    // A result sent to a chat goes out as the owner's own bot, so only the owner, and only a caller that
+    // may send to chats, puts one on a timer: the same as sending it now (channels.broadcast).
+    if (definition.deliverTo) {
+      this.store.profiles.requireOwner(sendingToChats);
+      if (!context.permissions.has("channels.send")) throw new Error("Permission denied: channels.send");
+    }
     if (definition.gate && this.switches().scriptGates === "off") throw new Error(scriptsOff);
     // mac7/chat-source: an evaluation suite runs the owner's own saved tasks, with no way to hold them
     // to what the chat may do, so a chat message's task cannot put one on a timer.
     if (definition.kind === "evaluation" && startedFromChat(context, this.store))
       throw new Error("Running an evaluation suite is for the owner only, and a message from a chat app cannot prove who is typing. Do it in the Branch app.");
     const { webhook, ...rest } = definition;
+    const startedBy = context.trunk ?? this.runtime.trunkAtWork();
     // A check script is a program on this computer: it waits for the owner's own yes, whoever asked.
     return this.store.save("schedules", context.owner, randomUUID(), {
       ...rest,
@@ -196,6 +207,8 @@ export class Scheduler {
       // mac7/chat-source: a schedule a chat message's task makes stays the chat's, so its turns are
       // held to the same guards. Without this, a chat could put owner-only work behind a due time.
       ...(startedFromChat(context, this.store) ? { fromChat: true } : {}),
+      // Q118: a schedule a Trunk makes stays that Trunk's work, so each turn runs as it, never as the owner.
+      ...(startedBy ? { startedBy } : {}),
       status: definition.gate ? "paused" : "pending",
       ...(definition.gate ? { gateApproved: null, pausedBecause: awaitingApproval } : {}),
       history: [],
@@ -279,16 +292,26 @@ export class Scheduler {
       // A Trunk's routine that cannot run as its Trunk does not run at all, never as the owner.
       if (routed && "refuse" in routed) throw new Error(routed.refuse);
       const route = routed;
-      const run = data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
+      const madeBy = !route && typeof data.startedBy === "string" ? data.startedBy : undefined;
+      // A Trunk's own schedule, like its routines, does not run while Trunks are switched off: it says why instead.
+      const held = madeBy ? this.trunkHeld(madeBy) : null;
+      if (held) throw new Error(held);
+      const work = async (): Promise<Run> => data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
         prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[],
         source: data.fromChat === true ? "channel" : "schedule", ...route?.options,
+        // A schedule a Trunk made is built as that Trunk's task, as its routines are: its instructions and
+        // memory scope, and its permissions as they are now, never more than the schedule was given.
+        ...(madeBy ? { trunkId: madeBy } : {}),
         onStarted: (started) => { entry.runId = started.id; if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late }); },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
+      // Q118: a schedule a Trunk made (not one of its routines, which run as it already) runs as that Trunk,
+      // and not at all once the Trunk is gone.
+      const run = madeBy ? await this.runtime.asTrunkWork(madeBy, work) : await work();
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
       route?.finished(run); // R17-A (Trunks)
       this.runtime.notifyEvent("schedule.fired", { scheduleId: record.id, runId: run.id, status: run.status, trigger });
-      const delivery = await this.deliverResult(data, run);
+      const delivery = await this.deliverResult(data, run, madeBy);
       const kept = run.status === "completed" && !saidNothingNew(run.output);
       this.store.save("schedules", record.owner, record.id, {
         ...data, runId: run.id, runCount: Number(data.runCount ?? 0) + 1, history: [...history, entry],
@@ -396,6 +419,10 @@ export class Scheduler {
     const { run } = await this.evaluations.runScheduled(String(record.data.suite), preset);
     return run;
   }
+  /** Whether the Trunk that made a schedule may send to chats now; false once it is gone. */
+  private trunkMaySend(trunkId: string): boolean {
+    return this.runtime.trunkShape({ prompt: "", trunkId })?.permissions.includes("channels.send") ?? false;
+  }
   private promptFor(data: Record<string, unknown>, payload: unknown): string {
     let prompt = String(data.prompt);
     if (data.kind === "check" && typeof data.lastResult === "string" && data.lastResult)
@@ -405,12 +432,15 @@ export class Scheduler {
     if (payload !== undefined) prompt += `\n\nTriggering event payload (JSON): ${JSON.stringify(payload).slice(0, 16000)}`;
     return prompt;
   }
-  private async deliverResult(data: Record<string, unknown>, run: Run): Promise<Record<string, unknown> | undefined> {
+  private async deliverResult(data: Record<string, unknown>, run: Run, madeBy?: string): Promise<Record<string, unknown> | undefined> {
     const target = data.deliverTo as { channel: string; chatId: string } | undefined;
     if (!target) return undefined;
     const at = new Date().toISOString();
     if (!this.deliver) return { ...target, at, error: "No channel delivery is available in this launch" };
-    const held = heldBack(data, run, this.switches().notifyGate);
+    // A Trunk's schedule sends only while that Trunk may still send to chats. The sending is the schedule's, not its
+    // run's tools, so it is asked of the Trunk as it is now (a reminder's or a suite's run writes no start anyway).
+    const held = madeBy && !this.trunkMaySend(madeBy) ? trunkMayNotSend
+      : heldBack(data, run, this.switches().notifyGate);
     if (held) {
       this.store.event(run.id, "delivery.held", { ...target, reason: held });
       return { ...target, at, held };
@@ -433,14 +463,27 @@ export class Scheduler {
   remove(context: ToolContext, id: string): { id: string; removed: boolean } {
     if (!context.permissions.has("schedules.manage"))
       throw new Error("Permission denied: schedules.manage");
-    if (!this.store.get("schedules", context.owner, id)) return { id, removed: false };
+    const record = this.store.get("schedules", context.owner, id);
+    if (!record || !this.visibleTo(context, record)) return { id, removed: false };
     return { id, removed: this.store.delete("schedules", context.owner, id) };
+  }
+  /** The schedules the caller may see: all of them for the owner, and only its own for a Trunk. */
+  list(context: ToolContext): SavedRecord[] {
+    return this.store.list("schedules", context.owner).filter((record) => this.visibleTo(context, record));
+  }
+  /**
+   * The owner sees and changes every schedule; a Trunk only the ones it made, taken the same way
+   * `create` records it. Any other schedule gets the same answer as one that does not exist.
+   */
+  private visibleTo(context: ToolContext, record: SavedRecord): boolean {
+    const trunk = context.trunk ?? this.runtime.trunkAtWork();
+    return !trunk || record.data.startedBy === trunk;
   }
   setPaused(context: ToolContext, id: string, paused: boolean): SavedRecord {
     if (!context.permissions.has("schedules.manage"))
       throw new Error("Permission denied: schedules.manage");
     const record = this.store.get("schedules", context.owner, id);
-    if (!record || !["pending", "paused"].includes(String(record.data.status)))
+    if (!record || !this.visibleTo(context, record) || !["pending", "paused"].includes(String(record.data.status)))
       throw new Error(
         "Only pending or paused schedules may be paused or resumed",
       );
@@ -514,7 +557,7 @@ export function registerSchedules(
     description: "List owner schedules and their durable execution status.",
     permission: "schedules.read",
     parameters: z.object({}).strict(),
-    execute: async (_a, c) => scheduler.store.list("schedules", c.owner)
+    execute: async (_a, c) => scheduler.list(c)
       .map((record) => ({ ...record, health: scheduleHealth(record.data) })),
   });
 }

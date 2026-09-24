@@ -195,7 +195,13 @@ export class TrunkRooms {
   }
   remove(id: string): { removed: boolean } {
     this.stop(id);
-    for (const session of Object.values(this.get(id).memberSessions)) this.endGrants(session); // phase2/rooms: the room's yeses end with it
+    const room = this.get(id);
+    for (const session of Object.values(room.memberSessions)) this.endGrants(session); // phase2/rooms: the room's yeses end with it
+    // A Trunk taken out of the room before now stays out of its side once the room is gone: the side
+    // keeps a mark naming it, which src/history.ts reads. A Trunk still seated keeps its side.
+    for (const [trunkId, sessionId] of Object.entries(room.memberSessions))
+      if (!room.members.includes(trunkId))
+        this.deps.store.save("governance", this.deps.owner, `trunk-room-left:${sessionId}`, { sessionId, trunkId, roomId: id });
     const removed = this.deps.store.delete("governance", this.deps.owner, `trunk-room:${id}`);
     this.deps.changed();
     return { removed };

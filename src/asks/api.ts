@@ -94,6 +94,8 @@ async function integrationsRoute(deps: AsksHttpDeps, path: string): Promise<unkn
     const { id } = z.object({ id: z.string().trim().min(1).max(64) }).strict().parse(await deps.readBody());
     return path.endsWith("/add") ? asks.runtimes.add(id) : asks.runtimes.remove(id);
   }
+  if (path === "/api/asks/leads") { const all = asks.leads.list(); return { count: all.length, top: all.slice(0, 5).map((lead) => ({ name: lead.name, company: lead.company, score: lead.score })) }; }
+  if (path === "/api/asks/forecasts") return { ...asks.forecasts.score(), open: asks.forecasts.list("open").slice(0, 20) };
   if (path === "/api/asks/nodes") return post ? { nodes: asks.nodes.save(await deps.readBody()) } : { nodes: asks.nodes.nodes() };
   if (path === "/api/asks/nodes/check" && post) return runPartTool(deps, "nodes", "nodes.status");
   if (path === "/api/asks/nodes/ask" && post) return runPartTool(deps, "nodes", "nodes.ask");

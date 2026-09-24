@@ -25,7 +25,7 @@ import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
 import { registerSecondOpinion } from "./second-opinion-tools.js";
-import { registerMemory } from "./memory.js";
+import { memoryScope, registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
 import { chooseForInjection } from "./memory-layers.js";
@@ -34,6 +34,7 @@ import { memorySnapshotLimits } from "./memory-review.js";
 import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { SqliteMemoryBackend } from "./memory-backend.js";
+import { MemoryProvider } from "./memory-provider.js"; // FQ-memory.providers
 import { Scheduler, registerSchedules, nextTurn } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
@@ -221,6 +222,7 @@ import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 import { Devices } from "./devices/index.js"; // mac7/nodes: the owner's other devices
 import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
+import { trunkMode } from "./trunks/settings.js"; // Q153
 import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
 import { computerPlatforms } from "./trunks/starts-in.js"; // Q44
 import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
@@ -521,7 +523,9 @@ export async function createBranch(options: {
     retrieval: new MemoryRetrieval(store, runtime.models),
     hygiene: undefined as unknown as MemoryHygiene,
     tidy: undefined as unknown as MemoryTidy,
-    backend: new SqliteMemoryBackend(store),
+    // FQ-memory.providers: set once `web` exists, below — an outside memory service can then
+    // replace this computer's database rather than only sit beside it.
+    backend: undefined as unknown as MemoryProvider,
     transfer: new MemoryTransfer(store),
   };
   memory.hygiene = new MemoryHygiene(store, memory.retrieval);
@@ -539,7 +543,6 @@ export async function createBranch(options: {
   runtime.leakGuard.options = () => leakOptions(store, runtime.owner);
   // ── end R17-S-B ──
   syncMixtures(store, runtime.owner, runtime.models); // R17-051: none until the owner makes one
-  registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
   const sessionTree = new SessionTree(store.sqlite);
@@ -576,6 +579,17 @@ export async function createBranch(options: {
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   // Q12: Branch changing its own source is held to a contract written before anything changes.
   const selfContracts = new ContractBook(store.sqlite);
+  // FQ-memory.providers: an outside memory service the owner switches on in Settings replaces this
+  // computer's database for the assistant's remember/recall/forget loop, not only sits beside it —
+  // src/memory-provider.ts reads the owner's choice fresh on every call, and web.policy is the same
+  // guard every other outside address in Branch is checked against.
+  memory.backend = new MemoryProvider(store, new SqliteMemoryBackend(store), web.policy, globalThis.fetch,
+    async (name) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose: "an outside memory service" }))[name]!);
+  // An accepted put/update/delete suggestion in the Memory review screen goes wherever memory.put/
+  // update/delete themselves would go right now, rather than always landing in this computer's
+  // database — see the comment on `MemoryReview.provider`.
+  store.review.provider = memory.backend;
+  registerMemory(registry, store, memory.retrieval, memory.backend);
   offerSelfDevelopment({
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
     git: (input, signal) => gitRunner.run(input, signal), contracts: selfContracts, store,
@@ -850,12 +864,23 @@ export async function createBranch(options: {
     return { url: snapshot.url ?? url, title: snapshot.url ?? url, text: String(snapshot.accessibility ?? "") };
   };
   registerResearch(registry, research);
-  const monitors = new Monitors(store, web, deliverMessage);
+  // Q141: a watch a Trunk made sends to its chat only while that Trunk may still send to chats, asked of the Trunk
+  // as it is now. A Trunk that is gone, or that cannot be asked here, may not, so its news is kept in the app.
+  const watchTrunks = {
+    atWork: () => runtime.trunkAtWork(),
+    maySend: (trunkId: string) => {
+      // Q153: nor while Trunks are switched off, as a Trunk's own schedule does not run then (Q146).
+      if (trunkMode(store, runtime.owner, "trunks") === "off") return false;
+      try { return runtime.trunkShape({ prompt: "", trunkId })?.permissions.includes("channels.send") ?? false; }
+      catch { return false; }
+    },
+  };
+  const monitors = new Monitors(store, web, deliverMessage, watchTrunks);
   registerMonitors(registry, monitors);
   // Wave 8: watching one rectangle of the screen for a change. Off unless the owner switches it on
   // AND has using the screen switched on; the picture is never kept, only a fingerprint of it.
   const screenWatches = new ScreenWatches(store, (region) => desktop.captureRegion(region),
-    () => desktop.enabled(runtime.owner), deliverMessage);
+    () => desktop.enabled(runtime.owner), deliverMessage, watchTrunks);
   registerScreenWatches(registry, screenWatches);
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
@@ -890,10 +915,6 @@ export async function createBranch(options: {
   // the schedules toolbox does not grow a second tool that says the same thing.
   workflows.resumeGraph = (id, within, source) => (flows.isGraph(id) // mac7/lockdown-fix: within; mac7/outside-resume: source
     ? flows.resumeGraph(id, { ...(within ? { within } : {}), ...(source ? { source } : {}) }) : null);
-  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
-  // that finished, with the state exactly as that box left it. Nothing is started again from the
-  // top, and a launch with no interrupted flow does nothing at all.
-  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
   // Wave 8: a plain list of what is still to be done — the assistant's plan and the owner's own
   // items in one place, with a due day handed on to the schedules rather than timed here.
   const todos = new Todos(store.sqlite);
@@ -1020,6 +1041,8 @@ export async function createBranch(options: {
   registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
   // Notes a task made only for itself go when the task ends, unless the owner asked to keep one.
   registry.onRunFinished(async (context) => { try { store.clearTaskScratch(context.owner, context.runId); } catch { /* nothing to clear */ } });
+  // FQ-memory.providers: and the ones an outside memory service holds, when one is switched on.
+  registry.onRunFinished(async (context) => { await memory.backend.clearOutsideScratch(memoryScope(store, context), context.runId).catch(() => undefined); });
   // Wave 9: what the assistant notices for itself from what actually happened. It only ever
   // suggests; every suggestion carries what it was learned from, and turning one down is final.
   const learning = new MemoryLearning(store);
@@ -1252,9 +1275,6 @@ export async function createBranch(options: {
   };
   // --- end bucket 14 ---
   let closing: Promise<void> | undefined;
-  // household-followups: with the owner's PIN set, the window comes back on the profile it was left
-  // on, once everything above has started as the owner.
-  store.profiles.resumeWhereLeft();
   /** Wave mac2 (guards): the sections of the integrations file this start left out, which the launch-file card names. */
   const launchFile = { leftOut: [] as readonly string[] };
   const branch = {
@@ -1593,6 +1613,16 @@ export async function createBranch(options: {
   // Changing Branch's own settings by asking, saved through the same writers as the window's (src/settings-kit/tools.ts).
   registerSettingsTools(registry, store, () => settingsKitWriters(branch));
   registerHelpSearch(registry); // what Branch knows about itself, from its own handbook
+  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
+  // that finished, with the state exactly as that box left it. Nothing is started again from the
+  // top, and a launch with no interrupted flow does nothing at all. Last of all (Q121, NAS 7af12b6):
+  // a Trunk's run carries on as that Trunk only once every hook it reaches is wired, its own folder
+  // (`runtime.coding`) included, rather than in the owner's project.
+  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
+  // household-followups: with the owner's PIN set, the window comes back on the profile it was left
+  // on, once everything above has started as the owner: the launch carry-on of interrupted flows
+  // included (NAS 52f87df), which is the owner's and must not meet another person's window.
+  store.profiles.resumeWhereLeft();
   return branch;
 }
 /** Runs one of the owner's own verified recipes by name, for a skill package's event hook. */

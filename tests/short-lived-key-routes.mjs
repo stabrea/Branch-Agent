@@ -289,6 +289,8 @@ export const ROUTES = {
   "/api/asks/analytics/send": "owner POST",
   "/api/asks/answer": "other POST",
   "/api/asks/blocks": "look",
+  "/api/asks/forecasts": "look",
+  "/api/asks/leads": "look",
   "/api/asks/blocks/key": "owner POST",
   "/api/asks/blocks/run": "other POST",
   "/api/asks/article": "other POST",
@@ -561,6 +563,10 @@ export const ROUTES = {
   "/api/keychain/settings": "owner POST",
   // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
   // sites they belong to — a map of where their passwords are, so it is not read with a key either.
+  "/api/updates/failure": "owner GET", // owner item 19: an update that did not go through, and its file
+  "/api/updates/failure-report": "owner POST", // owner item 19: an update that did not go through, and its file
+  "/api/updates/fix": "owner POST", // owner item 21: Fix update and the Trunk that does it
+  "/api/updates/keeper": "owner GET,POST", // owner item 21: Fix update and the Trunk that does it
   "/api/vault-autofill": "prefix",
   "/api/vault-autofill/settings": "secret-read",
   "/api/knobs": "owner POST", // R17-S-B
@@ -683,6 +689,7 @@ export const ROUTES = {
   "/api/memory/learned": "other POST",
   "/api/memory/mirror": "owner POST",
   "/api/memory/proposals": "look",
+  "/api/memory/provider": "owner POST", // FQ-memory.providers: where facts are kept is the owner's setting
   "/api/memory/proposals/:id/accept": "other POST",
   "/api/memory/proposals/:id/reject": "other POST",
   "/api/memory/refresh": "look",

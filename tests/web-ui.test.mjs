@@ -508,7 +508,7 @@ test("Q6 every button and field label on the page says its words through a key",
 /* Words that are genuinely the same in both languages — proper names, and words French borrowed
    whole. Anything else left in English is a translation that was never written. */
 const SHARED_WITH_FRENCH = new Set([
-  "Assistant", "Conversation", "Conversations", "Documents", "Messages", "Gemini", "Secrets", "Diagnostics",
+  "Assistant", "Standard", "Conversation", "Conversations", "Documents", "Messages", "Gemini", "Secrets", "Diagnostics",
   // The password managers are called what their makers call them, in either language.
   "1Password", "Bitwarden", "Trunks",
   // What each chat service and theme family is called by its maker, in either language (Settings' channel list, the theme filters).

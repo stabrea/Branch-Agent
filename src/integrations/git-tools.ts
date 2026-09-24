@@ -159,7 +159,7 @@ export function registerGitRemote(registry: ToolRegistry, git: GitTools): void {
     description: "Send saved versions from this computer to the shared server. Sending to the branch everyone shares (main or master) stops and asks you first.",
     parameters: z.object({ folder, remote: remoteName, branch: branchName.optional(), confirmed: z.boolean().default(false) }).strict(),
     targets: inFolder("write"),
-    execute: (input, context: ToolContext) => git.push(input, context.signal),
+    execute: (input, context: ToolContext) => git.push(input, context.signal, { ref: context.sendsRef, commit: context.sendsCommit }),
   });
   registry.register({
     name: "git.pull", permission: "git.remote",
@@ -231,7 +231,8 @@ function registerPublish(registry: ToolRegistry, github: GitHubAccess, git: GitT
     execute: async (input, context: ToolContext) => {
       const created = (await github.createRepo(input)) as { repository?: string; address?: string; private?: boolean };
       const url = `https://github.com/${String(created.repository ?? input.name)}.git`;
-      const sent = await git.publish({ folder: input.folder, url, remote: input.remote, branch: input.branch }, context.signal);
+      const sent = await git.publish({ folder: input.folder, url, remote: input.remote, branch: input.branch }, context.signal,
+        { ref: context.sendsRef, commit: context.sendsCommit });
       return { ...created, ...sent };
     },
   });

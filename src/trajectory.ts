@@ -10,10 +10,11 @@
 import { z } from "zod";
 import { inspectRun, type PriceRound } from "./inspect.js";
 import { classifyToolEvent } from "./receipts.js";
-import { canAccessSession } from "./history.js";
+import { canAccessSession, conversationOwner } from "./history.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { renderTrajectory, type TrajectoryDocument } from "./trajectory-report.js";
+import { accessAgent } from "./trunks/memory-scope.js";
 
 /** The name and number of the shape. A reader checks these before anything else. */
 export const trajectoryFormat = "branch-agent-trajectory";
@@ -109,8 +110,9 @@ export function registerRunExport(registry: ToolRegistry, store: Store, version:
     execute: async (input, context) => {
       const runId = input.runId ?? context.runId;
       const run = store.run(runId);
-      if (!run || run.owner !== context.owner) throw new Error("There is no task of yours with that number");
-      if (context.agent && !canAccessSession(store.sqlite, run.sessionId, context.agent))
+      if (!run || run.owner !== conversationOwner(store, context, run.sessionId)) throw new Error("There is no task of yours with that number"); // Q147
+      const agent = accessAgent(context); // Q123
+      if (agent && !canAccessSession(store.sqlite, run.sessionId, agent))
         throw new Error("There is no task of yours with that number");
       const document = buildTrajectory(store, runId, {
         receipts: await receiptOutcomes(store, runId),

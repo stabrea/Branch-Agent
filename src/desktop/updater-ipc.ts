@@ -8,9 +8,11 @@ import { installedAppRoot } from "./install-root.js";
 import { macSettingsLinks } from "../os-permissions.js";
 import { UpdateInstallClaim } from "./update-install-claim.js";
 import { builtFrom } from "./build-identity.js";
+import { primaryRepo } from "./repo-pair.js";
 
 export const updateSource = {
-  repo: "stabrea/Branch-Agent",
+  /* Tried first; the Updater falls back to the other name of the pair on a 404 (src/desktop/repo-pair.ts). */
+  repo: primaryRepo,
   assetName: "Branch-Agent-windows-x64.zip",
   executableName: "Branch Agent.exe",
 } as const;
@@ -23,7 +25,7 @@ const platformSource = {
   executableName: appEntryName(process.platform),
 };
 const signInPlace = process.platform === "win32" ? "Windows" : process.platform === "darwin" ? "your Mac" : "this computer";
-const externalAllowed = ["https://auth.openai.com/", "https://github.com/stabrea/Branch-Agent"];
+const externalAllowed = ["https://auth.openai.com/", "https://github.com/stabrea/Branch-Agent", "https://github.com/KeepOak/Branch-Agent"];
 // mac2/desktop-ui: the four System Settings pages the permissions card offers, matched exactly.
 const settingsPages = new Set<string>(process.platform === "darwin" ? Object.values(macSettingsLinks) : []);
 

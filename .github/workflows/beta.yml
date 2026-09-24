@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   gate:
-    if: github.repository == 'stabrea/Branch-Agent' && github.ref == 'refs/heads/mac/cross-platform'
+    if: (github.repository == 'stabrea/Branch-Agent' || github.repository == 'KeepOak/Branch-Agent') && github.ref == 'refs/heads/mac/cross-platform'
     runs-on: ubuntu-latest
     timeout-minutes: 100
     outputs:

@@ -11,7 +11,13 @@
  * settings schemas scripts/check-docs.mjs holds docs/configuration.md to) and fails for one that has no
  * Settings search entry and no stated reason. S15 holds Regular to never hiding a safety control.
  */
-import test from "node:test";
+import nodeTest from "node:test";
+/* This file is split into parts so the build machines can run its minutes side by side: each
+   tests/settings-grown-N.test.mjs runs every 3th test declared here, starting from its own. Nothing is
+   skipped: the parts together declare every test, in the same order, with the same body. */
+const part = globalThis.branchTestPart ?? { index: 0, of: 1 };
+let declared = 0;
+const test = (...args) => (declared++ % part.of === part.index ? nodeTest(...args) : undefined);
 import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

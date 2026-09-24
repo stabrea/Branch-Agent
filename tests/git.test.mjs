@@ -326,3 +326,40 @@ test('a failing GitHub reply is explained without the token', async (t) => {
   });
   assert.ok(f.app);
 });
+
+/** Git with `-z` answered as `answer` says, and everything else by the real thing; what it was asked. */
+function withoutZ(answer) {
+  const real = new GitRunner(), asked = [];
+  return { asked, runner: { run: async (options, signal) => {
+    asked.push(options.args.join(' '));
+    if (options.args.includes('-z')) return { stdout: '', signal: null, durationMs: 1, truncated: false, observedOutputBytes: 0, command: 'git', ...answer };
+    return real.run(options, signal);
+  } } };
+}
+
+test('a copy made by hand keeps its name exactly as Git wrote it, spaces included', { ...needsGit, skip: needsGit.skip || (process.platform === 'win32' && 'a folder name cannot end in a space on Windows') }, async (t) => {
+  const f = await fixture(t);
+  await f.file('readme.md', 'first\n');
+  await f.run(['add', 'readme.md']);
+  await f.run(['commit', '-m', 'first']);
+  const git = new GitTools(f.app.files, new GitRunner());
+  await git.worktree({ folder: '.', action: 'add', name: 'kept' }, AbortSignal.timeout(30000));
+  await f.run(['worktree', 'add', '-b', 'trail', join(f.app.runtime.workspace, '.branch-worktrees', 'trail ')]);
+  const { copies } = await git.worktree({ folder: '.', action: 'list' }, AbortSignal.timeout(30000));
+  assert.deepEqual([...copies].sort((a, b) => a.name.localeCompare(b.name)), [{ name: 'kept' }, { name: 'trail ' }]);
+});
+
+test('a Git without -z still lists the copies line by line; any other failure is the call\'s own', { ...needsGit }, async (t) => {
+  const f = await fixture(t);
+  await f.file('readme.md', 'first\n');
+  await f.run(['add', 'readme.md']);
+  await f.run(['commit', '-m', 'first']);
+  await new GitTools(f.app.files, new GitRunner()).worktree({ folder: '.', action: 'add', name: 'kept' }, AbortSignal.timeout(30000));
+  const old = withoutZ({ status: 'failed', exitCode: 129, stderr: "error: unknown switch `z'" });
+  const listed = await new GitTools(f.app.files, old.runner).worktree({ folder: '.', action: 'list' }, AbortSignal.timeout(30000));
+  assert.deepEqual(listed.copies, [{ name: 'kept' }]);
+  assert.deepEqual(old.asked.filter((one) => one.startsWith('worktree list')), ['worktree list --porcelain -z', 'worktree list --porcelain']);
+  const slow = withoutZ({ status: 'timed_out', exitCode: null, stderr: '' });
+  await assert.rejects(new GitTools(f.app.files, slow.runner).worktree({ folder: '.', action: 'list' }, AbortSignal.timeout(30000)), /took too long/);
+  assert.deepEqual(slow.asked.filter((one) => one.startsWith('worktree list')), ['worktree list --porcelain -z'], 'no second, unhardened read');
+});

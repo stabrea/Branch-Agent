@@ -6,6 +6,7 @@ import type { Message } from "./contracts.js";
 import { reconcileTranscript } from "./transcript.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
+import { accessAgent } from "./trunks/memory-scope.js";
 
 export const BranchSessionSchema = z.object({
   sessionId: z.string().uuid(), messageId: z.number().int().positive(),
@@ -83,7 +84,7 @@ export function registerSessions(registry: ToolRegistry, store: Store): void {
     description: "Start a separate conversation from an earlier message. Needs history.read as well; the original is kept.",
     execute: async (input, context) => {
       if (!context.permissions.has("history.read")) throw new Error("Permission denied: history.read");
-      return store.branchSession(context.owner, input, context.agent);
+      return store.branchSession(context.owner, input, accessAgent(context)); // Q123
     },
   });
 }

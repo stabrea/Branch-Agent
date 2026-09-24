@@ -37,6 +37,18 @@ export function testGroups(list = (folder) => readdirSync(folder), read = (file)
   return { shared: files.filter((file) => !desktop(file) && !browser.includes(file)), browser, desktop: desktopFiles };
 }
 
+/**
+ * Only the named groups ("shared,browser,desktop"), the others left empty, so the shares are packed from what runs.
+ * A train's Windows shares leave the browser files to Linux and macOS (BRANCH_TEST_GROUPS=shared,desktop); the full
+ * set still runs on Windows for the integration trunk before a release. No list means every group.
+ */
+export function onlyGroups(groups, list) {
+  if (!list) return groups;
+  const wanted = new Set(list.split(",").map((name) => name.trim()).filter(Boolean));
+  for (const name of wanted) if (!(name in groups)) throw new Error(`Unknown test group "${name}": expected shared, browser or desktop`);
+  return Object.fromEntries(Object.entries(groups).map(([name, files]) => [name, wanted.has(name) ? files : []]));
+}
+
 /** The measured seconds per file for this kind of computer, or an empty map. */
 export function loadWeights(platform = process.platform, read = () => readFileSync(weightsFile, "utf8")) {
   try {
@@ -139,7 +151,7 @@ function mergeTimings(target, parts) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2);
   const { index, total } = parseShard(argv);
-  const groups = testGroups();
+  const groups = onlyGroups(testGroups(), process.env.BRANCH_TEST_GROUPS);
   const explicit = parseFilesFrom(argv, groups);
   const mine = new Set(explicit ?? shareFiles(groups, index, total, loadWeights()));
   // A machine that must leave some files to another (the owner's own computer never runs the desktop or

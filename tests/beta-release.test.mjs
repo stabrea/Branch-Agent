@@ -4,11 +4,15 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { discardTemp } from "./temp-dir.mjs";
 import { approvedExactHead, betaAssets, betaPlan, fastProof, latestTrustedChecks,
   latestTrustedFast, publishBeta, stampBetaVersion } from "../scripts/beta-release.mjs";
 
-const repo = "stabrea/Branch-Agent";
+// The repository the script under test takes as its own: the one it runs in when that is one of Branch's two
+// names (after the move to KeepOak, Actions sets KeepOak), otherwise the name it had before the move.
+const names = ["KeepOak/Branch-Agent", "stabrea/Branch-Agent"];
+const repo = names.includes(process.env.GITHUB_REPOSITORY ?? "") ? process.env.GITHUB_REPOSITORY : "stabrea/Branch-Agent";
 const sha = "a".repeat(40), head = "b".repeat(40);
 const checks = (id, conclusion = "success", overrides = {}) => ({
   id, run_attempt: 1, path: ".github/workflows/checks.yml", event: "push",
@@ -276,4 +280,34 @@ test("an incomplete draft for the same tag is reported, never silently skipped",
   await assert.rejects(() => publishBeta({ tag: "v0.19.2-beta.9", sha,
     proof: { kind: "exhaustive", run: checks(7) }, directory,
     workflowUrl: "https://github.test/publisher", gh }), /already has a release/);
+});
+
+/**
+ * After the move Actions runs this script with GITHUB_REPOSITORY=KeepOak/Branch-Agent. Each name is loaded in a
+ * process of its own, since the script reads it once when it loads: its own name's checks are accepted and the
+ * other name's are not, and a name that is neither falls back to the one it moved from.
+ */
+test("Beta takes its checks from the repository it runs in, under either of Branch's names", () => {
+  const probe = `
+    const { latestTrustedChecks } = await import(${JSON.stringify(new URL("../scripts/beta-release.mjs", import.meta.url).href)});
+    const sha = "a".repeat(40);
+    const run = (name) => ({ id: 7, run_attempt: 1, path: ".github/workflows/checks.yml", event: "push",
+      head_branch: "mac/cross-platform", head_sha: sha, status: "completed", conclusion: "success",
+      repository: { full_name: name }, head_repository: { full_name: name } });
+    const state = (name) => { try { return latestTrustedChecks({ workflow_runs: [run(name)] }, sha, name).state; } catch (e) { return e.message; } };
+    const own = (name) => latestTrustedChecks({ workflow_runs: [run(name)] }, sha).state;
+    console.log(JSON.stringify({ keepoak: state("KeepOak/Branch-Agent"), stabrea: state("stabrea/Branch-Agent"),
+      ownKeepoak: own("KeepOak/Branch-Agent"), ownStabrea: own("stabrea/Branch-Agent") }));`;
+  const as = (value) => {
+    const env = { ...process.env };
+    if (value === undefined) delete env.GITHUB_REPOSITORY; else env.GITHUB_REPOSITORY = value;
+    const out = spawnSync(process.execPath, ["--input-type=module", "-e", probe], { env, encoding: "utf8" });
+    assert.equal(out.status, 0, out.stderr);
+    return JSON.parse(out.stdout.trim().split("\n").at(-1));
+  };
+  const refused = "Invalid beta source identity.";
+  assert.deepEqual(as("KeepOak/Branch-Agent"), { keepoak: "accepted", stabrea: refused, ownKeepoak: "accepted", ownStabrea: "missing" });
+  assert.deepEqual(as("stabrea/Branch-Agent"), { keepoak: refused, stabrea: "accepted", ownKeepoak: "missing", ownStabrea: "accepted" });
+  for (const other of [undefined, "someone/Branch-Agent", "keepoak/branch-agent"])
+    assert.deepEqual(as(other), { keepoak: refused, stabrea: "accepted", ownKeepoak: "missing", ownStabrea: "accepted" }, String(other));
 });

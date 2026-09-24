@@ -156,3 +156,52 @@ test("knowledge.propose refuses another Trunk proposing from a Trunk's conversat
     "A specialist cannot propose from Ada's conversation"
   );
 });
+
+test("Q143: knowledge.refresh writes up only the conversations a Trunk took part in, never the owner's own", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-isolation-"));
+  const workspace = join(root, "workspace");
+  const shown = [];
+  const provider = brain([(context) => {
+    const system = context.messages?.[0]?.content ?? "";
+    if (!/card/i.test(system)) return null;
+    const digest = context.messages.at(-1).content;
+    shown.push(digest);
+    return { content: JSON.stringify({ cards: [{ title: `Card ${shown.length}`, body: digest.slice(0, 400), sourceTurn: digest.slice(0, 200) }] }), toolCalls: [] };
+  }]);
+  const app = await createBranch({ workspace, dataDir: join(root, "data"), provider });
+  t.after(async () => { await app.close(); });
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  await app.trunks.introduced();
+  app.trunks.edit(ada.id, { permissions: ["documents.read", "documents.write"] });
+  await mkdir(join(workspace, "house"), { recursive: true });
+  await writeFile(join(workspace, "house", "notes.md"), "# House\n\nNotes.\n", "utf8");
+  const base = app.knowledgeBases.create("local", { name: "House", sources: [{ kind: "folder", path: "house" }] });
+
+  const ownersOwn = app.store.createSession("local");
+  app.store.message(ownersOwn, { role: "user", content: "the gate code is OWNERSECRET4242" });
+  app.store.message(ownersOwn, { role: "assistant", content: "Noted." });
+  app.store.message(ada.chatSessionId, { role: "user", content: "Ada, the boiler is serviced in March ADAOWN77" });
+  app.store.message(ada.chatSessionId, { role: "assistant", content: "Got it." });
+  const asAda = { ...app.runtime.context(), agent: `trunk:${ada.id}` };
+
+  const refreshed = await app.registry.execute("knowledge.refresh", { collection: base.id, conversations: 10 }, asAda);
+  assert.equal(shown.some((digest) => digest.includes("OWNERSECRET4242")), false, "the owner's conversation is never sent to be written up for Ada");
+  assert.equal(JSON.stringify(refreshed).includes("OWNERSECRET4242"), false, "nor does anything of it come back to her");
+  assert.ok(shown.some((digest) => digest.includes("ADAOWN77")), "her own conversation is still written up");
+  assert.equal(refreshed.conversations, 1);
+  // The cost it reports is of what it read: the owner's conversations are not counted into it either.
+  assert.equal(refreshed.cost?.conversations, 1, JSON.stringify(refreshed.cost));
+
+  // A workflow's tool step Ada set going runs with no turn of its own: `trunk` set, `agent` unset.
+  shown.length = 0;
+  const stepRefresh = await app.registry.execute("knowledge.refresh", { collection: base.id, conversations: 10 }, { ...app.runtime.context(), trunk: ada.id });
+  assert.equal(shown.some((digest) => digest.includes("OWNERSECRET4242")), false, "her workflow's step never has the owner's conversation written up");
+  assert.equal(JSON.stringify(stepRefresh).includes("OWNERSECRET4242"), false, "nor does anything of it come back to the step");
+  assert.equal(stepRefresh.conversations, 1);
+  assert.equal(stepRefresh.cost?.conversations, 1);
+
+  shown.length = 0;
+  await app.registry.execute("knowledge.refresh", { collection: base.id, conversations: 10 }, app.runtime.context());
+  assert.ok(shown.some((digest) => digest.includes("OWNERSECRET4242")), "the owner's own refresh still reads their conversations");
+});

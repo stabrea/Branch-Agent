@@ -2151,6 +2151,8 @@ written stops the update, because an update nobody can undo is not worth making;
 be read is put aside and a new one started, and an undo with nothing recorded refuses rather than
 guesses.
 
+**A Branch working in the background comes back by itself** (`src/install/service-return.ts`). Closing it for the swap is a polite exit, which launchd's `KeepAlive{SuccessfulExit:false}` and systemd's `Restart=on-failure` do not restart, so after `branch update --yes` the service is started again through its own manager (`launchctl kickstart -k`, `systemctl --user restart branch-agent.service`, the scheduled task's `/Run` on Windows), and Branch waits up to a minute for a process other than the one it closed to say it is running. When none does, the version before is put back with `branch rollback --yes` and started as the service, so the owner is never left with no Branch running; `branch rollback --yes` itself brings a service back as the service, never as a window.
+
 `branch rollback` says what going back would do; `branch rollback --yes` does it. The decision is
 `assessRollback` in `src/never-break/rollback.ts`, and it **refuses**, in a sentence saying why and
 what to do instead, when: there is no record; this update was already undone or superseded; another
@@ -2191,7 +2193,7 @@ holds an update's watch open for ever or rolls a good version back on the first 
 copies taken before a format change are pruned to the newest three as well. A fetched extra that is
 missing or whose download stopped half-way (the private browser, a reading-aloud program) is
 reported as missing with the command that gets it back, and Branch itself still starts. The whole
-set is exercised by `tests/never-break-install-chaos.test.mjs`, a seeded round that kills Branch
+set is exercised by `tests/never-break-install-chaos-suite.mjs`, a seeded round that kills Branch
 mid-update, mid-format-change and mid-start (`BRANCH_INSTALL_SEEDS=200` for the long run).
 
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
@@ -7160,7 +7162,7 @@ recorded here as deliberately out of scope rather than left open for ever.
   and API**, **A1774 web control UI and WebChat**, **A2033 web console**, **A2157 web management
   panel** — all one thing: the app shell in `public/index.html` with the rail, the conversation
   column and the ten sections (see docs/design.md), served by `src/server.ts` on this computer and
-  covered by `tests/shell-ui.test.mjs` and `tests/web-ui.test.mjs`.
+  covered by `tests/shell-ui-suite.mjs` and `tests/web-ui.test.mjs`.
 - **A2015 Web dashboard and webchat** — the audit's "no file upload UI" is out of date: the Documents
   section takes a file from disk and accepts one dropped on the page (`public/documents.js`).
 - **A0401 Dashboard and desktop** — the desktop app is `src/desktop/main.ts` with its own settings,
@@ -8171,6 +8173,18 @@ Wave mac6 built what was missing here; every new part has its own three-way swit
 - **A2258** (several agent runtimes) — built: Claude Code, Codex, Copilot, Gemini CLI and Codex over
   app-server are added as connections, remembered, and follow their switch (`src/asks/runtimes.ts`,
   `tests/asks-runtimes.test.mjs` "A2258").
+- **packages.forecasting** (forecasts and calibration) — built: a question, a probability and a date
+  are kept; the answer is recorded once; the Brier score and a ten-band calibration table count only
+  answered forecasts and say "none yet" rather than invent a number. Its own three-way switch
+  (`asks-forecasts`, ships off), a card in Settings › Data, and the tools `forecast.add`,
+  `forecast.resolve` and `forecast.score` (`src/asks/forecasts.ts`, `tests/asks-forecasts.test.mjs`).
+- **packages.leads** (prospects) — built: a list of prospects is filled out from its own fields (the
+  company domain from a work email or website, the company name tidied, how senior the title sounds),
+  scored against the owner's words with every point naming the word that earned it, and exported as
+  CSV with duplicates (same email, or same person at the same domain) taken out and named. Nothing is
+  looked up online; a formula-looking cell is written as text. Its own switch (`asks-leads`, ships
+  off), a card in Settings › Data, and `leads.add`, `leads.export`, `leads.clear` (`src/asks/leads.ts`,
+  `tests/asks-leads.test.mjs`).
 - **A0032** (an app-server protocol) — built: `branch app-server` speaks Codex's app-server protocol
   (`src/asks/app-server.ts`, `tests/asks-runtimes.test.mjs` "A0032"); `branch acp-serve` still speaks ACP.
 - **A0601** (Codex's app-server as a backend) — built: Codex answers over app-server, read-only, and its
