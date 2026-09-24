@@ -139,10 +139,19 @@ export class MemoryReview {
     const proposal = this.proposals(owner, "all").find((p) => p.id === id);
     if (!proposal) throw new Error("No such suggestion");
     if (proposal.status !== "pending") throw new Error("That suggestion was already decided");
-    let applied: unknown = null;
-    if (accept) applied = await this.apply(owner, proposal);
+    // Marked decided before it is applied, with nothing awaited between the check above and here, so a second
+    // Accept while an outside service is still answering the first finds it decided instead of applying it again.
+    // If applying fails it is pending again, as before.
     const decidedAt = new Date().toISOString();
-    this.db.prepare("UPDATE memory_proposals SET status=?, decided_at=? WHERE id=?").run(accept ? "accepted" : "rejected", decidedAt, id);
+    this.db.prepare("UPDATE memory_proposals SET status=?, decided_at=? WHERE id=? AND owner=?").run(accept ? "accepted" : "rejected", decidedAt, id, owner);
+    let applied: unknown = null;
+    if (accept) {
+      try { applied = await this.apply(owner, proposal); }
+      catch (error) {
+        this.db.prepare("UPDATE memory_proposals SET status='pending', decided_at=NULL WHERE id=? AND owner=?").run(id, owner);
+        throw error;
+      }
+    }
     return { proposal: { ...proposal, status: accept ? "accepted" : "rejected", decidedAt }, applied };
   }
   private async apply(owner: string, proposal: Proposal): Promise<unknown> {

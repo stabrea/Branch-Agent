@@ -432,7 +432,16 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       const proposal = staged(store, context, { kind: "put", text: value.text, source: value.source });
       if (proposal) return proposal;
       const data = { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId };
-      return provider?.isOutside(owner) ? provider.write(owner, randomUUID(), data) : store.save("memory", owner, randomUUID(), data);
+      if (!provider?.isOutside(owner)) return store.save("memory", owner, randomUUID(), data);
+      const id = randomUUID();
+      const saved = await provider.write(owner, id, data);
+      // "Forget this conversation" may have run while the service was still saving this fact, and it could not see
+      // a fact the service did not have yet. What was saved is taken back (and never read back) and refused the same way.
+      if (sessionId && store.memorySuppressed(owner, sessionId)) {
+        await provider.forget(owner, id).catch(() => false);
+        throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view.");
+      }
+      return saved;
     } });
   registry.register({ name: "memory.keep", description: "Keep a note from this job for good, so ending the job does not clear it.",
     permission: "memory.write", parameters: z.object({ id: MemoryIdSchema }).strict(),

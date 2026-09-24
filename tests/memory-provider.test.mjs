@@ -1109,3 +1109,99 @@ test("an accepted update suggestion reads and writes under the fact's lock, so a
   assert.deepEqual(order, ["PUT", "DELETE"], "the forget waited for the accepted suggestion it arrived during");
   assert.equal(double.byOwner.get("local")?.has(saved.id) ?? false, false, "the service no longer keeps the fact");
 });
+
+test("a fact id of . or .. is refused before anything is sent, so one delete never reaches a whole collection", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  await app.registry.execute("memory.put", { text: "Owner prefers oat milk", source: "owner" }, context);
+  await app.registry.execute("memory.put", { text: "Owner walks at six", source: "owner" }, context);
+  const oneFact = (request) => request.path.split("/").filter(Boolean).length === 3;
+  for (const id of [".", ".."]) {
+    await assert.rejects(() => app.registry.execute("memory.delete", { id }, context), /not the id of a saved fact/, id);
+    await assert.rejects(() => app.registry.execute("memory.update", { id, text: "x", source: "owner", expectedRevision: 1 }, context), /not the id of a saved fact|not found/, id);
+  }
+  // Accepted as a suggestion, too: the owner who accepts "delete one fact" never deletes more.
+  app.store.review.configure("local", { requireApproval: true });
+  const staged = await app.registry.execute("memory.delete", { id: "." }, context);
+  app.store.review.configure("local", { requireApproval: false });
+  await assert.rejects(() => app.store.review.decide("local", staged.proposalId, true), /not the id of a saved fact/);
+  assert.equal(app.store.review.proposals("local").some((p) => p.id === staged.proposalId), true, "it is still waiting, not marked done");
+  assert.deepEqual(double.requests.filter((request) => ["DELETE", "PUT"].includes(request.method) && !oneFact(request)), [], "nothing but one-fact addresses");
+  assert.equal(double.requests.some((request) => request.method === "DELETE"), false, "no delete was sent at all");
+  assert.equal(double.byOwner.get("local").size, 2, "both facts are still there");
+});
+
+test("accepting a suggestion twice while the service is still saving it saves it once", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  app.store.review.configure("local", { requireApproval: true });
+  const staged = await app.registry.execute("memory.put", { text: "Spare key is under the mat", source: "owner" }, context);
+  app.store.review.configure("local", { requireApproval: false });
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  double.server.on("request", async (request, response) => {
+    if (request.method === "PUT") await new Promise((resolve) => setTimeout(resolve, 300));
+    return answer(request, response);
+  });
+  const first = app.store.review.decide("local", staged.proposalId, true);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const second = app.store.review.decide("local", staged.proposalId, true);
+  const [one, two] = await Promise.allSettled([first, second]);
+  assert.equal(one.status, "fulfilled");
+  assert.equal(two.status, "rejected");
+  assert.match(two.reason.message, /already decided/);
+  assert.equal([...double.byOwner.get("local").values()].filter((r) => r.data.text === "Spare key is under the mat").length, 1);
+});
+
+test("a suggestion the service refuses to save is still waiting afterwards, and can be accepted again", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  app.store.review.configure("local", { requireApproval: true });
+  const staged = await app.registry.execute("memory.put", { text: "Bins go out on Tuesday", source: "owner" }, context);
+  app.store.review.configure("local", { requireApproval: false });
+  double.respond = (method) => (method === "PUT" ? [500, { error: "busy" }] : undefined);
+  await assert.rejects(() => app.store.review.decide("local", staged.proposalId, true), /refused to save/);
+  assert.equal(app.store.review.proposals("local").find((p) => p.id === staged.proposalId)?.status, "pending");
+  double.respond = null;
+  await app.store.review.decide("local", staged.proposalId, true);
+  assert.equal([...double.byOwner.get("local").values()].filter((r) => r.data.text === "Bins go out on Tuesday").length, 1);
+});
+
+test("a fact still being saved when its conversation is forgotten is taken back, not kept", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, root, context } = await fixture(t, [putting("Garage code is 4321"), say("Saved.")]);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const post = await served(t, app, root);
+  const sessionId = app.store.createSession("local");
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  const order = [];
+  let putArrived;
+  const arrived = new Promise((resolve) => { putArrived = resolve; });
+  double.server.on("request", async (request, response) => {
+    if (request.method === "PUT" || request.method === "DELETE") order.push(request.method);
+    if (request.method === "PUT") { putArrived(); await new Promise((resolve) => setTimeout(resolve, 400)); }
+    return answer(request, response);
+  });
+  const running = app.runtime.run({ prompt: "remember the garage code", sessionId });
+  await arrived;
+  const forgotten = await post("memory/forget", { sessionId });
+  assert.equal(forgotten.status, 200);
+  await running;
+  assert.deepEqual(order, ["PUT", "DELETE"], "what landed after the forget was deleted again");
+  assert.equal([...double.byOwner.get("local").values()].some((r) => r.data.text === "Garage code is 4321"), false, "the service does not keep it");
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "Garage" }, context), [], "and Branch does not find it");
+  const preview = await post("memory/forget/preview", { sessionId });
+  assert.deepEqual(preview.data.remove ?? [], [], "nothing of it is left to forget");
+});

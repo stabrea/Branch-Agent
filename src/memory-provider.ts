@@ -124,6 +124,16 @@ function mine(owner: string, record: MemoryRecord, id?: string): MemoryRecord {
 const parseOne = (value: unknown): MemoryRecord => RemoteRecordSchema.parse(value) as MemoryRecord;
 const parseMany = (value: unknown): MemoryRecord[] => z.array(RemoteRecordSchema).parse(value) as MemoryRecord[];
 
+/**
+ * The one-fact address for a fact id. "." and ".." are refused rather than sent: a URL parser resolves them (even
+ * percent-encoded) to the owner's whole collection or to every owner's, so a delete meant for one fact would reach
+ * all of them on a service that deletes collections.
+ */
+function factPath(owner: string, id: string): string {
+  if (id === "." || id === "..") throw new Error("That is not the id of a saved fact.");
+  return `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`;
+}
+
 export class RemoteMemoryBackend implements MemoryBackend {
   readonly name = "an outside memory service";
   private writeChains = new Map<string, Promise<MemoryRecord>>(); // (owner,id) -> write chain
@@ -184,7 +194,7 @@ export class RemoteMemoryBackend implements MemoryBackend {
     return JSON.parse(new TextDecoder().decode(buffer));
   }
   async read(owner: string, id: string): Promise<MemoryRecord | undefined> {
-    const response = await this.request("GET", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`);
+    const response = await this.request("GET", factPath(owner, id));
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error(`The outside memory service refused to read a fact (status ${response.status})`);
     return mine(owner, parseOne(await this.readResponseWithBytesCap(response)), id);
@@ -203,7 +213,7 @@ export class RemoteMemoryBackend implements MemoryBackend {
       const hidden = MemoryDataSchema.safeParse(redactLeaksIn(checked).value);
       if (!hidden.success) throw new Error(tooLongOnceHidden);
       const clean = hidden.data;
-      const response = await this.request("PUT", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`, clean);
+      const response = await this.request("PUT", factPath(owner, id), clean);
       if (!response.ok) throw new Error(`The outside memory service refused to save a fact (status ${response.status})`);
       return mine(owner, parseOne(await this.readResponseWithBytesCap(response)), id);
     };
@@ -229,7 +239,7 @@ export class RemoteMemoryBackend implements MemoryBackend {
     return records.filter((record) => visibleTo(record, agent));
   }
   async forget(owner: string, id: string): Promise<boolean> {
-    const response = await this.request("DELETE", `/memory/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`);
+    const response = await this.request("DELETE", factPath(owner, id));
     if (response.status === 404) return false;
     if (!response.ok) throw new Error(`The outside memory service refused to forget a fact (status ${response.status})`);
     const body = await this.readResponseWithBytesCap(response).catch(() => ({})) as { deleted?: boolean };
