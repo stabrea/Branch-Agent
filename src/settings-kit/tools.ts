@@ -4,7 +4,7 @@ import { chatOwnerOnly, runOrigin, startedFromChat, startedWithShortLivedKey } f
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { settingsCatalogue, specFor, type FieldSpec, type SettingSpec } from "./catalogue.js";
-import { applyWithPins, changesFor, currentValue, type Change, type Proposal, type Writer } from "./changes.js";
+import { applyWithPins, changesFor, currentValue, holdable, loosens, type Change, type Proposal, type Value, type Writer } from "./changes.js";
 import { pinnedIds } from "./pins.js";
 import type { ChangeOrigin } from "./history.js";
 import { planUndo, undoSettingsChange, whySetting } from "./undo.js"; // Q49
@@ -46,9 +46,11 @@ const undoReason = "Branch asks before it undoes a change to its own settings";
 const loosenReason = "This makes Branch less careful, so it is asked about every time";
 
 /** Why a settings tool call must be put to the owner whatever the rules say, or null. */
-export function settingsHold(tool: string): { reason: string; onceOnly: boolean } | null {
+export function settingsHold(tool: string, args?: unknown): { reason: string; onceOnly: boolean } | null {
   if (tool === "settings.loosen") return { reason: loosenReason, onceOnly: true };
-  if (tool === "settings.change") return { reason: changeReason, onceOnly: false };
+  // A change that may leave Branch less careful is asked about every time, in the one question: the owner's yes to it
+  // is what lets settings.change make it, so a less careful change never needs a second tool and a second yes.
+  if (tool === "settings.change") return mayLoosen(args) ? { reason: loosenReason, onceOnly: true } : { reason: changeReason, onceOnly: false };
   if (tool === "settings.undo") return { reason: undoReason, onceOnly: false };
   return null;
 }
@@ -147,6 +149,22 @@ function proposalOf(entry: ChangeInput["changes"][number]): Proposal | string {
   return { key, field, value: entry.value };
 }
 
+/**
+ * Whether any change a call asks for could leave Branch less careful, from the catalogue alone: from some value the
+ * setting can hold now, the value asked for is the less careful way. It reads none of the owner's settings, because
+ * this is worked out before the tool's own owner check, for callers that are then refused (see describe()).
+ */
+export function mayLoosen(args: unknown): boolean {
+  const parsed = ChangeSchema.safeParse(args);
+  if (!parsed.success) return false;
+  return parsed.data.changes.some((entry) => {
+    const made = proposalOf(entry);
+    if (typeof made === "string") return false;
+    const spec = specFor(made.key)!, field = spec.fields.find((one) => one.field === made.field)!;
+    return holdable(field).some((from) => loosens(field, from, made.value as Value, spec));
+  });
+}
+
 interface Planned { changes: Change[]; refused: string[] }
 function plan(store: Store, owner: string, input: ChangeInput): Planned {
   const proposals: Proposal[] = [];
@@ -202,14 +220,15 @@ function changeTool(loosen: boolean, store: Store, writers: () => Record<string,
     if (lockedDown(store, context.owner)) throw new Error("Lockdown is on, so settings cannot be changed. The owner turns it off in Settings first.");
     const { changes, refused } = plan(store, context.owner, input);
     const loose = changes.filter((change) => change.loosens);
-    if (!loosen && loose.length)
-      throw new Error(`These would make Branch less careful: ${loose.map(said).join("; ")}. Ask for them with settings.loosen, and the owner is asked about them each time.`);
+    // A less careful change reaches here only after the owner's own yes to this one call: settingsHold asks about it
+    // every time and never keeps the answer (mayLoosen), whatever the rules say. So the yes the owner gave is the one
+    // settings.loosen would have asked for, and asking a second time made nothing change (dogfood A1).
     if (loosen && !loose.length)
       throw new Error("None of these makes Branch less careful. Use settings.change for them.");
     if (!changes.length) return { changed: [], refused, note: "Nothing needed changing: every setting is already as asked." };
     if (context.dryRun) return { wouldChange: changes.map(said), refused };
     const { applied, skipped } = applyWithPins(store, context.owner, changes, {
-      accept: changes.map((change) => change.id), confirmLoosening: loosen, why: "asked for in a conversation",
+      accept: changes.map((change) => change.id), confirmLoosening: loosen || loose.length > 0, why: "asked for in a conversation",
       // A pinned setting stays as the owner fixed it: only the owner, moving the switch by hand, changes it.
       pinnedAllowed: false, writers: writers(), record: talked(store, context) });
     return { changed: applied.map(said), skipped, refused };
@@ -263,14 +282,14 @@ export function registerSettingsTools(registry: ToolRegistry, store: Store, writ
   });
   registry.register({
     name: "settings.change", permission: "settings.write",
-    description: "Change some of Branch's own settings, by the names settings.list gives (for example wake-word.mode to \"on\"). When the owner described the setting in their own words, call settings.find first and ask its question if it has one. The owner is asked first. A change that makes Branch less careful is refused here; use settings.loosen for it.",
+    description: "Change some of Branch's own settings, by the names settings.list gives (for example wake-word.mode to \"on\"). When the owner described the setting in their own words, call settings.find first and ask its question if it has one. The owner is asked first; a change that makes Branch less careful is asked about every time, and the owner's yes makes it.",
     parameters: ChangeSchema,
     target: (input: ChangeInput) => describe(input),
     execute: changeTool(false, store, writers),
   });
   registry.register({
     name: "settings.loosen", permission: "settings.write",
-    description: "Make a change to Branch's own settings that leaves it less careful or lets it reach further. The owner is asked every time, and the answer is never kept. Only for changes settings.change refused.",
+    description: "Make a change to Branch's own settings that leaves it less careful or lets it reach further. The owner is asked every time, and the answer is never kept. settings.change does the same for such a change, so prefer it.",
     parameters: ChangeSchema,
     target: (input: ChangeInput) => describe(input),
     execute: changeTool(true, store, writers),

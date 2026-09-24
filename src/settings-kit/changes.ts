@@ -76,6 +76,15 @@ export function currentValue(store: Store, owner: string, spec: SettingSpec, fie
   return field.kind.type === "choice" && typeof saved === "string" ? saved.slice(0, 40) : field.initial;
 }
 
+/** Every value a field can hold (a number's two ends): enough to tell whether one value is its most careful. */
+export function holdable(field: FieldSpec): Value[] {
+  const kind = field.kind;
+  if (kind.type === "switch") return [...switchPositions];
+  if (kind.type === "yes-no") return [true, false];
+  if (kind.type === "choice") return [...kind.options];
+  return [kind.min, kind.max];
+}
+
 /** Ordered magnitude; loosens() applies the field's protective or reach direction. */
 function reachOf(field: FieldSpec, value: Value): number {
   const kind = field.kind;

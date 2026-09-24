@@ -2669,7 +2669,7 @@ ${run.output.slice(0, 6000)}`;
     // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
     // Branch changing its own settings is always put to the owner (src/settings-kit/tools.ts).
-    const personal = personalHold(tool, args, source) ?? settingsHold(tool) ?? contractHold(tool, args); // Q12: a self-development contract, first or wider
+    const personal = personalHold(tool, args, source) ?? settingsHold(tool, args) ?? contractHold(tool, args); // Q12: a self-development contract, first or wider
     // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
     const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null)
       ?? this.scriptHold(tool, context.runId); // mac7/residuals (4b)
