@@ -141,7 +141,7 @@ test("owner approval runs bounded coding in the isolated copy without publish pe
     runtime: { run: async (options) => { runs.push(options); return { id: "coding-run", status: "completed" }; } },
     projects: { save: () => {}, setActive: (owner, choice) => active.push(choice) },
     policy: { assertAllowed: async () => {} }, exists: async () => true,
-    git: async ({ args }) => completed(args.join(" ") === "remote get-url origin" ? "https://github.com/stabrea/Branch-Agent.git" : "") };
+    git: async ({ args }) => completed(args.includes("diff") ? "sample diff" : args.join(" ") === "remote get-url origin" ? "https://github.com/stabrea/Branch-Agent.git" : "") };
   const run = store.createRun("local", "request", undefined, false, "channel");
   store.event(run.id, "run.started", { source: "channel" });
   const input = { name: "coding", goal: "Improve the coding workflow safely", repository: "https://github.com/stabrea/Branch-Agent.git", base: "mac/cross-platform" };
@@ -156,7 +156,7 @@ test("owner approval runs bounded coding in the isolated copy without publish pe
   deps.exists = async () => false;
   await assert.rejects(branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), /missing/);
   deps.exists = async () => true;
-  deps.git = async ({ args }) => completed(args[0] === "diff" ? "sample diff" : "");
+  deps.git = async ({ args }) => completed(args.includes("diff") ? "sample diff" : "");
   assert.deepEqual(await branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), { id: proposal.id, diff: "sample diff", truncated: false, files: "", filesTruncated: false });
   store.sqlite.prepare("UPDATE branch_source_requests SET worktree_folder = ? WHERE id = ?").run("../other", proposal.id);
   await assert.rejects(branchSourceDiff(deps, proposal.id, AbortSignal.timeout(1000)), /invalid/);
