@@ -166,6 +166,8 @@ export class Scheduler {
    * lands in the Trunk's own conversation (src/trunks/routines.ts). Nothing is changed until connected.
    */
   routeRun: (scheduleId: string) => { options: { trunkId: string }; finished: (run: Run) => void } | { refuse: string } | null = () => null;
+  /** Why a schedule a Trunk made may not run now (its part switched off), or null; set by src/trunks. */
+  trunkHeld: (trunkId: string) => string | null = () => null;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -291,6 +293,9 @@ export class Scheduler {
       if (routed && "refuse" in routed) throw new Error(routed.refuse);
       const route = routed;
       const madeBy = !route && typeof data.startedBy === "string" ? data.startedBy : undefined;
+      // A Trunk's own schedule, like its routines, does not run while Trunks are switched off: it says why instead.
+      const held = madeBy ? this.trunkHeld(madeBy) : null;
+      if (held) throw new Error(held);
       const work = async (): Promise<Run> => data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
         prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[],
         source: data.fromChat === true ? "channel" : "schedule", ...route?.options,

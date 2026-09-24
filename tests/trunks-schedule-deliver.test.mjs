@@ -132,3 +132,19 @@ test("a Trunk that may send has its schedule's result sent, even when the schedu
   await app.scheduler.tick(inMinutes(5));
   assert.equal((await sent("NARROW7717")).length, 1, JSON.stringify(hers()[0].data.delivery));
 });
+
+test("a Trunk's own schedule does not run, nor send, while Trunks are switched off, as its routines do not", async (t) => {
+  const { app, ada, chat, hers } = await setup(t, ["schedules.manage", "channels.send"]);
+  await app.trunks.say(ada.id, "remind OFFREMIND7718");
+  await app.trunks.say(ada.id, "deliver OFFTASK7719");
+  assert.equal(hers().length, 2);
+  app.trunks.setMode("trunks", { mode: "off" });
+  await app.scheduler.tick(inMinutes(5));
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(chat.sent, [], "nothing reached the chat");
+  for (const record of hers()) {
+    const saved = app.store.get("schedules", app.runtime.owner, record.id).data;
+    assert.match(String(saved.error), /Trunks are switched off/, JSON.stringify(saved).slice(0, 300));
+    assert.equal(saved.runId ?? null, null, "no run was made");
+  }
+});
