@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
-import { permissionClassified, reachOf } from "../dist/tool-reach.js";
+import { permissionClassified } from "../dist/tool-reach.js";
 import { loadIntegrations } from "../dist/integrations/bootstrap.js";
 import { registerHttpTools } from "../dist/skill-http-tools.js";
 import { HttpToolSchema } from "../dist/skill-package.js";
@@ -43,6 +43,8 @@ async function fullBranch(t, provider = { name: "scripted", async complete() { r
   app.store.save("settings", app.runtime.owner, "openapi-service:weather", { name: "weather", allowlist: ["forecast"], from: "weather.json",
     document: JSON.stringify({ openapi: "3.0.0", info: { title: "Weather", version: "1" }, servers: [{ url: "https://api.example.com" }],
       paths: { "/forecast": { get: { operationId: "forecast", summary: "The forecast for tomorrow." } } } }) });
+  // Saving the description is not enough: restore() is what registers the service's api.call tools.
+  assert.deepEqual(app.openApiTools.restore(app.runtime.owner), ["weather"]);
   app.interop.clients.open({ send() {}, close() {} })
     .receive(JSON.stringify({ type: "hello", client: "lender", tools: [{ name: "look_up", description: "Looks something up." }] }));
   return app;
