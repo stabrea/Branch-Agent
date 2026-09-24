@@ -10,6 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -413,14 +414,80 @@ test("a Branch on the wrong version is not the window coming back either", async
   assert.equal(opened.length, 1, "the version that is still installed is 1.0.0, so that is what has to be back");
 });
 
+/** The failure of a window that could not be started: no such program, or a Mac that would not open it. */
+const couldNotStart = (error) => error.code === "ENOENT" || /ENOENT|not found|cannot find|could not open/i.test(error.message);
+
 test("a window that cannot be started is not reported as opened", async (t) => {
   // `spawn` does not throw when the program is not there: the failure arrives later, on an error
   // event. With nobody listening, the line saying the window was opened had already been printed --
-  // for a window that never opened -- and the event went on to end the whole command.
+  // for a window that never opened -- and the event went on to end the whole command. On a Mac the
+  // program started is `open`, which is always there, so there the failure is how `open` ends.
   const { openWindow } = await import("../dist/install/rollback-cli.js");
   await assert.rejects(openWindow(join(await scratch(t), "not-a-program"), "nothing-here"),
-    (error) => error.code === "ENOENT" || /ENOENT|not found|cannot find/i.test(error.message),
-    "it answers with the failure instead of pretending");
+    couldNotStart, "it answers with the failure instead of pretending");
+});
+
+/** Stands in for starting a program: notes what would have run, and hands back a child the test drives. */
+function fakeStarts(platform) {
+  const started = [];
+  const spawn = (file, args) => {
+    const child = Object.assign(new EventEmitter(), { unrefs: 0 });
+    child.unref = () => { child.unrefs += 1; };
+    started.push({ run: [file, args], child });
+    return child;
+  };
+  return { started, system: { platform, spawn } };
+}
+
+/** Whether a promise has settled once everything already queued has run. */
+async function settledYet(promise) {
+  let settled = false;
+  promise.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  return settled;
+}
+
+test("on a Mac, a window is reported open only when the system says it opened", async (t) => {
+  // There the program started is `open`, not Branch, and `open` is always there, so its starting
+  // proves nothing. It ends with 0 once the app has launched, and with anything else when the app
+  // could not be opened.
+  const { openWindow } = await import("../dist/install/rollback-cli.js");
+  const app = join(await scratch(t), "Branch Agent.app");
+  const mac = fakeStarts("darwin");
+
+  const refused = openWindow(app, "Branch Agent", mac.system);
+  assert.deepEqual(mac.started.map(({ run }) => run), [["/usr/bin/open", [app]]], "the Mac is asked to open the app");
+  const opener = mac.started[0].child;
+  opener.emit("spawn");
+  assert.equal(await settledYet(refused), false, "`open` having started is not the window having opened");
+  assert.equal(opener.unrefs, 0, "nothing lets go of `open` before it has answered");
+  opener.emit("exit", 1, null);
+  await assert.rejects(refused, (error) => couldNotStart(error) && error.message.includes(app),
+    "`open` ending with 1 is a window that did not open, and the owner is told what could not be opened");
+
+  const accepted = openWindow(app, "Branch Agent", mac.system);
+  mac.started[1].child.emit("spawn");
+  mac.started[1].child.emit("exit", 0, null);
+  assert.equal(await settledYet(accepted), true, "`open` ending with 0 is the window opening");
+  await accepted;
+
+  const missing = openWindow(app, "Branch Agent", mac.system);
+  mac.started[2].child.emit("error", Object.assign(new Error("spawn /usr/bin/open ENOENT"), { code: "ENOENT" }));
+  await assert.rejects(missing, { code: "ENOENT" }, "an `open` that cannot be started at all is a failure too");
+});
+
+test("elsewhere the window is Branch itself, so it counts as opened once it has started", async (t) => {
+  // Waiting for this program to end would be waiting for the owner to close the window.
+  const { openWindow } = await import("../dist/install/rollback-cli.js");
+  const root = join(await scratch(t), "branch");
+  const linux = fakeStarts("linux");
+
+  const opening = openWindow(root, "branch-agent", linux.system);
+  assert.deepEqual(linux.started.map(({ run }) => run), [[join(root, "branch-agent"), []]], "the program itself is started");
+  linux.started[0].child.emit("spawn");
+  assert.equal(await settledYet(opening), true, "it is open once it has started");
+  await opening;
+  assert.equal(linux.started[0].child.unrefs, 1, "and the command does not wait for the window to close");
 });
 
 test("a Branch working in the background comes back by itself on the new version", { skip: posixOnly }, async (t) => {

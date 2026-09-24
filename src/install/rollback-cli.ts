@@ -78,19 +78,34 @@ async function takeStoreDown(dataDir: string, to: number): Promise<{ backup: str
 
 /**
  * Opens the installed Branch as a window. Shared, because the undo and the update both have to put a
- * window back and there must not be two ideas about how that is done.
+ * window back and there must not be two ideas about how that is done. `system` is for the tests only:
+ * which system to act as, and what starts a program.
  */
-export const openWindow = (target: string, executableName: string): Promise<void> =>
+export const openWindow = (
+  target: string, executableName: string, system: { platform?: NodeJS.Platform; spawn?: typeof spawn } = {},
+): Promise<void> =>
   new Promise((opened, failed) => {
-    const file = process.platform === "darwin" ? "/usr/bin/open" : join(target, executableName);
-    const args = process.platform === "darwin" ? [target] : [];
-    const child = spawn(file, args, { detached: true, stdio: "ignore" });
+    const mac = (system.platform ?? process.platform) === "darwin";
+    const file = mac ? "/usr/bin/open" : join(target, executableName);
+    const args = mac ? [target] : [];
+    const child = (system.spawn ?? spawn)(file, args, { detached: true, stdio: "ignore" });
     // A program that is not there does not make `spawn` throw: the failure arrives later, on an
     // `error` event. With nobody listening, the caller had already printed that the window was open
     // -- for a window that never opened -- and the event went on to end the whole command. So the
     // answer waits for one of the two things that really happen.
     child.once("error", failed);
-    child.once("spawn", () => { child.unref(); opened(); });
+    if (!mac) {
+      child.once("spawn", () => { child.unref(); opened(); });
+      return;
+    }
+    // On a Mac the program started is `open`, not Branch, and `open` is always there, so its starting
+    // proves nothing. It ends with 0 once the app has launched and with anything else when the app
+    // could not be opened, so how it ends is the answer, and nothing lets go of it before then.
+    child.once("exit", (code, signal) => {
+      if (code === 0) { opened(); return; }
+      const how = signal ? `was stopped by ${signal}` : `exited with code ${code}`;
+      failed(new Error(`macOS could not open ${target}; \`open\` ${how}`));
+    });
   });
 
 /** How the on-disk facts are gathered, shared by the check and the real thing. */
