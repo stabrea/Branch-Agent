@@ -463,6 +463,7 @@ test("Q101: settings for the pushed name kept in the computer's own Git settings
 
 test("Q101: two publishes at once each check their own address", { skip: posixOnly }, async (t) => {
   const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd }); // B's push goes nowhere
   execFileSync("git", ["config", "--local", "url.https://evil.example/a.insteadOf", "https://github.com/o/a"], { cwd });
   const runner = app.git.runner, real = runner.run.bind(runner);
   // Hold A right after its own check remote is added, and let B go all the way through meanwhile.
@@ -505,6 +506,28 @@ test("Q101: settings for the pushed name that removing it would leave behind are
   await writeFile(join(cwd, settings), `${await (await import("node:fs/promises")).readFile(join(cwd, settings), "utf8")}[Remote "origin"]\n\turl = https://example.com/mine.git\n`);
   await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, signal), /publishing cannot replace/);
   assert.equal(execFileSync("git", ["config", "--local", "--get", "remote.origin.url"], { cwd, encoding: "utf8" }).trim(), "https://example.com/mine.git");
+});
+
+test("Q101: a settings read that did not finish is not taken as none, and a stop during the check's add leaves no check remote", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  execFileSync("git", ["config", "--local", "http.proxy", "http://127.0.0.1:9"], { cwd });
+  const runner = app.git.runner, real = runner.run.bind(runner);
+  t.after(() => { runner.run = real; });
+  runner.run = async (options, signal) => (options.args[0] === "config" && options.args.includes("--show-scope") && options.args.at(-1).startsWith("^remote\\.origin")
+    ? { ...(await real(options, signal)), status: "timed_out", exitCode: null } : real(options, signal));
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, AbortSignal.timeout(10_000)), /Could not read the Git settings for "origin"/);
+  // A stop that lands while the check remote is being added: the add goes through, and the remote is still taken away.
+  const stop = new AbortController();
+  runner.run = async (options, signal) => {
+    const outcome = await real(options, signal);
+    if (options.args[0] === "remote" && options.args[1] === "add" && String(options.args[2]).startsWith("branch-publish-check")) {
+      stop.abort();
+      return { ...outcome, status: "cancelled" };
+    }
+    return outcome;
+  };
+  await assert.rejects(app.git.publish({ folder, url: "https://github.com/o/r.git", remote: "origin" }, stop.signal));
+  assert.doesNotMatch(execFileSync("git", ["remote"], { cwd, encoding: "utf8" }), /branch-publish-check/, "no check remote is left behind");
 });
 
 

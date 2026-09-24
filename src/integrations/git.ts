@@ -199,16 +199,20 @@ export class GitTools {
       // apply after the name is re-pointed, so they are refused before the folder's own remote is touched.
       const pattern = `^remote\\.${input.remote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.`;
       const elsewhere = await this.runner.run({ cwd, args: ["config", "--show-scope", "--get-regexp", pattern], timeoutMs: 10_000 }, signal);
+      // Exit 1 is "no such settings"; anything else that did not complete (stopped, too slow, too much) is not a no.
+      if (elsewhere.status !== "completed" && !(elsewhere.status === "failed" && elsewhere.exitCode === 1))
+        throw new Error(`Could not read the Git settings for "${input.remote}", so nothing was sent.`);
       const lines = elsewhere.status === "completed" ? elsewhere.stdout.split("\n").filter(Boolean) : [];
       if (lines.some((line) => !/^local\s/.test(line)) || (lines.length && await this.unremovable(cwd, input.remote, pattern, signal)))
         throw new Error(`Git settings for "${input.remote}" that publishing cannot replace (kept outside the repository's own settings, or written so Git cannot remove them) say where it sends, so nothing was sent.`);
       // A name of its own for each publish: worktrees of one source share its remotes, so a fixed name could
       // be re-pointed by another publish while this one is being checked.
       const check = `${publishCheckRemote}-${randomUUID()}`;
-      await this.run(cwd, ["remote", "add", check, address.href], signal);
-      // Taken away even when the run is being stopped, so the unchecked address never stays behind.
-      const refused = await this.validateRemoteURL(cwd, check, true, signal).finally(() =>
-        this.run(cwd, ["remote", "remove", check], AbortSignal.timeout(10_000)).catch(() => undefined));
+      // Taken away even when the run is being stopped, the add included, so the unchecked address never stays behind.
+      const refused = await (async () => {
+        await this.run(cwd, ["remote", "add", check, address.href], signal);
+        return this.validateRemoteURL(cwd, check, true, signal);
+      })().finally(() => this.run(cwd, ["remote", "remove", check], AbortSignal.timeout(10_000)).catch(() => undefined));
       if (refused) throw new Error(refused);
     }
     await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
