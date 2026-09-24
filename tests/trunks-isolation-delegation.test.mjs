@@ -693,3 +693,26 @@ test("a Trunk's mark that outlives the Trunk carries none of its work on, and an
   assert.equal(boxes(stale), before.boxes, "no box after the question ran");
   assert.match(String(app.store.run(stale).output ?? ""), /no longer here/, "and its task says why");
 });
+
+test("a Trunk's mark that outlives the Trunk starts none of its workflows either: asTrunkWork asks before its own-mark shortcut", async (t) => {
+  // NAS p55: the test above reaches the refusal through the graph's whyNot, asked first. Workflows.run carries
+  // on through asTrunkWork with nothing asked before it, so this is the one that holds asTrunkWork's own order.
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app } = await fixture(t, []);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.trunks.edit(ada.id, { permissions: ["memory.read", "memory.write", "workflows.manage", "workflows.read"] });
+  await app.trunks.introduced();
+  const owner = app.runtime.owner;
+  const workflow = await madeBy(app, ada, { name: "Note", steps: [
+    { name: "note", kind: "tool", tool: "memory.put", args: { text: "STALEMARK5521", source: "workflow" } }] });
+  // Ada removed while her mark is still about, then that mark runs her own workflow.
+  const run = withAccountCall({ owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } }, async () => {
+    app.trunks.remove(ada.id);
+    return app.workflows.run(owner, workflow.id);
+  });
+  await assert.rejects(run, /no longer here/);
+  const view = app.workflows.view(owner, workflow.id);
+  assert.equal(view.status, "idle", "nothing marked running or done");
+  assert.equal(JSON.stringify(view.state).includes("STALEMARK5521"), false, "its step never ran as the gone Trunk");
+});
