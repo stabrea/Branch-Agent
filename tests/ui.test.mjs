@@ -95,8 +95,13 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
 });
 
 async function verifyArtwork(page) {
-  await page.waitForFunction(() => [...document.querySelectorAll(".brand-icon img")]
-    .every((image) => image.complete && image.naturalWidth === 128 && image.src.endsWith("/assets/mascot-128.png")));
+  /* The strip's mark and the greeting's mascot, both loaded. The page has no `.brand-icon` any more,
+     so a check of that alone passed on nothing at all; the two marks must be there to be checked. */
+  await page.waitForFunction(() => {
+    const marks = [...document.querySelectorAll(".strip-brand img, .welcome-mascot")];
+    return marks.length === 2 && marks.every((image) => image.complete && image.naturalWidth === 128
+      && new URL(image.src).pathname === "/assets/mascot-128.png");
+  }, undefined, { timeout: 15000 });
   await page.waitForFunction(() => {
     const canvas = document.getElementById("keepoak-acorn");
     return canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height)
