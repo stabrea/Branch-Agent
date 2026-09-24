@@ -75,5 +75,9 @@ test("Q78: Settings › General page strings are localized to French", async (t)
   assert.ok(pageText.includes(fr["settings.deployment.safety-copies"]), `French translation of 'Safety copies' should appear: ${fr["settings.deployment.safety-copies"]}`);
   assert.ok(pageText.includes(fr["settings.deployment.check-ready"]), `French translation of 'Check this computer is ready' should appear: ${fr["settings.deployment.check-ready"]}`);
 
+  // Q81: the safety-copies line is written by the card, not by data-t, so it must follow the switch too.
+  await page.waitForFunction((words) => document.querySelector("#restore-points")?.textContent === words,
+    fr["settings.deployment.no-safety-copy"], { timeout: 10000 });
+
   assert.deepEqual(errors, []);
 });
