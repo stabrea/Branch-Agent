@@ -788,3 +788,30 @@ test("a file that is not really inside the store is never opened", async (t) => 
   await assert.rejects(store.read(session, "../../elsewhere"), /not attached to this conversation/);
   await assert.rejects(store.read(session, kept[0].id), /not attached to this conversation/);
 });
+
+test("a refused file leaves no task running, so the conversation carries on (NAS's adversarial of #190)", async (t) => {
+  const { app, post } = await branch(t);
+  const first = await post("/api/run", { prompt: "Hello." });
+  assert.equal(first.status, 200);
+  const sessionId = first.body.sessionId;
+  const refused = await post("/api/run", { prompt: "Here is an archive.", sessionId,
+    attachments: [attached("bundle.zip", "application/zip", Buffer.from("PK"))] });
+  assert.ok(refused.status >= 400, "the archive is refused");
+  assert.match(JSON.stringify(refused.body), /does not take application\/zip/);
+  const running = app.store.sqlite.prepare("SELECT COUNT(*) AS n FROM tasks WHERE status = 'running'").get();
+  assert.equal(Number(running.n), 0, "no task is left running");
+  const next = await post("/api/run", { prompt: "Carry on.", sessionId });
+  assert.equal(next.status, 200, "the next message in the same conversation is answered");
+});
+
+test("an export asked for with a short-lived key carries the words and references, never the files (NAS's review of #190)", async (t) => {
+  const { underShortLivedKey } = await import("../dist/key-context.js");
+  const { app, post } = await branch(t);
+  const sent = await post("/api/run", { prompt: "Here are my notes.", attachments: [attached("notes.md", "text/markdown", Buffer.from("# private notes"))] });
+  assert.equal(sent.status, 200);
+  const owners = app.store.exportSession(app.runtime.owner, sent.body.sessionId);
+  assert.equal(owners.files?.length, 1, "the owner's own export carries the file");
+  const keyed = underShortLivedKey(() => app.store.exportSession(app.runtime.owner, sent.body.sessionId));
+  assert.equal(keyed.files, undefined, "a key's export carries no file bytes");
+  assert.ok(keyed.messages.some((message) => message.attachments?.length), "the references are still there");
+});

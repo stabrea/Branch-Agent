@@ -174,17 +174,26 @@ export class Attachments {
     return read.success ? read.data : [];
   }
 
-  /** Keeps the originals and hands back what the message will carry. */
-  async keep(sessionId: string, inputs: readonly AttachmentInput[], options: { temporary?: boolean } = {}): Promise<AttachmentRef[]> {
-    if (!inputs.length) return [];
+  /**
+   * Every file checked and decoded, with nothing written. The runtime asks this before a task starts (NAS's
+   * adversarial of #190): a file refused after the task was marked running left the conversation stuck.
+   */
+  check(inputs: readonly AttachmentInput[]): { ref: AttachmentRef; bytes: Buffer }[] {
     if (inputs.length > maximumAttachmentsPerTurn)
       throw new Error(`Up to ${maximumAttachmentsPerTurn} files can go with one message.`);
-    // Everything is checked and decoded before a single byte is written: a bad third file must not
-    // leave the first two behind as bytes nothing points at.
     const ready = inputs.map((input) => this.ready(input));
     const total = ready.reduce((sum, one) => sum + one.bytes.byteLength, 0);
     if (total > maxAttachmentsBytesPerTurn)
       throw new Error(`Everything on one message can add up to ${Math.round(maxAttachmentsBytesPerTurn / 1048576)} MB; that is ${Math.round(total / 1048576)} MB.`);
+    return ready;
+  }
+
+  /** Keeps the originals and hands back what the message will carry. */
+  async keep(sessionId: string, inputs: readonly AttachmentInput[], options: { temporary?: boolean } = {}): Promise<AttachmentRef[]> {
+    if (!inputs.length) return [];
+    // Everything is checked and decoded before a single byte is written: a bad third file must not
+    // leave the first two behind as bytes nothing points at.
+    const ready = this.check(inputs);
     // One conversation's folder is written by one turn at a time, so two messages at once cannot each
     // write a listing that forgets the other's files.
     return this.inTurn(sessionId, options.temporary, async () => {

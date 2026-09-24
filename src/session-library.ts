@@ -8,6 +8,7 @@ import {
 import { attachmentLimits, kindOf } from "./attachments.js";
 import type { ConversationFiles } from "./sessions.js";
 import { participation } from "./history.js";
+import { startedWithShortLivedKey } from "./key-context.js";
 
 /** What a conversation's words may come to in an archive. */
 export const maximumArchiveBytes = 4 * 1024 * 1024;
@@ -300,7 +301,9 @@ export class SessionLibrary {
    */
   private carried(sessionId: string, messages: Message[]): { files?: ArchivedFile[] } {
     const wanted = messages.flatMap((message) => message.attachments ?? []);
-    if (!wanted.length) return {};
+    // The files themselves are the owner's, as at their own route: a short-lived key gets the words and the
+    // references, never the bytes (NAS's review of #190).
+    if (!wanted.length || startedWithShortLivedKey()) return {};
     const files = this.files();
     if (!files) throw new Error("This conversation has files attached, and they cannot be read to put in the archive");
     let total = 0;
