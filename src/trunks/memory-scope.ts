@@ -12,6 +12,19 @@ const keepsToItself = new Set<string>();
 
 export const trunkAgent = (id: string): string => `trunk:${id}`;
 
+/**
+ * FQ-routing.isolated-agents: whose memory a turn reads and writes. `agent` stays the specialist's own id,
+ * so everything that looks a specialist up by name still finds it; but a specialist working for a Trunk
+ * (`trunk` is carried from the Trunk's turn through every delegation) keeps its facts under that Trunk,
+ * `trunk:<id>:<specialist>`, so two Trunks' hand-offs to one specialist never share them. A Trunk's own
+ * turn, the owner's specialists and the owner's own turn keep exactly the key they had.
+ */
+export function memoryAgent(context: { agent?: string | undefined; trunk?: string | undefined }): string | undefined {
+  const { agent, trunk } = context;
+  if (!agent || !trunk || agent.startsWith("trunk:")) return agent;
+  return `${trunkAgent(trunk)}:${agent}`;
+}
+
 /** Called whenever a Trunk is saved: whether it reads the owner's shared facts. */
 export function setSharedFacts(agent: string, reads: boolean): void {
   if (reads) keepsToItself.delete(agent);
@@ -28,5 +41,6 @@ export function writesSharedFacts(agent: string): boolean {
 
 /** True when this agent may read a fact the owner marked as shared. */
 export function readsSharedFacts(agent: string): boolean {
-  return !keepsToItself.has(agent);
+  // A Trunk's specialist (`trunk:<id>:<specialist>`) follows its Trunk's setting.
+  return !keepsToItself.has(/^trunk:[^:]+/.exec(agent)?.[0] ?? agent);
 }

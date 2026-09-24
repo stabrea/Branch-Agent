@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
+import { memoryAgent } from "./trunks/memory-scope.js"; // FQ-routing.isolated-agents
 import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
@@ -834,7 +835,7 @@ ${run.output.slice(0, 6000)}`;
     // R17-A (Trunks): a Trunk remembers in its own scope, and the task says whose it was.
     // mac7/lockdown-fix: trunkKeys. Work a Trunk set going (a workflow's prompt step, a flow box) is its work too.
     const inherited = given.trunkKeys ?? currentAccountCall()?.trunk?.keys;
-    const context = trunk ? { ...given, agent: trunk.agent, trunkKeys: trunk.keys } : inherited ? { ...given, trunkKeys: inherited } : given;
+    const context = trunk ? { ...given, agent: trunk.agent, trunk: trunk.trunkId, trunkKeys: trunk.keys } : inherited ? { ...given, trunkKeys: inherited } : given;
     if (trunk) this.store.event(run.id, "trunk.turn", { trunkId: trunk.trunkId });
     if (!this.store.sessionTemporary(run.sessionId)) return context;
     this.store.event(run.id, "session.temporary", { memoryWrites: false });
@@ -1713,7 +1714,7 @@ ${run.output.slice(0, 6000)}`;
     ];
     // Read under whoever is using the app: with a household profile switched on, their task is
     // given their own remembered facts and never the owner's.
-    const snapshot = this.store.review.sessionSnapshot(memoryScope(this.store, context), run.sessionId, context.agent);
+    const snapshot = this.store.review.sessionSnapshot(memoryScope(this.store, context), run.sessionId, memoryAgent(context));
     if (snapshot.count) messages.push({ role: "system", content: `What you remember about the person (snapshot taken when this conversation started; use memory.search for anything newer):\n${snapshot.text}` });
     const aboutYou = knobs.aboutYouMessage(this.store, memoryScope(this.store, context)); // R17-S13
     if (aboutYou) messages.push(aboutYou);
