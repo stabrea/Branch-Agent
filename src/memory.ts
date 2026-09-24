@@ -514,7 +514,8 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       // never even reaches the review queue as a proposal (on an outside service as on this computer).
       // Only an agent's reach needs the fact read first; the owner may change any of theirs.
       const current = agent && outside ? await provider!.read(owner, value.id) : store.get("memory", owner, value.id) as MemoryRecord | undefined;
-      if (!writableTo(current, agent)) throw new Error("Memory not found");
+      // A fact an agent cannot find is not one it may change: nothing is staged or sent for it.
+      if ((agent && !current) || !writableTo(current, agent)) throw new Error("Memory not found");
       const proposal = staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source });
       if (proposal) return proposal;
       if (!outside) return store.updateMemory(owner, value, context.runId);
@@ -547,12 +548,15 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       // missing one is (returns false, nothing thrown) — an unauthorised Trunk learns nothing about
       // whether that id even exists.
       const agent = memoryAgent(context);
-      // Only an agent's reach needs the fact read first; the owner may delete any of theirs.
+      // Only an agent's reach needs the fact read first; the owner may delete any of theirs. The service is taken before
+      // the read, so the delete goes where the fact was found, whatever the owner has switched to since.
+      const service = agent && outside ? provider!.serviceFor?.(owner) : undefined;
       const current = agent && outside ? await provider!.read(owner, value.id) : store.get("memory", owner, value.id) as MemoryRecord | undefined;
-      if (!writableTo(current, agent)) return false;
+      if ((agent && !current) || !writableTo(current, agent)) return false;
       const proposal = staged(store, context, { kind: "delete", memoryId: value.id });
       if (proposal) return proposal;
-      return outside ? provider!.forget(owner, value.id) : store.delete("memory", owner, value.id);
+      if (!outside) return store.delete("memory", owner, value.id);
+      return agent ? takeBackFact(provider!, owner, value.id, service) : provider!.forget(owner, value.id);
     } });
 }
 

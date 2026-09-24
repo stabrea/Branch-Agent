@@ -1458,3 +1458,69 @@ test("on an outside memory service, a Trunk finds and changes only its own facts
   assert.equal(double.byOwner.get("local").get(hers.id).data.scope, "agent:trunk:ada-test", "a change keeps whose fact it is");
   assert.equal((await app.registry.execute("memory.search", { query: "Owner" }, context)).length, 1, "the owner still finds theirs");
 });
+
+test("a Trunk's delete of a fact the outside service does not have is refused, even as the owner switches to this computer's memory", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  const local = await app.registry.execute("memory.put", { text: "Owner local LOCALFACT", source: "owner" }, context);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  const methods = [];
+  let arrived, release;
+  const got = new Promise((resolve) => { arrived = resolve; });
+  const hold = new Promise((resolve) => { release = resolve; });
+  double.server.on("request", async (request, response) => {
+    methods.push(request.method);
+    if (request.method === "GET") { arrived(); await hold; }
+    return answer(request, response);
+  });
+  const deleting = app.registry.execute("memory.delete", { id: local.id }, { ...context, agent: "trunk:ada-test" });
+  await got;
+  await app.memory.backend.configure("local", { mode: "built-in" }); // NAS R1
+  release();
+  assert.equal(await deleting, false);
+  assert.ok(app.store.get("memory", "local", local.id), "the owner's fact on this computer is still there");
+  assert.equal(methods.includes("DELETE"), false, "and nothing was deleted anywhere");
+});
+
+test("with approval on, a Trunk's change or delete of a fact it cannot find never reaches the owner's review queue", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  const local = await app.registry.execute("memory.put", { text: "Owner local LOCALFACT", source: "owner" }, context);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  app.store.review.configure("local", { requireApproval: true });
+  const ada = { ...context, agent: "trunk:ada-test" };
+  await assert.rejects(() => app.registry.execute("memory.update", { id: local.id, text: "changed", source: "owner", expectedRevision: 1 }, ada), /not found/i);
+  assert.equal(await app.registry.execute("memory.delete", { id: local.id }, ada), false); // NAS R3
+  assert.equal(app.store.review.proposals("local", "pending").length, 0);
+});
+
+test("a Trunk's delete of its own fact goes to the service it was found on, even as the owner switches to this computer's memory", async (t) => {
+  const double = memoryDouble();
+  const base = await double.listen();
+  t.after(() => double.close());
+  const { app, context } = await fixture(t);
+  await app.memory.backend.configure("local", { mode: "outside", url: base });
+  const ada = { ...context, agent: "trunk:ada-test" };
+  const hers = await app.registry.execute("memory.put", { text: "Ada fact ADAFACT", source: "owner" }, ada);
+  const answer = double.server.listeners("request")[0];
+  double.server.removeAllListeners("request");
+  let arrived, release;
+  const got = new Promise((resolve) => { arrived = resolve; });
+  const hold = new Promise((resolve) => { release = resolve; });
+  double.server.on("request", async (request, response) => {
+    if (request.method === "GET") { arrived(); await hold; }
+    return answer(request, response);
+  });
+  const deleting = app.registry.execute("memory.delete", { id: hers.id }, ada);
+  await got;
+  await app.memory.backend.configure("local", { mode: "built-in" });
+  release();
+  assert.equal(await deleting, true);
+  assert.equal(double.byOwner.get("local").has(hers.id), false, "it is gone from the service it was on");
+});
