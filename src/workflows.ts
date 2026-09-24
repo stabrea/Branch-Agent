@@ -127,10 +127,32 @@ export class Workflows {
     this.store.profiles.requireOwner("Saved workflows");
     return owner;
   }
-  create(owner: string, input: unknown): WorkflowView {
+  /**
+   * Q119: whose a saved workflow is: the Trunk that made it (or was given it), or null for the owner's own.
+   * Every run of it is that Trunk's work, whoever presses Run.
+   */
+  private whose(data: unknown): string | null {
+    const saved = (data as { startedBy?: unknown } | undefined)?.startedBy;
+    return typeof saved === "string" ? saved : null;
+  }
+  /** Q119: the one saved record a caller may touch. A Trunk reaches only its own; another's reads as not there. */
+  private reach(owner: string, id: string): SavedRecord {
+    const record = this.store.get("workflows", owner, id);
+    const caller = this.runtime.trunkAtWork();
+    if (!record || (caller && this.whose(record.data) !== caller)) throw new Error("Workflow not found");
+    return record;
+  }
+  /**
+   * `given` is the Trunk the owner hands a new workflow to (Teach); otherwise it is whoever makes it. `within`
+   * is the maker's tool limit, kept for a Trunk's workflow so the owner pressing Run on it never widens it.
+   */
+  create(owner: string, input: unknown, options: { given?: string; within?: readonly string[] } = {}): WorkflowView {
     const definition = WorkflowSchema.parse(input);
     const id = definition.id ?? randomUUID();
-    const existing = this.store.get("workflows", owner, id)?.data;
+    const existing = this.store.get("workflows", owner, id) ? this.reach(owner, id).data : undefined; // Q119
+    const whose = existing ? this.whose(existing) : options.given ?? this.runtime.trunkAtWork() ?? null;
+    const madeWithin = this.runtime.trunkAtWork() && options.within ? [...options.within]
+      : Array.isArray(existing?.madeWithin) ? existing.madeWithin : null;
     this.store.save("workflows", owner, id, {
       ...definition, id, status: existing?.status ?? "idle", cursor: Number(existing?.cursor ?? 0),
       waitingUntil: existing?.waitingUntil ?? null, question: null, error: null,
@@ -138,20 +160,22 @@ export class Workflows {
       taskLimit: Array.isArray(existing?.taskLimit) ? existing.taskLimit : null,
       // mac7/outside-resume: nor who set a paused run going.
       ...(typeof existing?.startedFrom === "string" ? { startedFrom: existing.startedFrom } : {}),
-      // Q114: nor the Trunk whose work it is, so saving the steps again never hands the rest to someone else.
-      ...(typeof existing?.startedBy === "string" ? { startedBy: existing.startedBy } : {}),
+      // Q114/Q119: nor the Trunk whose work it is, so saving the steps again never hands the rest to someone else.
+      ...(whose ? { startedBy: whose } : {}),
+      ...(whose && madeWithin ? { madeWithin } : {}),
     });
     return this.view(owner, id);
   }
   list(owner: string): WorkflowView[] {
-    return this.store.list("workflows", owner).map((record) => this.toView(owner, record));
+    const caller = this.runtime.trunkAtWork(); // Q119: a Trunk sees only its own
+    return this.store.list("workflows", owner).filter((record) => !caller || this.whose(record.data) === caller)
+      .map((record) => this.toView(owner, record));
   }
   view(owner: string, id: string): WorkflowView {
-    const record = this.store.get("workflows", owner, id);
-    if (!record) throw new Error("Workflow not found");
-    return this.toView(owner, record);
+    return this.toView(owner, this.reach(owner, id));
   }
   remove(owner: string, id: string): { removed: boolean } {
+    if (this.store.get("workflows", owner, id)) this.reach(owner, id); // Q119
     this.store.sqlite.prepare("DELETE FROM workflow_state WHERE owner=? AND workflow_id=?").run(owner, id);
     return { removed: this.store.delete("workflows", owner, id) };
   }
@@ -178,13 +202,11 @@ export class Workflows {
         (patch.output ?? "").slice(0, 4000), patch.runId ?? null, patch.startedAt ?? now, now);
   }
   /**
-   * Q114: the Trunk whose work this is. A fresh start takes whoever is at work now (none for the owner);
-   * carrying on keeps the one that started it, whoever presses resume.
+   * Q114/Q119: the Trunk whose work this is: the one it belongs to, whoever presses Run or resume. A
+   * workflow of the owner's own is nobody's Trunk work, and `reach` lets no Trunk start one of those.
    */
-  private startedBy(owner: string, id: string, fresh: boolean): string | null {
-    const saved = (this.store.get("workflows", owner, id)?.data as { startedBy?: unknown } | undefined)?.startedBy;
-    if (!fresh && typeof saved === "string") return saved;
-    return this.runtime.trunkAtWork() ?? null;
+  private startedBy(owner: string, id: string): string | null {
+    return this.whose(this.store.get("workflows", owner, id)?.data);
   }
   private setStatus(owner: string, id: string, patch: Record<string, unknown>): WorkflowView {
     const record = this.store.get("workflows", owner, id);
@@ -249,9 +271,11 @@ export class Workflows {
    * workflow, so an owner's yes later does not widen it); the owner starting it afresh clears it.
    */
   private limitFor(owner: string, id: string, fresh: boolean, within: readonly string[] | undefined): string[] | null {
-    const saved = (this.store.get("workflows", owner, id)?.data as { taskLimit?: string[] | null } | undefined)?.taskLimit ?? null;
-    if (!within) return fresh ? null : saved;
-    return saved && !fresh ? saved.filter((p) => within.includes(p)) : [...within];
+    const data = this.store.get("workflows", owner, id)?.data as { taskLimit?: string[] | null; madeWithin?: string[] } | undefined;
+    // Q119: a fresh start of a Trunk's workflow keeps to what that Trunk could use when it made it.
+    const saved = (fresh ? data?.madeWithin : data?.taskLimit) ?? null;
+    if (!within) return saved;
+    return saved ? saved.filter((p) => within.includes(p)) : [...within];
   }
   /**
    * mac7/outside-resume: who a run of the workflow is held as. Carrying one on (after a pause, a wait
@@ -274,7 +298,7 @@ export class Workflows {
     const fresh = ["idle", "completed", "failed"].includes(current.status);
     const limit = this.limitFor(owner, id, fresh, within); // mac7/lockdown-fix
     const held = this.heldSource(owner, id, fresh, source); // mac7/outside-resume
-    const startedBy = this.startedBy(owner, id, fresh); // Q114
+    const startedBy = this.startedBy(owner, id); // Q114/Q119
     const carryOn = async (): Promise<WorkflowView> => {
       current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit,
         startedFrom: held, startedBy, ...(fresh ? { cursor: 0 } : {}) });
@@ -421,7 +445,8 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     parameters: WorkflowSchema,
     execute: async (value, context) => {
       if (startedFromChat(context, workflows.store)) throw chatOwnerOnly("Saving a workflow");
-      return workflows.create(workflows.forOwner(context.owner), value);
+      const within = workflows.taskLimit(context);
+      return workflows.create(workflows.forOwner(context.owner), value, within ? { within } : {});
     },
   });
   registry.register({

@@ -114,7 +114,7 @@ export class Flows {
   /** Graph runs still being worked through in the background, so a run can be waited on. */
   private readonly working = new Map<string, Promise<GraphRunView>>();
   constructor(private readonly store: Store, private readonly owner: string,
-    private readonly workflows: Workflows, runtime: Runtime) {
+    private readonly workflows: Workflows, private readonly runtime: Runtime) {
     this.graphs = new FlowGraphRunner(store, owner, runtime, (flowId) => this.definitionOf(flowId));
   }
   /**
@@ -220,7 +220,10 @@ export class Flows {
     options: { runId?: string; approve?: boolean; interrupted?: "again" | "past"; within?: readonly string[]; source?: RunSource } = {}): GraphRunStart {
     const definition = this.definitionOf(id);
     const pick = options.runId ?? this.graphs.resumable(id)?.runId;
-    if (!pick) throw new Error("There is nothing to carry on: no run of that flow stopped part way through.");
+    // Q119: a Trunk carries on only its own run; another's, or the owner's, reads as nothing to carry on.
+    const caller = this.runtime.trunkAtWork();
+    if (!pick || (caller && this.graphs.trunkOf(pick) !== caller))
+      throw new Error("There is nothing to carry on: no run of that flow stopped part way through.");
     const waiting = this.graphs.view(pick);
     if (!options.approve && !options.interrupted && waiting.question)
       throw new Error("That flow is waiting for you to say yes on your own screen. Approve it there, then carry it on.");

@@ -30,6 +30,13 @@ async function specialist(app, name, permissions) {
   return proposed.id;
 }
 
+/** Q119: a workflow a Trunk made during its own work, saved as that Trunk's tool call would save it. */
+async function madeBy(app, trunk, definition) {
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  return withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: trunk.keys, id: trunk.id } },
+    async () => app.registry.execute("workflows.create", definition, app.runtime.context()));
+}
+
 const lastEvent = (app) => Number(app.store.sqlite.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM events").get().id);
 /** Every result (or error) of one tool since event `after`, oldest first, as text. */
 function outcomesSince(app, after, name) {
@@ -336,8 +343,8 @@ test("a workflow one Trunk runs because another Trunk messaged it remembers as t
   app.trunks.edit(ada.id, { permissions: ["trunks.message", "workflows.manage", "workflows.read", "memory.write"] });
   app.trunks.edit(bo.id, { permissions: ["workflows.manage", "workflows.read", "memory.write"] });
   await app.trunks.introduced();
-  const workflow = await app.registry.execute("workflows.create", { name: "note", steps: [{ name: "keep", kind: "tool", tool: "memory.put",
-    args: { text: "kept by a step Bo ran BOSTEP4242", source: "a step" } }] }, app.runtime.context());
+  const workflow = await madeBy(app, bo, { name: "note", steps: [{ name: "keep", kind: "tool", tool: "memory.put",
+    args: { text: "kept by a step Bo ran BOSTEP4242", source: "a step" } }] });
   // Ada's message sets Bo's turn going while Ada's own work is still marked as hers.
   await app.trunks.say(ada.id, `tell bo run workflow ${workflow.id}`);
   let kept;
@@ -370,20 +377,20 @@ test("a workflow a Trunk started carries on as that Trunk, whoever resumes it, a
   await write(join(app.runtime.workspace, "note.md"), "SHARED-NOTE");
   await makeFolder(join(app.runtime.workspace, ".branch-agents", ada.id), { recursive: true });
   await write(join(app.runtime.workspace, ".branch-agents", ada.id, "note.md"), "ADA-NOTE");
-  const workflow = await app.registry.execute("workflows.create", { name: "later", steps: [
+  const workflow = await madeBy(app, ada, { name: "later", steps: [
     { name: "ok?", kind: "approval", question: "Carry on?" },
     { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } },
-    { name: "read", kind: "tool", tool: "files.read", args: { path: "note.md" } }] }, app.runtime.context());
+    { name: "read", kind: "tool", tool: "files.read", args: { path: "note.md" } }] });
   await app.trunks.say(ada.id, `run ${workflow.id}`); // Ada starts it; it stops to ask the owner
   assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "waiting_approval");
   // Bo cannot carry Ada's work on: here a wait Ada's workflow stopped at, which asks nobody.
-  const waiting = await app.registry.execute("workflows.create", { name: "wait", steps: [
-    { name: "a while", kind: "wait", waitMinutes: 60 }, { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] }, app.runtime.context());
+  const waiting = await madeBy(app, ada, { name: "wait", steps: [
+    { name: "a while", kind: "wait", waitMinutes: 60 }, { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] });
   await app.trunks.say(ada.id, `run ${waiting.id}`);
   assert.equal(app.workflows.view(app.runtime.owner, waiting.id).status, "waiting_time");
   const after = lastEvent(app);
   await app.trunks.say(bo.id, `resume ${waiting.id}`);
-  assert.match(outcomesSince(app, after, "workflows.resume").join(""), /Another Trunk started this/);
+  assert.match(outcomesSince(app, after, "workflows.resume").join(""), /Workflow not found/); // Q119: not even there for Bo
   // The owner says yes on their own screen: the rest runs as Ada, not with the owner's whole memory and files.
   const done = await app.workflows.resume(app.runtime.owner, workflow.id);
   const text = JSON.stringify(done.state);
@@ -441,7 +448,7 @@ test("saving a Trunk's paused workflow again, or forking its flow run, still car
   await app.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, app.runtime.context());
   const steps = [{ name: "ok?", kind: "approval", question: "Carry on?" },
     { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }];
-  const workflow = await app.registry.execute("workflows.create", { name: "later", steps }, app.runtime.context());
+  const workflow = await madeBy(app, ada, { name: "later", steps });
   await app.trunks.say(ada.id, `run ${workflow.id}`);
   assert.equal(app.workflows.view(app.runtime.owner, workflow.id).status, "waiting_approval");
   // Saved again (here by the owner's own edit) while it waits: it is still Ada's.
@@ -514,8 +521,8 @@ test("a refused carry-on leaves a Trunk's workflow as it stopped, not stuck work
   const ada = app.trunks.create({ name: "Ada" }), bo = app.trunks.create({ name: "Bo" });
   for (const trunk of [ada, bo]) app.trunks.edit(trunk.id, { permissions: ["memory.read", "workflows.manage", "workflows.read"] });
   await app.trunks.introduced();
-  const workflow = await app.registry.execute("workflows.create", { name: "wait", steps: [
-    { name: "a while", kind: "wait", waitMinutes: 60 }, { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] }, app.runtime.context());
+  const workflow = await madeBy(app, ada, { name: "wait", steps: [
+    { name: "a while", kind: "wait", waitMinutes: 60 }, { name: "look", kind: "tool", tool: "memory.search", args: { query: "zebra" } }] });
   await app.trunks.say(ada.id, `run ${workflow.id}`);
   const status = () => app.workflows.view(app.runtime.owner, workflow.id).status;
   assert.equal(status(), "waiting_time");

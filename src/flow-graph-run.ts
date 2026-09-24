@@ -109,6 +109,11 @@ export class FlowGraphRunner {
     const saved = this.store.get("settings", this.owner, trunkKey(from))?.data as { trunk?: unknown } | undefined;
     if (typeof saved?.trunk === "string") this.store.save("settings", this.owner, trunkKey(to), { trunk: saved.trunk });
   }
+  /** Q119: whose run this is, read without stamping anyone on it: null for the owner's own, or one never worked. */
+  trunkOf(runId: string): string | null {
+    const saved = this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined;
+    return typeof saved?.trunk === "string" ? saved.trunk : null;
+  }
   /** Q114: taken from whoever is at work when the run first works, then kept as it was, whoever carries it on. */
   private heldTrunk(runId: string): string | null {
     const saved = this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined;
