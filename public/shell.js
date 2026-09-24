@@ -740,8 +740,50 @@ const hintFor = (action, always) => globalThis.branchComfort?.hint(action) ?? al
 /* Drawn here rather than beside the button: `hintFor` has to exist before the keys can be shown. */
 drawSearchKeys();
 document.addEventListener("branch-comfort", drawSearchKeys);
+/* The side list folds with Ctrl+B (Cmd+B on a Mac, where Control+B moves the cursor in a text box), as
+   in Claude; public/comfort.js reads Command as the main key there. These are the keys it has always
+   had, for a window where that file has not loaded. */
+const onMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+function sideListChord(event) {
+  const chord = onMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return chord && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "b";
+}
+/** Look inside the newest task of the conversation on screen. */
+async function lookInsideNewest() {
+  const sessionId = $("conversation")?.dataset.sessionId;
+  if (!sessionId || !globalThis.branchInspector) return;
+  const runs = ((await api("state").catch(() => ({}))).runs ?? []).filter((run) => run.sessionId === sessionId);
+  const newest = runs.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+  if (newest) void globalThis.branchInspector.open(newest.id);
+}
+/* R17-S15: the actions that have no keys until the owner gives them some (public/comfort.js). Each acts
+   only as this window's person may: keys kept from the owner do nothing owner-only for a household member. */
+const keyedActions = {
+  newTrunk: () => { if (railCanManageTrunks) $("rail-new-trunk")?.click(); },
+  focusPrompt: () => $("prompt")?.focus(),
+  // The live task's own Stop button: the task is cancelled, not only no longer watched.
+  stopTask: () => $("live-stop")?.click(),
+  searchHistory: () => { if (ownerAtWindow()) { displayView("memory"); $("history-query")?.focus(); } },
+  lookInside: () => void lookInsideNewest(),
+};
+/** True while a keys box in Settings is taking a key press: that press is being set, not used. */
+const settingKeys = (event) => Boolean(event.target?.closest?.("[data-keys-box]"));
 document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
+  if (settingKeys(event)) return;
+  if (pressed(event, "sideList", sideListChord(event))) {
+    if (event.target?.closest?.("[contenteditable]:not([contenteditable=false])")) return;
+    if (!$("rail-toggle") || $("workspace")?.hidden) return;
+    event.preventDefault();
+    $("rail-toggle").click();
+    return;
+  }
+  const action = Object.keys(keyedActions).find((name) => pressed(event, name, false));
+  if (action) {
+    event.preventDefault();
+    keyedActions[action]();
+    return;
+  }
   /* Ctrl+Shift+K folds the context pane away and back, where there is room for it. */
   if (pressed(event, "sidePane", (event.ctrlKey || event.metaKey) && event.shiftKey && key === "k")) {
     if ($("aside-toggle").offsetParent === null) return;
