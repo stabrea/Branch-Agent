@@ -65,9 +65,17 @@ export function parseBackupArchive(input: unknown): BackupArchive {
  * a passkey the owner took away came back with an older backup, and one planted in a changed file let its holder sign in
  * as a person here (Mac mini 6534228). The people's passkeys, whether they may sign in from elsewhere, OIDC sign-ins
  * waiting, which steps a phone must pass, and the paired devices' secret fingerprints.
+ * Also everyone and everything else paired with this computer (NAS review of #186): the devices it lends itself to,
+ * with their keys (`devices-book`), which chat senders may reach the assistant (`sender-allowlist`, each approved
+ * `channel-pair:<chat>:<sender>`), and the other Branch installs it sends work to with their keys (`remote-agent:<id>`).
+ * An older backup must not let a disconnected sender or a revoked device back in, nor a changed one plant them.
  */
-export const signInSettings: readonly string[] = ["people-passkeys", "people-signin", "people-oidc-waiting", "remote-gateway-auth", "remote-devices"];
-const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && signInSettings.includes(String(row.id));
+export const signInSettings: readonly string[] = ["people-passkeys", "people-signin", "people-oidc-waiting", "remote-gateway-auth",
+  "remote-devices", "devices-book", "sender-allowlist"];
+/** Settings kept on this computer by the start of their id: one row per paired chat sender, or per other install. */
+export const signInPrefixes: readonly string[] = ["channel-pair:", "remote-agent:"];
+const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings"
+  && (signInSettings.includes(String(row.id)) || signInPrefixes.some((prefix) => String(row.id).startsWith(prefix)));
 
 /** Reads every backed-up table in insertion order. */
 export function exportBackup(db: DatabaseSync, appVersion: string): BackupArchive {
@@ -107,7 +115,8 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
     if (options.replaceExisting)
       for (const table of [...backupTables].reverse())
         if (!appendOnly(table) && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table))
-          if (table === "settings") db.prepare(`DELETE FROM settings WHERE id NOT IN (${signInSettings.map(() => "?").join(",")})`).run(...signInSettings);
+          if (table === "settings") db.prepare(`DELETE FROM settings WHERE id NOT IN (${signInSettings.map(() => "?").join(",")})`
+            + signInPrefixes.map(() => " AND substr(id, 1, ?) <> ?").join("")).run(...signInSettings, ...signInPrefixes.flatMap((prefix) => [prefix.length, prefix]));
           else db.exec(`DELETE FROM ${table}`);
     prepareFlyRestore(db, archive);
     if (archive.tables.self_development_contracts?.length) ensureContractTable(db);
