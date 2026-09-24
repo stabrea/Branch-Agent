@@ -115,7 +115,7 @@ test("a language whose words failed to load is tried again, not remembered as do
   const first = await page.evaluate(async () => {
     const i18n = await import("/i18n.js");
     await i18n.setLanguage("fr");
-    return { language: i18n.language(), sample: document.querySelector("[data-t]")?.textContent };
+    return { language: i18n.language(), sample: document.querySelector('[data-t="rail.new"]')?.textContent };
   });
   assert.equal(refusals, 1, "the first attempt really was refused");
   assert.equal(first.language, "fr", "it believes it is French");
@@ -124,7 +124,7 @@ test("a language whose words failed to load is tried again, not remembered as do
   const second = await page.evaluate(async () => {
     const i18n = await import("/i18n.js");
     await i18n.setLanguage("fr");
-    return document.querySelector("[data-t]")?.textContent;
+    return document.querySelector('[data-t="rail.new"]')?.textContent;
   });
   assert.match(second ?? "", /Nouvelle conversation/, "asking again gave up instead of fetching the words");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
