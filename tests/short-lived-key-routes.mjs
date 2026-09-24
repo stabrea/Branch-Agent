@@ -68,6 +68,10 @@ export const ROUTES = {
   "/api/artifacts/file": "look",
   "/api/artifacts/page": "task POST",
   "/api/artifacts/save": "task POST",
+  // The file a person attached to a message. A dispatch prefix, and under it the one route that
+  // hands the bytes back — the owner's own, like every other reading of what they keep here.
+  "/api/attachments/": "prefix",
+  "/api/attachments/file": "owner GET",
   "/api/ask-first": "task POST",
   "/api/ask-first/answers": "task POST",
   "/api/ask-first/settings": "owner POST",

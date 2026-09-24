@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
 import { reconcileTranscript } from "./transcript.js";
 import { SessionHistory } from "./history.js";
-import { SessionBranches } from "./sessions.js";
+import { SessionBranches, type ConversationFiles } from "./sessions.js";
 import { SessionLibrary } from "./session-library.js";
 import { SessionSummaries, type SessionSummary } from "./session-summary.js";
 import { WorkingSessions, type WorkingNote } from "./working-session.js";
@@ -142,8 +142,8 @@ export class Store {
     // The spans table is created up front, so the metrics page can count them from the first launch.
     void this.spans;
     this.history = new SessionHistory(this.db);
-    this.branches = new SessionBranches(this.db);
-    this.library = new SessionLibrary(this.db);
+    this.branches = new SessionBranches(this.db, () => this.files);
+    this.library = new SessionLibrary(this.db, () => this.files);
     this.summaries = new SessionSummaries(this.db);
     this.working = new WorkingSessions(this.db);
     this.recoverInterruptedRuns();
@@ -490,6 +490,15 @@ export class Store {
    * Called when a conversation is thrown away, so anything held open for it (a program left
    * running, for instance) goes with it. Listeners must not throw and are never awaited.
    */
+  /**
+   * The files conversations hold. A copy of a conversation needs its own copy of them, so branching,
+   * duplicating and importing ask this for it. It is set once, when the app is built, because the
+   * store is opened before the folder the files live in is: a store used without it can still read
+   * and write conversations, and refuses to make a copy of one that holds files rather than make a
+   * copy that cannot open them.
+   */
+  files: ConversationFiles | null = null;
+  useFiles(files: ConversationFiles): void { this.files = files; }
   onSessionClosed(listener: (sessionId: string) => void): () => void {
     this.sessionClosedListeners.add(listener);
     return () => { this.sessionClosedListeners.delete(listener); };
