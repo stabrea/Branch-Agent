@@ -112,7 +112,7 @@ const read = (page, ids) => page.evaluate((list) => list.map((id) => {
   if (!node) return { id, drawn: false };
   const group = node.closest(".segmented-control");
   const shown = group ? [...group.querySelectorAll(".segmented-option")] : [...node.options];
-  return { id, drawn: true, words: shown.map((one) => one.textContent.trim()), values: shown.map((one) => one.dataset.v ?? one.value) };
+  return { id, drawn: true, segmented: Boolean(group), words: shown.map((one) => one.textContent.trim()), values: shown.map((one) => one.dataset.v ?? one.value) };
 }), ids);
 
 test("DG-017 every three-way reads Off · When needed · On in that order, saving the same values, in English and French", async (t) => {
@@ -123,6 +123,8 @@ test("DG-017 every three-way reads Off · When needed · On in that order, savin
     assert.deepEqual(seen.filter((one) => !one.drawn).map((one) => one.id), [], "every three-way the sample has is drawn");
     const wrong = seen.filter((one) => one.words.join(" · ") !== WORDS[language].join(" · ") || one.values.join(" ") !== "off when-needed on");
     assert.deepEqual(wrong, [], `${language}: ${wrong.length} of ${seen.length} switches read otherwise`);
+    /* DG-169: each is the sample's segmented control, never a dropdown. */
+    assert.deepEqual(seen.filter((one) => !one.segmented).map((one) => one.id), [], "no three-way is left a dropdown");
   }
   assert.deepEqual(errors, []);
 });
