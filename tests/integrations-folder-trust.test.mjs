@@ -587,3 +587,22 @@ test("Q100: a copies folder that is a link into another repository's copies is n
   await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
   assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "exp")), "unknown", "it really lives in another repository's copies");
 });
+
+test("Q100: the source's list must name this copy, not just any copy",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust } = await import("../dist/folder-trust.js");
+  const proj = await projectRepo(workspace);
+  const other = join(workspace, "work", "other");
+  await mkdir(other, { recursive: true });
+  gitIn(other, "init", "-q", "-b", "main");
+  gitIn(other, "commit", "-q", "--allow-empty", "-m", "first");
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "exp" }, signal());
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "keep" }, signal());
+  const exp = join(proj, ".branch-worktrees", "exp");
+  gitIn(proj, "worktree", "remove", "--force", exp); // by hand: exp's record stays, and the list still names keep
+  gitIn(other, "worktree", "add", "-q", "--detach", exp);
+  assert.equal(folderTrust(app.store, owner, exp), "unknown", "the list names keep, not what is at exp now");
+  assert.equal(folderTrust(app.store, owner, join(proj, ".branch-worktrees", "keep")), "trusted", "the copy still listed keeps its trust");
+});
