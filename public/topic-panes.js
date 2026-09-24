@@ -124,21 +124,43 @@ function syncMoveButtons() {
 function syncEmptyNote() {
   emptyNote.hidden = panes.length > 0;
 }
-function addPane(sessionId) {
+function addPane(sessionId, setFocus = true) {
   if (panes.includes(sessionId)) return;
   panes.push(sessionId);
   store.set(panes);
-  grid.append(buildColumn(sessionId));
+  const col = buildColumn(sessionId);
+  grid.append(col);
   syncMoveButtons();
   syncEmptyNote();
+  // Move focus to the new column's close button so focus stays in the sheet (unless explicitly disabled)
+  if (setFocus) {
+    const closeBtn = col.querySelector(".topic-pane-close");
+    if (closeBtn) closeBtn.focus();
+  }
 }
 function removePane(sessionId) {
   if (!panes.includes(sessionId)) return;
+  const colToRemove = grid.querySelector(`.topic-pane-col[data-session-id="${sessionId}"]`);
+  const nextCol = colToRemove?.nextElementSibling;
+  const prevCol = colToRemove?.previousElementSibling;
+  colToRemove?.remove();
   panes = panes.filter((id) => id !== sessionId);
   store.set(panes);
-  grid.querySelector(`.topic-pane-col[data-session-id="${sessionId}"]`)?.remove();
   syncMoveButtons();
   syncEmptyNote();
+  // Move focus to a remaining column or the "Add a topic" button so focus stays in the sheet
+  let nextFocus = null;
+  if (nextCol?.classList.contains("topic-pane-col")) {
+    nextFocus = nextCol.querySelector(".topic-pane-close");
+  } else if (prevCol?.classList.contains("topic-pane-col")) {
+    nextFocus = prevCol.querySelector(".topic-pane-close");
+  }
+  if (nextFocus) {
+    nextFocus.focus();
+  } else {
+    // No columns left, focus the "Add a topic" button
+    $("topic-panes-add")?.focus();
+  }
 }
 function movePane(sessionId, direction) {
   const at = panes.indexOf(sessionId);
@@ -268,7 +290,9 @@ export function openTopicPanesWith(sessionIds) {
   openTopicPanes();
   panes = [];
   grid.replaceChildren();
-  for (const id of sessionIds) addPane(id);
+  for (const id of sessionIds) addPane(id, false);
+  // Explicitly set focus to the "Add a topic" button to keep it consistent with openTopicPanes()
+  $("topic-panes-add")?.focus();
 }
 
 function start() {
