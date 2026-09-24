@@ -1,4 +1,5 @@
 import { dirname } from "node:path";
+import { forgetTeamResults, markDeletedTurnParts } from "./team-tasks.js"; // Q61
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
@@ -314,10 +315,15 @@ export class Store {
   private purgeSession(sessionId: string): { discarded: boolean; messages: number } {
     this.db.exec("BEGIN");
     try {
+      // Q63: an open team task this conversation held part of is marked as such, in this transaction and
+      // before its events go (the mark follows each run's own record up to its turn).
+      markDeletedTurnParts(this.db, sessionId);
       this.db.prepare("DELETE FROM events WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
       this.db.prepare("DELETE FROM usage WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
       // Wave 7: what this conversation taught about which tools a request needs goes with it.
       this.toolUsage.forgetSession(sessionId);
+      // Q61: a team task keeps no copy of the answers this conversation held (read before its runs go).
+      forgetTeamResults(this.db, sessionId);
       this.db.prepare("DELETE FROM tasks WHERE session_id=?").run(sessionId);
       const messages = this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId).changes;
       this.db.prepare("DELETE FROM compactions WHERE session_id=?").run(sessionId);
@@ -489,13 +495,22 @@ export class Store {
     return () => { this.eventListeners.delete(listener); };
   }
   event(runId: string, kind: string, input: Record<string, unknown>): void {
+    this.eventUnannounced(runId, kind, input)();
+  }
+  /**
+   * Q61: writes the event row now and hands back the announcement to listeners, for a caller that
+   * writes it inside a transaction and must only tell anyone once that transaction has committed.
+   */
+  eventUnannounced(runId: string, kind: string, input: Record<string, unknown>): () => void {
     const data = this.guardEvent(input);
     this.db
       .prepare(
         "INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)",
       )
       .run(runId, kind, JSON.stringify(data), new Date().toISOString());
-    for (const listener of this.eventListeners) { try { listener(runId, kind, data); } catch { /* a listener must never break the caller */ } }
+    return () => {
+      for (const listener of this.eventListeners) { try { listener(runId, kind, data); } catch { /* a listener must never break the caller */ } }
+    };
   }
   events(runId: string): Event[] {
     return this.db
