@@ -12,6 +12,7 @@ import { startServer } from "../dist/server.js";
 import {
   LinuxDesktopSandbox, dockerRunArgv, dockerExecArgv, dockerStopArgv, xvfbArgv, x11vncArgv, xdotoolArgv,
   readLinuxDesktop, saveLinuxDesktop, switchedOffMessage, takenOverMessage, notRunningMessage, vncPort, display,
+  dockerExecKillArgv, execTimeoutMs,
 } from "../dist/integrations/linux-desktop.js";
 import { TakeOverBanner, takeOverNotice } from "../dist/integrations/linux-desktop-banner.js";
 import { bannerPage } from "../dist/desktop/banner-window.js";
@@ -20,6 +21,18 @@ const runContext = (runId, owner, permissions) => ({
   owner, workspace: ".", runId, signal: new AbortController().signal, budget: new Budget(),
   permissions: new Set(permissions), depth: 0,
 });
+
+/**
+ * Every loopback listener a fixture desktop opens. Tests start desktops they never stop, and an open
+ * listener keeps node from exiting once the file is done (seen on Windows as a job-length hang).
+ */
+const listeners = new Set();
+function tracked(desktop) {
+  const open = desktop.createListener;
+  desktop.createListener = async (...args) => { const server = await open(...args); listeners.add(server); return server; };
+  return desktop;
+}
+after(() => { for (const server of listeners) server.close(); });
 
 /** A fake `docker`/`xdotool` runner that only records what it was asked and answers with a fixed id. */
 function fakeRunner({ image = "branch-linux-desktop:latest" } = {}) {
@@ -106,16 +119,6 @@ test("Docker missing is reported as the external part that is not done, not a cr
   assert.match(check.reason, /Docker is not installed/);
   await assert.rejects(desktop.start("local"), /Docker is not installed/);
 });
-
-/** Every loopback listener a test desktop opened. A test that never stops its desktop would leave
- * them listening, and the file would never exit; they are all closed once the file is done. */
-const listeners = new Set();
-after(() => { for (const server of listeners) server.close(); });
-function tracked(desktop) {
-  const make = desktop.createListener;
-  desktop.createListener = async (...args) => { const server = await make(...args); listeners.add(server); return server; };
-  return desktop;
-}
 
 /** A sandbox wired to a fake docker/xdotool and a VNC probe that answers on the second try. The
  * notice window is a stand-in too, so no real popup appears on whoever's screen the tests run on. */
@@ -249,6 +252,7 @@ test("the shared desktop is reachable as tools, and takeOver reaches through the
       server.listen(0, "127.0.0.1", () => resolve(server));
     });
   };
+  tracked(desktop);
   const permissions = ["desktop.control"];
   const ctx = () => runContext("run-1", "local", permissions);
 
@@ -280,15 +284,16 @@ function deferred() {
 
 /** Like `sandboxFixture`, but `docker run` and `docker stop` can be held until the test lets them go,
  * and the notice stand-in says whether it is showing. */
-function heldFixture(app, desktop = new LinuxDesktopSandbox(app.store)) {
+function heldFixture(app, desktop = new LinuxDesktopSandbox(app.store), windowFactory = null) {
   saveLinuxDesktop(app.store, "local", { mode: "on" });
   const calls = [];
-  const hold = { run: null, stop: null };
+  const hold = { run: null, stop: null, exec: null };
   let started = 0;
-  desktop.runner = async (file, args) => {
-    calls.push({ file, args });
+  desktop.runner = async (file, args, timeoutMs) => {
+    calls.push({ file, args, timeoutMs });
     if (args[0] === "image") return "ok";
     if (args[0] === "run") { started += 1; if (hold.run) await hold.run.promise; return `abcdef01234${started}\n`; }
+    if (args[0] === "exec" && hold.exec) await hold.exec.promise;
     if (args[0] === "stop" && hold.stop) await hold.stop.promise;
     return "";
   };
@@ -301,15 +306,19 @@ function heldFixture(app, desktop = new LinuxDesktopSandbox(app.store)) {
     kill: () => {},
     pid: 12345,
   });
-  const banner = { visible: false, shown: 0, async show() { this.shown += 1; this.visible = true; }, async hide() { this.visible = false; } };
-  desktop.banner = banner;
+  if (windowFactory) {
+    desktop.banner = new TakeOverBanner(undefined, { platform: "linux", window: windowFactory });
+  } else {
+    const banner = { visible: false, shown: 0, async show() { this.shown += 1; this.visible = true; }, async hide() { this.visible = false; } };
+    desktop.banner = banner;
+  }
   desktop.port = async () => 15902;
   desktop.password = () => "test-pass";
   desktop.pauseMs = 1;
   desktop.probe = async () => true;
   const ran = (verb) => calls.filter((call) => call.args[0] === verb);
   tracked(desktop);
-  return { desktop, calls, hold, banner, ran };
+  return { desktop, calls, hold, banner: desktop.banner, ran };
 }
 const settle = async (until) => { for (let i = 0; i < 200 && !until(); i++) await new Promise((done) => setTimeout(done, 5)); };
 
@@ -604,4 +613,183 @@ test("somebody switched in on this computer cannot read the viewer password", as
   const answer = await call("/api/linux-desktop/viewer");
   assert.notEqual(answer.status, 200);
   assert.match(answer.text, /belongs to the owner/, "refused as the owner's, not only because nothing is running");
+});
+
+// -------------------------------------------------------------- Q94 desktop minors: banner race and long types
+
+/** A notice window whose making is held until the test lets it go, so a take-over, a stop or a hand-back can land meanwhile. */
+function heldWindows() {
+  const waiting = [], made = [];
+  const factory = (closed) => new Promise((resolve) => waiting.push(() => {
+    const window = { showing: true, close() { this.showing = false; } };
+    made.push(window);
+    resolve(window);
+  }));
+  return { factory, made, release: () => { for (const go of waiting.splice(0)) go(); } };
+}
+
+test("Q94(a) A1: a take-over while start's notice is still being made refuses the start, and no notice stays up", async (t) => {
+  const { app } = await fixture(t);
+  const windows = heldWindows();
+  const { desktop, banner } = heldFixture(app, undefined, windows.factory);
+  const starting = desktop.start("local");
+  await settle(() => desktop.controlOf("local") === "agent");
+  await desktop.takeOver("local");
+  windows.release();
+  await assert.rejects(starting, (error) => { assert.equal(error.message, takenOverMessage); return true; });
+  assert.equal(banner.visible, false, "the notice made after the take-over was closed");
+  assert.equal(windows.made.every((window) => !window.showing), true);
+});
+
+test("Q94(a) A2: a stop while the hand-back's notice is still being made leaves no notice up", async (t) => {
+  const { app } = await fixture(t);
+  const windows = heldWindows();
+  const { desktop, banner } = heldFixture(app, undefined, windows.factory);
+  const starting = desktop.start("local");
+  await settle(() => desktop.controlOf("local") === "agent");
+  windows.release();
+  await starting;
+  await desktop.takeOver("local");
+  const handingBack = desktop.handBack("local");
+  await settle(() => desktop.controlOf("local") === "agent");
+  await desktop.stop("local");
+  windows.release();
+  await handingBack.catch(() => undefined);
+  assert.equal(desktop.controlOf("local"), "none");
+  assert.equal(banner.visible, false, "the notice asked for before the stop is not left up after it");
+});
+
+test("Q94(a): a stop while the first notice is still being made refuses the start as not running", async (t) => {
+  const { app } = await fixture(t);
+  const windows = heldWindows();
+  const { desktop, banner } = heldFixture(app, undefined, windows.factory);
+  const starting = desktop.start("local");
+  await settle(() => desktop.controlOf("local") === "agent");
+  // A stop waits for the start under way to finish (it takes its own container down), so the notice is let go after it is asked.
+  const stopping = desktop.stop("local");
+  windows.release();
+  await stopping;
+  await assert.rejects(starting, (error) => { assert.equal(error.message, notRunningMessage); return true; });
+  assert.equal(banner.visible, false);
+});
+
+test("Q94(b): a type that fails on its own kills xdotool before act reports it; one a take-over stopped does not", async (t) => {
+  const { app } = await fixture(t);
+  const { desktop } = sandboxFixture(app);
+  await desktop.start("local");
+  const plain = desktop.runner;
+  const order = [];
+  let held = null;
+  desktop.runner = (file, args, timeoutMs, signal) => {
+    if (args[4] === "pkill") { order.push("pkill"); return Promise.resolve(""); }
+    if (args[0] === "exec" && args.includes("type")) {
+      order.push("type");
+      if (held) return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+      return Promise.reject(new Error("Command failed"));
+    }
+    return plain(file, args, timeoutMs, signal);
+  };
+  await assert.rejects(desktop.act("local", { type: "type", text: "hello" }), /Command failed/);
+  assert.deepEqual(order, ["type", "pkill"], "the pkill ran before act rejected");
+  order.length = 0;
+  held = true;
+  const acting = desktop.act("local", { type: "type", text: "hello" });
+  await new Promise((resolve) => setImmediate(resolve));
+  await desktop.takeOver("local");
+  await assert.rejects(acting, (error) => { assert.equal(error.message, takenOverMessage); return true; });
+  assert.deepEqual(order, ["type", "pkill"], "only the take-over's own pkill, none of act's");
+});
+
+test("Q94: a Take over pressed while a hand-back waits wins, and the assistant does not get the desktop", async (t) => {
+  const { desktop, release } = await heldPkill(t);
+  const first = desktop.takeOver("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  const handingBack = desktop.handBack("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = desktop.takeOver("local");
+  release();
+  await first; await handingBack; await second;
+  assert.equal(desktop.controlOf("local"), "user", "the last press was Take over");
+  await assert.rejects(desktop.act("local", { type: "type", text: "x" }), (error) => { assert.equal(error.message, takenOverMessage); return true; });
+});
+
+test("B: long type timeout scales with text length, up to 65 s", async (t) => {
+  assert.equal(execTimeoutMs({ type: "key", chord: "Return" }), 15_000, "key should use 15s");
+  assert.equal(execTimeoutMs({ type: "open", app: "xterm" }), 15_000, "open should use 15s");
+
+  // 100 chars: 5000 + 100*15 = 6500
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(100) }), 6_500, "100 chars");
+  // 1000 chars: 5000 + 1000*15 = 20000
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(1000) }), 20_000, "1000 chars");
+  // 4000 chars (the most desktop.shared.type takes): 5000 + 4000*15 = 65000
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(4000) }), 65_000, "4000 chars");
+  // Longer text is capped at the same 65 s.
+  assert.equal(execTimeoutMs({ type: "type", text: "x".repeat(5000) }), 65_000, "5000 chars, capped");
+});
+
+test("B: act uses scaled timeout for long types", async (t) => {
+  const { app } = await fixture(t);
+  const { desktop, calls, ran } = heldFixture(app);
+  saveLinuxDesktop(app.store, "local", { mode: "on" });
+  await desktop.start("local");
+
+  // Type with 1000 characters should use ~20s timeout
+  const longText = "x".repeat(1000);
+  await desktop.act("local", { type: "type", text: longText });
+
+  const typeCalls = ran("exec").filter((call) => call.args.includes("type"));
+  assert.ok(typeCalls.length > 0, "type was executed");
+  const typeCall = typeCalls[0];
+  const timeoutMs = typeCall.timeoutMs;
+  assert.ok(timeoutMs >= 20_000, `timeout ${timeoutMs}ms should be at least 20s for 1000 chars`);
+});
+
+test("B: dockerExecKillArgv has the correct pkill argv for xdotool", () => {
+  const killArgv = dockerExecKillArgv("abcdef012341");
+  assert.deepEqual(killArgv, ["exec", "-e", "DISPLAY=:1", "abcdef012341", "pkill", "-x", "xdotool"]);
+});
+
+/** Q96: a desktop whose take-over pkill is held until the test lets it go, with the notice's shows and hides in order. */
+async function heldPkill(t) {
+  const { app } = await fixture(t);
+  const { desktop } = sandboxFixture(app);
+  const banner = desktop.banner, notice = [];
+  banner.show = async () => { notice.push("show"); };
+  banner.hide = async () => { notice.push("hide"); };
+  await desktop.start("local");
+  const plain = desktop.runner;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  desktop.runner = (file, args, timeoutMs, signal) => (args[4] === "pkill" ? held.then(() => "") : plain(file, args, timeoutMs, signal));
+  return { app, desktop, notice, release: () => release() };
+}
+
+test("Q96: a hand-back while the take-over's pkill is held waits for it, and the notice shown last stays", async (t) => {
+  const { desktop, notice, release } = await heldPkill(t);
+  const takingOver = desktop.takeOver("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  const handingBack = desktop.handBack("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(desktop.controlOf("local"), "user", "the hand-back waits for the take-over under way");
+  notice.length = 0;
+  release();
+  await takingOver; await handingBack;
+  assert.equal(desktop.controlOf("local"), "agent");
+  assert.deepEqual(notice, ["hide", "show"], "the take-over's hide comes before the hand-back's notice, never after");
+});
+
+test("Q96: a take-over that lands after the desktop was switched off and started again leaves the new notice alone", async (t) => {
+  const { app, desktop, notice, release } = await heldPkill(t);
+  const takingOver = desktop.takeOver("local");
+  await new Promise((resolve) => setImmediate(resolve));
+  saveLinuxDesktop(app.store, "local", { mode: "off" });
+  await desktop.act("local", { type: "key", chord: "Return" }).catch(() => undefined);
+  assert.equal(desktop.controlOf("local"), "none", "switching off ended the desktop the owner held");
+  saveLinuxDesktop(app.store, "local", { mode: "on" });
+  await desktop.start("local");
+  assert.equal(desktop.controlOf("local"), "agent");
+  notice.length = 0;
+  release();
+  await takingOver;
+  assert.deepEqual(notice, [], "the old take-over does not hide the new desktop's notice");
 });

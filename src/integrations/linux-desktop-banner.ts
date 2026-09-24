@@ -68,6 +68,7 @@ export class TakeOverBanner {
   private child: ChildProcess | undefined;
   private hiding = false;
   private window: BannerWindow | undefined;
+  private generation = 0;
   constructor(private readonly executable = powerShellPath, private readonly options: TakeOverBannerOptions = {}) {}
   private get platform(): string { return this.options.platform ?? process.platform; }
   get visible(): boolean {
@@ -98,6 +99,7 @@ export class TakeOverBanner {
     if (!factory) throw new Error(bannerFailed);
     let made: BannerWindow | undefined;
     let gone = false;
+    const gen = this.generation;
     const closed = () => {
       gone = true;
       if (!made || this.window !== made) return;
@@ -105,6 +107,10 @@ export class TakeOverBanner {
       onTakeOver();
     };
     made = await factory(closed, takeOverNotice).catch(() => { throw new Error(bannerFailed); });
+    if (gen !== this.generation) {
+      made.close();
+      return;
+    }
     if (gone || !made.showing) {
       made.close();
       throw new Error(bannerFailed);
@@ -112,6 +118,7 @@ export class TakeOverBanner {
     this.window = made;
   }
   async hide(): Promise<void> {
+    this.generation++;
     if (this.platform !== 'win32') {
       const window = this.window;
       this.window = undefined;

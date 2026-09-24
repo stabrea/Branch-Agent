@@ -73,6 +73,13 @@ export type SharedDesktopAction =
   | { type: 'open'; app: string }
   | { type: 'type'; text: string }
   | { type: 'key'; chord: string };
+/** Compute the timeout for a docker exec action: types longer than ~1250 chars need more than 15s. */
+export function execTimeoutMs(action: SharedDesktopAction): number {
+  if (action.type !== 'type') return 15_000;
+  const charMs = 15; // xdotool types at ~12 ms per char; add buffer
+  // 4000 chars (the most desktop.shared.type takes) × 15 ms + 5 s = 65 s, and never more than that.
+  return Math.min(65_000, 5_000 + action.text.length * charMs);
+}
 /**
  * xdotool's argument list for one action. Nothing here ever reaches a shell: it is one argv, run
  * directly. A program is started with `xdotool exec`, which starts it and returns without waiting.
@@ -149,7 +156,7 @@ export interface SharedDesktopInfo { host: string; port: number; password: strin
 /** What the Settings card shows. Never the VNC password: reading the card is only a look. */
 export interface SharedDesktopStatus extends LinuxDesktopSettings { running: boolean; control: 'agent' | 'user' | 'none' }
 type Tunnel = { socket: any; child: ChildProcessWithoutNullStreams };
-interface Session { id: string; host: string; port: number; password: string; control: 'agent' | 'user'; inFlightAbort: AbortController; listener: NetServer; tunnels: Set<Tunnel> }
+interface Session { id: string; host: string; port: number; password: string; control: 'agent' | 'user'; inFlightAbort: AbortController; takingOver?: Promise<void>; listener: NetServer; tunnels: Set<Tunnel> }
 /** The notice with the "Take over" button on it, or a stand-in for one. */
 export interface TakeOverNotice { show(onTakeOver: () => void): Promise<void>; hide(): Promise<void> }
 
@@ -237,14 +244,18 @@ export class LinuxDesktopSandbox {
       if (running.control !== 'agent') throw new Error(takenOverMessage);
       return infoOf(running);
     }
+    const epoch = this.epoch(owner);
     let pending = this.starting.get(owner);
     if (!pending) {
-      const started: Promise<Session> = this.launch(owner, settings, this.epoch(owner))
+      const started: Promise<Session> = this.launch(owner, settings, epoch)
         .finally(() => { if (this.starting.get(owner) === started) this.starting.delete(owner); });
       this.starting.set(owner, started);
       pending = started;
     }
-    return infoOf(await pending);
+    const session = await pending;
+    if (this.calledOff(owner, epoch)) throw new Error(notRunningMessage);
+    if (session.control !== 'agent') throw new Error(takenOverMessage);
+    return infoOf(session);
   }
   private async launch(owner: string, settings: LinuxDesktopSettings, epoch: number): Promise<Session> {
     const check = await this.available(owner);
@@ -304,7 +315,11 @@ export class LinuxDesktopSandbox {
     }
     throw new Error(sandboxRefusal(`the desktop did not answer within ${Math.round(this.waitMs / 1000)} seconds.`));
   }
-  /** Creates a listener on 127.0.0.1:0 and spawns socat tunnels for each connection. */
+  /**
+   * Creates a listener on 127.0.0.1:0 and spawns socat tunnels for each connection. It keeps accepting
+   * while the owner holds the desktop (take-over closes only the tunnels already open): taking over
+   * is so the owner can drive through a viewer, and the listener is loopback-only behind the password.
+   */
   private async createListenerImpl(containerId: string, tunnels: Set<Tunnel>): Promise<NetServer> {
     return new Promise((resolve, reject) => {
       const listener = createServer((socket) => {
@@ -341,9 +356,15 @@ export class LinuxDesktopSandbox {
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
     if (session.control !== 'agent') throw new Error(takenOverMessage);
+    const signal = session.inFlightAbort.signal;
     try {
-      await this.runner('docker', dockerExecArgv(session.id, action), 15_000, session.inFlightAbort.signal);
+      await this.runner('docker', dockerExecArgv(session.id, action), execTimeoutMs(action), signal);
     } catch (error) {
+      // A take-over stopped it: the take-over's own pkill (which a hand-back waits for) covers it, and a
+      // second, later one could end what the assistant starts after the hand-back.
+      if (signal.aborted) throw new Error(takenOverMessage);
+      // Kill any lingering xdotool to prevent double-typing on retry
+      await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined);
       // Check if control changed while the action was running
       const current = this.sessions.get(owner);
       if (current?.control === 'user') throw new Error(takenOverMessage);
@@ -368,15 +389,30 @@ export class LinuxDesktopSandbox {
       tunnel.child.kill();
     }
     session.tunnels.clear();
-    await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined); // exit code 1 if nothing was running is fine
-    this.log(owner, 'shared-desktop.taken-over', {});
-    await this.banner.hide().catch(() => undefined); // taken over from Settings: the notice has done its job
+    const tail = (async () => {
+      await this.runner('docker', dockerExecKillArgv(session.id), 5_000).catch(() => undefined); // exit code 1 if nothing was running is fine
+      // Q96: a desktop stopped and started again meanwhile is not this one; its notice stays.
+      if (this.sessions.get(owner) !== session || session.control !== 'user') return;
+      this.log(owner, 'shared-desktop.taken-over', {});
+      await this.banner.hide().catch(() => undefined); // taken over from Settings: the notice has done its job
+    })();
+    session.takingOver = tail;
+    await tail;
   }
   /** The owner hands the desktop back (their Settings route only; no tool calls this). */
   async handBack(owner: string): Promise<void> {
     const session = this.sessions.get(owner);
     if (!session) throw new Error(notRunningMessage);
     if (session.control === 'agent') return;
+    // Q96: a take-over still under way finishes first, so its late pkill cannot end what the assistant
+    // starts next, and its hiding the notice cannot come after the one shown here.
+    const waitedFor = session.takingOver;
+    await waitedFor?.catch(() => undefined);
+    const current = this.sessions.get(owner);
+    if (current !== session) throw new Error(notRunningMessage);
+    if (current.control === 'agent') return;
+    // A Take over pressed while this waited is the owner's last word: it wins.
+    if (current.takingOver !== waitedFor) return;
     session.control = 'agent';
     // Create a new AbortController since the old one was aborted on takeOver
     session.inFlightAbort = new AbortController();
