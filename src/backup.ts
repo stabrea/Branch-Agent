@@ -77,12 +77,16 @@ export const signInSettings: readonly string[] = ["people-passkeys", "people-sig
 export const signInPrefixes: readonly string[] = ["channel-pair:", "remote-agent:"];
 /**
  * What else is about this computer and whom it trusts, not about the owner's work (Q168 A), so it stays here
- * too: which workspaces' integration files are trusted to load, the outside assistants this Branch pairs with,
- * the SSH computers and the programs Branch may run on them, and the commands that fetch secrets. From a file,
- * each one could point Branch at a program, a machine or a person the owner never chose here.
+ * too: which workspaces' integration files are trusted to load, and which copies of a trusted folder share its
+ * decision (`folder-trust-copies`, NAS ecd115b), the outside assistants this Branch pairs with, the SSH computers
+ * and the programs Branch may run on them, the commands that fetch secrets, which Keychain passwords Branch may
+ * read (`keychain-entries`, Q175), and which computer each Trunks inbox key stands for (`reach-remote-trunks-keys`,
+ * Q173). From a file, each one could point Branch at a program, a machine, a folder or a person the owner never
+ * chose here; their paths and names only mean something on this disk.
  */
 export const thisComputerSettings: readonly string[] = [
-  "folder_trust", "folder_trust_mode", "folder-trust-real", "remote-agent-pairing", "remote-computers", "secret-commands",
+  "folder_trust", "folder_trust_mode", "folder-trust-real", "folder-trust-copies", "remote-agent-pairing", "remote-computers",
+  "secret-commands", "keychain-entries", "reach-remote-trunks-keys",
 ];
 /**
  * Whether a settings row stays on this computer: never in a backup, never taken from one, and kept by a replacing
