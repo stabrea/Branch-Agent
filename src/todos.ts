@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Scheduler } from "./scheduler.js";
+import { accessAgent } from "./trunks/memory-scope.js";
 
 /**
  * A plain list of things still to do. The assistant writes its plan down here as it works, so a
@@ -101,7 +102,7 @@ export function remindAbout(scheduler: Scheduler, context: ToolContext, todo: To
  */
 const ownersListOnly = "The to-do list belongs to the owner, so only the owner's own tasks can read or change it. Keep your own notes with memory.put instead.";
 function ownerOnly(context: ToolContext): void {
-  if (context.agent) throw new Error(ownersListOnly);
+  if (accessAgent(context)) throw new Error(ownersListOnly); // Q123: a Trunk's workflow step too
 }
 
 export function registerTodos(registry: ToolRegistry, todos: Todos, owner: string): void {

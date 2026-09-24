@@ -6,6 +6,7 @@ import type { Proposal } from "./memory-review.js";
 import type { ModelRouter } from "./models.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
+import { accessAgent } from "./trunks/memory-scope.js";
 
 /**
  * Turning what was said in a conversation into something the assistant can look up later. A useful
@@ -157,6 +158,6 @@ export function registerKnowledgeCards(registry: ToolRegistry, cards: KnowledgeC
     name: "knowledge.propose", permission: "documents.write",
     description: "Suggest fact cards from a finished conversation. Suggestions only; the owner accepts them.",
     parameters: ProposeCardsSchema,
-    execute: async (input, context) => cards.propose(context.owner, input, context.signal, context.agent),
+    execute: async (input, context) => cards.propose(context.owner, input, context.signal, accessAgent(context)), // Q123
   });
 }

@@ -9,6 +9,7 @@ import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
+import { accessAgent } from "./trunks/memory-scope.js";
 
 /**
  * A history of what the assistant remembers, kept with Git (A2317, after Letta Code's git-backed
@@ -185,13 +186,13 @@ export function registerMemoryHistory(registry: ToolRegistry, history: MemoryHis
     name: "memory.versions", permission: "memory.read",
     description: "The recorded versions of what the assistant remembers, newest first: when, what changed, and how many notes.",
     parameters: z.object({ limit: z.number().int().min(1).max(100).default(30) }).strict(),
-    execute: async (args, context) => { refuseForAgent(context.agent); refuseWhenOff(); return { versions: await history.versions(args.limit), ...history.status(owner) }; },
+    execute: async (args, context) => { refuseForAgent(accessAgent(context)); /* Q123 */ refuseWhenOff(); return { versions: await history.versions(args.limit), ...history.status(owner) }; },
   });
   registry.register({
     name: "memory.version_note", permission: "memory.read",
     description: "What one note of remembered facts said at a recorded version.",
     parameters: z.object({ version: z.string().regex(/^[0-9a-f]{7,40}$/), kind: z.enum(factKinds) }).strict(),
-    execute: async (args, context) => { refuseForAgent(context.agent); refuseWhenOff(); return { version: args.version, kind: args.kind, text: await history.noteAt(args.version, args.kind) }; },
+    execute: async (args, context) => { refuseForAgent(accessAgent(context)); /* Q123 */ refuseWhenOff(); return { version: args.version, kind: args.kind, text: await history.noteAt(args.version, args.kind) }; },
   });
   registry.onRunFinished(async (context) => {
     if (history.settings(context.owner).mode !== "off") await history.record(context.owner);

@@ -27,6 +27,14 @@ export function memoryAgent(context: { agent?: string | undefined; trunk?: strin
   return `${trunkAgent(trunk)}:${agent}`;
 }
 
+/**
+ * Q123: who a look into the owner's conversations, lists and history is for: the turn's own agent, or, for work a
+ * Trunk set going without a turn of its own (a workflow's tool step, a flow box), that Trunk. Undefined is the owner.
+ */
+export function accessAgent(context: { agent?: string | undefined; trunk?: string | undefined }): string | undefined {
+  return context.agent ?? (context.trunk ? trunkAgent(context.trunk) : undefined);
+}
+
 /** Called whenever a Trunk is saved: whether it reads the owner's shared facts. */
 export function setSharedFacts(agent: string, reads: boolean): void {
   if (reads) keepsToItself.delete(agent);

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { partSettings, requireAsk } from "./settings.js";
+import { accessAgent } from "../trunks/memory-scope.js";
 
 /**
  * A2221: remembering with a Hindsight server (vectorize-io/hindsight), as an addition to Branch's own
@@ -84,8 +85,8 @@ export class Hindsight {
  * rule memory.outside_recall already keeps (src/learning-more/providers.ts). Keeping is still allowed.
  * Also refuses a household person (profile on, no agent), matching providers.ts:103 hindsightFor's scope !== ownerName.
  */
-function ownerOnly(context: { agent?: string; owner?: string }, store?: Store): void {
-  if (context.agent) throw new Error("The Hindsight server keeps one shared bank, so only the owner's own conversations can read it.");
+function ownerOnly(context: { agent?: string; trunk?: string; owner?: string }, store?: Store): void {
+  if (accessAgent(context)) throw new Error("The Hindsight server keeps one shared bank, so only the owner's own conversations can read it.");
   if (store && context.owner && store.profiles.scope() !== context.owner)
     throw new Error("The Hindsight server keeps one shared bank, so only the owner's own conversations can read it.");
 }

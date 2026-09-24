@@ -5,7 +5,7 @@ import type { Embedder } from "../document-embeddings.js";
 import type { WorkspaceFiles } from "../files.js";
 import type { MemoryMirror } from "../memory-mirror.js";
 import { memoryScope, visibleTo, writableTo, type MemoryRecord } from "../memory.js";
-import { memoryAgent } from "../trunks/memory-scope.js";
+import { memoryAgent, accessAgent } from "../trunks/memory-scope.js";
 import { startedFromChat } from "../key-context.js";
 import type { PlaceInput } from "../migrate/detect.js";
 import type { ModelRouter } from "../models.js";
@@ -138,7 +138,7 @@ function registerLearningTools(registry: ToolRegistry, more: LearningMore): void
     MeaningSearchSchema, (value, context) => {
       // Integration review: a Trunk or specialist has no conversations of its own here, so it is not
       // handed a search over the owner's.
-      if (context.agent) throw new Error("Finding conversations by meaning searches the owner's own conversations, so only the owner's own tasks can use it.");
+      if (accessAgent(context)) throw new Error("Finding conversations by meaning searches the owner's own conversations, so only the owner's own tasks can use it.");
       return more.meaning.search(context.owner, value, more.deps.store.run(context.runId)?.sessionId ?? "", context.signal);
     });
   tool("lessons", "lessons.list", "memory.read", "Lessons from earlier evaluation tasks that failed and looked like this one.",

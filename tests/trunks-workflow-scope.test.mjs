@@ -210,3 +210,27 @@ test("a Trunk's workflow step and flow box are asked as that Trunk, with none of
   assert.ok(box, "Ada's flow box asked the model");
   assert.doesNotMatch(box, /OWNERDOC4242/, "nor is Ada's flow box");
 });
+
+test("Q123: a Trunk's workflow tool step looks through history and lists as that Trunk, never as the owner", async (t) => {
+  const { app, ada, owner, use, saved } = await setup(t, ["memory.read", "history.read", "workflows.manage", "workflows.read"]);
+  await app.runtime.run({ prompt: "zebra OWNERHIST8812 was said here", onTextDelta: () => undefined }); // the owner's own conversation
+  await app.registry.execute("todos.add", { text: "owner's errand OWNERTODO5521" }, app.runtime.context());
+  const steps = [
+    { name: "look back", kind: "tool", tool: "history.search", args: { query: "zebra" } },
+    { name: "the list", kind: "tool", tool: "todos.list", args: {} }];
+  // The control: the owner's own workflow finds both, so they are there to find.
+  const owners = await app.registry.execute("workflows.create", { name: "owners", steps }, app.runtime.context());
+  const control = JSON.stringify((await app.workflows.run(owner, owners.id)).state);
+  assert.match(control, /OWNERHIST8812/);
+  assert.match(control, /OWNERTODO5521/);
+  await use(ada, "workflows.create", { name: "adas", steps: [steps[0]] });
+  await use(ada, "workflows.run", { id: saved("adas").id });
+  const looked = app.workflows.view(owner, saved("adas").id);
+  assert.equal(looked.status, "completed", looked.error ?? "");
+  assert.doesNotMatch(JSON.stringify(looked.state), /OWNERHIST8812/, "Ada's step does not search the owner's conversations");
+  await use(ada, "workflows.create", { name: "adas list", steps: [steps[1]] });
+  await use(ada, "workflows.run", { id: saved("adas list").id });
+  const listed = app.workflows.view(owner, saved("adas list").id);
+  assert.equal(listed.status, "failed", "the owner's to-do list is refused to Ada's step");
+  assert.doesNotMatch(JSON.stringify(listed.state), /OWNERTODO5521/);
+});
