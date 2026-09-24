@@ -564,3 +564,44 @@ test("a Trunk's flow run that was working when the app closed carries on as that
   assert.equal(view.status, "completed", `carried on at launch: ${JSON.stringify(view).slice(0, 300)}`);
   assert.doesNotMatch(JSON.stringify(view), /OWNERPRIV3391/, "as Ada, not as the owner");
 });
+
+test("Q122: a flow run of a Trunk that is gone is never copied, and at launch it ends saying why, not left working", async (t) => {
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { createBranch } = await import("../dist/index.js");
+  const { brain } = await import("./trunks-helpers.mjs");
+  const root = await mkdtemp(join(tmpdir(), "branch-q122-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const open = () => createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: brain([]) });
+  const first = await open();
+  on(first);
+  const ada = first.trunks.create({ name: "Ada" });
+  await first.trunks.introduced();
+  const graph = first.flows.saveGraph({ name: "Twice", input: {}, state: { first: "text", second: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "First", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { first: "text" } },
+      { id: "b", name: "Second", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { second: "text" } },
+    ], edges: [{ from: "a", to: "b" }] });
+  first.flowsBoards.setMode("time-travel", { mode: "on" }); // so each run's steps are kept to fork from
+  const asAda = (work) => withAccountCall({ owner: first.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } }, work);
+  const { runId: done } = await asAda(async () => first.flows.startGraph(graph.id, {}));
+  await first.flows.settled(done);
+  const { runId: stopped } = await asAda(async () => first.flows.startGraph(graph.id, {}));
+  await first.flows.settled(stopped);
+  first.store.sqlite.prepare("UPDATE flow_graph_runs SET status='running', next_node='b' WHERE run_id=?").run(stopped); // as a close leaves it
+  first.trunks.remove(ada.id);
+  // The owner forks Ada's finished run: refused, and no copy is left behind looking as if it were working.
+  const runs = () => Number(first.store.sqlite.prepare("SELECT COUNT(*) AS n FROM flow_graph_runs").get().n);
+  const before = runs();
+  assert.throws(() => first.flowsBoards.timeTravel.fork(done, { seq: 1 }), /no longer here/);
+  assert.equal(runs(), before, "no copy was made");
+  await first.close();
+  // At the next launch the run Ada left working is ended, with the reason, and its task with it.
+  const second = await open();
+  t.after(() => second.close());
+  const view = await second.flows.settled(stopped);
+  assert.equal(view.status, "failed", JSON.stringify(view).slice(0, 300));
+  assert.match(String(view.error), /no longer here/);
+  assert.equal(second.store.sqlite.prepare("SELECT status FROM tasks WHERE id=?").get(stopped).status, "failed");
+});

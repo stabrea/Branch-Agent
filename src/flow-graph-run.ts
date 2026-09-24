@@ -109,6 +109,11 @@ export class FlowGraphRunner {
     const saved = this.store.get("settings", this.owner, trunkKey(from))?.data as { trunk?: unknown } | undefined;
     if (typeof saved?.trunk === "string") this.store.save("settings", this.owner, trunkKey(to), { trunk: saved.trunk });
   }
+  /** Q122: why this run cannot be carried on from here (its Trunk gone, or another Trunk asking), or null. */
+  whyNot(runId: string): string | null {
+    const trunk = this.trunkOf(runId);
+    return trunk ? this.runtime.trunkWorkRefusal(trunk) : null;
+  }
   /** Q119: whose run this is, read without stamping anyone on it: null for the owner's own, or one never worked. */
   trunkOf(runId: string): string | null {
     const saved = this.store.get("settings", this.owner, trunkKey(runId))?.data as { trunk?: unknown } | undefined;
@@ -428,6 +433,16 @@ export class FlowGraphRunner {
     options: { source?: RunSource; approve?: boolean; interrupted?: "again" | "past"; within?: readonly string[] } = {}): Promise<GraphRunView> {
     const current = this.view(runId);
     if (current.status === "completed") throw new Error("That flow has already finished");
+    // Q122: asked before anything is approved or marked running. A run whose Trunk is gone can never carry on,
+    // so it ends, saying why; one that another Trunk is asking about is left exactly as it stopped.
+    const refused = this.whyNot(runId);
+    if (refused) {
+      if (!this.runtime.trunkKeysFor(this.trunkOf(runId)!)) {
+        this.save(runId, { status: "failed", error: refused, question: null });
+        this.store.sqlite.prepare("UPDATE tasks SET status='failed' WHERE id=?").run(runId);
+      }
+      throw new Error(refused);
+    }
     const graph = compileGraph(flow);
     const half = this.interrupted(runId, graph);
     if (half && !options.interrupted) return this.askAboutInterrupted(runId, half);

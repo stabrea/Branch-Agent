@@ -118,6 +118,9 @@ export class FlowTimeTravel {
       throw new Error(`Those values do not fit this flow: ${error instanceof z.ZodError ? error.issues.map((i) => i.path.join(".") || i.message).join(", ") : errorText(error)}`);
     }
     const state = { ...point.state, ...changes };
+    // Q122: a copy of a run that cannot be carried on from here (its Trunk gone, or another Trunk asking) is never made.
+    const refused = this.deps.graphs.whyNot(runId);
+    if (refused) throw new Error(refused);
     const copy = store.createRun(owner, `Flow: ${compiled.definition.name} (from step ${seq})`, undefined, false, "schedule");
     this.copyAcross(runId, copy.id, seq, point, state);
     const changed = Object.keys(changes);

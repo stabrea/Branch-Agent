@@ -1210,6 +1210,13 @@ ${run.output.slice(0, 6000)}`;
   trunkPermissionsFor: (id: string) => string[] | null = () => null;
   /** Q114: the Trunk whose work is going on here (a turn, or something it set going), if any. */
   trunkAtWork(): string | undefined { return currentAccountCall()?.trunk?.id; }
+  /** Q122: why a Trunk's work cannot be carried on from here, or null when it can: asTrunkWork's own checks, asked first. */
+  trunkWorkRefusal(trunkId: string): string | null {
+    const marked = currentAccountCall()?.trunk;
+    if (marked?.id === trunkId) return null;
+    if (marked?.id) return "Another Trunk started this, so only that Trunk or the owner can carry it on.";
+    return this.trunkKeysFor(trunkId) ? null : "The Trunk that started this is no longer here, so it does not carry on.";
+  }
   /**
    * Q114: work a Trunk started and someone carries on later (a workflow step or a flow box after the owner's
    * yes, or anyone's resume) goes on as that Trunk: its mark, so its keys and memory, and its own folder.
@@ -1218,9 +1225,9 @@ ${run.output.slice(0, 6000)}`;
   async asTrunkWork<T>(trunkId: string, work: () => Promise<T>): Promise<T> {
     const marked = currentAccountCall()?.trunk;
     if (marked?.id === trunkId) return work();
-    if (marked?.id) throw new Error("Another Trunk started this, so only that Trunk or the owner can carry it on.");
-    const keys = this.trunkKeysFor(trunkId);
-    if (!keys) throw new Error("The Trunk that started this is no longer here, so it does not carry on.");
+    const refused = this.trunkWorkRefusal(trunkId);
+    if (refused) throw new Error(refused);
+    const keys = this.trunkKeysFor(trunkId)!;
     const inFolder = () => this.coding ? this.coding.inPlace(posix.join(trunkFilesHome, trunkId), work) : work();
     return withAccountCall({ owner: this.owner, sessionId: "", runId: "", trunk: { keys, id: trunkId } }, inFolder);
   }
