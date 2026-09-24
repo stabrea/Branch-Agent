@@ -206,3 +206,52 @@ test("after a click on the sheet's heading, Escape closes the sheet and leaves t
   assert.equal(await f.page.evaluate(() => document.body.classList.contains("lx-pane-float")), true, "the side pane stays open");
   assert.deepEqual(f.errors, []);
 });
+
+test("after picking a topic through the picker, Escape closes the sheet and leaves the floating side pane open", async (t) => {
+  const f = await windowFixture(t, { width: 1000, height: 900 });
+  const cherries = seedTopic(f.app, "cherries");
+  seedTopic(f.app, "plums");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("body.lx-pane-float").waitFor({ state: "attached" });
+
+  await f.page.evaluate(async () => {
+    const { openTopicPanes } = await import("/topic-panes.js");
+    openTopicPanes();
+  });
+  await f.page.locator("#topic-panes-overlay").waitFor({ state: "visible" });
+
+  // Open the picker and pick a topic
+  await f.page.locator("#topic-panes-add").click();
+  await f.page.locator(`.topic-pane-picker-item:has-text("cherries")`).click();
+  await f.page.locator(`.topic-pane-col[data-session-id="${cherries}"]`).waitFor({ state: "attached" });
+
+  // Now press Escape: should close the sheet, not the side pane
+  await f.page.keyboard.press("Escape");
+  assert.equal(await f.page.locator("#topic-panes-overlay").isVisible(), false, "the sheet closes");
+  assert.equal(await f.page.evaluate(() => document.body.classList.contains("lx-pane-float")), true, "the side pane stays open");
+  assert.deepEqual(f.errors, []);
+});
+
+test("after pressing × on a column, Escape closes the sheet and leaves the floating side pane open", async (t) => {
+  const f = await windowFixture(t, { width: 1000, height: 900 });
+  const cherries = seedTopic(f.app, "cherries");
+  const plums = seedTopic(f.app, "plums");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.locator("body.lx-pane-float").waitFor({ state: "attached" });
+
+  await f.page.evaluate(async (ids) => {
+    const { openTopicPanesWith } = await import("/topic-panes.js");
+    openTopicPanesWith(ids);
+  }, [cherries, plums]);
+  await f.page.locator("#topic-panes-overlay").waitFor({ state: "visible" });
+
+  // Remove one column with ×
+  await f.page.locator(`.topic-pane-col[data-session-id="${plums}"] .topic-pane-close`).click();
+  await f.page.locator(`.topic-pane-col[data-session-id="${plums}"]`).waitFor({ state: "detached" });
+
+  // Now press Escape: should close the sheet, not the side pane
+  await f.page.keyboard.press("Escape");
+  assert.equal(await f.page.locator("#topic-panes-overlay").isVisible(), false, "the sheet closes");
+  assert.equal(await f.page.evaluate(() => document.body.classList.contains("lx-pane-float")), true, "the side pane stays open");
+  assert.deepEqual(f.errors, []);
+});
