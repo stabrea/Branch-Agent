@@ -15,6 +15,8 @@ import { dirname, join } from "node:path";
 import { createBranch } from "../dist/index.js";
 import { GitRunner, gitEnvironment, hardening } from "../dist/integrations/git-run.js";
 import { ContractBook } from "../dist/self-development-contract.js";
+import { GitTools } from "../dist/integrations/git.js";
+import { WorkspaceFiles } from "../dist/files.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 const posixOnly = process.platform === "win32" && "shell scripts are for macOS and Linux";
@@ -184,4 +186,211 @@ test("Q12: a link to Branch's source still gets the source pins", { skip: posixO
   t.after(() => discardTemp(dirname(link)));
   await symlink(cwd, link);
   assert.ok(hardening(link).includes("protocol.file.allow=never"), "decided on the real path, not the link's name");
+});
+
+test("Q79: git.push and git.pull in source refuse LOCAL scoped credential.helper", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "credential.helper", "fake"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*local scope/);
+});
+
+test("Q79: git.push and git.pull in source refuse LOCAL scoped core.askPass", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "core.askPass", "/bin/false"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /password prompt.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /password prompt.*local scope/);
+});
+
+test("Q79: git.push and git.pull in source refuse LOCAL scoped core.sshCommand", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "core.sshCommand", "/bin/false"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /SSH command.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /SSH command.*local scope/);
+});
+
+test("Q79: git.push and git.pull in source refuse WORKTREE scoped credential.helper", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-wtree-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const folder = "branch-agent-source/.branch-worktrees/self-worktree";
+  const cwd = join(workspace, folder);
+  await mkdir(cwd, { recursive: true });
+  const git = (...args) => execFileSync("git", args, { cwd, stdio: "pipe" });
+  git("init", "-q", "-b", "feature");
+  git("config", "extensions.worktreeConfig", "true");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial");
+  git("remote", "add", "origin", "https://example.com/repo.git");
+  git("config", "--worktree", "credential.helper", "fake");
+  const signal = AbortSignal.timeout(10_000);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*worktree scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*worktree scope/);
+});
+
+test("Q79: git.push and git.pull in source leave the owner's own GLOBAL credential.helper alone", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-global-"));
+  t.after(() => discardTemp(root));
+  const home = join(root, "home"), workspace = join(root, "workspace");
+  await mkdir(home, { recursive: true });
+  await writeFile(join(home, ".gitconfig"), "[credential]\n\thelper = fake\n");
+  // The Git these tools run must read the same home, or a global helper would never be seen at all.
+  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config") };
+  const tools = new GitTools(new WorkspaceFiles(workspace), new GitRunner({ env }));
+  const folder = "branch-agent-source/.branch-worktrees/self-global";
+  const cwd = join(workspace, folder);
+  await mkdir(cwd, { recursive: true });
+  const git = (...args) => execFileSync("git", args, { cwd, env, stdio: "pipe" });
+  git("init", "-q", "-b", "feature");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial");
+  assert.match(git("config", "--show-scope", "--get-regexp", "^credential\\..*helper$").toString(), /^global\scredential\.helper fake$/m, "the helper is seen, at global scope");
+  const signal = AbortSignal.timeout(10_000);
+  // Past the sign-in check, the unconfigured remote is what refuses: the owner's helper was allowed.
+  await assert.rejects(tools.push({ folder, remote: "origin", branch: "feature" }, signal), /Remote "origin" is not configured/);
+  await assert.rejects(tools.pull({ folder, remote: "origin", branch: "feature" }, signal), /Remote "origin" is not configured/);
+});
+
+test("Q79: outside Branch's source, a LOCAL scoped credential.helper is not refused", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-outside-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const folder = "normal-repo";
+  const cwd = join(workspace, folder);
+  await mkdir(cwd, { recursive: true });
+  execFileSync("git", ["init", "-q", "-b", "custom"], { cwd, stdio: "ignore" });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial"], { cwd });
+  execFileSync("git", ["config", "--local", "credential.helper", "fake"], { cwd });
+  execFileSync("git", ["remote", "add", "origin", "https://example.invalid/repo.git"], { cwd });
+  const signal = AbortSignal.timeout(10_000);
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "custom" }, signal), /reach the server/, "rejected for the invalid host or network, not refused by Q79 scope check");
+});
+
+test("Q82: git.push and git.pull in source refuse an scp-like remote with host starting with dash", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "attack", "git@-h:repo.git"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "attack", branch: "feature" }, signal), /user or host with "-"/);
+  await assert.rejects(app.git.pull({ folder, remote: "attack", branch: "feature" }, signal), /user or host with "-"/);
+});
+
+test("Q82: git.push and git.pull in source refuse an ssh:// remote with host starting with dash", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "attack", "ssh://-oProxyCommand=id@example.com/repo.git"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "attack", branch: "feature" }, signal), /user or host with "-"/);
+  await assert.rejects(app.git.pull({ folder, remote: "attack", branch: "feature" }, signal), /user or host with "-"/);
+});
+
+test("Q82: a dash-led user or host is refused in every spelling of an ssh remote", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  for (const [name, url] of [["a", "ssh://git@-oProxyCommand=id/repo.git"], ["b", "ssh://git@-h:22/repo.git"], ["c", "-oProxyCommand=id@example.com:repo.git"]]) {
+    execFileSync("git", ["config", `remote.${name}.url`, url], { cwd });
+    await assert.rejects(app.git.push({ folder, remote: name, branch: "feature" }, signal), /user or host with "-"|must use https/, url);
+  }
+});
+
+test("Q82: git.push and git.pull in source refuse a remote URL changed by url.<x>.insteadOf", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://example.com/"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
+});
+
+test("Q82: outside Branch's source, an scp-like remote with dash host is not refused by Q82 check", { skip: posixOnly }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-self-outside-dash-"));
+  const workspace = join(root, "workspace");
+  const app = await createBranch({ workspace, dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const folder = "normal-repo";
+  const cwd = join(workspace, folder);
+  await mkdir(cwd, { recursive: true });
+  execFileSync("git", ["init", "-q", "-b", "custom"], { cwd, stdio: "ignore" });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "initial"], { cwd });
+  execFileSync("git", ["remote", "add", "attack", "git@-h:repo.git"], { cwd });
+  const signal = AbortSignal.timeout(10_000);
+  // Verify the rejection is not from the Q82 dash check (which should only run in Branch's source)
+  await assert.rejects(app.git.push({ folder, remote: "attack", branch: "custom" }, signal), (e) => {
+    assert.doesNotMatch(String(e), /user or host with "-"/, "Q82 dash check should not run outside Branch's source");
+    return true;
+  });
+});
+
+test("A1: git.push and git.pull in source refuse LOCAL scoped include.path", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "include.path", "/tmp/evil"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /included config file.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /included config file.*local scope/);
+});
+
+test("A1: git.push and git.pull in source refuse URL-scoped credential.helper (LOCAL scope)", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "credential.https://example.com.helper", "fake"], { cwd });
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*local scope/);
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /credential helper.*local scope/);
+});
+
+test("A1: git.push and git.pull in source allow credential.username (not matched by helper pattern)", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["config", "--local", "credential.username", "fake"], { cwd });
+  // Should not refuse for credential.username; will fail for unconfigured remote or network reasons
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /not configured/, "credential.username does not trigger the helper refusal");
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /not configured/, "credential.username does not trigger the helper refusal");
+});
+
+test("B: git.push in source refuses when push URLs count differs from configured URL count", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
+  execFileSync("git", ["remote", "set-url", "--add", "--push", "origin", "https://example.com/repo.git"], { cwd });
+  execFileSync("git", ["remote", "set-url", "--add", "--push", "origin", "https://evil.com/repo.git"], { cwd });
+  // Now there are 2 push URLs but only 1 base URL; this should be refused
+  await assert.rejects(app.git.push({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
+});
+
+test("C: git.pull in source judges the fetch URL, not the push URL, when only fetching is rewritten", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
+  // pushInsteadOf maps the URL to itself, so pushing still goes to example.com; fetching goes to evil.com.
+  execFileSync("git", ["config", "--local", "url.https://example.com/.pushInsteadOf", "https://example.com/"], { cwd });
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://example.com/"], { cwd });
+  assert.equal(execFileSync("git", ["remote", "get-url", "--push", "origin"], { cwd, encoding: "utf8" }).trim(), "https://example.com/repo.git");
+  assert.equal(execFileSync("git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8" }).trim(), "https://evil.com/repo.git");
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /insteadOf.*redirect/);
+});
+
+test("C: git.pull in source refuses when fetch URL rewritten to dash-leading host", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  execFileSync("git", ["remote", "add", "origin", "https://example.com/repo.git"], { cwd });
+  execFileSync("git", ["config", "--local", "url.git@-h:.insteadOf", "https://example.com/"], { cwd });
+  // Pull should refuse because fetch URL is rewritten to git@-h:, which has a dash-leading host
+  await assert.rejects(app.git.pull({ folder, remote: "origin", branch: "feature" }, signal), /user or host with "-"/);
+});
+
+test("Q96: a remote Git reads from an old .git/remotes or .git/branches file is refused in source, even rewritten", { skip: posixOnly }, async (t) => {
+  const { app, folder, cwd } = await plantedBare(t);
+  const signal = AbortSignal.timeout(10_000);
+  const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], { cwd, encoding: "utf8" }).trim();
+  await mkdir(join(gitDir, "remotes"), { recursive: true });
+  await mkdir(join(gitDir, "branches"), { recursive: true });
+  await writeFile(join(gitDir, "remotes", "legacy"), "URL: https://example.com/repo.git\n");
+  await writeFile(join(gitDir, "branches", "older"), "https://example.com/other.git\n");
+  execFileSync("git", ["config", "--local", "url.https://evil.com/.insteadOf", "https://example.com/"], { cwd });
+  assert.equal(execFileSync("git", ["remote", "get-url", "legacy"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(),
+    "https://evil.com/repo.git", "Git itself sends to the rewritten address");
+  for (const remote of ["legacy", "older"]) {
+    await assert.rejects(app.git.push({ folder, remote, branch: "feature" }, signal), /not set in Git's settings/, remote);
+    await assert.rejects(app.git.pull({ folder, remote, branch: "feature" }, signal), /not set in Git's settings/, remote);
+  }
 });
