@@ -974,3 +974,37 @@ test("Q107: two removes of one copy at once go one at a time, so Git is asked on
   assert.equal(both.filter((one) => one.status === "fulfilled").length, 1);
   assert.match(String(both.find((one) => one.status === "rejected")?.reason?.message), /nothing was removed/);
 });
+
+test("Q107: a folder the repository carries at a copy's place is never taken for a worktree of that name elsewhere, or for another copy", async (t) => {
+  // NAS p50: Git's list is matched by the copy's name and by its place under the real .branch-worktrees, both.
+  // The owner's own worktree called x outside that folder, and Branch's copy y inside it, are never handed to Git.
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj"), own = join(workspace, "work", "x");
+  await mkdir(join(proj, ".branch-worktrees", "x"), { recursive: true });
+  await writeFile(join(proj, ".branch-worktrees", "x", "keep.txt"), "a folder the repository carries");
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "add", ".");
+  gitIn(proj, "commit", "-q", "-m", "a real folder at the copy's place");
+  gitIn(proj, "switch", "-q", "-c", "plan/x"); // a commit ahead, so a merge that ran would move HEAD
+  await writeFile(join(proj, "planned.txt"), "the plan's work");
+  gitIn(proj, "add", "planned.txt");
+  gitIn(proj, "commit", "-q", "-m", "the plan's work");
+  gitIn(proj, "switch", "-q", "main");
+  gitIn(proj, "worktree", "add", "-q", "--detach", own); // the owner's own worktree called x, made by hand
+  await writeFile(join(own, "unsaved.txt"), "the owner's unsaved work");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "y" }, signal()); // Branch's own copy y
+  const runner = app.git.runner, real = runner.run.bind(runner), removes = [];
+  runner.run = async (options, signal) => {
+    if (options.args[0] === "worktree" && options.args[1] === "remove") removes.push(options.args.at(-1));
+    return real(options, signal);
+  };
+  t.after(() => { runner.run = real; });
+  const head = () => execFileSync("git", ["rev-parse", "HEAD"], { cwd: proj, encoding: "utf8" }).trim();
+  const before = head();
+  await assert.rejects(app.git.worktree({ folder: "work/proj", action: "remove", name: "x" }, signal()), /not a parallel copy Git knows of/);
+  await assert.rejects(app.git.planMerge({ folder: "work/proj", name: "x", remove: true }, signal()), /not a parallel copy Git knows of/);
+  assert.deepEqual(removes, [], "Git was never asked to remove anything");
+  assert.equal(readFileSync(join(own, "unsaved.txt"), "utf8"), "the owner's unsaved work", "the owner's worktree called x is untouched");
+  assert.deepEqual((await app.git.worktree({ folder: "work/proj", action: "list" }, signal())).copies, [{ name: "y" }], "Branch's copy y is still there");
+  assert.equal(head(), before, "nothing was merged either");
+});
