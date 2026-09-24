@@ -17,6 +17,8 @@ import { ContractBook } from "../dist/self-development-contract.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 const sha = "d".repeat(40);
+// The worktree's commit, and the one new commit the pull request makes on it.
+const walked = "e".repeat(40), made = "f".repeat(40);
 const worktree = "branch-agent-source/.branch-worktrees/self-remove-button";
 const home = await mkdtemp(join(tmpdir(), "branch-self-pr-git-"));
 const gitLog = join(home, "git.log"), diffOut = join(home, "diff.out");
@@ -29,9 +31,14 @@ case "$1" in
   remote) echo https://github.com/stabrea/Branch-Agent.git; exit 0;;
   symbolic-ref) echo refs/remotes/origin/main; exit 0;;
   switch|push|--literal-pathspecs|merge-base) exit 0;;
-  diff) cat '${diffOut}'; exit 0;;
+  diff|diff-tree) cat '${diffOut}'; exit 0;;
   log) exit 0;;
-  rev-parse) pwd -P; echo "$(pwd -P)/../../.git"; exit 0;;
+  rev-parse) case "$*" in
+    *--show-toplevel*) pwd -P; echo "$(pwd -P)/../../.git";;
+    *refs/heads/branch/*) echo ${made};;
+    *) echo ${walked};;
+  esac; exit 0;;
+  rev-list) echo "${made} ${walked}"; exit 0;;
   ls-files) exit 0;;
   *) exit 1;;
 esac
