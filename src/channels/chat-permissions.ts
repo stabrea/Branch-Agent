@@ -38,6 +38,8 @@ export const neverFromChat: readonly string[] = [
   "personal.read", "personal.write", "home.control", "brief.manage", "agents.manage",
   "skills.write", "skills.manage", "nodes.read", "nodes.run", "trunks.message",
   "shell.execute", "remote.execute", "channels.send",
+  // Q187 (NAS 87ad19be note): preparing or widening a change to Branch's own source, and sending to GitHub.
+  "git.remote",
 ];
 
 /**

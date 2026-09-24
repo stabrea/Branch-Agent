@@ -88,3 +88,18 @@ test("the self-development tool appears only while remote Git is enabled", () =>
   assert.equal(registry.names().includes("branch.widen_source_contract"), false);
   stop();
 });
+
+test("Q187: a helper whose own context says owner, but whose task came from a chat, cannot prepare a source change", async () => {
+  const registry = new ToolRegistry();
+  const records = { chat: [{ kind: "run.started", data: { source: "channel" } }], mine: [{ kind: "run.started", data: { source: "owner" } }] };
+  const store = { events: (runId) => records[runId] ?? [], run: () => undefined };
+  const stop = offerSelfDevelopment({ workspace: "C:/owner/workspace", owner: "local", projects: {}, registry,
+    policy: {}, git: async () => completed(), store, contracts: { current: () => null } });
+  registry.register({ name: "git.push", permission: "git.remote", description: "test", parameters: z.object({}), execute: async () => ({}) });
+  const input = { name: "x", repository: "https://github.com/alice/unrelated.git", base: "main", contract: terms };
+  const call = (runId) => registry.execute("branch.prepare_source_change", input,
+    { source: "owner", runId, owner: "local", permissions: new Set(["git.remote"]), signal: AbortSignal.timeout(1000), budget: { step: () => undefined, charge: () => undefined } });
+  await assert.rejects(call("chat"), /Only the owner in the Branch app/, "the record leads back to a chat");
+  await assert.rejects(call("mine"), (error) => !/Only the owner in the Branch app/.test(error.message), "control: the owner's own task gets past the check");
+  stop();
+});
