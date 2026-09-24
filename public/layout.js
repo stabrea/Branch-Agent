@@ -1087,8 +1087,8 @@ function closePane() {
 const paneAuto = () => store.get("branch-pane-auto") !== "off";
 let paneByRun = false;
 function followWork(now) {
-  if (calm()) return;
-  if (now && paneAuto() && !narrow.matches && !paneOpen()) {
+  if (!calm()) return;
+  if (now && paneAuto() && narrow.matches && !paneOpen()) {
     paneByRun = true;
     document.body.classList.add("lx-pane-float");
   } else if (!now && paneByRun) {
