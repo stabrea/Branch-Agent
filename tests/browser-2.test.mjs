@@ -63,6 +63,8 @@ const routes = {
   '/opens-formtarget': page(`<form id="f" method="GET"><button id="b" type="submit" formtarget="_blank">go</button></form><script>const to=new URLSearchParams(location.search).get("to");const f=document.getElementById("f");f.action=to;f.requestSubmit(document.getElementById("b"));</script>`),
   // A page that goes round the worker block: the prototype's own method, and deleting the page's copy.
   '/worker-around': page(`<script>const to=new URLSearchParams(location.search).get("to");const go=async (register)=>{try{await register();await navigator.serviceWorker.ready;const sw=(await navigator.serviceWorker.getRegistration()).active;if(sw)sw.postMessage(to);}catch{}};go(()=>ServiceWorkerContainer.prototype.register.call(navigator.serviceWorker,"/worker.js"));try{delete navigator.serviceWorker.register;}catch{}go(()=>navigator.serviceWorker.register("/worker.js"));try{new SharedWorker("/worker.js");}catch{}</script>`),
+  // A page showing whatever the query string names in a frame.
+  '/framing': page(`<iframe id="f"></iframe><script>document.getElementById("f").src=new URLSearchParams(location.search).get("src");</script>`),
   // A page that starts a background worker and asks it to fetch wherever the query string names.
   '/worker': page(`<script>navigator.serviceWorker.register("/worker.js").then(async () => {await navigator.serviceWorker.ready;const sw = (await navigator.serviceWorker.getRegistration()).active;if (sw) sw.postMessage(new URLSearchParams(location.search).get("to"));}).catch(() => { document.title = "refused"; });</script>`),
   '/cookie': page('<p id="who">?</p><script>document.getElementById("who").textContent="cookie is "+document.cookie</script>'),
@@ -333,6 +335,52 @@ test("in the owner's own browser, a tab Branch opens reaches nothing and is not 
     await once(forbidden, 'close');
   }
 });
+test("in the owner's own browser, a frame from another website cannot be sent to an unlisted one", async () => {
+  // The owner's Chrome keeps each website in a process of its own, so a frame from another website is outside
+  // the pause on Branch's tab, and Chromium follows its redirects there without asking (NAS 6e33be0). Its
+  // requests are sent with redirects refused instead. Branch's own window keeps such a frame in the page's
+  // process (measured), which is why this is asked of a browser started the way Chrome starts: --site-per-process.
+  let forbiddenHits = 0;
+  const forbidden = createServer((_request, response) => { forbiddenHits += 1; response.end('must not load'); });
+  forbidden.listen(0, '127.0.0.1');
+  await once(forbidden, 'listening');
+  const elsewhere = `http://127.0.0.1:${forbidden.address().port}`;
+  const framedAsked = [];
+  const framed = createServer((request, response) => {
+    framedAsked.push(request.url);
+    if (request.url === '/f') {
+      response.writeHead(200, {'content-type': 'text/html'});
+      response.end('<!doctype html><script>fetch("/r").catch(() => {}); setTimeout(() => { location = "/r2"; }, 300);</script>');
+      return;
+    }
+    response.writeHead(302, {location: `${elsewhere}/stolen`});
+    response.end();
+  });
+  framed.listen(0, '127.0.0.1');
+  await once(framed, 'listening');
+  const framedOrigin = `http://localhost:${framed.address().port}`; // another website: a separate process in Chrome
+
+  const h = await harness('browser2-borrow-frame', {}, [framedOrigin]);
+  const port = 9415;
+  const owned = await chromium.launchPersistentContext('', {headless: true, args: [`--remote-debugging-port=${port}`, '--site-per-process']});
+  try {
+    h.browser.store = {get: () => ({data: {enabled: true, port, runId: 'run-borrow-frame',
+      grantedAt: new Date().toISOString()}}), save: () => undefined};
+    const context = runContext('run-borrow-frame');
+    ok(await h.registry.execute('browser.borrow', {action: 'borrow'}, context));
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/framing?src=${encodeURIComponent(`${framedOrigin}/f`)}`}, context);
+    for (let waited = 0; waited < 50 && !(framedAsked.includes('/r') && framedAsked.includes('/r2')); waited++)
+      await new Promise(resolve => { setTimeout(resolve, 100); });
+    await new Promise(resolve => { setTimeout(resolve, 500); });
+    assert.ok(framedAsked.includes('/r') && framedAsked.includes('/r2'), `the frame really asked: ${framedAsked.join(' ')}`);
+    assert.equal(forbiddenHits, 0, "neither the frame's fetch nor its own navigation was sent onwards");
+  } finally {
+    await h.close();
+    await owned.close().catch(() => undefined);
+    for (const server of [forbidden, framed]) { server.close(); await once(server, 'close'); }
+  }
+});
+
 test('the borrowed browser reuses its cookies, refuses a bank, and is let go without being closed', async () => {
   // A bank is on the allowed list on purpose: the refusal being proved is the borrowing one, not
   // the ordinary website list, which would otherwise stop the address first and prove nothing.

@@ -125,11 +125,12 @@ test("the network policy checks the redirect destination before it is fetched", 
   t.after(() => browser.close());
 
   await assert.rejects(browser.navigate(`${sourceOrigin}/start`, context(["browser.read"])));
-  assert.deepEqual(checked, [
-    `${sourceOrigin}/start`, // browser.navigate checks before opening a window
-    `${sourceOrigin}/start`, // Chromium's actual first request is checked too
-    `${destinationOrigin}/private`, // then the redirect hop is checked before it is sent
-  ]);
+  // browser.navigate checks before opening a window; Chromium's actual first request is then checked by both the
+  // route and the pause (the route's check once missed pages entirely, comparing 'document' with 'Document');
+  // then the redirect hop is checked before it is sent, and last.
+  assert.equal(checked.filter((href) => href === `${sourceOrigin}/start`).length, 3, checked.join(" "));
+  assert.deepEqual(checked.filter((href) => href !== `${sourceOrigin}/start`), [`${destinationOrigin}/private`]);
+  assert.equal(checked.at(-1), `${destinationOrigin}/private`);
   assert.equal(destinationHits, 0, "the destination was refused before a request reached it");
 });
 
@@ -257,9 +258,9 @@ test("a site that keeps sending the browser onwards is given up on", async (t) =
 });
 
 /**
- * A frame from another website runs in a process of its own, outside the pause on the page, and Chromium
- * follows its redirects there without asking (NAS 6e33be0). Its requests are sent with redirects refused,
- * as every request was before the pause, so a frame an allowed page shows cannot be sent anywhere else.
+ * A frame an allowed page shows cannot be sent to a website the owner did not allow, whether its own request or
+ * its own navigation is redirected. In Branch's own window such a frame shares the page's process (measured), so
+ * this holds by the pause; the owner's Chrome, where it does not, is asked the same in tests/browser-2.test.mjs.
  */
 test("a frame from another allowed website cannot be redirected to an unlisted one", async (t) => {
   let forbiddenHits = 0;
