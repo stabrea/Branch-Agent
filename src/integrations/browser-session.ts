@@ -76,7 +76,14 @@ export class BrowserSession {
       await this.context.routeWebSocket('**/*', socket => socket.close());
       // A worker shared between pages sends its requests where neither the route nor the pause sees them, and
       // serviceWorkers: 'block' covers only service workers (Mac mini 0361600: it fetched an unlisted website).
+      // Nor does 'block' hold on its own: it replaces `register` on the page's one object, and the prototype's own
+      // method registers anyway, whose worker then fetched an unlisted website (Mac mini d1cdebc). So `register` is
+      // refused on the prototype itself, fixed in place, as in the owner's browser.
       await this.context.addInitScript(() => {
+        if (typeof ServiceWorkerContainer !== 'undefined')
+          Object.defineProperty(ServiceWorkerContainer.prototype, 'register', {
+            value: () => Promise.reject(new Error('Branch does not start background workers')), writable: false, configurable: false,
+          });
         if (typeof SharedWorker !== 'undefined')
           Object.defineProperty(window, 'SharedWorker', { value: undefined, writable: false, configurable: false });
       });
