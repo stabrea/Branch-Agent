@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1007,4 +1007,37 @@ test("Q107: a folder the repository carries at a copy's place is never taken for
   assert.equal(readFileSync(join(own, "unsaved.txt"), "utf8"), "the owner's unsaved work", "the owner's worktree called x is untouched");
   assert.deepEqual((await app.git.worktree({ folder: "work/proj", action: "list" }, signal())).copies, [{ name: "y" }], "Branch's copy y is still there");
   assert.equal(head(), before, "nothing was merged either");
+});
+
+test("Q107: where the workspace is reached through a system link, a copy swapped for a link as Git is called never gets another worktree removed",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  // NAS 14825b4: Git is handed the copy by the path it registered, which it finds by that exact string. Where the
+  // workspace is reached through a system link (macOS's temporary folders sit under /var, a link to /private/var),
+  // the path Branch would join differs from the one Git printed, and Git looks a joined path up by where it leads:
+  // through a link put at the copy's place. Elsewhere the two are one string and this holds either way.
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj"), side = join(workspace, "work", "side");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  gitIn(proj, "worktree", "add", "-q", "--detach", side); // the owner's own worktree, made by hand
+  await writeFile(join(side, "unsaved.txt"), "the owner's unsaved work");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "x" }, signal());
+  const place = join(proj, ".branch-worktrees", "x");
+  const runner = app.git.runner, real = runner.run.bind(runner), asked = [];
+  runner.run = async (options, signal) => {
+    if (options.args[0] === "worktree" && options.args[1] === "remove") {
+      asked.push(options.args.at(-1));
+      // Something else in this repository swaps Branch's copy for a link to the owner's worktree, just now.
+      await rename(place, `${place}-away`);
+      await symlink("../../side", place, "dir");
+    }
+    return real(options, signal);
+  };
+  t.after(() => { runner.run = real; });
+  await app.git.worktree({ folder: "work/proj", action: "remove", name: "x" }, signal()).catch(() => undefined);
+  assert.equal(asked.length, 1, "Git was asked to remove the copy");
+  assert.ok(existsSync(join(side, "unsaved.txt")), "the owner's worktree is untouched");
+  assert.equal(readFileSync(join(side, "unsaved.txt"), "utf8"), "the owner's unsaved work");
+  assert.match(execFileSync("git", ["worktree", "list"], { cwd: proj, encoding: "utf8" }), /side/, "and still registered");
 });
