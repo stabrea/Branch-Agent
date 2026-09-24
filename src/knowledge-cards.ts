@@ -123,8 +123,8 @@ export class KnowledgeCards {
 }
 /** How many recent conversations one refresh looks at, and how far back it will reach. */
 export const refreshConversations = 3;
-/** How far back a Trunk's refresh looks for conversations it took part in. */
-const recentReach = 200;
+/** How far back a Trunk's refresh looks for conversations it took part in: the most the library lists at once. */
+const recentReach = 100;
 /** What one refresh would read and roughly what it would cost, worked out here with no model call. */
 export interface RefreshCost {
   conversations: number;
