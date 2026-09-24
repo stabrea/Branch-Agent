@@ -1409,3 +1409,30 @@ test("a save Branch gave up on is never read back, even after a switch to this c
   assert.deepEqual(await app.registry.execute("memory.search", { query: "Garage" }, context), []);
   assert.equal((await app.memory.backend.list("local")).some((r) => r.data.text === "Garage code is 4321"), false);
 });
+
+test("a save taken back after the owner moves to another service and rotates the key never sends the old service the new key", async (t) => {
+  const first = memoryDouble(), second = memoryDouble();
+  const [oldBase, newBase] = [await first.listen(), await second.listen()];
+  t.after(() => Promise.all([first.close(), second.close()]));
+  const { app, context } = await fixture(t);
+  await app.store.locker.set("local", "default", "MEMORY_KEY", "old-key-7a1c");
+  await app.memory.backend.configure("local", { mode: "outside", url: oldBase, timeoutMs: 500, header: "X-Memory-Key", secret: "MEMORY_KEY" });
+  const answer = first.server.listeners("request")[0];
+  first.server.removeAllListeners("request");
+  const seen = [];
+  first.server.on("request", async (request, response) => {
+    seen.push(`${request.method} ${request.headers["x-memory-key"] ?? "-"}`);
+    if (request.method !== "PUT") return answer(request, response);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    response.destroy();
+  });
+  const saving = app.registry.execute("memory.put", { text: "Garage code is 4321", source: "owner" }, context);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await app.memory.backend.configure("local", { url: newBase }); // NAS 6321fbc (rotate-fail)
+  await app.store.locker.set("local", "default", "MEMORY_KEY", "new-key-93be");
+  await assert.rejects(() => saving, /timeout|could not be reached/i);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.deepEqual(seen.filter((line) => line.includes("new-key-93be")), [], "the old service never gets the new key");
+  assert.ok(seen.includes("PUT old-key-7a1c"));
+  assert.deepEqual(await app.registry.execute("memory.search", { query: "Garage" }, context), [], "and the save is still never read back");
+});

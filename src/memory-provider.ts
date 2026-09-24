@@ -314,9 +314,18 @@ export class MemoryProvider implements MemoryBackend {
     if (this.backendCache.has(configKey)) return this.backendCache.get(configKey)!;
     const backend = new RemoteMemoryBackend({ url: settings.url, timeoutMs: settings.timeoutMs, fetch: this.guardedFetch(),
       allowPrivate,
-      ...(name ? { auth: { header: settings.header, key: () => this.secret(name) } } : {}) });
+      ...(name ? { auth: { header: settings.header, key: () => this.pairedKey(owner, settings.url, name) } } : {}) });
     this.backendCache.set(configKey, backend);
     return backend;
+  }
+  /**
+   * The key is read only while the owner's settings still pair that name with this service. A takeback that goes to a
+   * service the owner has switched away from sends no key, so it never carries one rotated for the new service.
+   */
+  private async pairedKey(owner: string, url: string, name: string): Promise<string> {
+    const now = memoryProviderSettings(this.store, owner);
+    if (now.url !== url || now.secret !== name) throw new Error("That memory service is no longer the one set up, so its key is not sent to it.");
+    return this.secret(name);
   }
   async withFactLock<T>(owner: string, id: string, fn: () => Promise<T>): Promise<T> {
     const key = `${owner}:${id}`;
