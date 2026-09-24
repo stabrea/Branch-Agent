@@ -41,15 +41,16 @@ function clock() {
   };
 }
 
-function fixture(latency) {
-  const time = clock(), records = new Map(), checks = [], completions = [];
+function fixture(latency, phase = "current") {
+  const time = clock(), records = new Map(), checks = [], completions = [], installs = [];
   const store = {
     get: (_kind, _owner, key) => records.has(key) ? { data: records.get(key) } : undefined,
     save: (_kind, _owner, key, value) => records.set(key, value),
   };
   let active = 0, maxActive = 0, failNext = false;
   const desktop = {
-    updateStatus: async () => ({ phase: "current" }),
+    updateStatus: async () => ({ phase }),
+    installUpdate: async (...args) => { installs.push(args); return { phase: "ready" }; },
     checkForUpdates: async () => {
       checks.push(time.now);
       maxActive = Math.max(maxActive, ++active);
@@ -57,7 +58,7 @@ function fixture(latency) {
       active--;
       completions.push(time.now);
       if (failNext) { failNext = false; throw new Error("offline"); }
-      return { phase: "current" };
+      return { phase };
     },
   };
   const context = createContext({
@@ -82,7 +83,7 @@ function fixture(latency) {
     runInContext("view = { values: testValues }; apply();", context);
     await settle();
   };
-  return { time, checks, completions, configure, get maxActive() { return maxActive; },
+  return { time, checks, completions, installs, configure, get maxActive() { return maxActive; },
     failOnce() { failNext = true; }, manual: () => runInContext("autoUpdate()", context) };
 }
 
@@ -126,4 +127,11 @@ test("a failed Beta check is retried after five minutes without overlapping", as
   await f.time.advance(345_000);
   assert.deepEqual(f.checks, [0, 345_000]);
   assert.equal(f.maxActive, 1);
+});
+
+test("an install that update by itself starts says so, so turning it off while Dev builds stops it (dogfood F1, NAS)", async () => {
+  const f = fixture(1, "available");
+  await f.configure({ autoUpdate: "install", releaseChannel: "dev" });
+  await f.time.advance(10);
+  assert.deepEqual(f.installs, [[true]], "the desktop hears that this install was not the Update button");
 });

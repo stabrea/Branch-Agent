@@ -10,7 +10,7 @@ import {
   shortcutDefaults, statusItems, type ComfortCard,
 } from "./settings.js";
 import { checkCertificate, validateNetwork, type OutboundNetwork } from "./network.js";
-import { busyTaskCount, noteUpdateCheck, updatePlan } from "./auto-update.js";
+import { busyTaskCount, noteFailedInstall, noteUpdateCheck, updatePlan } from "./auto-update.js";
 import { sensitiveBrowserTools } from "./browser-safety.js";
 import { byCard, inCatalogue, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
@@ -20,7 +20,7 @@ import { byCard, inCatalogue, recordedWrite } from "../settings-kit/recorded-wri
  *   GET  /api/comfort              every card's values, what is in force, and the choices offered
  *   POST /api/comfort              { card, values } saves one card; { card, reset: true } puts it back
  *   POST /api/comfort/update-plan  { updaterPhase?, checked? } what the window should do about updates
- *   GET  /api/comfort/update-readiness  owner-only channel and complete busy-task count for desktop handover
+ *   GET  /api/comfort/update-readiness  owner-only channel, update-by-itself choice and complete busy-task count for desktop handover
  *   GET  /api/comfort/status?session=<id>  the status line's facts, and when each turn started and ended
  *
  * Every change is the owner's: a short-lived key is refused before this is reached (src/server.ts,
@@ -46,6 +46,9 @@ const SaveSchema = z.object({
 const PlanSchema = z.object({
   updaterPhase: z.string().max(40).optional(),
   checked: z.boolean().optional(),
+  /** The release the updater is talking about, and, when its install just failed, that release (dogfood F1 review). */
+  updaterTag: z.string().max(120).optional(),
+  failedTag: z.string().max(120).optional(),
 }).strict();
 
 /** Only the owner, in the owner's own profile and with the computer's own key, may change these. */
@@ -137,9 +140,12 @@ function plan(app: ComfortApp, body: unknown) {
   // Integration review: only the owner's window may be told to install; everyone's tasks count as work.
   requireOwnerHere(store, updateWords);
   if (input.checked) noteUpdateCheck(store, owner);
+  // A failed install is remembered, and said once, so the automatic path does not try that release again by itself.
+  const tell = input.failedTag ? noteFailedInstall(store, owner, input.failedTag) : false;
   const busyTasks = busyTaskCount(store);
   // The Update button asks this too: tasks working now are offered a wait before anything closes.
-  return { ...updatePlan(store, owner, { busyTasks, updaterPhase: input.updaterPhase }), busyTasks };
+  return { ...updatePlan(store, owner, { busyTasks, updaterPhase: input.updaterPhase, updaterTag: input.updaterTag }), busyTasks,
+    ...(tell ? { failed: "The newest version did not install here, so Branch will not try it again by itself. It tries the next one as soon as it lands; Update in Settings tries this one again now." } : {}) };
 }
 
 export async function comfortApi(app: ComfortApp, request: IncomingMessage, path: string,
@@ -153,8 +159,8 @@ export async function comfortApi(app: ComfortApp, request: IncomingMessage, path
     if (path === "/api/comfort/update-readiness") {
       requireOwnerHere(app.store, updateWords);
       if (method !== "GET") throw new ComfortApiError(405, "Use GET");
-      return { channel: readComfort(app.store, app.runtime.owner, "notify").releaseChannel,
-        busyTasks: busyTaskCount(app.store) };
+      const notify = readComfort(app.store, app.runtime.owner, "notify");
+      return { channel: notify.releaseChannel, busyTasks: busyTaskCount(app.store), autoUpdate: notify.autoUpdate };
     }
     if (path === "/api/comfort/status") {
       if (method !== "GET") throw new ComfortApiError(405, "Use GET");

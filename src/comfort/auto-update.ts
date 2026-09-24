@@ -25,6 +25,23 @@ export function noteUpdateCheck(store: Store, owner: string, now = new Date()): 
 }
 
 /**
+ * Dogfood F1 review: the release (a Dev change's `dev-<commit>`, or a version's tag) whose install last failed. The
+ * automatic path does not try it again, so a change that will not build is not rebuilt every few minutes for good; it
+ * tries the next one that lands. The Update button does not ask the plan, so it can always try again by hand.
+ */
+const failedKey = "comfort-update-failed";
+export function failedInstall(store: Pick<Store, "get">, owner: string): string | null {
+  const tag = store.get("settings", owner, failedKey)?.data?.tag;
+  return typeof tag === "string" && tag ? tag : null;
+}
+/** Records a failed install; true only the first time for that release, so the owner is told once. */
+export function noteFailedInstall(store: Store, owner: string, tag: string, now = new Date()): boolean {
+  if (failedInstall(store, owner) === tag) return false;
+  store.save("settings", owner, failedKey, { tag, at: now.toISOString() });
+  return true;
+}
+
+/**
  * Integration review: every task still at work in this house, whoever started it, including one
  * paused on a question (swapping the program would lose it). Counted in full, not from a recent list.
  */
@@ -38,6 +55,8 @@ export interface PlanFacts {
   busyTasks: number;
   /** What the updater last said: "available" means a newer version is known. */
   updaterPhase?: string | undefined;
+  /** Which release the updater is talking about (its tag), so one whose install failed is not tried again by itself. */
+  updaterTag?: string | undefined;
   now?: Date;
 }
 
@@ -55,6 +74,8 @@ export function updatePlan(store: Pick<Store, "get">, owner: string, facts: Plan
      itself" on it is built and installed like any other update, once no task is working, so each fix is seen live. */
   const install = mode === "install";
   if (install && facts.updaterPhase === "available") {
+    if (facts.updaterTag && failedInstall(store, owner) === facts.updaterTag)
+      return plan("nothing", "The newest version did not install here last time, so it is not tried again by itself. The next one is, as soon as it lands; Update tries this one now.");
     if (facts.busyTasks > 0) return plan("nothing", "A newer version is ready; it installs once no task is working.");
     return plan("install", "A newer version is ready and nothing is working, so it is installed now, safely.");
   }
