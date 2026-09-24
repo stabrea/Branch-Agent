@@ -72,6 +72,12 @@ export class BrowserSession {
       // every redirect hop, which Playwright routes do not surface.
       await this.context.route('**/*', route => this.answerRoute(route));
       await this.context.routeWebSocket('**/*', socket => socket.close());
+      // A worker shared between pages sends its requests where neither the route nor the pause sees them, and
+      // serviceWorkers: 'block' covers only service workers (Mac mini 0361600: it fetched an unlisted website).
+      await this.context.addInitScript(() => {
+        if (typeof SharedWorker !== 'undefined')
+          Object.defineProperty(window, 'SharedWorker', { value: undefined, writable: false, configurable: false });
+      });
       const page = await this.newPage();
       this.checkOpen();
       // Tabs the website opens by itself are closed again; only tabs the assistant asks for are kept.
@@ -169,7 +175,28 @@ export class BrowserSession {
         // Links, image-map areas and forms. A form asking for a new tab is not a link and was not
         // covered by the first version of this; measured, the tab it opened reached a website the
         // owner never allowed before anything could be put in its way.
-        addEventListener('click', event => here((event.target as Element | null)?.closest?.('a[href], area[href]')), true);
+        const onClick = (event: Event): void => here((event.target as Element | null)?.closest?.('a[href], area[href]'));
+        addEventListener('click', onClick, true);
+        // A link the page never puts in the document, or hides in a closed shadow root, is clicked where the
+        // window's listener cannot see it (Mac mini 0361600). So a click asked for by script is caught on the
+        // element itself, and every shadow root gets the same listener as the window.
+        const isLink = (node: unknown): node is Element => node instanceof HTMLAnchorElement || node instanceof HTMLAreaElement;
+        const clicking = HTMLElement.prototype.click;
+        HTMLElement.prototype.click = function clickHere(this: HTMLElement) {
+          if (isLink(this)) here(this);
+          return clicking.call(this);
+        };
+        const dispatching = EventTarget.prototype.dispatchEvent;
+        EventTarget.prototype.dispatchEvent = function dispatchHere(this: EventTarget, event: Event) {
+          if (event.type === 'click' && isLink(this)) here(this);
+          return dispatching.call(this, event);
+        };
+        const attaching = Element.prototype.attachShadow;
+        Element.prototype.attachShadow = function attachHere(this: Element, init: ShadowRootInit) {
+          const root = attaching.call(this, init);
+          root.addEventListener('click', onClick, true);
+          return root;
+        };
         addEventListener('submit', event => {
           here(event.target as Element | null);
           const submitter = (event as SubmitEvent).submitter;

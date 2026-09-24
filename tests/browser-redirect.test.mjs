@@ -308,3 +308,35 @@ test("a frame from another allowed website cannot be redirected to an unlisted o
   assert.ok(framedAsked.includes("/r") && framedAsked.includes("/r2"), `the frame really asked: ${framedAsked.join(" ")}`);
   assert.equal(forbiddenHits, 0, "neither the frame's fetch nor its own navigation was sent onwards");
 });
+
+/* A worker shared between pages sends its requests where neither the route nor the pause sees them, and
+   serviceWorkers: 'block' does not cover it (Mac mini 0361600 measured it fetching an unlisted website). */
+test("a page in Branch's own window cannot start a shared worker that fetches an unlisted website", async (t) => {
+  let forbiddenHits = 0;
+  const forbidden = createServer((_request, response) => { forbiddenHits += 1; response.end("must not load"); });
+  forbidden.listen(0, "127.0.0.1");
+  await once(forbidden, "listening");
+  t.after(async () => { forbidden.close(); await once(forbidden, "close"); });
+  const forbiddenOrigin = `http://127.0.0.1:${forbidden.address().port}`;
+  const allowed = createServer((request, response) => {
+    if (request.url.startsWith("/wk.js")) {
+      response.setHeader("content-type", "text/javascript");
+      response.end(`fetch(${JSON.stringify(`${forbiddenOrigin}/from-shared-worker`)}).catch(() => {});`);
+      return;
+    }
+    response.setHeader("content-type", "text/html");
+    response.end(`<!doctype html><title>start</title><script>try { new SharedWorker("/wk.js"); document.title = "started"; } catch { document.title = "refused"; }</script>`);
+  });
+  allowed.listen(0, "127.0.0.1");
+  await once(allowed, "listening");
+  t.after(async () => { allowed.close(); await once(allowed, "close"); });
+  const allowedOrigin = `http://127.0.0.1:${allowed.address().port}`;
+  const browser = new BranchBrowser({ allowedOrigins: [allowedOrigin] });
+  t.after(() => browser.close());
+  const registry = new ToolRegistry();
+  const { registerBrowser } = await import("../dist/integrations/browser.js");
+  registerBrowser(registry, browser);
+  await registry.execute("browser.navigate", { url: allowedOrigin }, context());
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(forbiddenHits, 0, "the unlisted website was never asked");
+});
