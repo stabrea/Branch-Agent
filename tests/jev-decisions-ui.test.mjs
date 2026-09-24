@@ -32,7 +32,7 @@ test("the owner configures advisory JEV decisions without giving Branch a creden
   const card = f.page.locator("#jev-decisions-card");
   await card.waitFor({ state: "visible" });
   assert.equal(await card.getAttribute("data-home"), "settings:advanced");
-  assert.equal(await card.locator("h2").textContent(), "JEV decision support");
+  assert.equal(await card.locator("h3.settings-card-title").textContent(), "JEV decision support");
   assert.equal(await card.getByLabel("Use JEV for bounded decisions", { exact: true }).inputValue(), "off");
   assert.equal(await card.getByLabel("Provider", { exact: true }).inputValue(), "auto");
   assert.equal(await card.locator('input[type="password"], [id*="api-key"], [id*="token"]').count(), 0,

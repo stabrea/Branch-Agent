@@ -565,7 +565,7 @@ test("switches: everything ships off; off takes no snapshot and refuses a goal",
   assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "two");
   await assert.rejects(app.goals.start({ objective: "Anything" }), /Goal mode is off/);
   assert.throws(() => saveGoalUndoSettings(app.store, "local", { snapshots: "always" }));
-  assert.deepEqual(MODES, ["off", "on", "when-needed"]);
+  assert.deepEqual(MODES, ["off", "when-needed", "on"]);
   assert.equal(showsGoalButton({ goal: "on" }), true);
   assert.equal(showsGoalButton({ goal: "when-needed" }), false);
   assert.equal(showsGoalButton({ goal: "off" }), false);

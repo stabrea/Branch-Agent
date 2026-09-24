@@ -51,7 +51,7 @@ function row(...children) {
 /** Runs a change and says how it went in the card's status line. */
 const attempt = (status, work) => async () => { try { await work(); done(status); } catch (error) { tell(status, error); } };
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const PARTS = {
   "format-on-edit": ["coding.part.format", "Tidying a file and checking it for mistakes after every change"],
   "shell-snapshot": ["coding.part.shell", "Using your own command-line setup"],
@@ -169,6 +169,9 @@ async function ciControls(status) {
     row(button("coding.ci.make", "Write the lines to paste", write)), out];
 }
 
+/* DG-191: the parts whose own settings the approved sample always draws as rows, whatever the part's switch says. */
+const ALWAYS_DRAWN = new Set(["format-on-edit", "shell-snapshot", "worktrees"]);
+
 const CONTROLS = { "format-on-edit": formatControls, "shell-snapshot": shellControls, worktrees: worktreeControls,
   "path-rules": rulesControls, "review-checks": checksControls, ci: ciControls,
   init: async () => [make("p", "field-note", "coding.init.how", "Type /init in the message box.")] };
@@ -178,13 +181,13 @@ async function buildCard() {
   const node = make("section", "card");
   node.id = "coding-card";
   node.dataset.home = "settings:advanced";
-  node.append(make("h2", "", "coding.title", "Coding polish"),
+  node.append(make("h3", "settings-card-title", "coding.title", "Coding polish"),
     make("p", "subtle", "coding.purpose", "Extra help for work on code: tidying and checking files, your own shell, @ mentions, separate copies, checklists, project rules and checks."));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
   for (const part of Object.keys(PARTS)) {
     node.append(...switchFor(part, modes, status));
-    if (modes[part] !== "off" && CONTROLS[part]) node.append(...await CONTROLS[part](status).catch((error) => [plain("p", error.message, "field-note")]));
+    if (CONTROLS[part] && (modes[part] !== "off" || ALWAYS_DRAWN.has(part))) node.append(...await CONTROLS[part](status).catch((error) => [plain("p", error.message, "field-note")]));
   }
   node.append(status);
   return { node, modes };

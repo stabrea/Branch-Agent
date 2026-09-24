@@ -18,7 +18,7 @@ const EMOJI = [["🌳", "tree oak"], ["🌰", "acorn nut"], ["🍂", "leaves aut
   ["🛒", "cart shopping"], ["🍳", "cooking kitchen"], ["🏡", "home house"], ["☕", "coffee"], ["🎧", "music headphones"], ["🎨", "art paint"],
   ["📚", "books reading"], ["✍️", "writing"], ["🧪", "lab test"], ["🛠️", "tools fix"], ["🤖", "robot"], ["🛡️", "shield safe"], ["🔑", "key"],
   ["⚡", "energy fast"], ["🌙", "moon night"], ["☀️", "sun day"], ["❄️", "snow winter"]];
-const FACES = [["drawn", "studio.face.drawn", "Drawn face"], ["letters", "studio.face.letters", "Letters"], ["emoji", "studio.face.emoji", "Emoji"],
+const FACES = [["letters", "studio.face.letters", "Letters"], ["emoji", "studio.face.emoji", "Emoji"],
   ["photo", "studio.face.photo", "Photo"], ["pattern", "studio.face.pattern", "Pixel pattern"]];
 const SHAPE_WORDS = { circle: "Circle", squircle: "Soft square", leaf: "Leaf", acorn: "Acorn", shield: "Shield", hexagon: "Hexagon", pebble: "Pebble" };
 const MOTION_WORDS = { none: "None", breathe: "Breathe", sway: "Sway like a leaf", shimmer: "Shimmer", pulse: "Pulse while working", dots: "Dots while working" };
@@ -120,7 +120,7 @@ function newDraft() {
 function draftTrunk() {
   const d = studio.draft;
   const photo = d.look.face === "photo" ? d.photo ?? d.keptPhoto : null;
-  return { name: d.name || say("studio.newName", "New Trunk"), look: { ...d.look, face: d.look.face === "photo" ? "drawn" : d.look.face },
+  return { name: d.name || say("studio.newName", "New Trunk"), look: { ...d.look, face: d.look.face === "photo" ? "pattern" : d.look.face },
     avatar: photo ? { kind: "image", dataUrl: photo } : { kind: "face", seed: d.name } };
 }
 
@@ -194,7 +194,6 @@ function faceSection() {
   if (d.look.face === "photo") body.append(photoPicker());
   if (d.look.face === "pattern") body.append(button("", "studio.shuffle", "Shuffle", () => { d.look.shuffle = (d.look.shuffle + 1 + Math.floor(Math.random() * 997)) % 999999; drawPreview(); }),
     make("span", "studio-note", "studio.pattern.note", "Pixel art made from the name, dithered like the acorn."));
-  if (d.look.face === "drawn") body.append(make("span", "studio-note", "studio.drawn.note", "Two eyes and a smile made from the name. A new name makes a new face."));
   part.append(body);
   return part;
 }
@@ -323,18 +322,27 @@ function drawPreview() {
   const big = make("div", "studio-big");
   big.append(face(spec, 104, { status: "on", ground: "strip" }));
   const strip = make("div", "studio-strip-row");
-  // Integration review: each face says its own state underneath, so the words never wrap into a column of dots.
-  const states = [["on", "strip.status.on", "Ready"], ["wait", "strip.status.wait", "Needs you"], ["off", "strip.status.off", "Off"]];
+  // The three ways it can be, side by side, then said once in one line; each face still names its own state.
+  const states = [["on", "strip.status.online", "Online"], ["wait", "strip.status.wait", "Needs you"], ["off", "strip.status.off", "Off"]];
   strip.append(...states.map(([status, key, english]) => {
-    const one = make("span", "studio-state");
-    one.append(face(spec, 42, { status, ground: "strip" }), make("span", "", key, english));
+    const one = face(spec, 42, { status, ground: "strip" });
+    one.removeAttribute("aria-hidden");
+    one.setAttribute("role", "img");
+    one.setAttribute("aria-label", say(key, english));
     return one;
-  }));
+  }), make("span", "studio-state-line", "studio.preview.states", "online · needs you · off"));
+  strip.lastChild.setAttribute("aria-hidden", "true");
+  const header = make("div", "studio-header");
+  const home = make("span", "studio-header-home");
+  home.textContent = `${say("strip.here", "This computer")} / `;
+  const name = make("b");
+  name.textContent = studio.draft.name || say("studio.newName", "New Trunk");
+  header.append(face(spec, 22, { flat: true }), home, name);
   const reply = make("div", "studio-reply");
   const words = make("div", "studio-reply-words");
   words.append(Object.assign(make("small"), { textContent: studio.draft.name || say("studio.newName", "New Trunk") }), make("i"), make("i", "short"));
   reply.append(face(spec, 24, { flat: true }), words);
-  host.replaceChildren(big, make("p", "studio-h", "studio.preview.strip", "In the strip"), strip, make("p", "studio-h", "studio.preview.reply", "On its replies"), reply);
+  host.replaceChildren(big, make("p", "studio-h", "studio.preview.strip", "In the strip"), strip, make("p", "studio-h", "studio.preview.header", "In the conversation header"), header, make("p", "studio-h", "studio.preview.reply", "On its replies"), reply);
 }
 function footer() {
   const foot = make("div", "studio-foot");
@@ -347,7 +355,7 @@ function footer() {
 /* ---------- saving ---------- */
 function lookToSave() {
   const look = { ...studio.draft.look };
-  if (look.face === "photo") look.face = "drawn";
+  if (look.face === "photo") look.face = "pattern";
   if (look.face !== "letters") look.letters = "";
   return look;
 }
@@ -385,7 +393,9 @@ export async function openEdit(id, { rename = false } = {}) {
   await refresh();
   const trunk = findTrunk(id);
   if (!trunk) return toast(say("studio.gone", "That Trunk is no longer here."));
-  const look = { face: "drawn", letters: "", emoji: "🌱", shuffle: 0, colour: null, shape: null, motion: "none", depth: "flat", ...(trunk.look ?? {}) };
+  const look = { face: "pattern", letters: "", emoji: "🌱", shuffle: 0, colour: null, shape: null, motion: "none", depth: "flat", ...(trunk.look ?? {}) };
+  // DG-108: the drawn face is retired; a Trunk that still has it opens on the pixel pattern made from its name.
+  if (look.face === "drawn") look.face = "pattern";
   const spec = trunkSpec(trunk);
   if (look.colour === null) look.colour = Number(/series-(\d)/.exec(spec.colour)?.[1] ?? 1);
   if (look.shape === null) look.shape = spec.shape;

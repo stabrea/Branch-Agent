@@ -6,6 +6,7 @@ import { installDeviceHeaders } from "/device-headers.js";
 installDeviceHeaders();
 // Wave mac3 (commands): the command list is shown in the chosen language.
 import { applyLanguage, t } from "/i18n.js";
+import { taskWhen, taskWords } from "/task-state.js"; // Q51
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 /* One notice area, one timer. A second notice inside the six seconds has to cancel the first
@@ -322,6 +323,9 @@ async function showMemoryHistory(node, record) {
   }
   node.append(box);
 }
+/** Q54: a fact's kind in plain words, as it was recorded when the fact was saved (src/memory-layers.ts). */
+const memoryKinds = ["preference", "fact-about-person", "fact-about-world", "procedure-hint", "project-note", "task-scratch"];
+const kindName = (kind) => (memoryKinds.includes(kind) ? t(`memory.kind.${kind}`) : "");
 function memoryCard(record) {
   const node = recordCard(record.data.text);
   /* A saved fact is one line, so it keeps its heading and gets the inline formatting only:
@@ -330,6 +334,24 @@ function memoryCard(record) {
   node.dataset.memoryId = record.id;
   const edit = button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); });
   edit.disabled = memoryEditors.has(record.id);
+  // Q54-L1: Show recorded fields only: kind, conversation link (if run exists), source, revision
+  const metaLine = el("p", undefined, "memory-meta");
+  if (kindName(record.data.kind)) metaLine.append(el("span", kindName(record.data.kind), "memory-kind"));
+  // Add conversation link if originRunId or sourceRunId resolves to a run from state
+  const runId = record.data.originRunId || record.data.sourceRunId;
+  if (runId && state?.runs) {
+    const run = state.runs.find(r => r.id === runId);
+    if (run) {
+      if (metaLine.children.length > 0) metaLine.append(" · ");
+      const link = el("a", t("memory.from-conversation"), "memory-from");
+      link.href = "#";
+      link.addEventListener("click", (e) => { e.preventDefault(); displayView("chat"); openConversation(run.sessionId); });
+      metaLine.append(link);
+    }
+  }
+  if (metaLine.children.length > 0) metaLine.append(" · ");
+  metaLine.append(t("memory.revision", { n: record.revision }));
+  node.append(metaLine);
   if (record.data.entity) node.append(el("p", `About ${record.data.entity}${record.data.attribute ? " · " + record.data.attribute : ""} · from ${date(record.data.validFrom || record.createdAt)}${record.data.validTo ? " until " + date(record.data.validTo) : ""}`, "meta"));
   if (record.data.scope && record.data.scope !== "private") node.append(el("p", record.data.scope === "shared" ? "Specialists may see this" : `Only the ${record.data.scope.slice(6)} specialist sees this`, "meta"));
   node.append(el("p", record.data.source), el("p", date(record.createdAt), "meta"), edit,
@@ -1037,8 +1059,9 @@ function showUpdateStatus(status) {
   if (working) updatesTimer = setTimeout(() => window.branchDesktop.updateStatus().then(showUpdateStatus).catch(() => {}), installing ? 400 : 700);
 }
 async function renderUpdates() {
-  $("updates-card").hidden = !window.branchDesktop;
-  showVersions(null);
+  /* DG-192: the card is on show everywhere, as the sample's is; a browser has the version, not the checking or the channel. */
+  for (const id of ["updates-check", "updates-channel", "updates-channel-note"]) $(id).hidden = !window.branchDesktop;
+  showVersions(window.branchDesktop ? null : { phase: "unsupported" });
   if (!window.branchDesktop) return;
   try {
     const channel = (await api("comfort")).values.notify.releaseChannel;
@@ -1381,6 +1404,11 @@ function conversationButton(label, handler) {
 }
 let pendingFollowUps = 0;
 /** A message typed while the assistant is busy waits its turn in the same conversation. */
+/** Q58: the reply to a message that waits its turn, in the owner's language. */
+function queuedReply(position) {
+  if (position <= 1) return t("queue.reply.next");
+  return position === 2 ? t("queue.reply.afterOne") : t("queue.reply.afterMany", { n: position - 1 });
+}
 async function queueFollowUp(prompt) {
   try {
     // r17-h: wait, pass it on, or stop and go next, as the owner chose (public/flows-boards.js); null keeps the plain queue.
@@ -1388,7 +1416,7 @@ async function queueFollowUp(prompt) {
     const result = busy ?? await api(`sessions/${sessionId}/followups`, { prompt });
     $("prompt").value = "";
     message("user", prompt);
-    message("assistant", busy && busy.mode !== "queue" ? busy.message : result.position > 1 ? `Got it. I will do this after the ${result.position - 1} message(s) already waiting.` : "Got it. I will do this as soon as the current task finishes.");
+    message("assistant", busy && busy.mode !== "queue" ? busy.message : queuedReply(result.position));
     if (busy?.mode === "steer") return;
     pendingFollowUps++;
   } catch (e) { toast(e.message); }
@@ -1903,7 +1931,10 @@ function watchActivity(prompt) {
   const box = $("activity");
   const marks = { done: "✓", failed: "✗", stopped: "⏱", working: "…" };
   const render = (item) => {
-    box.replaceChildren(el("strong", item.current || "Finishing up"));
+    /* Q51: waiting for you, for a service, or blocked, in words, before what it last did. */
+    box.replaceChildren(el("strong", taskWords(item.task) || item.current || "Finishing up"));
+    const when = taskWhen(item.task);
+    if (when) box.append(el("p", when, "meta task-when"));
     const steps = item.steps.slice(-6);
     if (steps.length) box.append(el("p", steps.map((s) => `${marks[s.status] || ""} ${s.label}`).join("  ·  "), "meta"));
     if (item.followUps) box.append(el("p", `${item.followUps} message(s) waiting to be answered next`, "meta"));
@@ -1911,6 +1942,7 @@ function watchActivity(prompt) {
   };
   const poll = async () => {
     try {
+      /* Its own task is running while this polls; one that stops to ask ends the reply, so running tasks suffice. */
       const running = await api("activity");
       const mine = running.find((r) => (sessionId ? r.sessionId === sessionId : r.prompt === prompt));
       if (mine) render(mine); else if (!box.hidden) box.replaceChildren(el("strong", "Finishing up"));

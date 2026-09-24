@@ -105,8 +105,12 @@ test("first run comes first and the bar is its last question; Not now lasts unti
   assert.equal(await bar.count(), 0, "at most once each time the window opens");
   await f.open();
   await bar.waitFor({ state: "visible" });
+  /* The bar closes at once and saves the answer after; the window is only opened again once it is saved,
+     as a person reopening it seconds later would find (on a busy build machine the reload won the race). */
+  const saved = f.page.waitForResponse((response) => response.url().endsWith("/api/deployment/suggestion") && response.request().method() === "POST");
   await bar.getByRole("button", { name: "Don't ask again", exact: true }).click();
   await bar.waitFor({ state: "detached" });
+  assert.equal((await saved).ok(), true, "the answer was saved");
   await f.open();
   await f.page.waitForTimeout(800);
   assert.equal(await bar.count(), 0, "Don't ask again is kept");

@@ -68,7 +68,7 @@ function row(...children) {
 /** A change, then the cards drawn again; an error is said in the card's status line. */
 const act = (status, work) => async () => { try { await work(); await drawCards(); } catch (error) { tell(status, error); } };
 
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const PARTS = {
   "time-travel": ["flowsBoards.part.timeTravel", "Going back to an earlier step of a flow"],
   "recipe-checks": ["flowsBoards.part.recipeChecks", "Checks, clean-up and retries for saved procedures"],

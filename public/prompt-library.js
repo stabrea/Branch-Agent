@@ -34,10 +34,10 @@ function field(id, key, english, control) {
   label.htmlFor = id;
   return [label, control];
 }
-const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "Only when it is needed"]];
+const POSITIONS = [["off", "field.switch-off", "Off"], ["on", "field.switch-on", "On"], ["when-needed", "field.switch-when-needed", "When needed"]];
 const NOTES = {
   off: ["prompts.note.off", "Off: nothing is saved or offered, and a typed /name is what it always was."],
-  "when-needed": ["prompts.note.whenNeeded", "Only when it is needed: your commands work when you type them, but the / menu does not list them; /prompts does."],
+  "when-needed": ["prompts.note.whenNeeded", "When needed: your commands work when you type them, but the / menu does not list them; /prompts does."],
   on: ["prompts.note.on", "On: your commands work and every / menu lists them."],
 };
 const blanksOf = (body) => [...new Set([...String(body).matchAll(/\{\{\s*([a-z][a-z0-9_]{0,39})\s*\}\}/g)].map((m) => m[1]))]

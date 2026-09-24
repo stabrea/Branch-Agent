@@ -103,10 +103,12 @@ test("a question the task stopped on is drawn as one card with a warning edge", 
   assert.ok(ascii.plain.some((line) => /^\s*\| Branch needs your yes/.test(line)));
 });
 
-test("a tall terminal shows the window's key line under the hints; the head names the conversation", async () => {
+test("a tall terminal shows the window's two key lines under the hints; the head names the conversation", async () => {
   const tall = await draw(model(CHAT, { title: "Compare the three quotes" }), { columns: 120, rows: 40 });
-  assert.match(tall.plain[39], /Enter sends · Alt\+Enter adds a line · Up recalls · Ctrl\+E shows step details · Ctrl\+C stops the task · Ctrl\+D leaves/);
-  assert.match(tall.plain[38], /Ctrl\+P Side pane/);
+  // DG-155: the sample's terminal has two key lines, the message box's keys and then the places' keys.
+  assert.match(tall.plain[39], /Esc, then 1-5 \(or Alt\+1 to Alt\+5\): Conversation, Inbox, Automations, Library, Customize · Ctrl\+K or \/: find anything/);
+  assert.match(tall.plain[38], /Enter sends · Alt\+Enter adds a line · Up recalls · Ctrl\+E shows step details · Ctrl\+C stops the task · Ctrl\+D leaves/);
+  assert.match(tall.plain[37], /Ctrl\+P Side pane/);
   assert.match(tall.plain[0], /Conversation › Compare the three quotes/);
   const short = await draw(model(CHAT), { columns: 120, rows: 24 });
   assert.doesNotMatch(short.plain[23], /Enter sends/, "24 rows keep one line of hints");

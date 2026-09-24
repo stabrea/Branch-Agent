@@ -46,7 +46,7 @@ test("P1 the card is in Settings → General, starts off, has one filled button,
   await card.waitFor({ state: "visible", timeout: 10000 });
   assert.equal(await card.locator("h2").innerText(), "Signing in from other devices");
   assert.equal(await card.locator("#people-admin-mode").inputValue(), "off");
-  assert.equal(await card.locator("button:not(.quiet-button)").count(), 1, "one filled button");
+  assert.equal(await card.locator("button:not(.quiet-button):not(.sg-more)").count(), 1, "one filled button"); // "N more" can end the card (DG-199)
   assert.equal(await card.locator("[data-person] strong").innerText(), "Ada");
   await card.locator("#people-admin-mode").selectOption("on");
   await card.locator("#people-admin-save").click();
@@ -72,7 +72,7 @@ test("P2 at 400 px the card fits and every word has a key with real French", asy
   }, undefined, { timeout: 5000 }).then(() => true, () => false);
   assert.ok(fits, "the people admin switch fits inside 400 px");
   const unkeyed = await f.page.evaluate(() => [...document.querySelectorAll("#people-signin-admin h2, #people-signin-admin p, #people-signin-admin label, #people-signin-admin button, #people-signin-admin span")]
-    .filter((node) => node.children.length === 0 && node.textContent.trim() && !node.dataset.t && !node.dataset.tDrawn && !("given" in node.dataset) && !node.closest("[data-person]") && node.getAttribute("aria-live") !== "polite")
+    .filter((node) => node.children.length === 0 && node.textContent.trim() && !node.dataset.t && !node.dataset.tDrawn && !("given" in node.dataset) && !node.closest("[data-person]") && !node.closest(".sg-more-line") && node.getAttribute("aria-live") !== "polite")
     .map((node) => node.textContent.trim()));
   assert.deepEqual(unkeyed, []);
   const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));

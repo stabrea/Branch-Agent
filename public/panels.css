@@ -418,23 +418,17 @@ body.lx .composer-dock > * {
 body.lx .composer {
   background: color-mix(in srgb, var(--surface) calc(var(--comp-a, 0.92) * 100%), transparent);
 }
-:root:not([data-everything="on"]) body.lx #chat-form {
+:root body.lx #chat-form {
   padding: 5px 7px;
   background: color-mix(in srgb, var(--surface) calc(var(--comp-a, 0.88) * 100%), transparent);
 }
-:root:not([data-everything="on"]) body.lx #prompt {
+:root body.lx #prompt {
   min-height: 36px;
   padding: 6px 6px;
 }
-/* the full window's box starts at one line and grows as you type, instead of three empty lines */
-:root[data-everything="on"] body.lx #prompt {
-  field-sizing: content;
-  min-height: 44px;
-  max-height: 40vh;
-}
 @media (prefers-reduced-transparency: reduce) {
   body.lx .composer,
-  :root:not([data-everything="on"]) body.lx #chat-form {
+  :root body.lx #chat-form {
     background: var(--surface);
   }
 }
@@ -637,12 +631,12 @@ html:root[data-hide~="side-list"] .panels-rz[data-rz="rail"] {
 
 /* integrate/p2-panels: phase2/shell's Trunks strip. It sits at the left edge (at the foot on a phone), so the
    corner gear and the floating panel step clear of it; hidden, the window takes its room back. */
-@media (min-width: 861px) {
+@media (min-width: 761px) {
   body.lx.lx-strip {
     --panels-left: calc(var(--pane-gap) + var(--strip-w));
   }
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   body.lx.lx-strip {
     --panels-foot: calc(6px + 60px + 6px + env(safe-area-inset-bottom, 0px));
   }
@@ -655,7 +649,7 @@ html:root[data-hide~="strip"] body.lx {
 html:root[data-hide~="strip"] body.lx.lx-strip {
   padding: var(--pane-gap);
 }
-@media (max-width: 860px) {
+@media (max-width: 760px) {
   html:root[data-hide~="strip"] body.lx.lx-strip {
     padding: 6px;
   }

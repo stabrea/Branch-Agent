@@ -206,7 +206,7 @@ function certificates(field, id, value) {
   draw();
   const read = () => (pem.value.trim() ? [...list, { name: name.value.trim() || t("comfort.cert.unnamed"), pem: pem.value.trim() }] : list);
   const set = (v) => { list = [...v]; name.value = ""; pem.value = ""; draw(); };
-  return { nodes: [keyed("h3", "comfort.field.caCertificates"), holder,
+  return { nodes: [keyed("h4", "comfort.field.caCertificates", "settings-card-subtitle"), holder,
     ...labelled(`${id}-name`, "caName", name), ...labelled(`${id}-pem`, "caPem", pem)], read, set };
 }
 
@@ -241,7 +241,9 @@ function buildCard(spec) {
   card.className = "card";
   card.id = `comfort-${spec.id}-card`;
   card.dataset.home = spec.home;
-  card.append(keyed("h2", `comfort.${spec.id}.title`), keyed("p", `comfort.${spec.id}.lead`, "subtle"));
+  const settings = spec.home.startsWith("settings:");
+  card.append(keyed(settings ? "h3" : "h2", `comfort.${spec.id}.title`, settings ? "settings-card-title" : ""),
+    keyed("p", `comfort.${spec.id}.lead`, "subtle"));
   if (spec.warn) card.append(keyed("p", spec.warn, "field-note"));
   for (const danger of spec.dangers ?? []) card.append(keyed("p", danger, "field-note local-warning"));
   if (spec.id === "network" && view.network.proxy === "needs a newer Node") card.append(keyed("p", "comfort.network.old-node", "field-note"));
@@ -256,6 +258,12 @@ function buildCard(spec) {
   /* A card of choices saves the moment one is picked, as the sample's update cards do. */
   if (controls.some(([, c]) => c.instant))
     card.addEventListener("change", (event) => { if (event.target.type === "radio") row.querySelector("button")?.click(); });
+  /* DG-184: the sample saves how Branch gets your attention as you choose (DG-025), so that card has no Save. */
+  if (spec.id === "notify") {
+    const save = row.querySelector("button");
+    save.remove(); // still pressed below, out of sight
+    card.addEventListener("change", (event) => { if (event.target.matches("select")) save.click(); });
+  }
   return card;
 }
 function tryButton() {

@@ -880,6 +880,8 @@ export const ROUTES = {
   "/api/runs/:id/recording/page": "look",
   "/api/runs/:id/recording/path": "look",
   "/api/runs/:id/replay": "task POST",
+  // Q52: what a finished task made and how it was checked, read like its receipts beside it.
+  "/api/runs/:id/result": "look",
   "/api/runs/:id/resume": "task POST",
   "/api/runs/:id/steer": "task POST",
   "/api/runs/:id/stream": "look",

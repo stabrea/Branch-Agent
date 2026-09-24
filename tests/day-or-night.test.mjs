@@ -1,0 +1,100 @@
+/* DG-160: Appearance's day-or-night control reads as the approved sample's does (design/Branch-Grown-Up.html, the
+   live `lookHTML`): "Day or night", then Follow this computer, ☾ Moonlight and ☀ Daylight, with the note "Every theme
+   has both. Switching keeps the theme you chose." across the row beneath. The signs are pictures only; the word is
+   each choice's name. The saved value is still dark or light. Headless only. */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { discardTemp } from "./temp-dir.mjs";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+import { openSettings } from "./places.mjs";
+
+async function appearance(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-day-night-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  await fetch(new URL("/api/onboarding", server.url), {
+    method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }),
+  });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  errors.length = 0; // what failed before the key was given is the login page's business
+  await openSettings(page, "appearance");
+  await page.locator("#lx-mode .segmented-option").first().waitFor();
+  return { page, errors };
+}
+const control = (page) => page.evaluate(() => {
+  const host = document.getElementById("lx-mode"), row = host.closest(".lx-look-row"), group = host.querySelector(".seg");
+  return {
+    label: row.querySelector(".lx-look-label").textContent,
+    group: document.getElementById(group.getAttribute("aria-labelledby"))?.textContent,
+    shown: [...group.children].map((choice) => choice.textContent),
+    pressed: [...group.children].filter((choice) => choice.getAttribute("aria-pressed") === "true").map((choice) => choice.textContent),
+    signsHidden: [...group.querySelectorAll(".seg-sign")].every((sign) => sign.getAttribute("aria-hidden") === "true"),
+    note: row.querySelector(".lx-look-note")?.textContent,
+    noteBelow: row.querySelector(".lx-look-note")?.getBoundingClientRect().top >= group.getBoundingClientRect().bottom,
+    /* Across the row, as the sample's `.cn` (grid-column 1 / -1): from the label's left edge, on one line. */
+    noteAcross: (() => {
+      const note = row.querySelector(".lx-look-note"), box = note?.getBoundingClientRect();
+      return Boolean(box) && Math.abs(box.left - row.querySelector(".lx-look-label").getBoundingClientRect().left) < 1
+        && box.height < parseFloat(getComputedStyle(note).lineHeight) * 1.5;
+    })(),
+  };
+});
+
+test("DG-160: the choices read ☾ Moonlight and ☀ Daylight, named by their words, with the sample's label and note", async (t) => {
+  const { page, errors } = await appearance(t);
+  assert.deepEqual(await control(page), {
+    label: "Day or night", group: "Day or night",
+    shown: ["Follow this computer", "☾ Moonlight", "☀ Daylight"], pressed: ["☾ Moonlight"], signsHidden: true,
+    note: "Every theme has both. Switching keeps the theme you chose.", noteBelow: true, noteAcross: true,
+  });
+  assert.equal(await page.getByRole("group", { name: "Day or night", exact: true }).count(), 1, "the choices are named by the row's label");
+  const names = await page.locator("#lx-mode").getByRole("button").evaluateAll((choices) => choices.map((choice) => choice.textContent.trim()));
+  assert.equal(names.length, 3);
+  for (const name of ["Follow this computer", "Moonlight", "Daylight"])
+    assert.equal(await page.locator("#lx-mode").getByRole("button", { name, exact: true }).count(), 1, `one choice is named ${name}`);
+  assert.deepEqual(errors, []);
+});
+
+test("DG-160: Daylight really switches the window, keeps the theme, and is still chosen after a reload", async (t) => {
+  const { page, errors } = await appearance(t);
+  const palette = await page.evaluate(() => document.documentElement.dataset.palette);
+  await page.locator("#lx-mode").getByRole("button", { name: "Daylight", exact: true }).click();
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "daylight");
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.palette), palette, "switching keeps the theme you chose");
+  assert.deepEqual((await control(page)).pressed, ["☀ Daylight"]);
+  await page.getByRole("button", { name: "Save appearance", exact: true }).click();
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await openSettings(page, "appearance");
+  await page.waitForFunction(() => document.querySelector('#lx-mode .segmented-option[aria-pressed="true"]')?.textContent === "☀ Daylight");
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "daylight");
+  await page.locator("#lx-mode").getByRole("button", { name: "Follow this computer", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#lx-mode .segmented-option[aria-pressed="true"]')?.textContent === "Follow this computer");
+  assert.equal(await page.locator("#appearance-follow").isChecked(), true, "following is the real setting, not only a pressed button");
+  assert.deepEqual(errors, []);
+});
+
+test("DG-160: in French the words change and the signs stay", async (t) => {
+  const { page, errors } = await appearance(t);
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.waitForFunction(() => document.documentElement.lang === "fr");
+  await page.waitForFunction(() => document.querySelector("#lx-mode .segmented-option:nth-child(2)")?.textContent === "☾ Nuit");
+  const words = await control(page);
+  assert.equal(await page.getByRole("group", { name: "Jour ou nuit", exact: true }).count(), 1, "the choices' name follows the language");
+  assert.deepEqual({ label: words.label, group: words.group, shown: words.shown, note: words.note },
+    { label: "Jour ou nuit", group: "Jour ou nuit", shown: ["Comme cet ordinateur", "☾ Nuit", "☀ Jour"], note: "Chaque thème a les deux. Changer garde le thème que vous avez choisi." });
+  assert.deepEqual(errors, []);
+});

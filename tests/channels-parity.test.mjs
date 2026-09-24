@@ -321,7 +321,8 @@ test("the More chat apps card lists every service and fits a 400-pixel-wide wind
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  await openPlace(page, "customize:channels");
+  await openPlace(page, "settings:channels");
+  await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
   const card = page.locator("#channels-more-form");
   await card.waitFor({ state: "visible" });
   await page.locator("#channels-more-list > details").nth(parityServices.length - 1).waitFor({ state: "attached" });

@@ -154,6 +154,9 @@ $("session-autonomy")?.addEventListener("change", () => void choose("conversatio
 $("plan-mode-project")?.addEventListener("click", () => void choose("project"));
 $("chat-form")?.addEventListener("submit", () => { watchUntil = Date.now() + 60000; keepLooking(); });
 document.addEventListener("branch-language", () => void render());
+/* The choices are read once the key is given; before that the selects showed their first option, not the saved one. */
+if ($("workspace"))
+  new MutationObserver(() => { if (!$("workspace").hidden) void render(); }).observe($("workspace"), { attributes: true, attributeFilter: ["hidden"] });
 /* Opening another conversation changes this one attribute, and the card belongs to that one. */
 if ($("conversation"))
   new MutationObserver(() => void render()).observe($("conversation"), { attributeFilter: ["data-session-id"] });

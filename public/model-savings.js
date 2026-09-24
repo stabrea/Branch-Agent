@@ -89,9 +89,9 @@ function control(spec, field, value) {
   const key = field.key ?? field.name;
   if (field.kind === "connection") return connectionSelect(id, key, value, field.none);
   if (field.kind === "switch" || field.kind === "three" || field.kind === "bool") {
-    const modes = field.kind === "three" ? ["off", "on", "when-needed"] : ["off", "on"];
+    const modes = field.kind === "three" ? ["off", "when-needed", "on"] : ["off", "on"];
     const current = field.kind === "bool" ? (value ? "on" : "off") : value;
-    const { nodes, box } = select(id, key, modes.map((mode) => [mode, `savings.option.${mode}`]), current);
+    const { nodes, box } = select(id, key, modes.map((mode) => [mode, field.kind === "three" ? `field.switch-${mode}` : `savings.option.${mode}`]), current);
     return { nodes, read: () => (field.kind === "bool" ? box.value === "on" : box.value) };
   }
   if (field.kind === "select") {
@@ -131,7 +131,7 @@ function shell(id, home, warn) {
   card.className = "card";
   card.id = `savings-${id}-card`;
   card.dataset.home = home;
-  card.append(keyed("h2", `savings.${id}.title`), keyed("p", `savings.${id}.lead`, "subtle"));
+  card.append(keyed("h3", `savings.${id}.title`, "settings-card-title"), keyed("p", `savings.${id}.lead`, "subtle"));
   if (warn) card.append(keyed("p", warn, "field-note"));
   return card;
 }
@@ -199,7 +199,7 @@ function mixturesCard() {
   const refs = referenceTicks("savings-mixtures-references");
   const writer = connectionSelect("savings-mixtures-aggregator", "aggregator", null, "savings.option.pick");
   const cap = Object.assign(document.createElement("input"), { type: "number", min: "64", max: "4096", step: "1", value: "1024" });
-  card.append(keyed("h3", "savings.mixture.add"), ...labelled("savings-mixtures-name", "mixtureName", nameBox),
+  card.append(keyed("h4", "savings.mixture.add", "settings-card-subtitle"), ...labelled("savings-mixtures-name", "mixtureName", nameBox),
     ...refs.nodes, ...writer.nodes, ...labelled("savings-mixtures-cap", "referenceMaxTokens", cap));
   const add = () => {
     const name = nameBox.value.trim();
