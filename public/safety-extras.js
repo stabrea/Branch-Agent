@@ -61,7 +61,8 @@ function card(id, titleKey, title, purposeKey, purpose) {
   const node = make("section", "card");
   node.id = id;
   node.dataset.home = HOME;
-  node.append(make("h2", "", titleKey, title), make("p", "subtle", purposeKey, purpose));
+  /* DG-008: a card inside a section of Settings has a title one level under the page's. */
+  node.append(make("h3", "settings-card-title", titleKey, title), make("p", "subtle", purposeKey, purpose));
   const status = make("p", "subtle");
   status.setAttribute("role", "status");
   return { node, status };

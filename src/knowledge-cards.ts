@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canAccessSession } from "./history.js";
 import { detectInjection } from "./content-guard.js";
 import type { KnowledgeBases } from "./knowledge-bases.js";
 import type { Proposal } from "./memory-review.js";
@@ -53,8 +54,10 @@ export class KnowledgeCards {
     private readonly models?: ModelRouter,
   ) {}
   /** Suggests cards from one finished conversation. Nothing is added; the owner decides. */
-  async propose(owner: string, input: unknown, signal?: AbortSignal): Promise<{ collection: string; staged: Proposal[]; reason: string }> {
+  async propose(owner: string, input: unknown, signal?: AbortSignal, agent?: string): Promise<{ collection: string; staged: Proposal[]; reason: string }> {
     const { sessionId, collection } = ProposeCardsSchema.parse(input);
+    if (agent && !canAccessSession(this.store.sqlite, sessionId, agent))
+      throw new Error("That conversation is not one you participated in");
     const target = this.bases.one(owner, collection);
     const digest = conversationDigest(this.store.messages(sessionId) as { role: string; content: string }[]);
     if (!digest.trim()) return { collection: target.id, staged: [], reason: "That conversation has nothing in it yet." };
@@ -154,6 +157,6 @@ export function registerKnowledgeCards(registry: ToolRegistry, cards: KnowledgeC
     name: "knowledge.propose", permission: "documents.write",
     description: "Suggest fact cards from a finished conversation. Suggestions only; the owner accepts them.",
     parameters: ProposeCardsSchema,
-    execute: async (input, context) => cards.propose(context.owner, input, context.signal),
+    execute: async (input, context) => cards.propose(context.owner, input, context.signal, context.agent),
   });
 }

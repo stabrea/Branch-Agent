@@ -1,13 +1,13 @@
 import { app, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
 import { launchHandOver } from "./hand-over.js";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Updater, UpdateDeferredError, type UpdateChannel } from "./updater.js";
 import { appEntryName, releaseAssetName } from "./release-assets.js";
 import { installedAppRoot } from "./install-root.js";
 import { macSettingsLinks } from "../os-permissions.js";
 import { UpdateInstallClaim } from "./update-install-claim.js";
+import { builtFrom } from "./build-identity.js";
 
 export const updateSource = {
   repo: "stabrea/Branch-Agent",
@@ -47,13 +47,6 @@ export interface UpdateHooks {
   record?: (stagedDir: string, version: string) => Promise<void>;
 }
 
-/** The commit written into this build by scripts/package-desktop.mjs, or null for a copy built without one. */
-export function builtFrom(appPath: string): string | null {
-  try {
-    const commit = JSON.parse(readFileSync(join(appPath, "dist", "build-info.json"), "utf8"))?.commit;
-    return typeof commit === "string" && /^[0-9a-f]{40}$/.test(commit) ? commit : null;
-  } catch { return null; }
-}
 
 export function registerUpdaterIpc(
   window: BrowserWindow, origin: string, version: string, requestQuit: () => void,
@@ -73,7 +66,7 @@ export function registerUpdaterIpc(
     packaged: app.isPackaged,
     scratchDir: join(app.getPath("temp"), "branch-agent-update"),
     // Dev channel: which change this copy was built from, and Branch's own clone of its source to build the next one.
-    currentCommit: builtFrom(app.getAppPath()),
+    currentCommit: builtFrom(app.getAppPath(), app.isPackaged),
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
     ...(hooks?.canary ? { canary: hooks.canary } : {}),
@@ -123,12 +116,13 @@ export function registerUpdaterIpc(
         // The background engine is already closed by this point, so say so if the hand-over cannot start.
         await launchHandOver(script, process.pid).catch((error: unknown) => {
           const why = error instanceof Error ? error.message : String(error);
-          throw new Error(hooks?.stopDaemon
+          throw new Error(updater.backgroundStopped
             ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
             : `The update could not be started: ${why}.`);
         });
       } catch (error) {
-        updater.release();
+        // Q55: nothing was swapped, so the status says what is still installed instead of "Restarting…".
+        updater.failed(error instanceof Error ? error.message : String(error));
         throw error;
       }
       const status = updater.applying();

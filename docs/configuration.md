@@ -2019,9 +2019,9 @@ Routes: `GET`/`POST /api/trace/settings` with `{ "enabled": boolean, "folder": s
 
 ### Activity log and Report a problem (mac7/diagnostics)
 
-**Settings → Advanced → Activity log** keeps one file of plain JSON lines, `<data folder>/logs/branch.jsonl`, that every part of Branch writes to: tasks, chat apps, outside tool servers, the updater, failed requests (each with a short request id) and script errors in the window. It is a three-way switch that ships **off**: *off* writes nothing, *when needed* writes warnings and errors, *on* writes everything from "info" up. Keys, tokens, sign-in headers, cookies, email addresses, your home folder and other people's, and network share names are removed as each line is written, never later. The log is kept to at most five files within `maxMegabytes` (1 to 200, default 20) and files older than `keepDays` (1 to 90, default 14) are removed. Stored in `settings/diagnostic-log` as `{ "mode": "off" | "when-needed" | "on", "keepDays": number, "maxMegabytes": number, "crashCapture": "off" | "on" }` (a save changes only the fields it sends); `GET`/`POST /api/diagnostics/log/settings`, `GET /api/diagnostics/log?component=&level=&task=&limit=`, `POST /api/diagnostics/log/clear`. `branch report log` reads it from the terminal.
+**Settings → Advanced → Activity log** keeps one file of plain JSON lines, `<data folder>/logs/branch.jsonl`, that every part of Branch writes to: tasks, chat apps, outside tool servers, the updater, failed requests (each with a short request id) and script errors in the window. It is a three-way switch that ships at **when needed**, one of the few things in Branch that is on from the start, so a person whose Branch breaks early has something to send: *off* writes nothing, *when needed* writes warnings and errors, *on* writes everything from "info" up. Keys, tokens, sign-in headers, cookies, email addresses, your home folder and other people's, and network share names are removed as each line is written, never later. The log is kept to at most five files within `maxMegabytes` (1 to 200, default 20) and files older than `keepDays` (1 to 90, default 14) are removed. Stored in `settings/diagnostic-log` as `{ "mode": "off" | "when-needed" | "on", "keepDays": number, "maxMegabytes": number, "crashCapture": "off" | "on" }` (a save changes only the fields it sends); `GET`/`POST /api/diagnostics/log/settings`, `GET /api/diagnostics/log?component=&level=&task=&limit=`, `POST /api/diagnostics/log/clear`. `branch report log` reads it from the terminal.
 
-**Crash capture** (`crashCapture`, *Keep crash notes* on the same card) is a second switch, off / on, and ships **off** (mac7/coding-next). On, and on this computer only: an engine crash is written to `logs/crashes.jsonl` (at most five files of 512 KB) with the last 30 things that happened before it, and the desktop app starts Electron's crash reporter with uploading switched off, so crash files stay in the app's own crash folder. Nothing is ever sent anywhere. The engine's crash notes follow the switch at once; the desktop app reads it when it starts (from `logs/crash-capture.json`, which the engine writes whenever the setting is saved), so **for the app's own crash files a change applies at the next start**. Off, a crash still reaches the task record as it always did (`src/tracing.ts`) and, when the activity log is on, one "Crashed:" line in it; no crash note and no crash file is kept. Report a problem works either way: with crash capture off it simply has no crash notes or crash files to offer.
+**Crash capture** (`crashCapture`, *Keep crash notes* on the same card) is a second switch, off / on, and ships **on**, for the same reason. On, and on this computer only: an engine crash is written to `logs/crashes.jsonl` (at most five files of 512 KB) with the last 30 things that happened before it, and the desktop app starts Electron's crash reporter with uploading switched off, so crash files stay in the app's own crash folder. Nothing is ever sent anywhere. The engine's crash notes follow the switch at once; the desktop app reads it when it starts (from `logs/crash-capture.json`, which the engine writes whenever the setting is saved; before that file exists it keeps crash files, as shipped, and a damaged file means off), so **for the app's own crash files a change applies at the next start**. Off, a crash still reaches the task record as it always did (`src/tracing.ts`) and, when the activity log is on, one "Crashed:" line in it; no crash note and no crash file is kept. Report a problem works either way: with crash capture off it simply has no crash notes or crash files to offer.
 
 **Settings → Updates & about → Report a problem** (or `branch report`) gathers what a developer needs: versions and system, health checks, what is running, which settings are on (switch-like values only; keys and free text left out), the recent activity log, crash notes and the names of crash files, updates and rollbacks, the shape of recent tasks (never your messages, replies or files), disk space and whether three common service names can be looked up (skipped under Lockdown). You read every part and remove any of it; then save a zip, or open GitHub's issue form in your browser with a title and a short description filled in and attach the zip yourself. Nothing is sent until you press Submit there. The routes (`POST /api/diagnostics/report`, `/report/save`, `/report/issue`) are the owner's alone: a short-lived key and a household profile are refused, reading included.
 
@@ -2118,6 +2118,8 @@ Both have a three-way switch in **Settings**, and both ship **off**, which is ex
 **Trusted folders.** `GET /api/folder-trust` gives the switch (`mode`, `FolderTrustSettingsSchema`) and lists the workspace and every project folder with what each holds for AI assistants and whether it is `trusted`, `untrusted` or `unknown`. `POST /api/folder-trust { mode }` changes the switch; `POST /api/folder-trust { folder, decision: "trust" | "distrust" }` answers for a folder written relative to the workspace (`""` is the workspace itself). A decision covers everything inside the folder and the closest one wins. What counts is one list, `assistantFolderItems` in `src/folder-trust.ts`: notes (`AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `GEMINI.md`, `.hermes.md`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `MEMORY.md`, `HEARTBEAT.md`, `TOOLS.md`, `SOP.md`, up to three folders deep), AI tool server lists (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.gemini/settings.json`), skills, hooks and plugin folders. They are only listed: note files are never opened, and settings files are read for their entry names alone.
 
 Any part of Branch that reads what a folder carries asks `isFolderTrusted(store, owner, path)` (or `runtime.guards.isFolderTrusted(path)`) first; a loader that cannot wait, and has already found a file to read, asks `folderAllows(store, owner, path)`, which gives the same answer without looking at the disk. **Off:** always yes. **On:** only for a folder the owner trusts. **When needed:** for a trusted folder, or for one nobody has decided about that holds nothing on the list. A folder the owner does not trust is always no. With the switch on or when needed, a task whose own folder (the workspace, or the active project's `folder`) is not trusted asks before every change, even with approvals switched off; deny and ask rules are kept and standing yeses are dropped. That fallback follows only the task's own folder: distrusting `vendor/` inside a trusted workspace keeps what `vendor/` holds out without making writes there ask. A folder that needs an answer shows a question on the chat screen, and a task started there writes `folder.trust_needed` once per launch. A short-lived key cannot change either switch or any answer. Every answer and every change of the switch is written to the record as `policy.changed`.
+
+The launch's integrations file (`BRANCH_INTEGRATIONS`) follows the same answer when it sits inside the workspace. From a folder that may not be read, none of the file is used: not its web and network settings, chat apps, AI tool servers or hooks, and not its browser, command, git or issue tracker settings, since each of them can change where Branch connects, what it runs or what it allows. The owner is told once, in one line naming the sections left out, and the launch-file card shows the same list. A file outside the workspace is the owner's. A file that is itself a link counts only when both where it is written and where it really is may be read.
 
 **macOS and Linux.** Both work the same on every system. Folder decisions compare paths with letter case on macOS and Linux and without it on Windows. Note files are listed whatever their letter case, since the usual macOS disk (and Windows) ignores case. A skills or plugin folder that is a link is never looked into.
 
@@ -4388,7 +4390,12 @@ a note left behind by a crash is removed rather than trusted.
 
 **Reaching Branch from a phone.** Off by default. `POST /api/deployment/remote` with
 `{ "enabled": true }` asks `tailscale status --json` where this computer sits on its private network
-and opens a *second* listener bound to that address alone. The address must be inside
+and opens a *second* listener bound to that address alone. Tailscale's program is looked for where
+Tailscale installs it first (on a Mac the app's own
+`/Applications/Tailscale.app/Contents/MacOS/Tailscale`, then `/usr/local/bin` and `/opt/homebrew/bin`;
+on Linux `/usr/bin`, `/usr/local/bin` and `/usr/sbin`; on Windows the Tailscale folders under Program
+Files), and on `PATH` last. The whole check gets three seconds: a program still running then is
+ended, and nothing counts as confirmed. The address must be inside
 `100.64.0.0/10`, which is the range Tailscale hands out; anything else, including `0.0.0.0`, is
 refused. The loopback listener is untouched. While remote access is on, the Host and Origin checks
 (one shared `hostAllowed` used by the request handler, the API authorisation and the WebSocket
@@ -4480,7 +4487,7 @@ Settings → Computer, with two positions:
 | `where` | What it means |
 | --- | --- |
 | `this-computer` | `127.0.0.1`. Only this computer can reach Branch. This is how it ships. |
-| `private-network` | Every address this computer answers on. Anything that can reach this computer over your private network — another machine in the house, the computer running a container, a phone on the same Wi-Fi — can now open a connection to Branch. |
+| `private-network` | Every IPv4 address this computer answers on. Anything that can reach this computer over your private network — another machine in the house, the computer running a container, a phone on the same Wi-Fi — can now open a connection to Branch. |
 
 Be plain with yourself about the second one: you are moving Branch from "nobody but me, on this
 machine" to "anybody who is already on my network, if they have the key". That is a real change and
@@ -4529,13 +4536,38 @@ Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
 - **This computer answers at an address that is not private.** A machine with a public address would
   be putting Branch on the internet, which this setting is not for and will not do. "Private" is the
   same idea the network rules already use for addresses the assistant may not reach
-  (`10.x`, `172.16–31.x`, `192.168.x`, `169.254.x`, link-local and unique-local IPv6), plus a
-  Tailscale address, which Branch already treats as private for the phone door.
+  (`10.x`, `172.16–31.x`, `192.168.x`, `169.254.x`, link-local and unique-local IPv6), plus the
+  address Tailscale itself reports as this computer's. Tailscale's addresses come from
+  `100.64.0.0/10`, which other networks hand out too, so an address in that range counts as private
+  only when Tailscale, running on this computer, says it is this computer's own. With Tailscale not
+  installed, not connected or not answering within three seconds (the same check as for reaching
+  Branch from a phone, above), such an address keeps Branch on `127.0.0.1`; connect Tailscale and
+  start Branch again.
+  An IPv6 address that is not private is the one exception. The wider door is `0.0.0.0`, the IPv4
+  wildcard, which a connection over IPv6 never reaches. So when every IPv4 address this computer
+  answers on is private, Branch listens on those private IPv4 networks only and says so, on the
+  start-up line and as `ipv4Only` in `GET /api/listen`; the names it answers to then leave out the
+  IPv6 addresses. With no IPv4 network at all, it stays on `127.0.0.1`.
 - **There is no local key.** Without the session token there would be nothing for the door to ask
   for, so Branch will not open it.
 - **This computer answers on no address beyond itself.** With no network address there is nowhere to
   be reached from, so a wider socket buys nothing — and opening one on the strength of having found
   nothing is exactly how a mistake turns into an open door.
+
+**When this computer's addresses change while Branch runs.** The door is decided on the addresses
+this computer has when Branch starts, and a computer can gain one later. So while the door is open
+wider than this computer, Branch reads its addresses again every 15 seconds (`addressCheckMs`), and
+when they have changed it makes the same decision again, asking Tailscale again when a 100.64
+address is there. When the answer is narrower — because a public IPv4 address has arrived, or a
+100.64 address Tailscale does not report, or a global IPv6 address with no private IPv4 network to
+stay on — the wider socket is closed there and then, anything connected to it from beyond this computer is
+dropped, and Branch keeps answering on `127.0.0.1`, the same way as when Lockdown comes on. Why is
+said once, on a `Branch Agent:` line and as `refusal` in `GET /api/listen`, which also says
+`closedWhileRunning`. Nothing opens the door again while Branch runs, whatever the addresses do
+next: when they would let it open, `restartOpens` in `GET /api/listen` says so, and starting Branch
+again opens it. Under Lockdown it never says so. While the door stays open, an address that goes
+away is taken out of the names it answers to at once, and a new one is only added by the next start.
+A reading that fails changes nothing.
 
 **Who may read it, and who may change it.** Both are the owner's, in the app window or their own
 terminal, and nobody else’s. Being told where the door is is being told where to knock, so looking
@@ -4544,7 +4576,8 @@ household person, a signed-in person, a short-lived key, a Trunk's message from 
 message from a chat app and work another assistant or program started are each refused in plain
 words. Lockdown is the one exception to the reading rule: the owner can still see their own card
 while Lockdown is on, because that card is where it says Lockdown is why Branch is narrow. A change
-takes effect the next time Branch starts.
+takes effect the next time Branch starts. Going back to this computer only can take effect sooner:
+the next time this computer's addresses change, the door is decided again and closes.
 
 **In a container.** A container has no window to turn the setting on in, so it can be asked for with
 the environment name `BRANCH_LISTEN=private-network`. It asks for exactly the same thing the setting
@@ -4554,6 +4587,13 @@ With it, `docker run -e BRANCH_LISTEN=private-network -p 3210:3210 …` works an
 `--network host`. It is read when Branch starts, and it is the one thing on this card that cannot be
 turned off from the card: the settings screen shows what the door is really doing, but you take the
 wider door away again by starting the container without that line, not by changing the setting.
+
+**What the window shows.** The card **How Branch runs on this computer**, in Settings, has one line
+made from `GET /api/listen`: whether Branch listens beyond this computer on every address, beyond it
+on private IPv4 networks only, or on this computer only, with the address the door is on. When the
+door was closed while Branch ran, the line says so with Branch's own reason, or, once this computer's
+addresses would let a start open it again, that starting Branch again opens it. The line is in
+English and French; the reason is Branch's own English sentence. Anyone but the owner sees no line.
 
 Routes: `GET /api/listen` and `POST /api/listen`, both the owner's alone. The setting is saved under
 `listen-address`.
@@ -4892,6 +4932,33 @@ given the secrets locker at all, so there is no path by which a saved password c
   down, because ticking "use my screen and keyboard" is not the same as saying "run programs from
   my workspace". Running something has its own switch: the host-command tool.
 - **Windows only.** All of it rests on Windows PowerShell 5.1, UI Automation and `user32`.
+## The shared Linux desktop (FQ-execution.desktop)
+A throwaway Linux desktop of its own, separate from this computer's screen: Xvfb draws it inside a
+Docker container and x11vnc serves it on `127.0.0.1` only, with a fresh password each time. The
+assistant starts and works it with `desktop.shared.start`, `desktop.shared.open` (`xdotool exec`),
+`desktop.shared.type`, `desktop.shared.key` and `desktop.shared.stop`, all behind the
+`desktop.control` permission. (Code: `src/integrations/linux-desktop.ts`,
+`src/integrations/linux-desktop-tools.ts`, `src/integrations/linux-desktop-banner.ts`.)
+- **The switch.** Settings → Computer & browser → **Shared Linux desktop** (the Grown-Up sample has
+  no place for it, so it sits with the other desktop control, straight after "Using your screen and
+  keyboard"). It writes `linux-desktop` as `{ mode, image }` and ships `off`. The switch is read
+  again before every start and every action, and switching it off takes a running desktop down at
+  once; so does Lockdown, and the desktop reads as off for as long as Lockdown is on.
+- **Taking over.** While a desktop runs, a notice with a **Take over** button sits on top of
+  everything (on Windows a PowerShell window; on a Mac or Linux the desktop app's own notice window,
+  the same one the screen control Stop notice uses, with its own words). The Settings card has a
+  Take over button too, for a computer with nowhere to show a notice. Once the owner takes over,
+  `desktop.shared.start`, `desktop.shared.stop` and every action are refused until the owner presses
+  **Hand back** on the card. No tool hands it back.
+- **Routes.** `GET /api/linux-desktop` returns `{ mode, image, running, control }` and never the VNC
+  password. `POST /api/linux-desktop` saves `mode` and/or `image`; `POST /api/linux-desktop/take-over`
+  and `POST /api/linux-desktop/hand-back` do what they say. All three changes are the owner's alone:
+  a household profile and a short-lived key are refused.
+- **The image.** Nothing is ever pulled (`--pull=never`), and the repository does not build the
+  default image `branch-linux-desktop:latest`. A minimal recipe is in
+  `docs/examples/linux-desktop/Dockerfile` (`docker build -t branch-linux-desktop:latest
+  docs/examples/linux-desktop`); it has not been built or run as part of the test suite, which only
+  ever uses a fake Docker. Any image with `sh`, `Xvfb`, `x11vnc` and `xdotool` on its path works.
 ## The client library, issue context, and what the assistant was allowed to do (batch 19, wave 6)
 ### A client for scripts on this computer
 `packages/sdk/` is a single file of plain JavaScript that talks to the Branch Agent already running
@@ -5284,7 +5351,8 @@ one that counts, so anything wrong or missing can simply be corrected there. It 
 incomplete and is not kept up to date for you.
 
 **People who share this computer.** `POST /api/profiles` gives somebody else a name and a PIN of
-four to eight digits (the PIN is stored only as a scrypt hash), `POST /api/profiles/switch` moves
+four to eight digits (the PIN is stored only as a scrypt hash), and may carry `role` (`"adult"`, the
+default, or `"child"`) so they are added with it in one step; `POST /api/profiles/switch` moves
 between them and back to the owner (`{ profileId: null }`), and `POST /api/profiles/:id/remove`
 removes one. Only the owner may add or remove people. Five wrong PINs in a row stop that profile
 accepting any for five minutes. While somebody's profile is switched on, the conversation list,
@@ -6510,7 +6578,9 @@ Each person's card on the People screen shows their role and what they are held 
 
 New routes: `GET|POST /api/profiles/{id}/role` (only the owner may set one). The grant is
 `{ role, categories, projects, dailySpendLimit }`; `categories` uses the same seven kinds the
-approval settings group tools by.
+approval settings group tools by. In `GET /api/profiles`, each entry of `roles` has the saved
+`grant`, the `effective` grant Branch really holds that person to (their role, narrowed by any group
+they are in), and `categories`, the kinds that effective grant allows.
 
 ## Doing a task again, and reading the difference (batch 26, wave 8)
 
@@ -8677,6 +8747,9 @@ check does. The owner can change `shell.timeoutMs`, `shell.maxOutputBytes`, `she
 `commandOutputBytes`, `commandsOffline`, `browserSites`). The whole file is checked against the
 launch schema before it is replaced in one step (through a spare copy with an unguessable name; a
 linked file keeps its link and the file it points at is written), and the change is used from the next start.
+When a start left the file out because its folder is not trusted, the card names the sections it
+left out (`facts.leftOut`), asks for the folder to be trusted and Branch restarted, and counts nothing
+from those sections as set up.
 
 **macOS and Linux.** Nothing here depends on the system. The command timeout and extra variables
 apply to the same program list on every system; the loader names refused include the macOS
@@ -9400,6 +9473,16 @@ the owner's alone like the rest of the settings kit. `GET /api/pins` answers the
 settings — names and fixed values only — to anybody who uses this computer, which is how a household
 profile is shown that a setting is pinned. `GET /api/settings-kit` now marks each field `pinned`, and
 `POST /api/settings-kit/apply` answers `skipped` beside `applied`.
+
+**A setting that cannot be changed right now (Q65).** A setting may refuse to be changed from the kit
+while its saved record cannot be read (voice, whose own card stops on such a record rather than starting
+again from how Branch ships). The refusal is decided when the changes are worked out, so it is listed in
+`refused` by `/api/settings-kit/preview` and `/api/settings-kit/apply` while every other change in the
+same plan is made and written down once. `GET /api/settings-kit` gives each setting `refused` (the reason,
+or null) and `canPutBack`; `POST /api/settings-kit/put-back` with `{ key }` replaces the whole unreadable
+record with how Branch ships it ("Put voice settings back as shipped", under Put settings back). It is the
+owner's alone and refused while Lockdown is on. `settings.change` and `settings.loosen` are refused while
+Lockdown is on, as the window's changes are.
 
 macOS and Linux: nothing in either of these two sections depends on the operating system, except
 which spotter and which recorder the wake word can use, both set out above. The tests

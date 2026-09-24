@@ -248,7 +248,7 @@ export function cleanAnswer(text: string, status: number, secrets: Record<string
 
 export function registerOpenApiTools(registry: ToolRegistry, tools: OpenApiTools): void {
   registry.register({
-    name: "tools.from_openapi", permission: "skills.write", group: "skills",
+    name: "tools.from_openapi", reach: "outbound", permission: "skills.write", group: "skills",
     description: "Turn a service's own OpenAPI description into tools, one for each operation you allow. Say where the description is, which operations may be used, and which saved secret holds the key. Use dryRun first to see what you would get.",
     parameters: FromOpenApiSchema,
     target: (args) => `tools from ${args.url ?? args.file} as api.${args.name}`,

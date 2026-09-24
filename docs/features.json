@@ -850,22 +850,25 @@
       "family": "execution",
       "name": "Browser automation screenshots and persistent sessions",
       "acceptance_criterion": "Complete a multi-page browser fixture with screenshots and preserve the authorized browser session between steps.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/integrations/browser.ts",
           "src/integrations/browser-profiles.ts",
           "tests/browser.test.mjs",
-          "tests/browser-more.test.mjs"
+          "tests/browser-more.test.mjs",
+          "tests/browser-session.test.mjs"
         ],
         "tests": [
           "isolated browser completes form workflow and refuses destinations outside configured origins",
           "a screenshot is kept as a signed run artifact and shown to a model that can look at pictures",
-          "a saved sign-in keeps a cookie across two tasks and holds nothing readable on disk"
+          "a saved sign-in keeps a cookie across two tasks and holds nothing readable on disk",
+          "one signed-in session carries across two pages, and the picture of the page is a real picture",
+          "a picture of each page, taken while the same signed-in session carries across them"
         ],
-        "detail": "Screenshots, a form flow and a saved sign-in are each tested, but not as one multi-page run."
+        "detail": "One run signs in once and walks to two further pages by following the site's own links, and the site's own record shows one session made and both inner pages fetched under that same session id, with the attempt before signing in fetched under none. A picture is taken of each page and each is opened as a real PNG at page size, the two are asserted to differ, and the last is listed among what the run kept."
       },
-      "remaining": "One multi-page fixture that screenshots each step while the same signed-in session carries across pages."
+      "remaining": ""
     },
     {
       "id": "execution.desktop",

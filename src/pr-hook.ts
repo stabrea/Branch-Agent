@@ -11,6 +11,14 @@ import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 import type { WorkspaceFiles } from "./files.js";
 import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
+import { pushRefusal } from "./self-development-contract.js"; // Q12
+
+// The branch a pull request asks to join, for the saved setting and the tool alike. A tool's pattern
+// is sent to the model, and the ChatGPT endpoint refuses the whole request when one holds a lookahead
+// (see `branchName` in integrations/git-tools.ts). So the pattern says what each character may be,
+// with no dash first, and "no .." is a check beside it.
+const baseBranch = z.string().regex(/^[A-Za-z0-9._/][A-Za-z0-9._/-]{0,99}$/)
+  .refine((value) => !value.includes(".."), "No .. in a branch name");
 
 /**
  * Opening a pull request from a task's changes (A0300, after SWE-agent's "open PR" hook).
@@ -34,7 +42,7 @@ export const PullRequestHookSettingsSchema = z.object({
   mode: FeatureModeSchema.default("off"),
   remote: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,39}$/).default("origin"),
   /** The branch the pull request asks to join; the remote's own default when not given. */
-  base: z.string().regex(/^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/).optional(),
+  base: baseBranch.optional(),
 }).strict();
 export type PullRequestHookSettings = z.infer<typeof PullRequestHookSettingsSchema>;
 const KEY = "pull-request-hook";
@@ -77,6 +85,8 @@ interface PullRequestInput {
   paths: string[] | null;
   signal: AbortSignal;
   runId?: string | undefined;
+  /** Q12: the finished task the hook sends work for, named in the record only (the hook still works as itself). */
+  auditRunId?: string | undefined;
   targetRepository?: string | undefined;
   base?: string | undefined;
 }
@@ -153,6 +163,10 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: PullR
   };
   const refusal = deps.preflight?.("github.open_pull_request", opening, input.runId);
   if (refusal) throw new Error(refusal);
+  // Q12: a push from Branch's own source is held to its contract here, where it happens, whoever asked for it.
+  const heldBack = await pushRefusal({ store: deps.store, owner: deps.owner, workspace: deps.files.root, git: deps.git,
+    folder: cwd, runId: input.runId ?? input.auditRunId, signal: input.signal });
+  if (heldBack) throw new Error(heldBack);
   await gitText(deps, cwd, ["switch", "--create", head], input.signal);
   // Names are taken literally (a "*" is a file called "*"), and only the named files are committed,
   // whatever else happened to be staged already.
@@ -232,7 +246,7 @@ export function watchFinishedTasks(deps: PullRequestDeps, track: (work: () => Pr
     const prompt = run?.prompt ?? "";
     const title = `Branch: ${prompt.split("\n")[0]!.trim().slice(0, 150) || "changes from a task"}`;
     const summary = `${prompt.trim().slice(0, 4000)}\n\nOpened by Branch when task ${runId.slice(0, 8)} finished.`;
-    track(() => pullRequestFromChanges(deps, { name: `task-${runId.slice(0, 8)}`, title, summary, paths, signal: AbortSignal.timeout(300000) })
+    track(() => pullRequestFromChanges(deps, { name: `task-${runId.slice(0, 8)}`, title, summary, paths, auditRunId: runId, signal: AbortSignal.timeout(300000) })
       .then((opened) => note(deps, runId, "pull_request.opened", { repository: opened.repository, branch: opened.branch, base: opened.base, files: opened.files.length }))
       .catch((error: unknown) => note(deps, runId, "pull_request.failed", { reason: error instanceof Error ? error.message.slice(0, 500) : "unknown" })));
   });
@@ -262,9 +276,10 @@ export function registerPullRequestFromChanges(deps: PullRequestDeps): void {
       name: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,50}$/, "Use lowercase letters, digits, dots, dashes and underscores"),
       title: z.string().trim().min(1).max(200),
       summary: z.string().trim().min(1).max(8000),
-      paths: z.array(z.string().min(1).max(500).regex(/^(?!-)[^\\:\0]+$/)).max(200).optional(),
+      // No dash first, and no backslash, colon or NUL: the git tools' own file path pattern.
+      paths: z.array(z.string().min(1).max(500).regex(/^[^\\:\0-][^\\:\0]*$/)).max(200).optional(),
       targetRepository: z.string().regex(/^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/).optional(),
-      base: z.string().regex(/^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/).optional(),
+      base: baseBranch.optional(),
     }).strict(),
     target: (args) => `send changes to GitHub on branch/${String((args as { name?: unknown }).name ?? "")} and open a pull request`,
     execute: async (args, context: ToolContext) => {

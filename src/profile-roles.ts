@@ -100,11 +100,14 @@ export class ProfileRoles {
     this.store.save("settings", this.owner, this.key(profileId), { ...next });
     return next;
   }
-  /** Every profile's grant, for the profile cards on the People screen. */
-  all(profileIds: readonly string[]): { profileId: string; grant: RoleGrant; categories: ToolCategory[] }[] {
+  /**
+   * Every profile's grant, for the profile cards on the People screen: the one the owner saved,
+   * and the one Branch really holds them to (narrowed by their groups), whose kinds are `categories`.
+   */
+  all(profileIds: readonly string[]): { profileId: string; grant: RoleGrant; effective: RoleGrant; categories: ToolCategory[] }[] {
     return profileIds.map((profileId) => {
-      const grant = this.get(profileId);
-      return { profileId, grant, categories: grantedCategories(grant) };
+      const effective = this.effective(profileId);
+      return { profileId, grant: this.get(profileId), effective, categories: grantedCategories(effective) };
     });
   }
 

@@ -1,4 +1,5 @@
 import { dirname } from "node:path";
+import { forgetTeamResults, markDeletedTurnParts } from "./team-tasks.js"; // Q61
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
@@ -14,6 +15,7 @@ import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
 import { Secrets } from "./vault.js";
 import { Receipts } from "./receipts.js";
+import { CollabEvents, ownerMember } from "./collab-events.js";
 import { AuditLog } from "./audit.js";
 import { achievementTallies, type AchievementTallies, type EventScan } from "./achievement-tallies.js"; // phase2/delight
 import { MemoryReview } from "./memory-review.js";
@@ -24,6 +26,7 @@ import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
 // Wave 6 (collaboration and workflows): labels and project notes, share links, household profiles.
 import { Labels } from "./labels.js";
+import { MediaComments } from "./media-comments.js";
 import { ShareLinks } from "./conversation-share.js";
 import { Profiles } from "./profiles.js";
 // Wave 7 (tool loading): what this computer has learned about which tools a request needs.
@@ -56,6 +59,8 @@ export class Store {
   readonly projects: Projects;
   /** Wave 6: labels and project notes, read-only share links, and the household's profiles. */
   readonly labels: Labels;
+  /** FQ-collaboration: comments pinned to a moment in a media file. */
+  readonly mediaComments: MediaComments;
   readonly shares: ShareLinks;
   readonly profiles: Profiles;
   /** Wave 7: which tools past tasks needed, and what has been learned about them. */
@@ -63,6 +68,7 @@ export class Store {
   private lockerStore: Locker | undefined;
   private secretsStore: Secrets | undefined;
   private receiptsStore: Receipts | undefined;
+  private collabEventsStore: CollabEvents | undefined;
   /**
    * Set once the locker is open: every event is passed through it on the way to the log, so a
    * secret value can never be written down even if a tool put one in its result by mistake.
@@ -124,6 +130,7 @@ export class Store {
     if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "project"))
       this.db.exec("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT 'default'");
     this.labels = new Labels(this.db);
+    this.mediaComments = new MediaComments(this.db);
     this.toolUsage = new ToolUsage(this.db);
     this.shares = new ShareLinks(this.db);
     this.profiles = new Profiles(this.db, "local");
@@ -158,11 +165,12 @@ export class Store {
           `ALTER TABLE usage ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`,
         );
   }
-  searchHistory(owner: string, input: Parameters<SessionHistory["search"]>[1], excludeSessionId?: string) {
-    return this.history.search(owner, input, excludeSessionId);
+  /** `agent` narrows to the conversations that agent took part in (src/history.ts); unset for the owner. */
+  searchHistory(owner: string, input: Parameters<SessionHistory["search"]>[1], excludeSessionId?: string, agent?: string) {
+    return this.history.search(owner, input, excludeSessionId, agent);
   }
-  readHistory(owner: string, input: Parameters<SessionHistory["read"]>[1], excludeSessionId?: string) {
-    return this.history.read(owner, input, excludeSessionId);
+  readHistory(owner: string, input: Parameters<SessionHistory["read"]>[1], excludeSessionId?: string, agent?: string) {
+    return this.history.read(owner, input, excludeSessionId, agent);
   }
   close(): void {
     if (!this.closed) {
@@ -170,8 +178,8 @@ export class Store {
       this.closed = true;
     }
   }
-  branchSession(owner: string, input: Parameters<SessionBranches["branch"]>[1]) {
-    return this.branches.branch(owner, input);
+  branchSession(owner: string, input: Parameters<SessionBranches["branch"]>[1], agent?: string) {
+    return this.branches.branch(owner, input, agent);
   }
   sessionView(owner: string, sessionId: string) {
     return { ...this.branches.view(owner, sessionId), imported: this.library.imported(sessionId), temporary: this.sessionTemporary(sessionId) };
@@ -252,6 +260,9 @@ export class Store {
   /** Opens the secrets locker with a key source; values stay encrypted in the database. */
   openLocker(keys: LockerKeySource): Locker {
     this.receiptsStore ??= new Receipts(keys);
+    // Collaboration events are signed per member; a member is the owner or a profile on this computer.
+    this.collabEventsStore ??= new CollabEvents(this.db, keys,
+      () => [ownerMember, ...this.profiles.list().map((profile) => profile.id)]);
     this.lockerStore ??= new Locker(this.db, keys);
     this.secretsStore ??= new Secrets(this.db, this.lockerStore);
     return this.lockerStore;
@@ -292,6 +303,11 @@ export class Store {
     if (!this.receiptsStore) throw new Error("Receipts need the secrets locker to be open");
     return this.receiptsStore;
   }
+  /** Signed collaboration events, published under a household member. */
+  get collabEvents(): CollabEvents {
+    if (!this.collabEventsStore) throw new Error("Collaboration events need the secrets locker to be open");
+    return this.collabEventsStore;
+  }
   get locker(): Locker {
     if (!this.lockerStore) throw new Error("The secrets locker is not open in this launch");
     return this.lockerStore;
@@ -314,10 +330,15 @@ export class Store {
   private purgeSession(sessionId: string): { discarded: boolean; messages: number } {
     this.db.exec("BEGIN");
     try {
+      // Q63: an open team task this conversation held part of is marked as such, in this transaction and
+      // before its events go (the mark follows each run's own record up to its turn).
+      markDeletedTurnParts(this.db, sessionId);
       this.db.prepare("DELETE FROM events WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
       this.db.prepare("DELETE FROM usage WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
       // Wave 7: what this conversation taught about which tools a request needs goes with it.
       this.toolUsage.forgetSession(sessionId);
+      // Q61: a team task keeps no copy of the answers this conversation held (read before its runs go).
+      forgetTeamResults(this.db, sessionId);
       this.db.prepare("DELETE FROM tasks WHERE session_id=?").run(sessionId);
       const messages = this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId).changes;
       this.db.prepare("DELETE FROM compactions WHERE session_id=?").run(sessionId);
@@ -400,10 +421,11 @@ export class Store {
       for (const listener of this.runFinishedListeners) try { listener(id, status); } catch { /* never fails a finish */ }
     return this.run(id)!;
   }
-  message(sessionId: string, message: Message, sourceId?: number): void {
-    this.db
+  message(sessionId: string, message: Message, sourceId?: number): number {
+    const result = this.db
       .prepare("INSERT INTO messages(session_id,body,source_id) VALUES(?,?,?)")
       .run(sessionId, JSON.stringify(message), sourceId ?? null);
+    return Number(result.lastInsertRowid);
   }
   /**
    * Messages the model should see: a summary of compacted history, then everything after it, plus
@@ -489,13 +511,22 @@ export class Store {
     return () => { this.eventListeners.delete(listener); };
   }
   event(runId: string, kind: string, input: Record<string, unknown>): void {
+    this.eventUnannounced(runId, kind, input)();
+  }
+  /**
+   * Q61: writes the event row now and hands back the announcement to listeners, for a caller that
+   * writes it inside a transaction and must only tell anyone once that transaction has committed.
+   */
+  eventUnannounced(runId: string, kind: string, input: Record<string, unknown>): () => void {
     const data = this.guardEvent(input);
     this.db
       .prepare(
         "INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)",
       )
       .run(runId, kind, JSON.stringify(data), new Date().toISOString());
-    for (const listener of this.eventListeners) { try { listener(runId, kind, data); } catch { /* a listener must never break the caller */ } }
+    return () => {
+      for (const listener of this.eventListeners) { try { listener(runId, kind, data); } catch { /* a listener must never break the caller */ } }
+    };
   }
   events(runId: string): Event[] {
     return this.db
@@ -566,13 +597,35 @@ export class Store {
       incompleteCalls: Number(r?.incomplete_calls ?? 0),
     };
   }
+  /**
+   * Q48: runs `work` as one transaction, so a settings change and its change record are saved
+   * together or not at all. Inside a transaction that is already open it simply runs, and the outer
+   * one decides. Only what is written to the database is rolled back: a copy a module keeps in memory
+   * of what it was told is not.
+   */
+  atomically<T>(work: () => T): T {
+    if (this.db.isTransaction) return work();
+    this.db.exec("BEGIN");
+    try {
+      const result = work();
+      // A save that is still running when this returns would be committed half done.
+      if (typeof (result as { then?: unknown } | null)?.then === "function") throw new Error("A change saved as one piece has to finish at once.");
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      if (this.db.isTransaction) this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
   save(
     table: RecordTable,
     owner: string,
     id: string,
     data: Record<string, unknown>,
+    /** Memory only: the agent writing, so saving a fact never ends one that agent may not change. */
+    agent?: string,
   ): SavedRecord {
-    if (table === "memory") return this.memories.save(owner, id, data);
+    if (table === "memory") return this.memories.save(owner, id, data, agent);
     // mac7/wake-pins: the one place every settings write passes through, so a setting the owner
     // pinned meets the same refusal from the window, the API, the terminal, a settings file, a
     // preset and a tool the model calls. The owner is never refused here.

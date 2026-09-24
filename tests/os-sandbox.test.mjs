@@ -554,6 +554,52 @@ test("R3 the door connects to the address it checked, with the site's own name o
   assert.match(await raw(get("rebind.test", "", "/x")), /^HTTP\/1\.1 403/, "the second lookup says 127.0.0.1, and that is refused");
 });
 
+test("R3b a name a fake-IP proxy answers in 198.18.0.0/15 passes the door only when the owner said so, and a literal never does", async (t) => {
+  const site = await recordingSite(t);
+  // Every name is answered the way a fake-IP proxy does; the one-number and trailing-dot spellings of
+  // 198.18.0.5 are answered with it too, as a real lookup would.
+  const names = { "fake.test": ["198.18.0.5"], "home.test": ["127.0.0.1"], "both.test": ["198.18.0.5", "127.0.0.1"],
+    "3323068421": ["198.18.0.5"], "198.18.0.5.": ["198.18.0.5"], "lan.test": ["192.168.1.1"] };
+  const options = (flag) => ({ network: "open", decide: () => "allow", check: async () => undefined,
+    resolve: async (host) => names[host] ?? ["93.184.216.34"], upstream: () => ({ host: "127.0.0.1", port: site.port, secure: false }),
+    ...(flag === undefined ? {} : { fakeIpProxy: () => flag }) });
+  const strict = await door(t, options(undefined));
+  assert.match(await strict.raw(tunnelTo("fake.test:80")), tunnelRefusal("private network"), "refused by default");
+  assert.equal((await strict.socks("fake.test"))[2][1], 2, "SOCKS refuses it by default");
+  const off = await door(t, options(false));
+  assert.match(await off.raw(get("fake.test")), /^HTTP\/1\.1 403/, "refused while the setting is off");
+  assert.equal(site.seen.length, 0);
+  const { raw, socks } = await door(t, options(true));
+  assert.match(await raw(get("fake.test")), /^HTTP\/1\.1 200/, "a name the proxy answers is let through");
+  assert.match(await raw(tunnelTo("fake.test:80") + get("fake.test").replace(/^GET http:\/\/fake\.test/, "GET ")), /^HTTP\/1\.1 200 Connection Established[\s\S]*200 OK/);
+  assert.equal((await socks("fake.test"))[2][1], 0, "SOCKS lets it through too");
+  const reached = site.seen.length;
+  for (const target of ["198.18.0.5:80", "198.19.255.254:443", "[::ffff:198.18.0.5]:443", "3323068421:80", "198.18.0.5.:80",
+    "home.test:80", "both.test:443", "lan.test:80", "127.0.0.1:80"])
+    assert.match(await raw(tunnelTo(target)), tunnelRefusal("(private network|not a site)"), target);
+  assert.match(await raw(get("198.18.0.5")), /^HTTP\/1\.1 403/, "a literal in the range is refused on a plain request");
+  for (const name of ["198.18.0.5", "3323068421", "198.18.0.5.", "home.test"])
+    assert.equal((await socks(name))[2][1], 2, `SOCKS refuses ${name}`);
+  assert.equal(site.seen.length, reached, "nothing but the named site was reached");
+});
+
+test("R3c with the fake-IP setting on, the door never dials an answer that mixes 198.18.0.0/15 with a public address", async (t) => {
+  const site = await recordingSite(t);
+  const names = { "pool.test": ["198.18.0.5", "198.19.0.7"], "mixed.test": ["198.18.0.5", "93.184.216.34"],
+    "public-first.test": ["93.184.216.34", "198.18.0.5"] };
+  const { raw, socks } = await door(t, { network: "open", decide: () => "allow", check: async () => undefined,
+    resolve: async (host) => names[host] ?? ["93.184.216.34"], upstream: () => ({ host: "127.0.0.1", port: site.port, secure: false }),
+    fakeIpProxy: () => true });
+  assert.match(await raw(get("pool.test")), /^HTTP\/1\.1 200/, "an answer wholly from the proxy's pool is let through");
+  const reached = site.seen.length;
+  for (const name of ["mixed.test", "public-first.test"]) {
+    assert.match(await raw(get(name)), /^HTTP\/1\.1 403/, `${name} on a plain request`);
+    assert.match(await raw(tunnelTo(`${name}:80`)), tunnelRefusal("private network"), `${name} through a tunnel`);
+    assert.equal((await socks(name))[2][1], 2, `SOCKS refuses ${name}`);
+  }
+  assert.equal(site.seen.length, reached, "nothing was dialled for a mixed answer");
+});
+
 test("R4 odd names, ports and keys are refused without bringing the door down", async (t) => {
   const site = await recordingSite(t);
   const keys = [{ name: "TOKEN", placeholder: `branch_${"d".repeat(32)}`, value: `bad value${CRLF}x`, site: "api.example.test" }];
@@ -678,6 +724,8 @@ test("W18 the runtime hands program tools the wall; a short-lived key cannot tak
     assert.deepEqual(seen[0].keySites, { GITHUB_TOKEN: "api.github.com" });
     assert.ok(seen[0].unreadable.some((place) => place.endsWith("data")), "Branch's own data folder is hidden");
     assert.equal(typeof seen[0].siteCheck, "function", "the door asks the owner's network rules");
+    assert.equal(typeof seen[0].fakeIpProxy, "function", "the door reads the owner's fake-IP proxy setting");
+    assert.equal(seen[0].fakeIpProxy(), false, "and it is off unless the owner switched it on");
     for (const place of app.runtime.protectedAreas.noChange) assert.ok(seen[0].readOnly.includes(place), `${place} is read-only behind the wall`);
     for (const place of app.runtime.protectedAreas.noRead) assert.ok(seen[0].unreadable.includes(place), `${place} is hidden behind the wall`);
   }

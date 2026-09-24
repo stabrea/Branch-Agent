@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { optionalFields } from "./feature-switches.js"; // Q65
 import type { Store } from "./store.js";
 import type { LimitRow, LimitsView, LimitWindow } from "./usage-limits.js";
 
@@ -31,7 +32,8 @@ export function usageGlanceSettings(store: Pick<Store, "get">, owner: string): U
   return saved.success ? saved.data : UsageGlanceSettingsSchema.parse({});
 }
 export function saveUsageGlanceSettings(store: Pick<Store, "get" | "save">, owner: string, input: unknown): UsageGlanceSettings {
-  const wanted = UsageGlanceSettingsSchema.partial().parse(input ?? {});
+  // Q65: only the choice that was sent; `.partial()` put the other back to its default.
+  const wanted = optionalFields(UsageGlanceSettingsSchema).parse(input ?? {});
   const next = UsageGlanceSettingsSchema.parse({ ...usageGlanceSettings(store, owner), ...wanted });
   store.save("settings", owner, settingsKey, next);
   return next;

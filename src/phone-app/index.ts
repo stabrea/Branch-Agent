@@ -3,10 +3,11 @@ import { z } from "zod";
 import { qrRows } from "../deployment-api.js";
 import { lockdownActive } from "../lockdown.js";
 import type { Store } from "../store.js";
-import { candidateAddresses, type Runner, runQuietly } from "./address.js";
-import { PhoneDoor, type DoorView } from "./door.js";
+import { candidateAddresses, filterTailnetAddresses, type Runner, runQuietly } from "./address.js";
+import { assertDoorAddress, PhoneDoor, type DoorView } from "./door.js";
 import { appRoot, damagedReason, findPhoneApp, readCheckedApp } from "./file.js";
 import { loadDictionaries } from "./page.js";
+import { probeTailscale, type ProbeTailscale } from "../remote/tailscale.js";
 
 /**
  * mac7/phone-qr: "Get Branch on your phone" — the card in the window and `branch phone`.
@@ -29,6 +30,7 @@ export interface PhoneAppDeps {
   run?: Runner;
   /** The addresses the door may use, best first; read from this computer when left out. */
   addresses?: () => Promise<string[]>;
+  tailscale?: ProbeTailscale;
   now?: () => number;
 }
 
@@ -39,10 +41,13 @@ export const ShareSchema = z.object({
 
 export class PhoneApp {
   readonly door: PhoneDoor;
+  private stopGeneration = 0;
   constructor(private readonly deps: PhoneAppDeps = {}) { this.door = new PhoneDoor(deps.now); }
   private root(): string { return this.deps.root ?? appRoot(); }
-  addresses(): Promise<string[]> {
-    return this.deps.addresses?.() ?? candidateAddresses(this.deps.platform ?? process.platform, this.deps.run ?? runQuietly);
+  /** Only a 100.64 address Tailscale reports as this computer's own counts, whichever way the list was read. */
+  async addresses(): Promise<string[]> {
+    const found = await (this.deps.addresses?.() ?? candidateAddresses(this.deps.platform ?? process.platform, this.deps.run ?? runQuietly));
+    return filterTailnetAddresses(found, this.deps.tailscale);
   }
   /** What the card shows: whether the app is here, where it can be offered, and the live code. */
   async overview(): Promise<Record<string, unknown>> {
@@ -53,20 +58,37 @@ export class PhoneApp {
     };
   }
   /** Opens (or replaces) the download link, on the address asked for or the best one. */
-  async share(input: unknown): Promise<DoorView> {
+  async share(input: unknown, deps?: { store: Pick<Store, "get">; owner: string }): Promise<DoorView> {
     const asked = ShareSchema.parse(input ?? {});
+    const startGeneration = this.stopGeneration;
     const found = await findPhoneApp(this.root(), this.deps.env);
     if (!found.file) throw new PhoneAppRefusal(409, found.reason);
+    if (startGeneration !== this.stopGeneration) throw new PhoneAppRefusal(409, "Share was cancelled");
+    if (deps && lockdownActive(deps.store, deps.owner)) throw new PhoneAppRefusal(403, phoneLockdownRefusal);
     const bytes = await readCheckedApp(found.file);
     if (!bytes) throw new PhoneAppRefusal(409, damagedReason);
+    if (startGeneration !== this.stopGeneration) throw new PhoneAppRefusal(409, "Share was cancelled");
+    if (deps && lockdownActive(deps.store, deps.owner)) throw new PhoneAppRefusal(403, phoneLockdownRefusal);
     const addresses = await this.addresses();
     if (asked.address && !addresses.includes(asked.address)) throw new PhoneAppRefusal(400, pickedAddressRefusal);
     const address = asked.address ?? addresses[0];
     if (!address) throw new PhoneAppRefusal(409, noAddressRefusal);
+    if (startGeneration !== this.stopGeneration) throw new PhoneAppRefusal(409, "Share was cancelled");
+    if (deps && lockdownActive(deps.store, deps.owner)) throw new PhoneAppRefusal(403, phoneLockdownRefusal);
     const dictionaries = await loadDictionaries(join(this.root(), "public", "locales"));
-    return this.door.start({ file: found.file, bytes, address, dictionaries, ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}) });
+    if (startGeneration !== this.stopGeneration) throw new PhoneAppRefusal(409, "Share was cancelled");
+    if (deps && lockdownActive(deps.store, deps.owner)) throw new PhoneAppRefusal(403, phoneLockdownRefusal);
+    // Tailscale is asked again for the door, once: it may have stopped since the list was read, and
+    // the door's own check takes that same answer, so it cannot refuse later without saying why.
+    const real = this.deps.tailscale ?? probeTailscale;
+    let answer: ReturnType<ProbeTailscale> | undefined;
+    const tailscale: ProbeTailscale = () => (answer ??= real());
+    try { await assertDoorAddress(address, tailscale); } catch { throw new PhoneAppRefusal(409, noAddressRefusal); }
+    if (startGeneration !== this.stopGeneration) throw new PhoneAppRefusal(409, "Share was cancelled");
+    if (deps && lockdownActive(deps.store, deps.owner)) throw new PhoneAppRefusal(403, phoneLockdownRefusal);
+    return this.door.start({ file: found.file, bytes, address, dictionaries, ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}), tailscale });
   }
-  stop(): void { this.door.stop(); }
+  stop(): void { this.stopGeneration++; this.door.stop(); }
 }
 
 export class PhoneAppRefusal extends Error {
@@ -88,5 +110,5 @@ export async function phoneAppApi(
   if (path === "/api/phone-app/stop") { phone.stop(); return { share: null }; }
   if (path !== "/api/phone-app/share") throw new PhoneAppRefusal(404, "Endpoint not found");
   if (lockdownActive(deps.store, deps.owner)) throw new PhoneAppRefusal(403, phoneLockdownRefusal);
-  return { share: shareView(await phone.share(await deps.readBody())) };
+  return { share: shareView(await phone.share(await deps.readBody(), { store: deps.store, owner: deps.owner })) };
 }

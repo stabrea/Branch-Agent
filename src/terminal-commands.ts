@@ -5,6 +5,7 @@ import { parseImages } from "./contracts.js";
 import { conversationMarkdown } from "./memory-export.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { policyPresets, readPolicy, savePolicy, type PolicyPresetName } from "./policy.js";
+import { recordedWrite } from "./settings-kit/recorded-write.js";
 import type { Runtime } from "./runtime.js";
 
 /**
@@ -77,7 +78,8 @@ export function presetLines(runtime: Runtime): string[] {
 export function choosePreset(runtime: Runtime, name: string): string {
   const known = policyPresets().map((preset) => preset.id);
   if (!known.includes(name as PolicyPresetName)) throw new Error(`Pick one of: ${known.join(", ")}`);
-  const saved = savePolicy(runtime.store, runtime.owner, { preset: name });
+  const saved = recordedWrite(runtime.store, runtime.owner, { writer: "owner-by-command", source: "command", detail: `/preset ${name}` }, ["policy"],
+    () => savePolicy(runtime.store, runtime.owner, { preset: name }));
   const label = policyPresets().find((preset) => preset.id === saved.preset)?.label ?? saved.preset;
   return `[when to check with me: ${label}]`;
 }

@@ -6,7 +6,7 @@ import { audit } from "./audit.js";
 import type { Store } from "./store.js";
 import { mapStrings, type ReferenceFiller, type SecretScrubber } from "./vault.js";
 import type { CliOutcome, CliRunner } from "./credential-cli.js";
-import { FeatureModeSchema, sentFields, settleSwitch } from "./feature-switches.js";
+import { FeatureModeSchema, optionalFields, settleSwitch } from "./feature-switches.js";
 
 export type { CliOutcome, CliRunner };
 
@@ -240,7 +240,7 @@ export function readKeychainSettings(store: Store, owner: string): KeychainSetti
 }
 export function saveKeychainSettings(store: Store, owner: string, input: unknown): KeychainSettings {
   const current = readKeychainSettings(store, owner);
-  const value = sentFields(KeychainSettingsSchema.partial().parse(input ?? {}), input);
+  const value = optionalFields(KeychainSettingsSchema).parse(input ?? {}); // Q65: one helper for a patch
   const next = KeychainSettingsSchema.parse({ ...current, ...value, ...settleSwitch(current, value) });
   if (new Set(next.entries.map((one) => one.name)).size !== next.entries.length)
     throw new Error("Two of those Keychain entries have the same name");

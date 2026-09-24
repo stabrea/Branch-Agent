@@ -171,6 +171,36 @@ export function dropdown({ id, options = [], value = "", onChange } = {}) {
   return control;
 }
 
+/* DG-169: a three-way a module still builds as a plain select becomes the same segmented control, as the
+   approved sample draws every one. The select stays: it is moved into the control and becomes its source, so the
+   module's own value, change and disabled handling work as before. */
+function dressThreeWay(select) {
+  if (select.multiple || select.size > 1 || select.matches(".segmented-source")) return;
+  if (!isThreeWay([...select.options].map((option) => [option.value]))) return;
+  const wrapper = select.parentElement;
+  const control = document.createElement("div");
+  control.className = "seg segmented-control tri";
+  control.dataset.dressed = "";
+  /* A module that swapped its select for a new one inside a control drawn earlier: that control goes. */
+  if (wrapper?.matches(".segmented-control[data-dressed]")) wrapper.replaceWith(control);
+  else select.before(control);
+  const chosen = select.value;
+  for (const [value] of DEFAULT_POSITIONS) select.append(select.querySelector(`option[value="${value}"]`));
+  select.classList.remove("glass");
+  select.classList.add("segmented-source");
+  select.removeAttribute("aria-haspopup");
+  select.removeAttribute("aria-expanded");
+  select.dataset.native = "keep";
+  control.append(select);
+  const sync = bindSegmentedSource(select, segmentNodes(control, DEFAULT_POSITIONS));
+  select.value = chosen;
+  sync();
+}
+export function dressThreeWays(root = document) {
+  const selects = root instanceof HTMLSelectElement ? [root] : [...root.querySelectorAll?.("select:not(.segmented-source)") ?? []];
+  for (const select of selects) dressThreeWay(select);
+}
+
 export function dressSwitches(root = document) {
   const candidates = [];
   if (root instanceof Element) {
@@ -185,9 +215,10 @@ export function dressSwitches(root = document) {
   }
 }
 dressSwitches();
+dressThreeWays();
 new MutationObserver((changes) => {
   for (const change of changes) for (const node of change.addedNodes)
-    if (node.nodeType === Node.ELEMENT_NODE) dressSwitches(node);
+    if (node.nodeType === Node.ELEMENT_NODE) { dressSwitches(node); dressThreeWays(node); }
 }).observe(document.body, { childList: true, subtree: true });
 
-globalThis.branchControlMakers = { switchControl, segmented, dropdown, dressSwitches };
+globalThis.branchControlMakers = { switchControl, segmented, dropdown, dressSwitches, dressThreeWays };

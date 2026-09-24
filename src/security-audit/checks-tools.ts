@@ -70,6 +70,11 @@ export const webChecks: SecurityCheck[] = [
       detail: "The assistant may open addresses on this computer and your private network, such as your router or other devices' admin pages.",
       advice: "Turn off \"reach private addresses\" in Settings → Computer, unless a task really needs it.",
     } : null),
+  check("web.fake-ip-proxy", "web", "warn", "Branch looks up site names itself, so none can lead into your home network", (snapshot) =>
+    snapshot.network.fakeIpProxy === true ? {
+      detail: "A fake-IP proxy is trusted: a site whose name looks up to an address in 198.18.0.0/15 is let through, and the proxy does the name lookups, so Branch cannot see where that site really is. A name that really points at this computer or your home network can get through.",
+      advice: "Set fakeIpProxy to false in the web section of the launch settings file, unless you use Clash, Mihomo, Surge, Stash or sing-box in fake-IP mode.",
+    } : null),
   check("web.anywhere-with-chat", "web", "info", "The sites the assistant reads are limited when people message from outside", (snapshot) =>
     channelsOn(snapshot) && snapshot.network.allowedHosts === null ? {
       detail: "People can message the assistant from outside, and it may read any website.",

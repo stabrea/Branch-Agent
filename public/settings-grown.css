@@ -285,29 +285,6 @@ body:not(.lx-settings-searching) .lx-settings .sg-head.sg-quiet {
 :root[data-household="on"] #lx-page-instructions {
   display: none !important;
 }
-/* The places outside Settings, listed after its pages: they look like a page link and go to the place. */
-.sg-place-link {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-2);
-  font-size: 13.5px;
-  font-weight: 500;
-  text-align: left;
-}
-.sg-place-link:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-.sg-place-link .sg-icon {
-  color: var(--text-3);
-}
 .sg-nav-group {
   /* DG-076: the approved sample's group heading (design/Branch-Grown-Up.html, `.set-pages .chip`): 11.5px at 560 in
      the quiet text colour, no tracking, its text 26.5px below the page link above and 17.3px above the one below. The
@@ -880,4 +857,78 @@ body:not(.lx-settings-searching) :is(#chatgpt-card, #model-probe-card)[data-sg-b
   image-rendering: pixelated;
   touch-action: none;
   cursor: grab;
+}
+
+/* ---------- Secrets: where Branch reads saved sign-ins from (DG-053) ---------- */
+.secret-managers-title,
+.vault-autofill-list-label {
+  margin: 0;
+  font-weight: 600;
+  font-size: 14px;
+}
+.secret-managers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+}
+.secret-manager {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--glass-2, var(--well));
+}
+.secret-manager b {
+  font-size: 13.5px;
+}
+.secret-manager-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 560;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.secret-manager-pill::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.secret-manager-pill.ok {
+  background: var(--chip-ok-bg);
+  color: var(--chip-ok-fg);
+}
+.secret-manager-pill.idle {
+  background: var(--chip-idle-bg);
+  color: var(--chip-idle-fg);
+}
+.secret-manager-detail {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.secret-managers-note {
+  margin: 0;
+  font-size: 12.5px;
+}
+.vault-autofill-signins {
+  display: grid;
+  gap: 6px;
+}
+.secret-manager button {
+  padding: 5px 12px;
+  font-size: 13px;
 }

@@ -61,6 +61,7 @@ export class AddOns {
       policy: (id) => this.pluginPolicy(id),
       unreadable: () => [...wallSettings(store, owner).unreadable, dataDir],
       siteCheck: (target) => deps.policy.assertAllowed(target, "a walled plugin"),
+      fakeIpProxy: () => deps.policy.settings().fakeIpProxy === true,
       weakWallAllowed: () => addOnSettings(store, owner).windowsWithoutWall,
     });
     plugins.isolation = this.walled;

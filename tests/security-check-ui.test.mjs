@@ -39,7 +39,7 @@ test("the card lives on Settings → Permissions and nowhere else", async (t) =>
   await card.waitFor({ state: "attached", timeout: 15000 });
   await openSettings(page, "permissions");
   await card.waitFor({ state: "visible", timeout: 10000 });
-  assert.equal((await card.locator("h2").innerText()).trim(), "Security check");
+  assert.equal((await card.locator("h3.settings-card-title").innerText()).trim(), "Security check");
   /* "N more with Advanced" (DG-073) can end the section inside this card; it is an underlined link, not a filled button. */
   assert.equal(await card.locator("button:not(.quiet-button):not(.sg-more)").count(), 1, "one filled button");
   await openPlace(page, "chat");
@@ -96,7 +96,7 @@ test("the card holds its shape at 400 px and speaks French", async (t) => {
   }
 
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
-  await page.locator("#security-check h2").filter({ hasText: "Contrôle de sécurité" }).waitFor();
+  await page.locator("#security-check h3.settings-card-title").filter({ hasText: "Contrôle de sécurité" }).waitFor();
   // isVisible() asks whether it is on the page this instant and never waits; waitFor() asks the
   // same question and gives the card time to finish being drawn again in French.
   const french = await page.locator("#security-check").getByRole("button", { name: "Lancer le contrôle" })

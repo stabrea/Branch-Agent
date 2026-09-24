@@ -1,8 +1,9 @@
 /* Redesign phase 1: how much the assistant may do in this conversation, as one chip in the message
    box (the approved sample's mode picker). Ask first, Plan, Auto and Full access; a choice that cannot
    be made right now is shown greyed with the reason, never hidden. The server decides what a task may
-   really do (src/conversation-mode.ts); this only picks and shows. A new conversation starts on Ask
-   first; one that existed before keeps following the owner's setting until somebody picks here. */
+   really do (src/conversation-mode.ts); this only picks and shows. A new conversation starts on the
+   owner's default (Ask first unless they pick another); one that existed before keeps following the
+   owner's setting until somebody picks here. */
 import { api, toast } from "/app.js";
 import { t } from "/i18n.js";
 import { popover } from "/popover.js";
@@ -152,6 +153,18 @@ function paintMenu(menu = $("mode-menu")) {
   menu.replaceChildren(el("p", t("mode.question"), "mode-heading"));
   for (const id of ORDER) menu.append(choiceItem(state.choices.find((choice) => choice.mode === id), mode));
   menu.append(followItem(mode), el("hr"), lockdownItem());
+
+  // DG-153: Add footer explaining mode choices and keyboard shortcuts
+  if (!state.locked && !state.outside && mode !== null) {
+    const footer = el("div", undefined, "mode-footer");
+    // What a new conversation from this window really starts on (the view's own answer), not the owner's saved choice:
+    // somebody else in the house, or a default the picker cannot offer here, follows the owner's rules instead.
+    const starts = state.newConversation ? t(`mode.${state.newConversation}`) : t("mode.setting.follow");
+    const line1 = el("p", `New conversations start on ${starts}. Branch's own setting (Settings › Permissions) is still ${t("mode.full")}.`, "mode-note");
+    const line2 = el("p", `Number keys 1, 3, 4 in the message box switch modes. More choices (Just do it inside my workspace, Read only) are in Settings › Permissions.`, "mode-note");
+    footer.append(line1, line2);
+    menu.append(footer);
+  }
   if (state.locked) menu.append(el("p", t("mode.lockedNote"), "mode-note"));
   else if (state.outside) menu.append(el("p", outsideNote(), "mode-note mode-outside"));
   else if (mode === null) menu.append(el("p", t("mode.followingNote", { setting: state.following.label }), "mode-note"));
@@ -208,18 +221,24 @@ function repaintMenu() {
 
 /* ---------- the owner's default, under When to check with me ---------- */
 
+/* The sample's four cards (Auto, Ask first, Plan first, No approvals) plus Follow my rules. They save the owner's
+   newConversation default only; the rules preset under them is a separate control. */
+const defaultCards = () => [...document.querySelectorAll('#mode-new-conversation input[type="radio"]')];
 function paintDefault() {
-  const select = $("mode-new-conversation");
-  if (!select || !state) return;
-  select.value = state.settings?.newConversation ?? "ask";
-  select.disabled = !state.owner;
+  if (!state) return;
+  const saved = state.settings?.newConversation ?? "ask";
+  for (const radio of defaultCards()) {
+    radio.checked = radio.value === saved;
+    radio.disabled = !state.owner;
+  }
 }
 $("mode-new-conversation")?.addEventListener("change", async (event) => {
+  const value = event.target.value;
   try {
-    await api("conversation-mode/settings", { newConversation: event.target.value });
-    toast(t(event.target.value === "ask" ? "mode.setting.savedAsk" : "mode.setting.savedFollow"));
+    await api("conversation-mode/settings", { newConversation: value });
+    toast(value === "follow" ? t("mode.setting.savedFollow") : t("mode.setting.savedMode", { mode: t(`mode.${value}`) }));
     await refreshMode();
-  } catch (error) { toast(error.message); }
+  } catch (error) { toast(error.message); paintDefault(); }
 });
 
 const menuControl = popover($("mode-chip"), $("mode-menu"), {

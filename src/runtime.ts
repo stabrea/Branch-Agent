@@ -8,10 +8,12 @@ import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
 import { personalHold } from "./personal/guard.js"; // R17-C integration review
-import { settingsHold } from "./settings-kit/tools.js";
+import { settingsHold, settingsPreview } from "./settings-kit/tools.js";
 import { conversationCarrier, outsideSourceOf, type OutsideSource } from "./outside-origin.js"; // mac7/outside-resume
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
+import { StartsElsewhereError } from "./trunks/starts-in.js"; // Q44
+import { diagnose } from "./diagnostic-log.js"; // Q44: a queued message that cannot start is logged
 import {
   Budget,
   BudgetError,
@@ -39,7 +41,7 @@ import type {
   ToolTarget,
 } from "./contracts.js";
 import type { Store } from "./store.js";
-import type { ToolRegistry } from "./registry.js";
+import { blankTarget, type ToolRegistry } from "./registry.js";
 import { RunArtifacts } from "./artifacts.js";
 import type { WebhookNotifier } from "./webhooks.js";
 import type { HookDecision } from "./hooks.js";
@@ -51,6 +53,7 @@ import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { presetRunsLocally } from "./models.js"; // mac7/coding-next
+import { contractHold } from "./self-development-contract.js"; // Q12
 import { nobodyToAskAboutPlan, projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next, mac7/smoke-fixes
 import { codingPreload, batchingInstructions, cannotRunInstructions, fewerRoundsOn, parallelGroups } from "./coding/fewer-rounds.js"; // mac7/speed
 import { codeRunSettings } from "./code-run.js"; // mac7/speed
@@ -170,6 +173,8 @@ export interface PolicyCheck {
   reason?: string;
   /** mac7/r17-g: a yes to this needs a code from the owner's authenticator app, which a hand-pressed tool cannot ask for. */
   needsCode?: boolean;
+  /** FQ-execution.browser: a yes to this is once-only and cannot be remembered as a standing rule. */
+  onceOnly?: boolean;
 }
 /** What the approval gate decided: what to hand back instead of running, and how to hold the program. */
 interface GateOutcome {
@@ -185,6 +190,17 @@ export interface FollowUp { id: string; prompt: string; createdAt: string; short
 /** mac7/outside-review: what a queued message keeps of the task that queued it (see FollowUp). */
 /** mac7/residuals (4b): why a script in an Ask first conversation is asked about every time. */
 export const scriptAskFirstHold = "In Ask first, every script is asked about on its own";
+/** Q59: Ask first and Plan keep no standing yes, so "Yes, always" is not an answer there (src/approvals.ts `noStanding`). */
+export const noStandingRefusal = "Ask first and Plan first never keep a yes for good. Answer it just now, or for this conversation.";
+/** FQ-execution.browser: the answer to "always" for a call that named nothing a rule could be kept for. */
+export const unkeyedAlwaysRefusal = "This request does not say what it is targeting, so a standing yes would cover every "
+  + "request of its kind. Answer it for this conversation or just this once instead";
+/**
+ * FQ-execution.browser: tools whose answers are kept for the websites they declare. One of their calls
+ * that named none is answered only by a yes for the same bytes; which calls get no standing yes at all
+ * is the registry's `noStandingTarget` (Q76).
+ */
+const keyedOnDeclaredTargets: ReadonlySet<string> = new Set(["browser.flow"]);
 export interface FollowUpCarry { originFrom?: string | undefined; permissions?: readonly string[] | null | undefined }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
@@ -258,6 +274,8 @@ export interface RunOptions {
   budget?: BudgetOptions;
   onStarted?: (run: Run) => void;
   onTextDelta?: (text: string) => void;
+  /** FQ-surfaces: the id of the user message this run saved, for playback clip matching. */
+  onUserMessageId?: (id: number) => void;
   /** Conditions the final answer must meet; the model gets bounded retries when it misses one. */
   checks?: CompletionCheck;
   /** Pictures to show the model with this prompt. Refused in plain words by a text-only model. */
@@ -437,6 +455,9 @@ export class Runtime {
    * conversation as an ordinary follow-up message, so the assistant picks the thread back up.
    */
   settleDeferred(id: string, outcome: string): { id: string; sessionId: string; queued: number } {
+    const waiting = this.deferrals.get(id);
+    // Q44: refused before the step is marked answered; one already answered is told so first, by settle.
+    if (waiting && !waiting.settledAt) this.queueGuard(waiting.sessionId);
     const entry = this.deferrals.settle(id, outcome);
     if (entry.runId) this.store.event(entry.runId, "tool.deferred_settled", { id: entry.id, tool: entry.tool });
     // mac7/outside-resume: the answer carries the task that handed the step over on, as that task.
@@ -469,6 +490,8 @@ export class Runtime {
       /** mac7/tests-unattended: see ToolContext.unattended and ToolContext.allowProjectTests. */
       unattended?: boolean;
       allowProjectTests?: boolean;
+      /** FQ-routing.isolated-agents: the agent executing this context, for scope-aware memory and fact writes. */
+      agent?: string;
     } = {},
   ): ToolContext {
     return {
@@ -486,6 +509,7 @@ export class Runtime {
       ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
       ...(options.unattended ? { unattended: true } : {}),
       ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
+      ...(options.agent ? { agent: options.agent } : {}),
     };
   }
   cancel(id: string): boolean {
@@ -511,6 +535,9 @@ export class Runtime {
     // profile-audit: queued from the app window switched to a household profile, it runs as them.
     const person = currentPerson()?.profileId ?? windowPerson;
     if (!this.store.ownsSession(this.owner, sessionId)) throw new Error("Session not found");
+    // Q44: a message that could never start in this conversation is refused here, before anything is saved,
+    // rather than queued and then dropped without a word when the line moves on.
+    this.queueGuard(sessionId);
     // bucket-18 (A0300): a message queued with a short-lived key starts later, so the mark is kept with it.
     const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
       ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}),
@@ -531,7 +558,22 @@ export class Runtime {
       ...(next.originFrom ? { originFrom: next.originFrom } : {}), ...(next.permissions ? { permissions: next.permissions } : {}) }));
     const marked = () => (next.shortLivedKey ? underShortLivedKey(start, next.shortLivedKeyId ? { keyId: next.shortLivedKeyId } : {}) : start());
     // bucket 19: a message a household person queued runs as that person, held to their role.
-    void (next.personProfileId ? asPerson({ profileId: next.personProfileId, keyId: "queued" }, marked) : marked()).catch(() => undefined);
+    void (next.personProfileId ? asPerson({ profileId: next.personProfileId, keyId: "queued" }, marked) : marked())
+      .catch((error: unknown) => this.notSent(sessionId, next, error));
+  }
+  /**
+   * Q44: a queued message that could not start (its Trunk was moved to another computer after it was
+   * queued, say) is never dropped without a word. The conversation gets a plain note, whoever queued it
+   * is told (a Trunk's receipt fails and its sender hears why), and the line moves on to the next one.
+   */
+  private notSent(sessionId: string, item: FollowUp, error: unknown): void {
+    const reason = this.hideSecrets(errorText(error));
+    diagnose("engine", error instanceof StartsElsewhereError ? "info" : "warn", "A queued message could not start", { fields: { error: reason.slice(0, 300) } });
+    try {
+      this.store.message(sessionId, { role: "assistant", content: this.hideSecrets(`This message wasn't sent: ${reason} (It said: "${item.prompt.slice(0, 120)}")`) });
+      this.followUpNotSent(sessionId, item.prompt, reason);
+    } catch { /* a note that cannot be written never stops the line */ }
+    this.drainFollowUps(sessionId);
   }
   /**
    * Starts a specialist that keeps working after the parent finishes; its result is kept on the
@@ -658,6 +700,8 @@ export class Runtime {
       ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
       // mac7/lockdown-fix: work a task set going keeps to that task's permissions.
       ...(options.within ? { permissions: this.registry.permissions().filter((p) => options.within!.includes(p)) } : {}),
+      // FQ-routing.isolated-agents: pass the agent from executeTool options to memory.put and other scope-aware tools.
+      ...(options.agent ? { agent: options.agent } : {}),
     });
     this.store.event(run.id, "tool.started", { name, manual: true });
     let result: unknown;
@@ -710,6 +754,68 @@ export class Runtime {
       this.store.event(runId, kind, { name, manual: true, reason: this.hideSecrets(errorText(error)) });
       throw error;
     }
+  }
+  /**
+   * FQ-execution.browser (`ToolRegistry.judgeStep`): one step a tool takes on its own, judged exactly
+   * as the model calling `tool` would be — the same rules, the same kept yeses, bound to the step's
+   * own bytes — at `target` when the step says where it will be. Always runs the full policy;
+   * a once-only yes defers consumption until after all steps in the flow pass. Returns the
+   * fingerprint of the overrule used (if any), or throws `ApprovalRequiredError` or `PolicyRefusedError`.
+   */
+  judgeStep(tool: string, args: unknown, context: ToolContext, target?: string, index?: number): string | undefined {
+    const argumentBytes = JSON.stringify(args ?? {});
+    // FQ-execution.browser: when a step has an index, use a step-specific fingerprint bound to the
+    // tool, index, target/host, and canonical arguments, so a "Yes, just now" cannot cover another
+    // step or a later single-step call. Otherwise use the argument fingerprint (single-step case).
+    const fingerprint = index !== undefined
+      ? stepFingerprint(tool, index, target, argumentBytes)
+      : argumentFingerprint(argumentBytes);
+    const at = target === undefined ? undefined : { target };
+    const host = { store: this.store, owner: this.owner, guards: this.guards,
+      checkPolicy: (name: string, sent: unknown, c: ToolContext, fingerprint?: string) => this.checkPolicy(name, sent, c, fingerprint, at),
+      permissionOf: (name: string) => this.permissionOf(name),
+      wallFor: (name: string, sent: unknown, c: ToolContext, choice: PolicyCheck["sandbox"]) => this.wallFor(name, sent, c, choice) };
+    try {
+      gateToolUse(host, tool, args, context, fingerprint);
+      // Step passed without needing a question.
+      return undefined;
+    } catch (error) {
+      // Only ApprovalRequiredError can be answered by an overrule; all other errors rethrow.
+      if (!(error instanceof ApprovalRequiredError)) {
+        const kind = "policy.denied";
+        if (this.store.run(context.runId))
+          this.store.event(context.runId, kind, { name: tool, step: true, ...(target ? { target } : {}), reason: this.hideSecrets(errorText(error)) });
+        throw error;
+      }
+      // A once-only question: check if the owner already gave a yes to this exact step.
+      // The yes is not consumed yet; it will be consumed only after all steps pass judgment.
+      const session = context.approvalKey ?? this.store.run(context.runId)?.sessionId ?? context.runId;
+      if (fingerprint && this.approvals.hasOverrule(session, fingerprint)) {
+        // The overrule exists; return it so judgeFlow can consume it later.
+        if (this.store.run(context.runId))
+          this.store.event(context.runId, "policy.ask", { name: tool, step: true, ...(target ? { target } : {}), skipped: true });
+        return fingerprint;
+      }
+      // No overrule; the question must go to the owner.
+      if (this.store.run(context.runId))
+        this.store.event(context.runId, "policy.ask", { name: tool, step: true, ...(target ? { target } : {}), reason: this.hideSecrets(errorText(error)) });
+      throw error;
+    }
+  }
+  /**
+   * Consumes once-only overrules for a browser.flow's steps, after all steps pass judgment and before
+   * any step runs. False when one was already gone: two runs of the same flow judged side by side both
+   * saw it, and only the first may use it.
+   */
+  consumeStepYeses(fingerprints: string[], context: ToolContext): boolean {
+    const session = context.approvalKey ?? this.store.run(context.runId)?.sessionId ?? context.runId;
+    let all = true;
+    for (const fingerprint of fingerprints) {
+      if (!this.approvals.takeOverrule(session, fingerprint)) { all = false; continue; }
+      if (this.store.run(context.runId))
+        this.store.event(context.runId, "policy.overruled", { name: "browser.flow", label: "step", id: fingerprint });
+    }
+    return all;
   }
   async delegate(
     prompt: string,
@@ -933,7 +1039,10 @@ ${run.output.slice(0, 6000)}`;
           ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
         }), trunk);
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
-    else this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
+    else {
+      const userMessageId = this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
+      options.onUserMessageId?.(userMessageId);
+    }
     if (!parent) this.store.noteWorking(this.owner, run.sessionId, { goal: options.prompt });
     // Wave mac2 (goal-undo): record the workspace before the task touches it; never fails the task.
     if (!parent && !options.resumeFrom && this.turnStarted) await this.turnStarted(run).catch(() => undefined);
@@ -978,7 +1087,8 @@ ${run.output.slice(0, 6000)}`;
       // technical text stays in the events and the log, where it belongs.
       output = this.plainEnding(run, error);
       if (error instanceof NeedsInputError) {
-        this.store.event(run.id, "attention.needed", { question: error.question });
+        // The asking call is named, so a record reader never takes another call still open for the one that asked.
+        this.store.event(run.id, "attention.needed", { question: error.question, ...(error.callId ? { callId: error.callId } : {}) });
         this.notifyEvent("approval.needed", { runId: run.id, sessionId: run.sessionId, question: error.question });
       }
     }
@@ -1190,6 +1300,13 @@ ${run.output.slice(0, 6000)}`;
    * connects it; on its own every task is an ordinary one.
    */
   trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
+  /**
+   * Q44: throws, in plain words, when a message queued for this conversation could never start here
+   * (a Trunk set to start on another computer). `createBranch` connects it; on its own nothing is refused.
+   */
+  queueGuard: (sessionId: string) => void = () => undefined;
+  /** Q44: told when a queued message could not start, so whoever queued it can say so (src/trunks/messages.ts). */
+  followUpNotSent: (sessionId: string, prompt: string, reason: string) => void = () => undefined;
   /**
    * phase2/rooms: the conversation whose mode this one follows. A Trunk's turn in a room runs in that
    * Trunk's own conversation for the room, so it is held to the room's conversation (src/trunks/).
@@ -2353,7 +2470,7 @@ ${run.output.slice(0, 6000)}`;
   private conversationPolicy(runId?: string): Policy {
     const saved = readPolicy(this.store, this.owner);
     const mode = this.heldConversationMode(saved, runId);
-    return mode ? policyForMode(saved, mode, lockdownActive(this.store, this.owner)) : saved;
+    return mode ? policyForMode(saved, mode, lockdownActive(this.store, this.owner), this.registry.outboundTools()) : saved; // Q59
   }
   /** The mode this task's conversation holds it to, or null when it follows the owner's setting. */
   private heldConversationMode(saved: Policy, runId?: string): ConversationMode | null {
@@ -2451,12 +2568,13 @@ ${run.output.slice(0, 6000)}`;
    * account. The same reckoning a model's turn goes through, for the places that are not one: a
    * saved workflow's tool step, and every step of a procedure being replayed.
    */
-  checkPolicy(tool: string, sent: unknown, context: ToolContext, fingerprint?: string): PolicyCheck {
+  checkPolicy(tool: string, sent: unknown, context: ToolContext, fingerprint?: string, at?: { target: string }): PolicyCheck {
     // hardening-3: judged as the tool will run it (the same schema, the same names), whatever the caller passed.
     const args = this.registry.runArgs(tool, sent);
     const permission = this.registry.permissionOf(tool);
     const readOnly = isReadOnlyPermission(permission);
-    const target = this.registry.targetOf(tool, args, context);
+    // FQ-execution.browser: a step judged ahead of the steps before it says where it will be (`judgeStep`).
+    const target = at?.target ?? this.registry.targetOf(tool, args, context);
     const label = describeToolCall(tool, args);
     const source: RunSource = this.sourceOf(context); // mac7/outside-resume
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the
@@ -2491,7 +2609,7 @@ ${run.output.slice(0, 6000)}`;
     // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
     // Branch changing its own settings is always put to the owner (src/settings-kit/tools.ts).
-    const personal = personalHold(tool, args, source) ?? settingsHold(tool);
+    const personal = personalHold(tool, args, source) ?? settingsHold(tool) ?? contractHold(tool, args); // Q12: a self-development contract, first or wider
     // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
     const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null)
       ?? this.scriptHold(tool, context.runId); // mac7/residuals (4b)
@@ -2510,12 +2628,18 @@ ${run.output.slice(0, 6000)}`;
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
     // A once-only question is never answered by a kept yes (R17-S-C integration review).
+    // FQ-execution.browser: a browser.flow on no website is only answered by a yes given for these very
+    // bytes: its kept answer names nothing else to tell two such flows apart.
+    const unkeyed = this.unkeyed(tool, target);
     const answered = decision === "ask" && !hold?.onceOnly
-      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact) : undefined;
-    const noted = extra.note ? `${label} — ${extra.note}` : label; // mac7/r17-g
+      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact || unkeyed) : undefined;
+    // Q50: a change to Branch's own settings is asked about with its exact before and after.
+    const preview = settingsPreview(this.store, tool, args, context);
+    const shown = preview ? `${label}: ${preview}` : label;
+    const noted = extra.note ? `${shown} — ${extra.note}` : shown; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
-      remember: hold?.onceOnly ? "never" : extra.exact ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
-      sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
+      remember: hold?.onceOnly ? "never" : extra.exact || this.registry.noStandingTarget(tool, target) ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
+      sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}), ...(hold?.onceOnly ? { onceOnly: true } : {}) };
   }
   /**
    * mac7/walk-rules: what a tool that walks a folder may list or read, entry by entry (src/walk-rules.ts):
@@ -2603,6 +2727,12 @@ ${run.output.slice(0, 6000)}`;
   }
   private readonly taskPeople = new Map<string, string | null>();
   /**
+   * FQ-execution.browser: a `browser.flow` on no website is answered only by a yes for the same bytes.
+   */
+  private unkeyed(tool: string, target: string): boolean {
+    return blankTarget(target) && keyedOnDeclaredTargets.has(tool);
+  }
+  /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved
    * workflow's step). "always" also writes it into the policy as a rule, exactly as answering a
    * paused task does, and the same row goes into the record of what was allowed.
@@ -2616,6 +2746,7 @@ ${run.output.slice(0, 6000)}`;
   ): void {
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    if (remember === "always" && this.registry.noStandingTarget(about.tool, about.target)) throw new Error(unkeyedAlwaysRefusal);
     // Integration review (mac7/coding-next): a workflow or flow carried on past "Let Branch run this
     // project's tests?" is held to the same rules as the question card: Always is the owner's alone,
     // and a plain yes is a single pass for the next run of the tests.
@@ -2805,8 +2936,12 @@ ${run.output.slice(0, 6000)}`;
     // list rather than taking the place of whatever was already there. Only when the list is full
     // does one go, and then the task that was waiting on it is told, in plain words.
     const files = about.files?.length ? { files: about.files.map((one) => ({ kind: one.kind, path: this.hideSecrets(one.path) })) } : {};
+    // Q59: Ask first and Plan read no standing yes, so their questions offer none (src/approvals.ts).
+    const mode = about.kind ? null : this.heldConversationMode(readPolicy(this.store, this.owner), context.runId);
+    const noStanding = mode === "ask" || mode === "plan" ? { noStanding: true } : {};
+    const noAlways = this.registry.noStandingTarget(about.tool, target) ? { noAlways: true } : {}; // Q76
     const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
-      label, question, source, remember, askedAt: new Date().toISOString(), ...files,
+      label, question, source, remember, askedAt: new Date().toISOString(), ...files, ...noStanding, ...noAlways,
       ...(about.sandbox ? { sandbox: about.sandbox } : {}),
       ...(about.kind ? { kind: about.kind } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
@@ -2815,7 +2950,7 @@ ${run.output.slice(0, 6000)}`;
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "", ...files,
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "", ...files, ...noStanding, ...noAlways,
       ...(about.kind ? { kind: about.kind } : {}) });
     throw new NeedsInputError(question);
   }
@@ -2867,6 +3002,9 @@ ${run.output.slice(0, 6000)}`;
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    if (remember === "always" && waiting.noStanding) throw new Error(noStandingRefusal); // Q59
+    // FQ-execution.browser: checked before anything is kept, so a refused "always" leaves the question waiting.
+    if (remember === "always" && this.registry.noStandingTarget(waiting.tool, waiting.target)) throw new Error(unkeyedAlwaysRefusal);
     // An answer that names a request must land on that request and no other. The only way to get
     // here having named one is through the fall-back above, which means nothing waiting carries
     // that name — including a question that carries no name at all, which an answer naming one was
@@ -3162,6 +3300,7 @@ ${run.output.slice(0, 6000)}`;
           source: this.sourceOf(context), remember: e.remember, ...e.asked,
           ...(e.fingerprint === undefined ? {} : { fingerprint: e.fingerprint }) }, call.id);
       }
+      if (e instanceof NeedsInputError) e.callId ??= call.id; // this call is the one that asked
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) {
         span?.end("error", e instanceof NeedsInputError ? "waiting for the person" : errorText(e));
         throw e;
@@ -3285,4 +3424,14 @@ export function ignoredNote(keys: readonly string[]): string {
 
 export function argumentFingerprint(argumentBytes: string): string {
   return createHash("sha256").update(argumentBytes, "utf8").digest("hex").slice(0, 32);
+}
+
+/**
+ * FQ-execution.browser: a fingerprint for a browser.flow step that includes the tool, index,
+ * target/host, and canonical arguments, so a "Yes, just now" is bound to that exact step and
+ * cannot cover another step or a later single-step call.
+ */
+function stepFingerprint(tool: string, index: number, target: string | undefined, argumentBytes: string): string {
+  const parts = ["browser.flow step", index, tool, target ?? "", canonicalArguments(argumentBytes)];
+  return createHash("sha256").update(parts.join("\u0000"), "utf8").digest("hex").slice(0, 32);
 }

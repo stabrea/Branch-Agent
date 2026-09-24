@@ -123,6 +123,9 @@ export const ROUTES = {
   "/api/code-check": "owner POST",
   "/api/code-run": "owner POST",
   "/api/collab": "look",
+  "/api/collab/events": "other GET,POST", // the household's signed events: every member reads and publishes as themselves; a key may not read them
+  "/api/collab/events/receive": "owner POST", // relay intake: takes in a signed event from elsewhere, the owner's alone
+  "/api/collab/git-patches": "owner POST", // publishes a signed patch event; repositories are the owner's
   "/api/comfort": "owner POST", // R17-S-C
   "/api/comfort/status": "look", // R17-S-C
   "/api/comfort/update-plan": "owner POST", // R17-S-C
@@ -591,6 +594,12 @@ export const ROUTES = {
   "/api/learning-core/forget": "owner POST",
   "/api/learning-core/settings": "owner POST",
   "/api/limits": "owner POST",
+  // FQ-execution.desktop: the shared Linux desktop's card is a look (no VNC password in it); the
+  // switch, taking the desktop over and handing it back are the owner's. Viewer password is owner-only.
+  "/api/linux-desktop": "owner POST",
+  "/api/linux-desktop/hand-back": "owner POST",
+  "/api/linux-desktop/take-over": "owner POST",
+  "/api/linux-desktop/viewer": "owner GET",
   "/api/local-models": "look",
   "/api/local-models/": "prefix",
   "/api/local-models/delete": "owner POST",
@@ -647,6 +656,11 @@ export const ROUTES = {
   "/api/mcp/signin": "owner POST",
   "/api/mcp/snapshots": "look",
   "/api/mcp/try": "owner POST",
+  // FQ-collaboration: comments pinned to a moment in a video are kept under the owner, and the video's
+  // bytes are opened through the code editor, so reading either is the owner's alone, like the editor.
+  "/api/media-comments": "secret-read",
+  "/api/media-comments/:id": "owner DELETE",
+  "/api/media-comments/media": "secret-read",
   "/api/media/programs": "owner POST",
   "/api/media/settings": "owner POST",
   "/api/media/understand": "task POST",
@@ -698,6 +712,7 @@ export const ROUTES = {
   "/api/move-in/switch": "owner POST",
   "/api/never-break": "owner POST",
   "/api/never-break/": "prefix",
+  "/api/never-break/last-update": "secret-read", // Q55: what the owner's last update did is the owner's alone
   "/api/never-break/proposal/accept": "owner POST",
   "/api/never-break/proposal/discard": "owner POST",
   "/api/never-break/snapshot": "owner POST",
@@ -844,6 +859,8 @@ export const ROUTES = {
   "/api/registry/updates": "look",
   "/api/remotes": "owner POST",
   "/api/remotes/remove": "owner POST",
+  // FQ-execution.host-bridge: the owner's own button for running a program on another computer.
+  "/api/host-bridge/run": "owner POST",
   "/api/reports": "other POST",
   "/api/reports/episode/:id": "look",
   "/api/request-cache": "owner POST",
@@ -871,6 +888,7 @@ export const ROUTES = {
   "/api/runs/:id/plan": "task POST",
   "/api/runs/:id/receipts": "look",
   "/api/runs/:id/recording": "look",
+  "/api/runs/:id/result": "look", // Q52: what a finished task made and how it was checked, like its receipts (classified in Q64)
   // mac7/smoke-fixes (B4): one task's steps, for `branch trace`. "look" on purpose, not an
   // oversight — it carries none of the task's words, and `inspect` beside it already shows a
   // read-scoped key strictly more. Read "Decided, not an oversight" in
@@ -898,6 +916,9 @@ export const ROUTES = {
   "/api/schedules/:id/remove": "other POST",
   "/api/schedules/:id/trigger": "task POST",
   "/api/sdk-kit": "owner POST", // bucket 21: the switch for building on Branch
+  // FQ-collaboration.unified-search: one query across conversations, workflows and the audit
+  // record is a wider window than any one of those alone, so it is refused like a secret read.
+  "/api/search": "secret-read",
   "/api/second-opinion": "owner POST",
   "/api/secrets": "owner POST",
   "/api/secrets/audit": "look",
@@ -912,6 +933,7 @@ export const ROUTES = {
   "/api/sessions": "look",
   "/api/sessions/": "prefix",
   "/api/sessions/:id": "look",
+  "/api/sessions/:id/context": "look",
   "/api/sessions/:id/discard": "other POST",
   "/api/sessions/:id/duplicate": "other POST",
   "/api/sessions/:id/export": "look",
@@ -971,9 +993,13 @@ export const ROUTES = {
   "/api/studies/settings": "owner POST",
   "/api/teams": "other POST",
   "/api/teams/:id": "look",
+  "/api/teams/:id/handoffs": "look", // Q62: the offers waiting for whoever is signed in
+  "/api/teams/:id/handoffs/:id/accept": "other POST", // Q62: a key is never a recipient, so refused
+  "/api/teams/:id/handoffs/:id/reject": "other POST",
   "/api/teams/:id/remove": "other POST",
   "/api/teams/:id/room": "look",
   "/api/teams/:id/run": "task POST",
+  "/api/teams/:id/tasks": "secret-read", // Q64: every source's team tasks, questions and answers; the owner's alone
   "/api/templates/import": "other POST",
   "/api/templates/procedure/:id": "look",
   "/api/templates/specialist/:id": "look",
@@ -1011,6 +1037,12 @@ export const ROUTES = {
   "/api/settings-kit/apply": "owner POST",
   // mac7/wake-pins: pinning a setting is the owner's alone; the list of pins is only names and values.
   "/api/settings-kit/pins": "owner POST",
+  // Q48/Q49: the change records and "why is it set like this?" are names and values only; an undo is a change, the owner's.
+  "/api/settings-kit/history": "look",
+  "/api/settings-kit/undo": "owner POST",
+  "/api/settings-kit/why/[A-Za-z0-9_.:-]{3,160}": "look",
+  // Q65 review: putting an unreadable setting (voice) back as shipped is the owner's alone.
+  "/api/settings-kit/put-back": "owner POST",
   "/api/triggers": "secret-read",
   "/api/triggers/:id": "secret-read",
   "/api/triggers/:id/enabled": "owner POST",
@@ -1079,6 +1111,9 @@ export const OUTBOUND = [
   /^src\/(local-models|tracing-export|voice|provider-batch)\.ts$/,
   // Callers of our own routes, and the route description, rather than the routes themselves.
   /^src\/(cli|cli-attach|api-openapi|short-lived-keys|household-routes)\.ts$/, /^src\/install\//, /^src\/desktop\//,
+  // FQ-collaboration.unified-search: builds links to already-classified routes (/api/sessions/:id,
+  // /api/workflows/:id, /api/audit), not a route of its own beyond /api/search, which src/server.ts defines.
+  /^src\/unified-search\.ts$/,
   /^src\/never-break\/gateway\.ts$/, /^src\/commands\/catalog\.ts$/,
   /^src\/channel-setup\/cli\.ts$/, // mac7/connect: `branch connect` calls the Set up routes of the running Branch
   // r17-i: callers of other computers' routes and of the relay's, not routes of this one.

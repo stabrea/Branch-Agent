@@ -202,7 +202,7 @@ export function describeChange(record: MonitorRecord, before: string, after: str
 
 export function registerMonitors(registry: ToolRegistry, monitors: Monitors): void {
   registry.register({
-    name: "monitor.create", permission: "monitors.manage",
+    name: "monitor.create", reach: "outbound", permission: "monitors.manage",
     description: "Watch a web page or a web search and say what changed. Give an address or a search, how often to look (for example \"6h\"), and where to send the news — a chat, or the activity list.",
     parameters: MonitorSchema,
     execute: async (input, context) => monitors.create(context.owner, input, context.signal),
@@ -214,7 +214,7 @@ export function registerMonitors(registry: ToolRegistry, monitors: Monitors): vo
     execute: async (_input, context) => ({ monitors: monitors.list(context.owner) }),
   });
   registry.register({
-    name: "monitor.check", permission: "monitors.manage",
+    name: "monitor.check", reach: "outbound", permission: "monitors.manage",
     description: "Look at one watch right now instead of waiting for its next turn, and report what changed.",
     parameters: z.object({ id: z.string().uuid() }).strict(),
     execute: async ({ id }, context) => monitors.check(context.owner, id, new Date(), context.signal),

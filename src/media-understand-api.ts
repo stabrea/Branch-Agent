@@ -4,6 +4,7 @@ import { saveMediaProgramsSettings } from "./media-programs.js";
 import type { MediaUnderstanding } from "./media-understand.js";
 import { speechEnginesApi, type SpeechEngineService } from "./speech-engine-service.js";
 import type { Store } from "./store.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * Bucket 17: the routes behind the video card, the composer's video attachment and the speech
@@ -44,7 +45,10 @@ export async function bucket17Api(
   body: () => Promise<unknown>, media: () => Promise<{ bytes: Buffer; mediaType: string }>,
 ): Promise<unknown> {
   if (path === "/api/media/programs") {
-    if (method === "POST") saveMediaProgramsSettings(deps.store, deps.owner, await body());
+    if (method === "POST") {
+      const input = await body();
+      recordedWrite(deps.store, deps.owner, byCard("media-programs"), ["media-programs"], () => saveMediaProgramsSettings(deps.store, deps.owner, input));
+    }
     return deps.understanding.status(deps.owner);
   }
   if (path === "/api/media/understand" && method === "POST") {

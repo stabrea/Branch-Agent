@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { ensureFlyTables, flyTables } from "./fly-core/state.js";
 import { dropIndex } from "./fly-core/fast-index.js";
+import { ensureContractTable } from "./self-development-contract.js";
 
 /**
  * Whole-application backup: every table that holds the person's state, as plain rows, so it can be
@@ -29,11 +30,20 @@ const requiredTables = [
  * mac2/fly-core-2: what the learning core has learned, with the wiring seed its weights depend on.
  * These tables only exist once the core has been switched on, so an archive may leave them out.
  */
-export const backupTables = [...requiredTables, ...flyTables] as const;
+/**
+ * Q12: rows written once and never changed or removed (the self-development contracts, see
+ * src/self-development-contract.ts). An archive from before them may leave them out. A restore adds
+ * the revisions this install does not have and never replaces or removes one, so each row keeps the
+ * hash it was written with.
+ */
+const appendOnlyTables = ["self_development_contracts"] as const;
+const appendOnly = (table: string): boolean => (appendOnlyTables as readonly string[]).includes(table);
+export const backupTables = [...requiredTables, ...flyTables, ...appendOnlyTables] as const;
 const RowSchema = z.record(z.string().regex(/^[a-z_]+$/), z.union([z.string(), z.number(), z.null()]));
 const TablesSchema = z.object({
   ...Object.fromEntries(requiredTables.map((table) => [table, z.array(RowSchema)])) as Record<(typeof requiredTables)[number], z.ZodArray<typeof RowSchema>>,
   ...Object.fromEntries(flyTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof flyTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
+  ...Object.fromEntries(appendOnlyTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof appendOnlyTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
 }).strict();
 export const BackupArchiveSchema = z.object({
   format: z.literal("branch-agent-backup"),
@@ -87,8 +97,9 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
   try {
     if (options.replaceExisting)
       for (const table of [...backupTables].reverse())
-        if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) db.exec(`DELETE FROM ${table}`);
+        if (!appendOnly(table) && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) db.exec(`DELETE FROM ${table}`);
     prepareFlyRestore(db, archive);
+    if (archive.tables.self_development_contracts?.length) ensureContractTable(db);
     for (const table of backupTables) {
       const list = archive.tables[table];
       if (!list?.length) continue;
@@ -97,7 +108,9 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
       for (const row of list) {
         const keys = Object.keys(row).filter((k) => columns.has(k));
         if (keys.length !== Object.keys(row).length) throw new Error(`Backup row for ${table} has a column this version does not know`);
-        db.prepare(`INSERT OR REPLACE INTO ${table}(${keys.join(",")}) VALUES(${keys.map(() => "?").join(",")})`).run(...keys.map((k) => row[k] ?? null));
+        // An append-only row gets a fresh id and is skipped when this install already has that revision.
+        const kept = appendOnly(table) ? keys.filter((k) => k !== "id") : keys;
+        db.prepare(`INSERT OR ${appendOnly(table) ? "IGNORE" : "REPLACE"} INTO ${table}(${kept.join(",")}) VALUES(${kept.map(() => "?").join(",")})`).run(...kept.map((k) => row[k] ?? null));
         rows++;
       }
     }

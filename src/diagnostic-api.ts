@@ -17,6 +17,7 @@ import {
 import { audit } from "./audit.js";
 import { levelFor } from "./log-bridge.js";
 import { lockdownActive } from "./lockdown.js";
+import { optionalFields } from "./feature-switches.js"; // Q65
 import { healthReport } from "./health.js";
 import { localRuntimes } from "./local-runtimes.js";
 import type { createBranch } from "./index.js";
@@ -170,9 +171,7 @@ async function automaticReportSettingsApi(ctx: DiagnosticContext, method: string
   if (method === "GET") return { settings: automaticProblemReportSettings(app.store, owner), destinations: automaticDestinations(app) };
   if (method !== "POST") throw new Error("That is not something Branch can do with automatic problem reports");
   const raw = await body();
-  const input = AutomaticProblemReportSettingsSchema.partial().parse(raw);
-  const sent = raw && typeof raw === "object" ? Object.keys(raw) : [];
-  const changed = Object.fromEntries(Object.entries(input).filter(([key]) => sent.includes(key)));
+  const changed = optionalFields(AutomaticProblemReportSettingsSchema).parse(raw ?? {}); // Q65: only what was sent
   const candidate = AutomaticProblemReportSettingsSchema.parse({ ...automaticProblemReportSettings(app.store, owner), ...changed });
   requireLinkedDestination(app, candidate);
   return { settings: saveAutomaticProblemReportSettings(app.store, owner, raw), destinations: automaticDestinations(app) };

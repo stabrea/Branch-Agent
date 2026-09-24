@@ -8,6 +8,7 @@ import {
 import { guardFor, loopGuardMode, saveLoopGuardSettings, type FeatureSwitch, type LoopGuard } from "./loop-guard.js";
 import type { Policy } from "./policy.js";
 import type { Store } from "./store.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /** Raised between rounds when the loop guard has decided the task should end. */
 export class LoopStoppedError extends Error {
@@ -143,11 +144,12 @@ export async function guardsApi(
   if (request.method !== "GET" && request.method !== "POST") throw new Error("Use GET or POST");
   const body = request.method === "POST" ? await readBody(request) : undefined;
   if (path === "/api/loop-guard") {
-    if (body !== undefined) saveLoopGuardSettings(store, owner, body);
+    if (body !== undefined) recordedWrite(store, owner, byCard("loop_guard"), ["loop_guard"], () => saveLoopGuardSettings(store, owner, body));
     return { mode: loopGuardMode(store, owner) };
   }
   if (body !== undefined) {
-    if (body && typeof body === "object" && "mode" in body) saveFolderTrustSettings(store, owner, body);
+    if (body && typeof body === "object" && "mode" in body)
+      recordedWrite(store, owner, byCard("folder_trust_mode"), ["folder_trust_mode"], () => saveFolderTrustSettings(store, owner, body));
     else decideFolder(store, owner, workspace, body);
   }
   return folderTrustView(app);

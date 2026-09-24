@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { Store } from "./store.js";
 import { audit } from "./audit.js";
 import { zipRead, zipWrite, type ZipLimits } from "./skill-package.js";
+import { recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
+import type { ChangeOrigin } from "./settings-kit/history.js";
 
 /**
  * Handing the assistant itself to someone else, or to another computer. One file holds the
@@ -120,19 +122,26 @@ export function openAgent(bytes: Buffer): OpenedAgent {
 
 export interface AgentImportReport { section: AgentSection; brought: number; note: string }
 
-/** Brings in only the sections that were chosen; anything not chosen is left where it is. */
-export function importAgent(store: Store, owner: string, opened: OpenedAgent, chosen: readonly AgentSection[]): AgentImportReport[] {
+/** How a settings change made by bringing in an assistant file is written down when the caller does not say. */
+const importedFrom: ChangeOrigin = { writer: "unknown", source: "import", detail: "an assistant file" };
+
+/**
+ * Brings in only the sections that were chosen; anything not chosen is left where it is. `origin`
+ * is who brought the file in, for the change record of any Settings setting it replaces (Q48).
+ */
+export function importAgent(store: Store, owner: string, opened: OpenedAgent, chosen: readonly AgentSection[],
+  origin: ChangeOrigin = importedFrom): AgentImportReport[] {
   const wanted = new Set(chosen);
   const reports: AgentImportReport[] = [];
   for (const section of opened.manifest.sections) {
     if (!wanted.has(section.name)) { reports.push({ section: section.name, brought: 0, note: "left out" }); continue; }
     const parsed = JSON.parse(opened.files.get(section.file)!) as unknown;
-    reports.push(bringIn(store, owner, section.name, parsed));
+    reports.push(bringIn(store, owner, section.name, parsed, origin));
   }
   return reports;
 }
 
-function bringIn(store: Store, owner: string, section: AgentSection, parsed: unknown): AgentImportReport {
+function bringIn(store: Store, owner: string, section: AgentSection, parsed: unknown, origin: ChangeOrigin): AgentImportReport {
   const rows = Array.isArray(parsed) ? parsed : [];
   if (section === "specialists" || section === "procedures") {
     for (const row of rows.slice(0, 500)) {
@@ -147,11 +156,14 @@ function bringIn(store: Store, owner: string, section: AgentSection, parsed: unk
     const result = store.importMemory(owner, { facts: rows }) as { added?: number } | undefined;
     return { section, brought: Number(result?.added ?? rows.length), note: "added to what is already remembered" };
   }
-  for (const row of rows.slice(0, 20)) {
-    const entry = row as { key?: unknown; data?: unknown };
-    if (typeof entry.key === "string" && settingKeys[section as "routing" | "permissions"].includes(entry.key) && entry.data && typeof entry.data === "object")
-      store.save("settings", owner, entry.key, entry.data as Record<string, unknown>);
-  }
+  // Q48: "When to check with me" is a Settings setting, so replacing it is written down like any change.
+  recordedWrite(store, owner, origin, ["policy"], () => {
+    for (const row of rows.slice(0, 20)) {
+      const entry = row as { key?: unknown; data?: unknown };
+      if (typeof entry.key === "string" && settingKeys[section as "routing" | "permissions"].includes(entry.key) && entry.data && typeof entry.data === "object")
+        store.save("settings", owner, entry.key, entry.data as Record<string, unknown>);
+    }
+  });
   return { section, brought: rows.length, note: "replaced the settings of the same name" };
 }
 

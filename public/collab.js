@@ -45,9 +45,11 @@ function onClick(helpers, node, handler) {
 function smallButton(helpers, label, handler) {
   return onClick(helpers, helpers.el("button", label, "collab-btn-small"), handler);
 }
-function section(helpers, title, description) {
+function section(helpers, title, description, titleKey) {
   const node = helpers.el("div", undefined, "collab-section");
-  node.appendChild(helpers.el("h3", title));
+  const h3 = helpers.el("h3", titleKey ? t(titleKey) : title);
+  if (titleKey) h3.dataset.t = titleKey;
+  node.appendChild(h3);
   node.appendChild(helpers.el("p", description, "collab-desc"));
   return node;
 }
@@ -211,7 +213,7 @@ function sharesSection(shares, helpers) {
 function peopleSection(profile, helpers) {
   const { el, api, toast, refresh } = helpers;
   const wrap = section(helpers, "People who share this computer",
-    "Someone else can have their own name and PIN. Their conversations and saved facts are kept apart from yours, and they cannot reach your secrets or projects. This is separation on one computer, not separate accounts.");
+    "Someone else can have their own name and PIN. Their conversations and saved facts are kept apart from yours, and they cannot reach your secrets or projects. This is separation on one computer, not separate accounts.", "people.share.title");
   wrap.appendChild(el("p", profile.active ? `Signed in as ${profile.active.name}` : "Signed in as the owner", "collab-meta"));
   for (const person of profile.all ?? []) {
     const card = el("div", undefined, "collab-card");
@@ -221,9 +223,11 @@ function peopleSection(profile, helpers) {
     if (held) {
       const words = profile.roleLabels?.[held.grant.role];
       card.appendChild(el("p", `${words?.label ?? held.grant.role}: ${words?.description ?? ""}`, "collab-meta"));
+      // Q75: what Branch really holds them to (narrowed by their groups), not only what was saved.
+      const holds = held.effective ?? held.grant;
       const limits = [
-        held.grant.projects.length ? `Only in: ${held.grant.projects.join(", ")}` : "",
-        held.grant.dailySpendLimit > 0 ? `Up to ${held.grant.dailySpendLimit.toFixed(2)} a day` : "",
+        holds.projects.length ? `Only in: ${holds.projects.join(", ")}` : "",
+        holds.dailySpendLimit > 0 ? `Up to ${holds.dailySpendLimit.toFixed(2)} a day` : "",
       ].filter(Boolean);
       if (limits.length) card.appendChild(el("p", limits.join(" · "), "collab-meta"));
       if (profile.isOwner)

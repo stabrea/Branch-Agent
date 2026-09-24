@@ -27,3 +27,16 @@
   color: var(--warn);
   font-size: 0.8rem;
 }
+
+/* Q48/Q49: recent changes, each with its own undo. */
+.kit-records {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s2, 8px);
+}
+.kit-record p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

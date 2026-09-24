@@ -30,6 +30,7 @@
     <link rel="stylesheet" href="/accounts.css" /><!-- phase2/accounts: Accounts, the assistant's files, Secrets -->
     <link rel="stylesheet" href="/control-styles.css" /><!-- batch1/controls: switch, segmented, glass dropdown styling -->
     <link rel="stylesheet" href="/phone-layout.css" /><!-- phase2/everywhere -->
+    <link rel="stylesheet" href="/topic-panes.css" /><!-- FQ-surfaces.panes: compare topics side by side -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
@@ -310,6 +311,8 @@
               rows="3"
             ></textarea>
             <div id="composer-attachments" class="attachments" hidden></div>
+            <!-- FQ-surfaces.playback: the sound or video file just picked, playable right here before it is sent (public/playback.js). -->
+            <div id="composer-clips" class="attachments" hidden></div>
             <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture, a sound or a video file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*,video/*" />
             <div>
               <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
@@ -989,13 +992,14 @@
             <button id="phone-invite" type="button" class="quiet-button" hidden data-t="action.show-the-square-code-for">Show the square code for my phone</button>
             <canvas id="phone-qr" width="240" height="240" aria-label="Square code to scan with your phone" hidden></canvas>
             <p id="phone-code" role="status" class="meta"></p>
-            <h3>Safety copies</h3>
+            <p id="listen-door-status" role="status" class="meta" hidden></p>
+            <h3 data-t="settings.deployment.safety-copies">Safety copies</h3>
             <p id="restore-points" class="meta"></p>
             <div id="restore-offer" hidden>
               <p id="restore-offer-note" role="status"></p>
               <button id="restore-previous" type="button" class="quiet-button" data-t="action.put-back-the-previous-version">Put back the previous version's saved work</button>
             </div>
-            <h3>Check this computer is ready</h3>
+            <h3 data-t="settings.deployment.check-ready">Check this computer is ready</h3>
             <button id="run-doctor" type="button" class="quiet-button" data-t="action.check-and-repair-what-i">Check and repair what I can</button>
             <pre id="doctor-report" class="meta"></pre>
           </section>
@@ -1176,8 +1180,8 @@
             <p id="dictation-state" class="field-note" aria-live="polite"></p>
           </form>
           <form id="pins-form" class="card" data-home="settings:permissions">
-            <h2 data-t="settings.card.pins">Settings you have pinned</h2>
-            <p data-t="settings.pins.intro">Pin a setting and it is fixed. Somebody else who uses this computer still sees it, and sees that you pinned it, but every way of changing it is refused in the same words: this window, the API, the terminal, a settings file, a whole-app preset and a tool the assistant calls. Pinning and unpinning are yours alone. A preset or a settings file steps over a pinned setting and makes all the rest, rather than failing.</p>
+            <h3 class="settings-card-title" data-t="settings.card.pins" hidden>Settings you have pinned</h3>
+            <p data-t="settings.pins.intro">Pin a setting and it is fixed. Somebody else who uses this computer still sees it, and sees that you pinned it.</p>
             <div id="pins-list" class="card-list" aria-live="polite"></div>
             <div id="pins-picker" hidden>
               <label for="pins-setting" data-t="field.pins-setting">Which setting to pin</label>
@@ -1185,7 +1189,7 @@
               <p id="pins-setting-note" class="field-note" data-t="settings.pins.setting-note">It is pinned at whatever it is set to now, so set it the way you want it first. You can still change it yourself, one switch at a time, while it is pinned.</p>
             </div>
             <p id="pins-state" class="field-note" aria-live="polite"></p>
-            <button data-t="action.pin-setting">Pin this setting</button>
+            <button data-t="action.pin-setting" data-level="advanced">Pin this setting</button>
           </form>
           <form id="chat-permissions-form" class="card" data-home="settings:channels">
             <h2 data-t="settings.card.chat-permissions">What a chat may do beyond talking</h2>
@@ -1391,7 +1395,19 @@
             <p id="updates-channel-note" class="subtle" data-t="updates.channel.note">Beta shows accepted changes sooner and may be less tested. Dev builds every merged change on this computer, the moment it lands, before the full checks: it needs git and Node.js, each update takes a few minutes, and it never updates by itself. Stable remains the default. Switching back never installs an older version.</p>
             <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
             <p id="updates-newest" class="subtle"></p>
+            <!-- Q55: exactly which build is installed, and what the offered release says about itself. -->
+            <dl id="updates-build" class="update-build">
+              <dt data-t="updates.build.version">Installed version</dt><dd id="updates-build-version"></dd>
+              <dt data-t="updates.build.commit">Built from commit</dt><dd id="updates-build-commit"></dd>
+            </dl>
             <p id="updates-status" role="status"></p>
+            <p id="updates-provenance" hidden role="status"></p>
+            <p id="updates-outcome" hidden></p>
+            <p id="updates-restored" hidden></p>
+            <section id="updates-notes" class="update-notes" hidden>
+              <h3 id="updates-notes-title"></h3>
+              <p id="updates-notes-text" class="update-notes-text"></p>
+            </section>
             <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
             <div class="identity-actions">
               <button id="updates-install" type="button" hidden data-t="action.update-and-restart">Update and restart</button>
@@ -1420,9 +1436,8 @@
             </div>
             <p id="project-status" role="status"></p>
           </form>
-          <form id="secrets-form" class="card">
-            <h2 data-t="settings.card.secrets">Secrets</h2>
-            <p>Keys and tokens your host commands need. Values are locked away once saved: they are never shown again and the assistant never sees them. A command can only use secrets from the active project.</p>
+          <form id="secrets-form" class="card" aria-labelledby="sg-bucket-secrets-commands">
+            <p data-t="settings.secrets.intro">Keys and tokens your host commands need. Values are locked away once saved: they are never shown again and the assistant never sees them. A command can only use secrets from the active project.</p>
             <label for="secret-project" data-t="field.project">Project</label>
             <select id="secret-project"></select>
             <label for="secret-name" data-t="field.name-as-an-environment-variable">The name your commands use for it (capital letters, like DEPLOY_TOKEN)</label>
@@ -1476,30 +1491,41 @@
             <p>Small commands that run when something happens, for example when a task finishes or a file changes. A hook that keeps failing is switched off by itself so it cannot slow your tasks down.</p>
             <div id="hooks-list" class="card-list"></div>
           </section>
+          <!-- DG-187: its section's head shows the title, as the sample's (the card's own is kept for search and
+               screen-reader order, not drawn); the blocks under the choice keep the sample's levels. -->
           <section id="policy-card" class="card">
-            <h2 data-t="settings.card.when-to-check-with-me">When to check with me</h2>
-            <p>Decide how much Branch may get on with by itself. Reading is always free; this is about changing files, running commands and acting on web pages. Whatever you pick, it never applies to the tools you run yourself from this app.</p>
+            <h3 class="settings-card-title" data-t="settings.card.when-to-check-with-me" hidden>When to check with me</h3>
+            <p data-t="settings.policy.intro">Decide how much Branch may get on with by itself. Reading is always free; this is about changing files, running commands and acting on web pages.</p>
+            <!-- The sample's four cards are what a conversation begun in the window starts on (newConversation,
+                 public/conversation-mode.js); "Follow my rules" starts it on the owner's rules below instead. -->
+            <fieldset id="mode-new-conversation" class="choice-cards" role="radiogroup" aria-describedby="mode-new-conversation-note">
+              <legend data-t="mode.setting.label">New conversations start on</legend>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="auto" aria-describedby="mode-new-conversation-auto-note" /><span><b data-t="mode.setting.auto">Auto</b><small id="mode-new-conversation-auto-note" data-t="mode.setting.auto.note">Changes inside your workspace go ahead. Commands and the web ask.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="ask" aria-describedby="mode-new-conversation-ask-note" /><span><b data-t="mode.setting.ask">Ask first (recommended)</b><small id="mode-new-conversation-ask-note" data-t="mode.setting.ask.note">Asks before any change, command or web action. Reading is free.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="plan" aria-describedby="mode-new-conversation-plan-note" /><span><b data-t="mode.setting.plan">Plan first</b><small id="mode-new-conversation-plan-note" data-t="mode.setting.plan.note">Reads and proposes a plan. A change is refused, not asked about; the web asks.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="full" aria-describedby="mode-new-conversation-full-note" /><span><b data-t="mode.setting.full">No approvals</b><small id="mode-new-conversation-full-note" data-t="mode.setting.full.note">Nothing is checked with you, except commands no rule covers.</small></span></label>
+              <label class="choice-card"><input type="radio" name="mode-new-conversation" value="follow" aria-describedby="mode-new-conversation-follow-note" /><span><b data-t="mode.setting.follow">Follow my rules</b><small id="mode-new-conversation-follow-note" data-t="mode.setting.follow.note">Uses your rules below, the way every conversation used to.</small></span></label>
+            </fieldset>
+            <p id="mode-new-conversation-note" class="subtle field-note" data-t="mode.setting.note">Each conversation can then be changed from the chip beside Send. Conversations from before keep following your rules below.</p>
+            <!-- The owner's own rules: a separate control, and choosing one never changes the cards above. -->
             <label for="policy-preset" data-t="field.how-should-branch-behave">How should Branch behave?</label>
             <select id="policy-preset"></select>
             <p id="policy-description" class="subtle"></p>
-            <!-- Redesign phase 1: what a conversation begun in the window starts on (public/conversation-mode.js). -->
-            <label for="mode-new-conversation" data-t="mode.setting.label">New conversations start on</label>
-            <select id="mode-new-conversation" aria-describedby="mode-new-conversation-note">
-              <option value="ask" data-t="mode.setting.ask">Ask first (recommended)</option>
-              <option value="follow" data-t="mode.setting.follow">The setting above</option>
-            </select>
-            <p id="mode-new-conversation-note" class="subtle field-note" data-t="mode.setting.note">Each conversation can then be changed from the chip beside Send. Conversations from before keep following the setting above.</p>
-            <h3>What that means</h3>
-            <ul id="policy-rules" class="check-list"></ul>
-            <p id="policy-rules-empty" class="subtle" hidden>Nothing is checked with you and nothing is refused.</p>
-            <h3>How fast one conversation may work</h3>
+            <div class="policy-block" data-level="technical">
+              <h4 data-t="settings.policy.means">What that means</h4>
+              <ul id="policy-rules" class="check-list"></ul>
+              <p id="policy-rules-empty" class="subtle" hidden>Nothing is checked with you and nothing is refused.</p>
+            </div>
+            <div class="policy-block" data-level="advanced">
+            <h4 data-t="settings.policy.fast">How fast one conversation may work</h4>
             <p class="subtle">If a conversation goes past one of these, it waits a moment and then carries on. Leave a box at 0 for no limit.</p>
             <label for="policy-tool-limit" data-t="field.most-tools-used-in-a">Most tools used in a minute</label>
             <input id="policy-tool-limit" type="number" min="0" max="1000" step="1" value="0" />
             <label for="policy-round-limit" data-t="field.most-times-it-goes-back">Most times it goes back to the model in a minute</label>
             <input id="policy-round-limit" type="number" min="0" max="1000" step="1" value="0" />
-            <button id="policy-limits-save" type="button" data-t="action.save-these-limits">Save these limits</button>
-            <h3>Rules about one particular thing</h3>
+            </div>
+            <div class="policy-block" data-level="technical">
+            <h4 data-t="settings.policy.rules">Rules about one particular thing</h4>
             <p class="subtle">A rule can be about one folder, one website, one messaging account or one command, rather than everything at once. Rules like these are looked at before the broader ones above.</p>
             <ul id="rules-list" class="check-list"></ul>
             <p id="rules-empty" class="subtle" hidden>You have not set any rules of your own yet.</p>
@@ -1522,7 +1548,7 @@
               <option value="allow">Always allow it</option>
             </select>
             <button id="rules-add" type="button" data-t="action.add-this-rule">Add this rule</button>
-            <h3>Try a decision out</h3>
+            <h4 data-t="settings.policy.try">Try a decision out</h4>
             <p class="subtle">See what would happen before anything really does. Nothing is saved or run.</p>
             <label for="rules-test-tool" data-t="field.tool">Tool</label>
             <input id="rules-test-tool" maxlength="100" placeholder="e.g. files.write" />
@@ -1531,10 +1557,22 @@
             <button id="rules-test-run" type="button" data-t="action.what-would-happen">What would happen?</button>
             <p id="rules-test-answer" class="subtle" role="status"></p>
             <p id="rules-status" class="subtle" role="status"></p>
-            <h3>Or decide a whole kind of thing at once</h3>
-            <p class="subtle">One choice here covers every tool of that kind, so you do not have to go through them one by one.</p>
-            <div id="approval-categories" class="card-list"></div>
+            </div>
+            <div class="policy-block" data-level="advanced">
+              <h4 data-t="settings.policy.kinds">Or decide a whole kind of thing at once</h4>
+              <p class="subtle">One choice here covers every tool of that kind, so you do not have to go through them one by one.</p>
+              <div id="approval-categories" class="card-list"></div>
+            </div>
             <p id="policy-status" class="subtle" role="status"></p>
+          </section>
+          <section id="lockdown-card" class="card" data-home="settings:permissions" hidden>
+            <h3 class="settings-card-title" data-t="lockdown.label" hidden>Lockdown</h3>
+            <p data-t="settings.lockdown.intro">The one switch that refuses commands and makes everything else wait for your yes.</p>
+            <label class="check-row" for="lockdown-switch">
+              <input type="checkbox" id="lockdown-switch" role="switch" aria-describedby="lockdown-switch-note" />
+              <span data-t="lockdown.label">Lockdown</span>
+            </label>
+            <p id="lockdown-switch-note" class="field-note" data-t="settings.lockdown.note">Refuses, without asking, running a command or a script, using your screen and keyboard, borrowing your browser and your other devices. Every other tool waits for your yes. Turning it off puts back exactly the settings that were there before.</p>
           </section>
           <section id="desktop-card" class="card">
             <h2 data-t="settings.card.using-your-screen-and-keyboard">Using your screen and keyboard</h2>
@@ -1547,6 +1585,33 @@
               <input id="desktop-cap" type="number" min="1" max="200" step="1" value="40" />
             </div>
             <p id="desktop-status" class="subtle" role="status"></p>
+          </section>
+          <!-- FQ-execution.desktop: the shared Linux desktop. The Grown-Up sample has no place for it, so it sits
+               with the other desktop control, straight after "Using your screen and keyboard". -->
+          <section id="linux-desktop-card" class="card">
+            <h2 data-t="settings.card.shared-linux-desktop">Shared Linux desktop</h2>
+            <p data-t="linux-desktop.purpose">A throwaway Linux desktop in a container, which Branch can work in while you watch or take it over. It never touches this computer's own screen, and it is off until you switch it on.</p>
+            <label for="linux-desktop-mode" data-t="field.shared-linux-desktop">Shared Linux desktop</label>
+            <select id="linux-desktop-mode">
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="when-needed" data-t="field.switch-when-needed">When needed</option>
+              <option value="on" data-t="field.switch-on">On</option>
+            </select>
+            <label for="linux-desktop-image" data-t="field.linux-desktop-image">Desktop container image</label>
+            <input id="linux-desktop-image" type="text" maxlength="200" placeholder="branch-linux-desktop:latest" />
+            <button id="linux-desktop-image-save" type="button" data-t="action.save-desktop-image">Save this image</button>
+            <p class="subtle" data-t="linux-desktop.note">Nothing is ever downloaded: the image has to be on this computer already. While the desktop runs, a notice with a Take over button sits on top of everything. Once you take over, Branch cannot act in it, stop it or start another until you hand it back here. Switching this off takes the desktop down at once.</p>
+            <p id="linux-desktop-state" class="subtle" role="status"></p>
+            <div id="linux-desktop-control-row" hidden>
+              <button id="linux-desktop-show-viewer" type="button" data-t="action.show-viewer-password">Show viewer password</button>
+              <button id="linux-desktop-take-over" type="button" data-t="action.take-over">Take over</button>
+              <button id="linux-desktop-hand-back" type="button" data-t="action.hand-back" hidden>Hand back</button>
+            </div>
+            <div id="linux-desktop-viewer-info" hidden>
+              <p class="subtle"><span data-t="linux-desktop.viewer-address">Address:</span> <code id="linux-desktop-viewer-address"></code></p>
+              <p class="subtle"><span data-t="linux-desktop.viewer-password">Password:</span> <code id="linux-desktop-viewer-password"></code></p>
+            </div>
+            <p id="linux-desktop-status" class="subtle" role="status"></p>
           </section>
           <section id="sandbox-card" class="card">
             <h2 data-t="settings.card.where-scripts-run">Where scripts run</h2>
@@ -1571,7 +1636,7 @@
             <p id="firewall-status" class="subtle" role="status"></p>
           </section>
           <section id="limits-card" class="card">
-            <h2 data-t="settings.card.ceilings">How much one person may ask for</h2>
+            <h3 class="settings-card-title" data-t="settings.card.ceilings">How much one person may ask for</h3>
             <p>Your own task waits for its minute to free up and then carries on. Somebody messaging you from a chat app is told in one sentence and their message is let go, because a stranger waiting silently looks exactly like Branch being broken. Leave a number at 0 for no limit.</p>
             <label for="limit-requests" data-t="field.questions-a-minute">Questions a minute, one conversation</label>
             <input id="limit-requests" type="number" min="0" max="1000" step="1" value="0" />
@@ -1581,7 +1646,6 @@
             <input id="limit-sender-requests" type="number" min="0" max="1000" step="1" value="0" />
             <label for="limit-sender-tokens" data-t="field.thinking-an-hour-from-outside">Thinking an hour, one person messaging you</label>
             <input id="limit-sender-tokens" type="number" min="0" max="50000000" step="1000" value="0" />
-            <button id="limit-save" type="button" data-t="action.save-these-ceilings">Save these ceilings</button>
             <p id="limit-status" class="subtle" role="status"></p>
           </section>
           <section id="remote-card" class="card">
@@ -1598,6 +1662,19 @@
             <input id="remote-programs" type="text" maxlength="600" />
             <button id="remote-add" type="button" data-t="action.add-this-computer">Add this computer</button>
             <p id="remote-status" class="subtle" role="status"></p>
+          </section>
+          <section id="host-bridge-card" class="card">
+            <h2 data-t="settings.card.host-bridge">Run something on one computer</h2>
+            <p>Pick one computer you have already added above, name a program it is allowed to run, and Branch runs it there and hands the answer straight back — with the name of the computer that answered, so it is never mixed up with any other.</p>
+            <label for="host-bridge-computer" data-t="field.which-computer">Which computer</label>
+            <select id="host-bridge-computer"></select>
+            <label for="host-bridge-program" data-t="field.program-to-run">Program to run</label>
+            <input id="host-bridge-program" type="text" maxlength="80" placeholder="make" />
+            <label for="host-bridge-args" data-t="field.arguments-separated-by-spaces">Arguments, separated by spaces</label>
+            <input id="host-bridge-args" type="text" maxlength="600" placeholder="build" />
+            <button id="host-bridge-run" type="button" data-t="action.run-it-there">Run it there</button>
+            <div id="host-bridge-result" class="card-list"></div>
+            <p id="host-bridge-status" class="subtle" role="status"></p>
           </section>
           <section id="retention-card" class="card">
             <h2 data-t="settings.card.how-long-conversations-are-kept">How long conversations are kept</h2>
@@ -2139,6 +2216,18 @@
               </div>
               <button id="wsedit-save" type="button" data-t="action.save">Save</button>
             </div>
+            <!-- FQ-collaboration: a video opened from the Files tab, with the comments pinned to it. -->
+            <div id="wsedit-media" class="wsedit-media" hidden>
+              <p class="meta" id="wsedit-media-path"></p>
+              <video id="wsedit-media-video" class="wsedit-media-video" controls preload="metadata" data-t-label="wsedit.media.video-label" aria-label="The video"></video>
+              <div id="wsedit-media-comments" class="wsedit-media-comments"></div>
+              <form id="wsedit-media-comment-form" class="wsedit-media-comment-form">
+                <label class="sr-only" for="wsedit-media-comment-text" data-t="wsedit.media.comment.label">A comment at this moment</label>
+                <input id="wsedit-media-comment-text" type="text" maxlength="2000" required
+                  data-t-placeholder="wsedit.media.comment.placeholder" placeholder="Comment at the current moment">
+                <button type="submit" data-t="wsedit.media.comment.add">Add comment here</button>
+              </form>
+            </div>
           </div>
           <p id="wsedit-status" class="context-empty" role="status" aria-live="polite"></p>
         </details>
@@ -2204,12 +2293,15 @@
     <script src="/documents.js" type="module"></script>
     <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
+    <script src="/playback.js" type="module"></script><!-- FQ-surfaces.playback: plays an attached sound or video file inline -->
+
     <script src="/mcp.js" type="module"></script>
     <script src="/mcp-workbench.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
     <script src="/tracing.js" type="module"></script>
     <script src="/desktop.js" type="module"></script>
+    <script src="/linux-desktop.js" type="module"></script>
     <script src="/os-permissions.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <!-- phase2/delight: the pet, achievements and your own background, all off until switched on. -->
@@ -2249,7 +2341,9 @@
     <script src="/docs-3.js" type="module"></script>
     <script src="/learn.js" type="module"></script>
     <script src="/other.js" type="module"></script>
+    <script src="/lockdown-card.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>
+    <script src="/host-bridge.js" type="module"></script>
     <script src="/move-in.js" type="module"></script>
     <!-- bucket 14 (A0367): the usage report card, placed in Settings → Data -->
     <script src="/usage-report.js" type="module"></script>
@@ -2301,6 +2395,8 @@
     <script src="/settings-trunks.js" type="module"></script>
     <!-- phase2/rooms: who answers in a conversation, rooms as conversations, @mentions. -->
     <script src="/rooms.js" type="module"></script>
+    <!-- Q64: a team's recent tasks above its room: state, members, handoff, blocker and answers. -->
+    <script src="/team-tasks.js" type="module"></script>
     <!-- phase2/rooms: dictation surfaced as a bar, and Talk live in its own view (off at first). -->
     <script src="/voice-bar.js" type="module"></script>
     <script src="/voice-view.js" type="module"></script>
@@ -2334,5 +2430,7 @@
     <!-- phase2/panels: Browser and Terminal, resizable panes, See-through and What's on screen (after layout.js). -->
     <script src="/panels.js" type="module"></script>
     <script src="/panels-hide.js" type="module"></script>
+    <!-- FQ-surfaces.panes: compare topics side by side, opened from More → Go to (after layout.js). -->
+    <script src="/topic-panes.js" type="module"></script>
   </body>
 </html>

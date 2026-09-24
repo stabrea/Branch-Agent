@@ -37,11 +37,12 @@ export class WebAccess {
   settings(): WebConfig { return this.config; }
   /** Refuses addresses the network policy does not allow (hosts, host/path rules, private networks). */
   async assertAllowed(target: URL): Promise<void> { await this.policy.assertAllowed(target); }
+  /** Each hop is checked and then connected to only at the addresses the check judged (NetworkPolicy.guard). */
   async fetchPage(input: string, maxChars = 12000): Promise<WebPage> {
+    const checked = this.policy.guard(this.fetchImpl);
     let url = new URL(input), hops = 0;
     for (;;) {
-      await this.assertAllowed(url);
-      const response = await this.fetchImpl(url, {
+      const response = await checked(url, {
         redirect: "manual", signal: AbortSignal.timeout(this.config.timeoutMs),
         headers: { "user-agent": this.userAgent, accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5" },
       });
@@ -72,8 +73,7 @@ export class WebAccess {
       throw new Error(`Searching with ${chosen.backend} needs its key. Save a secret called ${chosen.keySecret ?? "the service's key"} first, or choose the free search in Settings.`);
     const request = requestFor(chosen, query, limit, key, this.config.searchEndpoint);
     const endpoint = new URL(request.url);
-    await this.assertAllowed(endpoint);
-    const response = await this.fetchImpl(endpoint, {
+    const response = await this.policy.guard(this.fetchImpl)(endpoint, {
       method: request.method, redirect: "manual", signal: AbortSignal.timeout(this.config.timeoutMs),
       headers: { "user-agent": this.userAgent, ...request.headers },
       ...(request.body === undefined ? {} : { body: request.body }),

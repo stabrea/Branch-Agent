@@ -11,6 +11,7 @@ import { ShellProcess } from "../dist/integrations/shell-process.js";
 import { BranchBrowser } from "../dist/integrations/browser.js";
 import { loadIntegrations } from "../dist/integrations/bootstrap.js";
 import { startServer } from "../dist/server.js";
+import { pinnedFetch, pinnedTo } from "../dist/pinned-fetch.js";
 
 const say = (content) => () => ({ content, toolCalls: [] });
 function scripted(steps) {
@@ -50,7 +51,10 @@ test("a command that eats memory or spins the processor is stopped by the sample
 
 test("one network policy with host and path rules is applied by web reading, the browser and MCP requests", async (t) => {
   const resolve = async () => ["93.184.216.34"];
-  const policy = new NetworkPolicy({ allowedPaths: ["api.github.com/repos/", "*.example.org/public/"], blockedPaths: ["api.github.com/repos/secret/"] }, resolve);
+  // The policy's dialling seam sends the address a check judged to a local server, which stands in for the site.
+  const dialled = [];
+  const policy = new NetworkPolicy({ allowedPaths: ["api.github.com/repos/", "*.example.org/public/"], blockedPaths: ["api.github.com/repos/secret/"] }, resolve,
+    (address) => { dialled.push(address); return "127.0.0.1"; });
   await policy.assertAllowed(new URL("https://api.github.com/repos/stabrea/Branch-Agent"));
   await policy.assertAllowed(new URL("https://docs.example.org/public/page"));
   await assert.rejects(policy.assertAllowed(new URL("https://api.github.com/user")), /not on the allowed list/);
@@ -67,12 +71,22 @@ test("one network policy with host and path rules is applied by web reading, the
   browser.policy = new NetworkPolicy({ blockedPaths: ["example.org/admin/"] }, resolve);
   await assert.rejects(browser.navigate("https://example.org/admin/panel", { owner: "local", runId: "r1", signal: new AbortController().signal, permissions: new Set(), depth: 0, workspace: "", budget: {} }), /on the blocked list/);
   await browser.close();
-  // MCP (and anything else handing the policy a fetch) is checked on every request.
+  // MCP (and anything else handing the policy a fetch) is checked on every request, and an allowed one
+  // is connected to at the address its check judged. The fetch hands each request on to Branch's
+  // checked sender, and stops one not held to a judged address, so nothing leaves this computer.
   let calls = 0;
-  const guarded = policy.guard(async () => { calls++; return new Response("ok"); });
-  assert.equal(await (await guarded("https://api.github.com/repos/a/b")).text(), "ok");
-  await assert.rejects(guarded("https://api.github.com/user"), /not on the allowed list/);
+  const site = createServer((_request, response) => { calls++; response.end("ok"); });
+  await new Promise((done) => site.listen(0, "127.0.0.1", done));
+  t.after(() => new Promise((done) => { site.closeAllConnections(); site.close(done); }));
+  const port = site.address().port;
+  const guarded = policy.guard(async (input, init) => {
+    if (!init?.[pinnedTo]) throw new Error(`${input} was not held to a judged address, and this test sends nothing else`);
+    return pinnedFetch(input, init);
+  });
+  assert.equal(await (await guarded(`http://api.github.com:${port}/repos/a/b`)).text(), "ok");
+  await assert.rejects(guarded(`http://api.github.com:${port}/user`), /not on the allowed list/);
   assert.equal(calls, 1);
+  assert.deepEqual(dialled, ["93.184.216.34"]);
 });
 
 test("lifecycle hooks run on events and switch themselves off after repeated failures; the owner can switch them back on", async (t) => {

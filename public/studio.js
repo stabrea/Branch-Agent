@@ -7,7 +7,7 @@
    theme's own highlight), its shape and how it moves, with a live preview of it in the strip and on
    its replies. Pairing lives in public/pairing.js. Words have data-t keys; no colour is written here. */
 import { api, toast } from "/app.js";
-import { face, initialsOf, MOTIONS, TRUNK_SHAPES, maskOf, trunkSpec } from "/faces.js";
+import { face, initialsOf, MOTIONS, TRUNK_SHAPES, maskOf, trunkColour, trunkSpec } from "/faces.js";
 import { findTrunk, icon, make, openTrunk, refresh, say, shell, showOverview, trunksOn } from "/strip.js";
 
 const $ = (id) => document.getElementById(id);
@@ -24,6 +24,13 @@ const SHAPE_WORDS = { circle: "Circle", squircle: "Soft square", leaf: "Leaf", a
 const MOTION_WORDS = { none: "None", breathe: "Breathe", sway: "Sway like a leaf", shimmer: "Shimmer", pulse: "Pulse while working", dots: "Dots while working" };
 export const TABS = [["trunk", "studio.tab.trunk", "A new Trunk"], ["computer", "studio.tab.computer", "Another computer"], ["phone", "studio.tab.phone", "Your phone"]];
 const photoLimit = 290_000;
+/** Q44: a paired device counts as a computer on these platforms; a phone never does (src/trunks/starts-in.ts). */
+const COMPUTER_PLATFORMS = ["darwin", "linux", "win32"];
+/* DG-105: the approved sample's colours, in its order, read from the token layer (`--trunk-colour-1` to 20 in
+   public/tokens.css), then any other colour from the picker. A chosen colour is saved as the value it is. */
+const palette = () => Array.from({ length: 20 }, (_, at) =>
+  getComputedStyle(document.documentElement).getPropertyValue(`--trunk-colour-${at + 1}`).trim()).filter(Boolean);
+const isHex = (colour) => /^#[0-9a-f]{6}$/i.test(String(colour ?? ""));
 
 /* ---------- the dialog ---------- */
 export const studio = { dialog: null, tab: "trunk", draft: null, editing: null, closing: null };
@@ -114,8 +121,8 @@ export function openAdd(tab = "trunk") {
 
 /* ---------- a Trunk's look: the draft ---------- */
 function newDraft() {
-  return { name: "", title: "", pinned: true,
-    look: { face: "pattern", letters: "", emoji: "🌱", shuffle: 0, colour: 2, shape: "leaf", motion: "breathe", depth: "flat" }, photo: null, keptPhoto: null };
+  return { name: "", title: "", pinned: true, startsIn: null, savedStartsIn: null,
+    look: { face: "pattern", letters: "", emoji: "🌱", shuffle: 0, colour: palette()[0], shape: "leaf", motion: "breathe", depth: "flat" }, photo: null, keptPhoto: null };
 }
 function draftTrunk() {
   const d = studio.draft;
@@ -181,10 +188,49 @@ function drawForm() {
   if (!form) return;
   const who = section("studio.who", "Who it is");
   who.append(field("studio.name", "Name", d.name, (value) => { d.name = value; drawPreview(); }, "studio-name", ["studio.name.hint", "For example: Gardener"]),
-    field("studio.what", "What it does, in a few words", d.title, (value) => { d.title = value; }, "studio-what", ["studio.what.hint", "For example: plans the vegetable beds and the watering"]));
+    field("studio.what", "What it does, in a few words", d.title, (value) => { d.title = value; }, "studio-what", ["studio.what.hint", "For example: plans the vegetable beds and the watering"]),
+    ...startsInField());
   form.replaceChildren(who, faceSection(), colourSection(), shapeSection(), motionSection(), depthSection(), ...(studio.editing ? [pinSection()] : []));
+  footWords();
+}
+/** Q44: a new Trunk set to start on another computer cannot introduce itself yet, and the footer says so. */
+function footWords() {
+  const note = $("studio-foot-note");
+  if (!note) return;
+  const [key, english] = studio.draft.startsIn ? ["studio.foot.later", "It starts on the computer you chose, so it cannot introduce itself until Branch can start it there. Everything else can be changed later."]
+    : ["studio.foot.note", "It introduces itself in its own conversation. Everything else can be changed later."];
+  note.dataset.t = key;
+  note.textContent = say(key, english);
 }
 function redraw() { drawForm(); drawPreview(); }
+/** Q44: This computer and the owner's paired computers, the only places a Trunk may start in. */
+export function startChoices() {
+  const computers = (shell.devices?.devices ?? []).filter((device) => COMPUTER_PLATFORMS.includes(device.platform));
+  return [{ id: "", name: say("studio.startsIn.here", "This computer"), here: true }, ...computers.map((device) => ({ id: device.id, name: device.name }))];
+}
+/** Q44 (DG-107): "Starts in", under what it does, as the sample has it. */
+function startsInField() {
+  const d = studio.draft, choices = startChoices();
+  const label = make("label", "studio-field");
+  const select = document.createElement("select");
+  select.id = "studio-starts-in";
+  for (const choice of choices) {
+    const option = choice.here ? make("option", "", "studio.startsIn.here", "This computer") : Object.assign(document.createElement("option"), { textContent: choice.name });
+    option.value = choice.id;
+    select.append(option);
+  }
+  const listed = (id) => choices.some((choice) => choice.id === (id ?? ""));
+  // A computer no longer paired shows as This computer, so the draft says so too and Save sends null.
+  // Only when the paired devices were read: a failed read must not reset the owner's choice on a rename.
+  if (shell.devices && !listed(d.startsIn)) d.startsIn = null;
+  select.value = d.startsIn ?? "";
+  select.addEventListener("change", () => { d.startsIn = select.value || null; drawForm(); });
+  label.append(make("span", "", "studio.startsIn", "Starts in"), select);
+  const notes = [];
+  if (!d.startsIn && !listed(d.savedStartsIn)) notes.push(make("p", "studio-note", "studio.startsIn.gone", "It was set to start on a computer that is no longer paired. Choose where it starts now."));
+  else if (d.startsIn) notes.push(make("p", "studio-note", "studio.startsIn.later", "Branch cannot start a Trunk on another computer yet, so it will not answer until you choose This computer."));
+  return [label, ...notes];
+}
 function faceSection() {
   const d = studio.draft, part = section("studio.face", "Face");
   part.append(segmented(FACES, d.look.face, (value) => { d.look.face = value; redraw(); }, say("studio.face", "Face")));
@@ -254,20 +300,48 @@ function colourSection() {
   const row = make("div", "studio-swatches");
   row.setAttribute("role", "group");
   row.setAttribute("aria-label", say("studio.colour", "Colour"));
-  for (let n = 1; n <= 8; n++) {
-    const swatch = button("studio-swatch", null, null, () => { d.look.colour = n; redraw(); });
-    swatch.style.setProperty("--c", `var(--series-${n})`);
-    swatch.setAttribute("aria-label", say("studio.colour.n", "Colour {n}", { n }));
-    swatch.setAttribute("aria-pressed", String(d.look.colour === n));
+  const chosen = String(d.look.colour).toLowerCase();
+  for (const colour of palette()) {
+    const swatch = button("studio-swatch", null, null, () => { d.look.colour = colour; redraw(); });
+    swatch.style.setProperty("--c", colour);
+    swatch.dataset.colour = colour;
+    swatch.setAttribute("aria-label", say("studio.colour.n", "Colour {n}", { n: colour }));
+    swatch.setAttribute("aria-pressed", String(chosen === colour.toLowerCase()));
     row.append(swatch);
   }
-  const follow = make("label", "studio-check");
+  /* Any colour: the sample's rainbow circle with a + over the system's colour picker. */
+  const custom = make("label", "studio-swatch studio-swatch-custom");
+  const picker = document.createElement("input");
+  picker.type = "color";
+  picker.id = "studio-custom";
+  picker.value = isHex(d.look.colour) ? chosen : palette()[0].toLowerCase();
+  picker.setAttribute("aria-label", say("studio.colour.custom", "Any colour"));
+  custom.title = picker.getAttribute("aria-label");
+  picker.addEventListener("input", () => {
+    d.look.colour = picker.value;
+    for (const swatch of row.querySelectorAll(".studio-swatch[aria-pressed]")) swatch.setAttribute("aria-pressed", "false");
+    const follow = $("studio-follow");
+    if (follow) follow.checked = false;
+    drawPreview();
+  });
+  custom.append(picker, Object.assign(document.createElement("span"), { textContent: "+", ariaHidden: "true" }));
+  row.append(custom);
+  /* DG-106: the sample's switch row (a `.ctl` holding `.sw`): the words, the switch beside them, the note beneath. */
+  const follow = make("label", "studio-follow");
   const box = document.createElement("input");
   box.type = "checkbox";
   box.id = "studio-follow";
+  box.className = "sw";
+  box.setAttribute("role", "switch");
   box.checked = d.look.colour === "theme";
-  box.addEventListener("change", () => { d.look.colour = box.checked ? "theme" : 1; redraw(); });
-  follow.append(box, make("span", "", "studio.follow", "Follow my theme: take the highlight colour of whichever theme is on"));
+  /* Off again, it keeps the colour it had before following, as the sample's does. */
+  box.addEventListener("change", () => {
+    if (box.checked && d.look.colour !== "theme") d.lastColour = d.look.colour;
+    d.look.colour = box.checked ? "theme" : d.lastColour ?? palette()[0];
+    redraw();
+  });
+  follow.append(make("span", "studio-follow-words", "studio.follow", "Follow my theme"), box,
+    make("span", "studio-follow-note", "studio.follow.note", "Takes the highlight colour of whichever theme is on."));
   part.append(row, follow);
   return part;
 }
@@ -346,19 +420,23 @@ function drawPreview() {
 }
 function footer() {
   const foot = make("div", "studio-foot");
-  if (!studio.editing) foot.append(make("span", "studio-note", "studio.foot.note", "It introduces itself in its own conversation. Everything else can be changed later."));
+  if (!studio.editing) foot.append(Object.assign(make("span", "studio-note", "studio.foot.note", "It introduces itself in its own conversation. Everything else can be changed later."), { id: "studio-foot-note" }));
   foot.append(make("span", "grow"), button("", "studio.cancel", "Cancel", () => closeDialog()),
     studio.editing ? button("studio-primary", "studio.save", "Save", saveEdit) : button("studio-primary", "studio.create", "Create the Trunk", createTrunk));
   return foot;
 }
 
 /* ---------- saving ---------- */
+/* DG-105: a colour picked as a value is saved as the Trunk's chosenColour, with the look's own colour left
+   empty, so a build from before it still reads the look; a token or "theme" clears the picked colour. */
 function lookToSave() {
   const look = { ...studio.draft.look };
   if (look.face === "photo") look.face = "pattern";
   if (look.face !== "letters") look.letters = "";
+  if (isHex(look.colour)) look.colour = null;
   return look;
 }
+const colourToSave = () => (isHex(studio.draft.look.colour) ? studio.draft.look.colour.toLowerCase() : null);
 async function savePhoto(id) {
   const d = studio.draft;
   if (d.look.face === "photo" && d.photo) return api(`trunks/${id}/avatar`, { kind: "image", dataUrl: d.photo });
@@ -368,24 +446,33 @@ async function savePhoto(id) {
 async function createTrunk() {
   const d = studio.draft, name = d.name.trim();
   if (!name) return $("studio-name")?.focus();
-  const { trunk } = await api("trunks", { name, title: d.title.trim(), description: "" });
-  await api(`trunks/${trunk.id}`, { look: lookToSave(), pinned: d.pinned });
+  const { trunk } = await api("trunks", { name, title: d.title.trim(), description: "", ...(d.startsIn ? { startsIn: d.startsIn } : {}) });
+  await api(`trunks/${trunk.id}`, { look: lookToSave(), chosenColour: colourToSave(), pinned: d.pinned });
   await savePhoto(trunk.id);
   closeDialog(true);
   await refresh();
   const fresh = findTrunk(trunk.id);
   if (fresh) await openTrunk(fresh);
   document.querySelector(`#trunk-strip [data-strip-id="trunk:${trunk.id}"]`)?.classList.add("fresh");
-  toast(say("studio.created", "{name} introduces itself in its own conversation.", { name }));
+  const far = startChoices().find((choice) => d.startsIn && choice.id === d.startsIn);
+  toast(far ? say("studio.created.elsewhere", "Made {name}. It starts on {computer}, where Branch cannot start it yet.", { name, computer: far.name })
+    : say("studio.created", "{name} introduces itself in its own conversation.", { name }));
 }
 async function saveEdit() {
   const d = studio.draft, id = studio.editing, name = d.name.trim();
   if (!name) return $("studio-name")?.focus();
-  await api(`trunks/${id}`, { name, title: d.title.trim(), look: lookToSave(), pinned: d.pinned });
+  // Q44: where it starts is sent only when the owner changed it, so a rename never resets it.
+  const moved = d.startsIn !== d.savedStartsIn ? { startsIn: d.startsIn } : {};
+  const saved = await api(`trunks/${id}`, { name, title: d.title.trim(), look: lookToSave(), chosenColour: colourToSave(), pinned: d.pinned, ...moved });
   await savePhoto(id);
   closeDialog(true);
   await refresh();
-  toast(say("studio.saved", "Saved."));
+  toast(saved.waiting ? waitingWords(saved.waiting) : say("studio.saved", "Saved."));
+}
+/** Q44: messages queued before it was moved will not be sent; the owner is told how many, as it is saved. */
+function waitingWords({ count, computer }) {
+  return say("studio.startsIn.waiting", "Saved. {count} waiting message(s) will not be sent while it starts on {computer}; each is marked not sent in its conversation.",
+    { count, computer: computer ?? say("studio.startsIn.another", "another computer") });
 }
 
 /** Change look… and Rename… from the strip's menu, Customize › Specialists or the Overview. */
@@ -397,12 +484,13 @@ export async function openEdit(id, { rename = false } = {}) {
   // DG-108: the drawn face is retired; a Trunk that still has it opens on the pixel pattern made from its name.
   if (look.face === "drawn") look.face = "pattern";
   const spec = trunkSpec(trunk);
-  if (look.colour === null) look.colour = Number(/series-(\d)/.exec(spec.colour)?.[1] ?? 1);
+  if (look.colour === null) look.colour = trunkColour(trunk) ?? Number(/series-(\d)/.exec(spec.colour)?.[1] ?? 1);
   if (look.shape === null) look.shape = spec.shape;
   const photo = trunk.avatar && trunk.avatar.kind !== "face" ? trunk.avatar.dataUrl : null;
   if (photo) look.face = "photo";
   studio.editing = id;
-  studio.draft = { name: trunk.name, title: trunk.title, pinned: trunk.pinned, look, photo: null, keptPhoto: photo };
+  studio.draft = { name: trunk.name, title: trunk.title, pinned: trunk.pinned, look, photo: null, keptPhoto: photo,
+    startsIn: trunk.startsIn ?? null, savedStartsIn: trunk.startsIn ?? null };
   const body = openDialog("studio.title.edit", "Change {name}", { name: trunk.name });
   studio.tab = "trunk";
   const panel = make("div", "studio-panel");

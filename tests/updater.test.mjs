@@ -170,6 +170,17 @@ test("switching channels discards a check that was still in flight", async () =>
   assert.equal(updater.status.release, null);
 });
 
+test("switching channels clears the previous attempt's provenance", () => {
+  const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.19.1", channel: "stable",
+    installDir: "C:/installed", executableName: "Branch Agent.exe", assetName: "Branch-Agent-windows-x64.zip",
+    scratchDir: "C:/scratch", fetch: async () => {} });
+  // Simulate provenance from a previous attempt
+  updater.provenance = { outcome: "checked", message: "A build provenance record was found…" };
+  assert.ok(updater.provenance, "provenance is initially set from previous attempt");
+  updater.setChannel("beta");
+  assert.equal(updater.provenance, null, "setChannel clears the previous attempt's provenance");
+});
+
 test("check reports availability against the current version", async (t) => {
   const { root, installDir, fetchViaFixture } = await releaseFixture(t);
   const newer = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir, executableName: "Branch Agent Test.exe",
@@ -336,7 +347,10 @@ test("the Update button holds the claim through the hand-over and gives it back 
   const handler = ipc.slice(ipc.indexOf('ipcMain.handle("branch:update-install"'), ipc.indexOf('ipcMain.handle("branch:open-external"'));
   assert.match(handler, /updater\.install\(\{ hold: true \}\)/, "the handler asks for the claim to be held");
   const failure = handler.slice(handler.indexOf("} catch (error) {"));
-  assert.match(failure, /^\} catch \(error\) \{\s*updater\.release\(\);\s*throw error;/, "a hand-over that fails gives it back");
-  assert.ok(handler.indexOf("launchHandOver(") < handler.indexOf("updater.release()"), "the release is on the hand-over's failure path");
-  assert.equal((handler.match(/updater\.release\(\)/g) ?? []).length, 1, "and nowhere else");
+  // Q55: `failed` gives the claim back and says what is still installed (tests/update-outcome.test.mjs).
+  assert.match(failure, /^\} catch \(error\) \{\s*(?:\/\/[^\n]*\n\s*)*updater\.failed\([^;]*\);\s*throw error;/, "a hand-over that fails gives it back");
+  assert.ok(handler.indexOf("launchHandOver(") < handler.indexOf("updater.failed("), "the release is on the hand-over's failure path");
+  assert.equal((handler.match(/updater\.(?:release|failed)\(/g) ?? []).length, 1, "and nowhere else");
+  // Q55: the words say the background engine was stopped only when this install really closed it.
+  assert.match(handler, /throw new Error\(updater\.backgroundStopped\s*\?/, "the stopped-engine sentence follows what the updater did");
 });

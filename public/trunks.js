@@ -166,7 +166,7 @@ function editorFields(trunk) {
     name: field("input", trunk.name), title: field("input", trunk.title), description: field("textarea", trunk.description),
     model: field("input", trunk.model), instructions: field("textarea", trunk.instructions), permissions: field("input", trunk.permissions.join(", ")),
     skills: field("input", trunk.skills.join(", ")), mcp: field("input", trunk.mcpServers.join(", ")), section: field("input", trunk.section),
-    channels: field("input", trunk.reach.channels.join(", ")),
+    channels: field("input", trunk.reach.channels.join(", ")), voice: voicePicker(trunk.voice),
     reasoning: select([["", "trunks.reasoning.default", "The model's own"], ["low", "trunks.reasoning.low", "Low"], ["medium", "trunks.reasoning.medium", "Medium"], ["high", "trunks.reasoning.high", "High"]], trunk.reasoning ?? ""),
     style: select(STYLES, trunk.style),
   };
@@ -184,7 +184,7 @@ function editorTicks(trunk) {
 }
 function editorValues(trunk, f, ticks) {
   return { name: f.name.value.trim(), title: f.title.value.trim(), description: f.description.value.trim(), model: f.model.value.trim(),
-    reasoning: f.reasoning.value || null, instructions: f.instructions.value, style: f.style.value, permissions: list(f.permissions.value),
+    reasoning: f.reasoning.value || null, instructions: f.instructions.value, style: f.style.value, voice: f.voice.value.trim(), permissions: list(f.permissions.value),
     skills: list(f.skills.value), mcpServers: list(f.mcp.value), section: f.section.value.trim(), sharedFacts: ticks.shared.box.checked,
     keys: { copyFromOwner: ticks.copy.box.checked, accounts: trunk.keys.accounts }, reach: { channels: list(f.channels.value), commands: ticks.commands.box.checked },
     hidden: ticks.hidden.box.checked, pinned: ticks.pinned.box.checked };
@@ -197,7 +197,7 @@ async function openEditor(id) {
   const labels = [["name", "trunks.field.name", "Name"], ["title", "trunks.field.title", "What it does, in a few words"], ["description", "trunks.field.description", "About it"],
     ["model", "trunks.field.model", "Model (empty: the conversation's, then your default)"], ["reasoning", "trunks.field.reasoning", "How hard it thinks"],
     ["instructions", "trunks.field.instructions", "Its own instructions"], ["style", "trunks.field.style", "How it works"],
-    ["permissions", "trunks.field.permissions", "Tools it may use, by permission (empty: your usual set)"], ["skills", "trunks.field.skills", "Skills it reaches for first"],
+    ["voice", "trunks.field.voice", "Voice"], ["permissions", "trunks.field.permissions", "Tools it may use, by permission (empty: your usual set)"], ["skills", "trunks.field.skills", "Skills it reaches for first"],
     ["mcp", "trunks.field.mcp", "Connected tool servers it may use (none by default)"], ["channels", "trunks.field.channels", "Chat apps it answers on (none by default)"],
     ["section", "trunks.field.section", "Sidebar section"]];
   const save = make("button", "", "trunks.save", "Save changes");
@@ -206,7 +206,7 @@ async function openEditor(id) {
     try { await api(`trunks/${id}`, editorValues(trunk, f, ticks)); saved(); await refreshStrip(); await draw(); await openEditor(id); } catch (error) { report(error); }
   });
   host.replaceChildren(make("h3", "", "trunks.editing", "Edit {name}", { name: trunk.name }),
-    ...labels.flatMap(([name, key, english]) => labelled(`trunks-edit-${name}`, key, english, f[name])),
+    ...labels.flatMap(([name, key, english]) => [...labelled(`trunks-edit-${name}`, key, english, f[name]), ...(name === "voice" ? voiceExtras(f.voice) : [])]),
     ...Object.values(ticks).map((entry) => entry.label), save,
     pictureSection(trunk), keysNote(view.keys), routinesSection(trunk, view.routines), teachSection(trunk, view.watching), moreSection(trunk));
   host.hidden = false;
@@ -218,6 +218,42 @@ function section(key, english) {
   node.append(make("h3", "", key, english));
   return node;
 }
+
+/* KeepOak plan item 4, a Trunk with a voice: chosen from the same list as your own voice in Settings ›
+   Voice (this computer's voices, then this window's), and read the way your answers are read. Empty
+   reads its answers in your own voice. A saved voice this computer does not have stays chosen. */
+function fillVoices(picker, chosen) {
+  const own = make("option", "", "trunks.voice.own", "Your own voice");
+  own.value = "";
+  const yours = [...($("voice-select")?.children ?? [])].filter((node) => node.value !== "default").map((node) => node.cloneNode(true));
+  picker.replaceChildren(own, ...yours);
+  if (chosen && ![...picker.options].some((option) => option.value === chosen))
+    picker.append(Object.assign(document.createElement("option"), { value: chosen, textContent: chosen }));
+  picker.value = chosen ?? "";
+}
+function voicePicker(chosen) {
+  const picker = document.createElement("select");
+  fillVoices(picker, chosen);
+  // Your own list fills in as the computer's voices are found; this one follows it while it is open.
+  const yours = $("voice-select");
+  if (yours) {
+    const follow = new MutationObserver(() => { if (picker.isConnected) fillVoices(picker, picker.value); else follow.disconnect(); });
+    follow.observe(yours, { childList: true, subtree: true });
+  }
+  void globalThis.loadSystemVoices?.();
+  return picker;
+}
+function voiceExtras(picker) {
+  const note = make("p", "field-note", "trunks.voice.note", "The voice it reads its answers in. Your own voice uses the one in Settings › Voice.");
+  note.id = "trunks-voice-note";
+  picker.setAttribute("aria-describedby", note.id);
+  const hear = button("trunks.voice.hear", "Hear it", async () => {
+    const settings = await api("voice/settings").catch(() => ({}));
+    await globalThis.speakText?.(say("trunks.voice.sample", "Hello, this is how I sound."), settings.useProviderVoice ?? false, picker.value);
+  });
+  return [row(hear), note];
+}
+
 function pictureSection(trunk) {
   const node = section("trunks.picture", "Picture");
   const upload = field("input", "", "file");

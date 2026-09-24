@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { discardTemp } from "./temp-dir.mjs";
-import { createBranch, savePolicy } from "../dist/index.js";
+import { createBranch, savePolicy, readPolicy } from "../dist/index.js";
 
 const say = (content) => ({ content, toolCalls: [] });
 
@@ -855,4 +855,21 @@ test("a question let go because the conversation was full is written into the re
   assert.equal(entries[0].outcome, "let go unanswered");
   assert.equal(entries[0].subject, "files.write on note-0.txt");
   assert.match(entries[0].reason, /was let go/);
+});
+
+// FQ-execution.browser: test that flowTarget returns empty string for >300 char case
+test("FQ-execution: flowTarget returns empty for >300 character case", async (t) => {
+  const { flowTarget } = await import("../dist/integrations/browser-flow.js");
+  // Create a flow with 12 hosts, resulting in text > 300 chars
+  const steps = [];
+  for (let i = 0; i < 12; i++) {
+    const host = `site${String(i).padStart(7, "0")}.example.com`;
+    steps.push({ action: "navigate", url: `https://${host}/page` });
+  }
+  const target = flowTarget({ steps }, "");
+  assert.equal(target, "", "result is empty when over 300 characters");
+
+  // Control: a single site should return a non-empty target
+  const singleSite = flowTarget({ steps: [{action: "navigate", url: "https://example.com/"}] }, "");
+  assert.equal(singleSite, "example.com");
 });

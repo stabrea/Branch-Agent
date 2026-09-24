@@ -16,6 +16,9 @@ export { globMatches } from "./policy-resources.js";
  * The first rule that matches wins. With no rules nothing is asked and nothing is refused, which is
  * how Branch Agent behaves until the owner picks a preset.
  */
+
+/** Tools that ask by default even with no policy rules written (shared desktop control). */
+const asksUnlessRuledDefault = (tool: string): boolean => tool.startsWith("desktop.shared.");
 export const PolicyDecisionSchema = z.enum(["allow", "ask", "deny"]);
 export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>;
 export const PolicyRememberSchema = z.enum(["never", "session", "always"]);
@@ -27,8 +30,12 @@ export const PolicyRuleSchema = z
     tool: z.string().min(1).max(100).default("*"),
     /** What the tool would touch: a file path, a command, or a web address's host. `*` matches anything. */
     match: z.string().min(1).max(500).default("*"),
-    /** "changes" limits the rule to tools that can change something; "any" covers every tool. */
-    applies: z.enum(["any", "changes"]).default("any"),
+    /**
+     * "changes" limits the rule to tools that can change something; "reads" to tools that only look
+     * (Q59: how Plan keeps the owner's own questions without turning its refusals into questions);
+     * "any" covers every tool.
+     */
+    applies: z.enum(["any", "changes", "reads"]).default("any"),
     decision: PolicyDecisionSchema,
     /** What a "yes" to this question is remembered as, unless the person picks differently. */
     remember: PolicyRememberSchema.default("session"),
@@ -132,6 +139,11 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
       { tool: "browser.upload", decision: "ask", remember: "session" },
       { tool: "browser.navigate", decision: "ask", remember: "always" },
       { tool: "web.*", decision: "ask", remember: "always" },
+      // Q59 migration: the Auto mode adds a question for every outbound tool the registry holds
+      // (src/tool-reach.ts, `policyForMode`), which a preset cannot list because tools come and go.
+      // The lines above are what an owner saved when they picked this preset, and saved lines are
+      // never rewritten: a conversation that follows the owner's setting keeps exactly these, so
+      // there an outbound tool not named here (x.search, gmail.search, remote.read, ...) does not ask.
     ],
   },
   "read-only": {
@@ -162,6 +174,8 @@ export function policyPresets(): { id: PolicyPresetName; label: string; descript
  */
 const readOnlyPermissions = new Set([
   "files.read", "memory.read", "history.read", "skills.read",
+  // Q59: a repository's status, changes, log and parallel copies, and the read-only review helpers.
+  "git.read",
   "documents.read", "web.read", "browser.read", "schedules.read", "user.ask",
   // Looking at a picture or a sound file the person already has changes nothing.
   "media.read",
@@ -226,6 +240,7 @@ export interface PolicyOutcome { decision: PolicyDecision; rule: PolicyRule | nu
 /** Whether one rule covers this call: the tool, what it would touch, and the thing it is about. */
 function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
   if (rule.applies === "changes" && request.readOnly) return false;
+  if (rule.applies === "reads" && !request.readOnly) return false;
   if (!globMatches(rule.tool, request.tool)) return false;
   if (!matchesTarget(rule.match, request) && !namesWholeCall(rule, request)) return false;
   if (!rule.resource && rule.decision === "allow" && rule.match !== "*" && !commandTargetTrusted(request)) return false;
@@ -287,6 +302,10 @@ function unmatched(policy: Policy, request: PolicyRequest): PolicyOutcome {
     return { decision: "ask", rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask",
       remember: asksEveryTime(request.tool) ? "never" : "session" } };
   // ---- end mac7/nodes ----
+  // FQ-execution.desktop: shared desktop control tools ask by default (desktop.shared.*).
+  if (asksUnlessRuledDefault(request.tool))
+    return { decision: "ask", rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask", remember: "session" } };
+  // ---- end FQ-execution.desktop ----
   // mac7/residuals: `listed` is a program the owner put on their own list (only process.start says so, through
   // its `command` hook); a new tool declaring `command` gets this exemption too, so it must mean the same.
   if (request.resource?.kind !== "command" || request.resource.listed || policy.unmatchedCommands === "allow")

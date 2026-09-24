@@ -4,6 +4,7 @@ import { z } from "zod";
 import { FeatureModeSchema } from "./feature-switches.js";
 import type { WorkspaceFiles } from "./files.js";
 import type { Store } from "./store.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * The code editor in the window (A0098): list a folder, open a text file, save it. Every path goes
@@ -55,7 +56,7 @@ export async function workspaceEditorApi(host: EditorHost, request: IncomingMess
   if (path === "/api/workspace-editor/settings") {
     if (request.method !== "POST") return workspaceEditorSettings(host.store, host.owner);
     const value = WorkspaceEditorSettingsSchema.parse(await host.readBody(request, 1024));
-    host.store.save("settings", host.owner, KEY, value);
+    recordedWrite(host.store, host.owner, byCard(KEY), [KEY], () => host.store.save("settings", host.owner, KEY, value));
     return value;
   }
   if (workspaceEditorSettings(host.store, host.owner).mode === "off")

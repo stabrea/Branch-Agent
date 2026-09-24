@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renam
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { optionalFields } from "./feature-switches.js"; // Q65
 import { scrubText } from "./diagnostics.js";
 import { redactLeaks } from "./leak-guard.js";
 import type { Store } from "./store.js";
@@ -16,10 +17,14 @@ import type { Store } from "./store.js";
  * addresses and the owner's home folder never reach the disk. The file is kept small (rotated at a
  * size cap) and short-lived (older files are removed after a number of days).
  *
- * The log is a feature, so it ships off. Crash capture — a crash note in `crashes.jsonl` with the
- * last few things that happened before it, and Electron's own crash files in the desktop app — is a
- * second switch, and ships off too (mac7/coding-next). Crashes still reach the task record as they
- * always did (src/tracing.ts); only these two extra copies depend on the switch.
+ * Most of Branch ships off; this does not. The owner decided (2026-09-21) that the log and crash
+ * capture are on from the start, because a person whose Branch breaks before they found the switch
+ * has nothing to send otherwise. So the log ships at "when needed" — warnings and errors only, under
+ * its size cap and day limit — and crash capture — a crash note in `crashes.jsonl` with the last few
+ * things that happened before it, and Electron's own crash files in the desktop app — ships on. Both
+ * stay switches: the owner can turn either off, or the log up to everything. Nothing is ever sent;
+ * the owner decides whether to hand a file to anyone. Crashes still reach the task record as they
+ * always did (src/tracing.ts).
  */
 export const logModes = ["off", "when-needed", "on"] as const;
 export type LogMode = (typeof logModes)[number];
@@ -28,17 +33,17 @@ export type Level = (typeof logLevels)[number];
 
 export const DiagnosticLogSettingsSchema = z.object({
   /** off: nothing written; when-needed: warnings and errors; on: everything from "info" up. */
-  mode: z.enum(logModes).default("off"),
+  mode: z.enum(logModes).default("when-needed"),
   /** Older log files than this are removed. */
   keepDays: z.number().int().min(1).max(90).default(14),
   /** The most the log may take on disk, across all its files. */
   maxMegabytes: z.number().int().min(1).max(200).default(20),
   /**
    * mac7/coding-next: keep crash notes (`crashes.jsonl`) and, in the desktop app, Electron's crash
-   * files. Off by default. The desktop app reads it when it starts, so there a change applies at the
+   * files. On by default (the owner's decision). The desktop app reads it when it starts, so there a change applies at the
    * next start; the engine's own crash notes follow it at once.
    */
-  crashCapture: z.enum(["off", "on"]).default("off"),
+  crashCapture: z.enum(["off", "on"]).default("on"),
 }).strict();
 export type DiagnosticLogSettings = z.infer<typeof DiagnosticLogSettingsSchema>;
 
@@ -50,9 +55,7 @@ export function diagnosticLogSettings(store: Pick<Store, "get">, owner: string):
 export function saveDiagnosticLogSettings(store: Store, owner: string, input: unknown): DiagnosticLogSettings {
   // zod 4's .partial() still fills each missing field with its default, so only the fields that were
   // really sent are laid over what is saved; otherwise saving the log's mode would switch crash capture off.
-  const parsed = DiagnosticLogSettingsSchema.partial().parse(input ?? {});
-  const sent = input && typeof input === "object" ? Object.keys(input) : [];
-  const changed = Object.fromEntries(Object.entries(parsed).filter(([key]) => sent.includes(key)));
+  const changed = optionalFields(DiagnosticLogSettingsSchema).parse(input ?? {});
   const next = DiagnosticLogSettingsSchema.parse({ ...diagnosticLogSettings(store, owner), ...changed });
   store.save("settings", owner, settingsKey, next);
   return next;
@@ -233,7 +236,7 @@ export class DiagnosticLog {
   }
 
   /**
-   * The owner's settings, or the shipped ones (log off) when they cannot be read: a crash while
+   * The owner's settings, or the shipped ones when they cannot be read: a crash while
    * Branch is closing arrives after its database has shut, and reading it then threw inside the
    * crash handler, which ended the process with the wrong error.
    */
@@ -351,7 +354,8 @@ function crashCaptureMarkedIn(logDir: string): boolean {
   try {
     const saved = JSON.parse(readFileSync(join(logDir, crashCaptureMarkFile), "utf8")) as { crashCapture?: unknown };
     return saved.crashCapture === "on";
-  } catch { return false; }
+    // No file yet (a fresh install whose engine has not started once) means the shipped setting, on.
+  } catch (error) { return (error as NodeJS.ErrnoException)?.code === "ENOENT" && DiagnosticLogSettingsSchema.parse({}).crashCapture === "on"; }
 }
 export function writeCrashCaptureMark(dataDir: string, on: boolean): void {
   try {
@@ -361,7 +365,7 @@ export function writeCrashCaptureMark(dataDir: string, on: boolean): void {
     writeFileSync(markPath(dataDir), JSON.stringify({ crashCapture: on ? "on" : "off" }), { mode: 0o600 });
   } catch { /* the switch file must never stop a setting being saved */ }
 }
-/** Whether the owner had crash capture on when the file was last written; off when unsure. */
+/** Whether the owner had crash capture on when the file was last written; the shipped setting before it was ever written, off when it cannot be read. */
 export function crashCaptureMarked(dataDir: string): boolean {
   return crashCaptureMarkedIn(join(dataDir, "logs"));
 }

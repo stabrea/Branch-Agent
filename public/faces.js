@@ -4,7 +4,8 @@
    A face is a shape (a mask) filled with a series colour, with its content on top: the drawn face
    made from the name, letters, an emoji, pixel art made from the name, a photo, or a computer's
    picture. A status ring follows the shape. No colour is written here: every colour is a token
-   (--series-N, --copper, --good, --warn, --faint, --ground), so each theme draws faces its own way.
+   (--series-N, --copper, --good, --warn, --faint, --ground), so each theme draws faces its own way,
+   except a colour the owner chose for a Trunk (DG-105: kept as a value), drawn with the token ink that stays readable on it.
    A 3D stand-in (critique #46) is drawn in CSS only while "3D faces" is switched on. */
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -39,7 +40,24 @@ export function hash(text) {
   return value;
 }
 export const initialsOf = (name) => (String(name || "").trim().split(/\s+/).map((word) => [...word][0] ?? "").join("").slice(0, 2) || "?").toUpperCase();
-const colourVar = (colour) => (colour === "theme" ? "var(--copper)" : `var(--series-${colour})`);
+const HEX = /^#[0-9a-f]{6}$/i;
+const colourVar = (colour) => (colour === "theme" ? "var(--copper)" : HEX.test(String(colour)) ? colour : `var(--series-${colour})`);
+/** WCAG relative luminance of a colour written as six hex digits. */
+function luminance(hex) {
+  const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255)
+    .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+/** The sample's white ink on a chosen colour, or black where white would not reach 4.5:1 (black then reaches at least 4.6:1). */
+export function inkOn(hex) {
+  return 1.05 / (luminance(hex) + 0.05) >= 4.5 ? "var(--face-ink-light)" : "var(--face-ink-dark)";
+}
+
+/** DG-105: the colour a Trunk is drawn in: its look's token, else the colour picked as a value, else null (its name's). */
+export function trunkColour(trunk) {
+  const token = trunk.look?.colour ?? null;
+  return token === null && HEX.test(String(trunk.chosenColour ?? "")) ? trunk.chosenColour : token;
+}
 
 /* ---------- what a Trunk's look comes to, the name's own choices filling the gaps ---------- */
 export function trunkSpec(trunk) {
@@ -48,7 +66,7 @@ export function trunkSpec(trunk) {
   return {
     kind: "trunk", name: trunk.name, seed,
     face: photo ? "photo" : !look.face || look.face === "drawn" ? "pattern" : look.face, photo, letters: look.letters || initialsOf(trunk.name), emoji: look.emoji || "",
-    shuffle: look.shuffle ?? 0, colour: colourVar(look.colour ?? ((seed >>> 9) % 8) + 1),
+    shuffle: look.shuffle ?? 0, colour: colourVar(trunkColour(trunk) ?? ((seed >>> 9) % 8) + 1),
     shape: look.shape ?? (seed % 4 % 2 ? "squircle" : "circle"), motion: look.motion ?? "none", depth: look.depth ?? "flat",
   };
 }
@@ -160,6 +178,7 @@ export function face(spec, size = 28, { status = null, working = false, ground =
   wrap.style.setProperty("--s", `${size}px`);
   wrap.style.setProperty("--m", maskOf(spec.shape));
   wrap.style.setProperty("--c", spec.colour);
+  if (HEX.test(spec.colour)) wrap.style.setProperty("--ink", inkOn(spec.colour));
   wrap.dataset.ground = ground;
   if (status) wrap.append(Object.assign(document.createElement("i"), { className: "ring" }), Object.assign(document.createElement("i"), { className: "gap" }));
   const box = document.createElement("i");

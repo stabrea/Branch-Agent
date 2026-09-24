@@ -36,6 +36,7 @@
   letter-spacing: normal;
 }
 .studio-field input,
+.studio-field select,
 .pair-join input,
 .person-add input,
 .who-pin input,
@@ -178,6 +179,7 @@
   font-size: 13px;
 }
 .studio-field input,
+.studio-field select,
 .studio-emoji input,
 .person-add input,
 .who-pin input {
@@ -270,6 +272,66 @@
 }
 .studio-swatch[aria-pressed="true"] {
   box-shadow: 0 0 0 2px var(--text);
+}
+/* DG-105: the sample's "any colour" circle (`.swc.custom`): a rainbow with a + over the system's colour picker. */
+.studio-swatch-custom {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--any-colour);
+}
+.studio-swatch-custom input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.studio-swatch-custom span {
+  color: var(--any-colour-mark);
+  font-weight: 700;
+  text-shadow: 0 1px 2px var(--any-colour-shadow);
+  pointer-events: none;
+}
+.studio-swatch-custom:has(input:focus-visible) {
+  outline: 2px solid var(--copper-hi);
+  outline-offset: 2px;
+}
+/* DG-106: "Follow my theme" is the sample's control row: words and switch on one line, the note across beneath.
+   Scoped to the dialog, so it outranks style.css's rule for a label holding a tick box. */
+.studio-dlg label.studio-follow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 20px;
+  margin: 0;
+  padding: 4px 0 0;
+}
+.studio-follow-words {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 520;
+  line-height: 1.55;
+}
+.studio-follow-note {
+  grid-column: 1 / -1;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+/* The sample's phone rule for a control row (`@media (max-width: 760px) .ctl`): one column, the words, then the
+   switch, then the note. */
+@media (max-width: 760px) {
+  .studio-dlg label.studio-follow {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
 }
 .studio-check,
 .shell-switch {

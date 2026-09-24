@@ -357,7 +357,8 @@ async function agentPortability(app: Awaited<ReturnType<typeof configuredApp>>["
     console.log(`Nothing was brought in. Choose parts with --sections ${agentSections.join(",")}`);
     return;
   }
-  for (const report of importAgent(app.store, app.runtime.owner, opened, wanted))
+  const origin = { writer: "owner-by-command", source: "import", detail: `branch import-agent ${basename(target)}` } as const;
+  for (const report of importAgent(app.store, app.runtime.owner, opened, wanted, origin))
     console.log(`  ${report.section}: ${report.brought} ${report.note}`);
 }
 

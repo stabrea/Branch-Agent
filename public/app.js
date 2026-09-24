@@ -5,7 +5,7 @@ import { fillMarkdown, inlineNodes } from "/markdown.js";
 import { installDeviceHeaders } from "/device-headers.js";
 installDeviceHeaders();
 // Wave mac3 (commands): the command list is shown in the chosen language.
-import { applyLanguage, t } from "/i18n.js";
+import { applyLanguage, fromEnglish, t } from "/i18n.js";
 import { taskWhen, taskWords } from "/task-state.js"; // Q51
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
@@ -621,6 +621,7 @@ async function refresh() {
   void window.branchMcpWorkbench?.render();
   void window.branchApprovals?.render();
   void window.branchScreenControl?.render();
+  void window.branchLinuxDesktop?.render(); // FQ-execution.desktop: the shared Linux desktop card
   // Batch 19 (wave 7): the rules read as sentences, under the same settings card.
   void window.branchRules?.render();
   void window.branchMisc?.render();
@@ -630,6 +631,8 @@ async function refresh() {
   // Batch 26 (wave 8): where scripts run, what can reach out, the ceilings, the other computers,
   // and how long conversations are kept.
   void window.branchSandboxRemote?.render();
+  // FQ-execution.host-bridge: the computer picker for running a program on one computer explicitly.
+  void window.branchHostBridge?.render();
 }
 const notifiedAttention = new Set();
 /* phase2/rooms (integration review): the Trunk that asked, named; a room member's question opens the room. */
@@ -652,6 +655,11 @@ function waitingMessageRow(item) {
     button(t("attention.notNow"), act("decline")));
   return row;
 }
+/* A task Branch closed on carries on from where it stopped, as the task list's own Continue does; the button stays
+   off while it is sent, so one press is one task. */
+function continueButton(item) {
+  return button(t("attention.continue"), async () => { await api("runs/" + item.runId + "/resume", {}); await refresh(); });
+}
 function renderAttention() {
   const waiting = state.attention || [];
   const messages = state.trunkWaiting || [];
@@ -661,6 +669,7 @@ function renderAttention() {
     const row = el("div", undefined, "attention-row");
     row.append(el("strong", needsYouTitle(item)), el("span", item.question),
       button(t(item.room ? "attention.openRoom" : "attention.openConversation"), () => { displayView("chat"); openConversation(item.open ?? item.sessionId); })); // phase2/rooms
+    if (item.canContinue) row.append(continueButton(item));
     return row;
   }));
   for (const item of waiting) {
@@ -1043,9 +1052,59 @@ function showVersions(status) {
   else if (status.release.available) line.textContent = `Running ${running}, newest is ${newest}.`;
   else line.textContent = `Running ${running}, which is the newest.`;
 }
+/*
+ * Q55: the installed build (version and the commit it was built from, "not recorded" when the build
+ * carries none), what a failed update left in place, and the offered release's own notes as plain text.
+ */
+let lastUpdateStatus = null;
+function showBuild(status) {
+  lastUpdateStatus = status;
+  const installed = status?.installed;
+  $("updates-build-version").textContent = installed?.version || state.version || t("updates.build.not-recorded");
+  const commit = $("updates-build-commit");
+  commit.textContent = installed?.commit ? installed.commit.slice(0, 12) : t("updates.build.not-recorded");
+  commit.title = installed?.commit || "";
+  const outcome = $("updates-outcome");
+  outcome.hidden = !(status?.phase === "error" && status.outcome?.kept);
+  // A failure after the background engine was closed says so: that engine stays closed until the next sign-in.
+  const kept = status?.outcome?.backgroundStopped ? "updates.outcome.kept-stopped" : "updates.outcome.kept";
+  outcome.textContent = outcome.hidden ? "" : t(kept, { version: status.outcome.kept });
+  const release = status?.release;
+  $("updates-notes").hidden = !release?.available;
+  if (!release?.available) return;
+  // A Dev build has no version of its own until it is built; it is named by its change.
+  const dev = release.channel === "dev" && release.commit;
+  $("updates-notes-title").textContent = dev ? t("updates.notes.title-dev", { change: release.commit.slice(0, 7) }) : t("updates.notes.title", { version: release.latestVersion });
+  $("updates-notes-text").textContent = release.notes?.trim() || t(dev ? "updates.notes.none-dev" : "updates.notes.none");
+}
+/* Q55: an update the hand-over could not finish is settled by the next start; say what runs now. */
+let lastActivation = null;
+let lastActivationRead = null;
+function showRestored(last) {
+  lastActivation = last;
+  const line = $("updates-restored");
+  line.hidden = !(last?.kind === "update" && last.state === "failed" && last.fromVersion === state.version);
+  line.textContent = line.hidden ? "" : t("updates.outcome.restored", { to: last.toVersion, from: last.fromVersion });
+}
+document.addEventListener("branch-language", () => {
+  if (!window.branchDesktop) return;
+  if (lastUpdateStatus) showBuild(lastUpdateStatus);
+  showRestored(lastActivation);
+});
 function showUpdateStatus(status) {
-  $("updates-status").textContent = status.message;
+  // The build provenance outcomes arrive as fixed English sentences that the language files also hold.
+  $("updates-status").textContent = fromEnglish(status.message) ?? status.message;
+  // Show the build provenance sentence persistently once it is known, even as later phases run.
+  const provenanceEl = $("updates-provenance");
+  if (status.provenance?.message) {
+    provenanceEl.textContent = fromEnglish(status.provenance.message) ?? status.provenance.message;
+    provenanceEl.hidden = false;
+  } else {
+    // Hide provenance whenever there is no message (e.g., on retry, or when checking restarts).
+    provenanceEl.hidden = true;
+  }
   showVersions(status);
+  showBuild(status);
   const working = ["checking", "downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   const installing = ["downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   if (installing) window.branchUpdateScreen?.show(status); else window.branchUpdateScreen?.hide();
@@ -1069,6 +1128,9 @@ async function renderUpdates() {
     if (choice) choice.checked = true;
   } catch { /* The main-process updater fails closed when owner state is unavailable. */ }
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
+  // The record only changes when Branch starts, so it is read once per page, not on every redraw.
+  lastActivationRead ??= api("never-break/last-update").then((answer) => answer.last, () => null);
+  showRestored(await lastActivationRead);
 }
 $("updates-channel").addEventListener("change", async (event) => {
   if (event.target?.name !== "release-channel") return;
@@ -1371,7 +1433,12 @@ function message(role, content, source) {
   if (role === "assistant" && source?.author) by.classList.add("message-specialist");
   node.append(by);
   /* Replies are written in markdown; what you typed is shown exactly as you typed it. */
-  if (role === "user") node.append(document.createTextNode(content));
+  if (role === "user") {
+    node.append(document.createTextNode(content));
+    // FQ-surfaces.playback: a sound or video file attached to this message plays inline, right here,
+    // both the moment it is sent and every time the conversation is redrawn afterwards.
+    globalThis.branchPlaybackRender?.(node, sessionId, source);
+  }
   else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
   /* Wave 7: every reply gets Read aloud, whether or not it can also be branched from, and it goes
      through the voice service so the free Windows voice works with no key and no internet. */
@@ -1866,8 +1933,11 @@ $("chat-form").addEventListener("submit", async (event) => {
   const answering = chosenSpecialist();
   const prompt = answering ? `Delegate to specialist ${answering.id}: ${asked}` : asked;
   setConversationBusy(true);
-  if (!sessionId) $("conversation").replaceChildren();
-  message("user", asked);
+  const startsConversation = !sessionId;
+  if (startsConversation) $("conversation").replaceChildren();
+  // FQ-surfaces.playback: the sound/video file just attached, handed to this one message's bubble.
+  const clips = globalThis.branchPlaybackAttachments?.() ?? [];
+  message("user", asked, clips.length ? { clips } : undefined);
   $("prompt").value = "";
   const stopActivity = watchActivity(prompt);
   // Wave 6: the live row you can step into while it works.
@@ -1888,6 +1958,8 @@ $("chat-form").addEventListener("submit", async (event) => {
     globalThis.branchAttachmentsClear?.();
     if (!sessionId) currentTemporary = startingTemporary;
     sessionId = run.sessionId;
+    // FQ-surfaces.playback: the redraw below matches these clips to the message the server saved.
+    globalThis.branchPlaybackExpect?.(sessionId, clips, run.userMessageId ?? undefined);
     $("temporary-toggle").disabled = true;
     $("conversation").dataset.sessionId = sessionId;
     /* Wave 8: an artifact in this reply is kept beside the task it came out of, so the task's
@@ -1912,13 +1984,16 @@ $("chat-form").addEventListener("submit", async (event) => {
         const settings = await api("voice/settings").catch(() => ({}));
         if (settings.autoReadAloud) {
           const useProvider = settings.useProviderVoice ?? false;
-          await speakText(run.output, useProvider).catch(() => {});
+          // A Trunk's conversation is read in that Trunk's own voice; any other in the owner's.
+          const talking = await api(`trunks/conversations/${sessionId}`).catch(() => null);
+          await speakText(run.output, useProvider, talking?.trunk?.voice ?? "").catch(() => {});
         }
       } catch { /* voice is optional */ }
     }
   } catch (e) {
     message("assistant", e.message);
   } finally {
+    globalThis.branchPlaybackSettle?.();
     stopActivity();
     globalThis.branchLiveRun?.stop(sessionId);
     globalThis.branchTokenMeter?.refresh();

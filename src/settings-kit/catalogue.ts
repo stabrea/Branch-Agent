@@ -1,22 +1,46 @@
-import { reachKey, reachLabels, reachParts, type ReachPart } from "../reach/settings.js";
-import { listenAsked, listenPlaces, saveListenSettings } from "../listen-address.js"; // mac7/bind
-import { savePolicy } from "../policy.js";
+import { reachKey, reachLabels, reachParts, savedReachMode, type ReachPart } from "../reach/settings.js";
+import { listenAsked, listenPlaces, ListenSettingsSchema, listenKey, saveListenSettings } from "../listen-address.js"; // mac7/bind
+import { readPolicy, savePolicy } from "../policy.js";
 import type { Store } from "../store.js";
-import { saveLoopGuardSettings } from "../loop-guard.js";
-import { saveFolderTrustSettings } from "../folder-trust.js";
-import { saveReviewerSettings } from "../approval-reviewer.js";
-import { saveSecurityCheckSettings } from "../security-audit/settings.js";
+import { loopGuardMode, saveLoopGuardSettings } from "../loop-guard.js";
+import { folderTrustMode, saveFolderTrustSettings } from "../folder-trust.js";
+import { reviewerSettings, saveReviewerSettings } from "../approval-reviewer.js";
+import { saveSecurityCheckSettings, securityCheckSettings } from "../security-audit/settings.js";
 import { saveWallSettings, wallSettings } from "../sandbox.js";
-import { saveKeychainSettings } from "../vault-sources.js";
-import { saveVaultAutofillSettings } from "../vault-autofill.js"; // mac7/vault-autofill (R17-068)
+import { readKeychainSettings, saveKeychainSettings } from "../vault-sources.js";
+import { readVaultAutofillSettings, saveVaultAutofillSettings } from "../vault-autofill.js"; // mac7/vault-autofill (R17-068)
 import { retentionSettings, saveRetentionSettings } from "../retention.js";
+import { WakeWordSettingsSchema, wakeWordKey } from "../voice-wake.js";
+import { DictationSettingsSchema, dictationKey } from "../voice-dictation.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
 import { audit } from "../audit.js";
-import { saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js";
-import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
-import { saveComfort, type ComfortCard } from "../comfort/settings.js";
-import { saveChatPermissionSettings } from "../channels/chat-permissions.js"; // mac7/chat-allowlist
-import { saveUsageLimitsSettings } from "../usage-limits.js"; // mac7/usage-bar
+import { safetyMode, saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js";
+import { boardMode, writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
+import { readComfort, saveComfort, type ComfortCard } from "../comfort/settings.js";
+import { readChatPermissionSettings, saveChatPermissionSettings } from "../channels/chat-permissions.js"; // mac7/chat-allowlist
+import { saveUsageLimitsSettings, usageLimitsSettings } from "../usage-limits.js"; // mac7/usage-bar
+// Q65: each setting's own reader and schema, so the kit shows and saves what the app really runs.
+import { settleSwitch, type FeatureMode } from "../feature-switches.js";
+import { DesktopSettingsSchema } from "../integrations/desktop-config.js";
+import { MediaProgramsSchema } from "../media-programs.js";
+import { SpeechEngineSettingsSchema } from "../speech-engines.js";
+import { executionMetricsSettings, saveExecutionMetricsSettings } from "../execution-metrics.js";
+import { askMode, type AskPart } from "../asks/settings.js";
+import { moveInMode, saveMoveInMode } from "../migrate/switch.js";
+import { MemoryHistorySettingsSchema } from "../memory-git.js";
+import { PullRequestHookSettingsSchema } from "../pr-hook.js";
+import { SkillInstallSettingsSchema } from "../skill-installs.js";
+import { WorkspaceEditorSettingsSchema } from "../workspace-editor-api.js";
+import { localModelsMode, saveLocalModelsMode } from "../local-jobs.js";
+import { saveUsageReportSettings, usageReportSettings } from "../usage-report.js";
+import { RecordingSettingsSchema } from "../run-recording.js";
+import { PromptLibrarySettingsSchema } from "../prompt-library.js";
+import { CommandSettingsSchema } from "../commands/settings.js";
+import { flyCoreSettings } from "../fly-core/settings.js";
+import { GoalUndoSettingsSchema } from "../goal-mode.js";
+import { reflectionSettings } from "../reflection/settings.js";
+import { contextFileSettings, saveContextFileSettings } from "../context-files.js";
+import { saveVoiceSettings, voiceSettings, VoiceSettingsSchema } from "../voice.js";
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -44,12 +68,103 @@ export const switchPositions = ["off", "when-needed", "on"] as const;
  */
 export type Guard = "reach" | "guard" | "plain";
 
+type Parser = { safeParse: (value: unknown) => { success: boolean; data?: unknown }; parse: (value: unknown) => unknown };
+
+/**
+ * Q46: what a voice setting holds in force, read through the app's own schema: a record the app would not
+ * accept counts as the app's starting values, as it does when it runs (src/voice-wake.ts, src/voice-dictation.ts).
+ * Lockdown's override of the switch is left out: the kit weighs the owner's own setting.
+ */
+function inForce(schema: Parser, saved: unknown): Record<string, unknown> {
+  const parsed = schema.safeParse(saved ?? {});
+  return { ...(parsed.success ? parsed.data : schema.parse({})) as Record<string, unknown> };
+}
+
+type Hooks = Pick<SettingSpec, "read" | "write">;
+
+/**
+ * Q65: a setting whose module reads its record through a strict schema, and has no save of its own the kit
+ * can use, is read and written the way the voice switches are. It shows what the app runs (a record the app
+ * would not accept counts as its starting values), and a change is made onto that and checked by the same
+ * schema, never onto the record as it lies: writing one field cannot bring back another the app was ignoring.
+ * The schema is handed in as a function, so it is only reached once every module has loaded.
+ */
+function parsedBy(key: string, schema: () => Parser): Hooks {
+  const read = (store: Store, owner: string): Record<string, unknown> => inForce(schema(), store.get("settings", owner, key)?.data);
+  return {
+    read,
+    write: (store, owner, patch) => { store.save("settings", owner, key, schema().parse({ ...read(store, owner), ...patch }) as Record<string, unknown>); },
+  };
+}
+
+/** Q65: a setting that is only a switch, shown as its module reads it. */
+const modeFrom = (reader: (store: Store, owner: string) => string): Hooks => ({ read: (store, owner) => ({ mode: reader(store, owner) }) });
+/** A smaller ask's switch (src/asks/settings.ts). It is saved through the app's own asks (src/settings-kit/writers.ts). */
+const askHooks = (part: AskPart): Hooks => modeFrom((store, owner) => askMode(store, owner, part));
+
+/**
+ * Q65: the screen and keyboard as the owner saved them, parsed as src/integrations/desktop-config.ts parses
+ * them, with an older yes/no read as a mode. Lockdown's "off" is left out, as it is for the voice switches.
+ */
+function ownDesktop(store: Store, owner: string): Record<string, unknown> & { enabled?: boolean; mode?: FeatureMode } {
+  const saved = inForce(DesktopSettingsSchema, store.get("settings", owner, "desktop-control")?.data);
+  return { ...saved, ...settleSwitch(saved, {}) };
+}
+const desktopHooks: Hooks = {
+  read: ownDesktop,
+  write: (store, owner, patch) => {
+    const current = ownDesktop(store, owner);
+    store.save("settings", owner, "desktop-control", DesktopSettingsSchema.parse({ ...current, ...patch, ...settleSwitch(current, patch as { mode?: FeatureMode }) }));
+  },
+};
+
+/**
+ * Q65: where Branch listens, as the owner saved it or a container asked for it. `listenAsked` reads Lockdown's
+ * "this computer" while Lockdown is on, so the owner's own saved choice is added back here.
+ */
+function ownListen(store: Store, owner: string): Record<string, unknown> {
+  const saved = inForce(ListenSettingsSchema, store.get("settings", owner, listenKey)?.data).where;
+  return { where: saved === "private-network" || listenAsked(store, owner) === "private-network" ? "private-network" : "this-computer" };
+}
+
+/**
+ * Q65: voice is read strictly, but src/voice.ts stops on a record it cannot read rather than starting
+ * again from its first values. So the kit shows the starting values for such a record without stopping,
+ * and a change to it is refused in plain words: fixing one field there would make the whole record
+ * readable again and bring every other field in it back, which the owner never saw.
+ */
+export const putBackVoiceLabel = "Put voice settings back as shipped";
+const voiceUnreadable = (store: Store, owner: string): string | null =>
+  VoiceSettingsSchema.safeParse(store.get("settings", owner, "voice")?.data ?? {}).success ? null
+    : `The voice settings saved on this computer cannot be read, so they are not changed from here: changing one would bring back everything else in that record. "${putBackVoiceLabel}", under Settings, Put settings back, starts them again from how Branch ships.`;
+const voiceHooks: Pick<SettingSpec, "read" | "write" | "refuses" | "putBack" | "shipped"> = {
+  read: (store, owner) => {
+    try { return { ...voiceSettings(store, owner) }; } catch { return {}; }
+  },
+  refuses: voiceUnreadable,
+  // The last lock: a change is refused before it gets here (refuses), and never repairs the record if it does.
+  write: (store, owner, patch) => {
+    const refusal = voiceUnreadable(store, owner);
+    if (refusal) throw new Error(refusal);
+    saveVoiceSettings(store, owner, patch);
+  },
+  // The whole record is replaced, not merged: the voice card's own save cannot read what is there either.
+  putBack: (store, owner) => { store.save("settings", owner, "voice", VoiceSettingsSchema.parse({})); },
+  shipped: () => VoiceSettingsSchema.parse({}),
+};
+
+/** Q65: the files you write, saved through their module, which takes one nested record ("files.soul" is `{ files: { soul } }`). */
+const contextFilesWrite = (store: Store, owner: string, patch: Record<string, unknown>): void => {
+  saveContextFileSettings(store, owner, { files: Object.fromEntries(Object.entries(patch).map(([field, value]) => [field.replace(/^files\./, ""), value])) });
+};
+
 export type FieldKind =
   | { type: "switch" }
   | { type: "yes-no" }
   /** Choices written from most careful to least careful. */
   | { type: "choice"; options: readonly string[] }
-  | { type: "number"; min: number; max: number };
+  /** `fractions`: the app itself keeps values between whole steps (the dictation wait does, at 1.5 seconds). */
+  | { type: "number"; min: number; max: number; fractions?: true };
 
 export interface FieldSpec {
   /** The field inside the saved record; a dot reaches one level in ("files.soul"). */
@@ -79,6 +194,16 @@ export interface SettingSpec {
   write?: (store: Store, owner: string, patch: Record<string, unknown>) => void;
   /** A setting whose module reads a damaged record in its own way (the wall reads it as "on") is shown that way. */
   read?: (store: Store, owner: string) => Record<string, unknown>;
+  /**
+   * Q65 review: why this setting cannot be changed from here right now, or null. Asked when the changes are
+   * worked out, before anything is written, so a refusal lands in the refused list and every other change
+   * in the same plan is still made and written down.
+   */
+  refuses?: (store: Store, owner: string) => string | null;
+  /** Q65 review: puts a record that cannot be read back to how Branch ships, the way out of `refuses`. */
+  putBack?: (store: Store, owner: string) => void;
+  /** The whole record `putBack` writes, so put-back can name the saved values no field weighs when they differ from it (Q99). */
+  shipped?: () => Record<string, unknown>;
 }
 
 const sw = (field: string, label: string, t: string, guard: Guard): FieldSpec =>
@@ -97,7 +222,7 @@ const one = (key: string, name: string, t: string, home: string, guard: Guard, e
 /** r17-h integration review: a flows-and-boards switch, written through the running copy so its tools follow. */
 const board = (part: BoardPart, name: string, home: string, guard: Guard): SettingSpec =>
   one(`flowboards-${part}`, name, `settings-kit.name.flowboards-${part}`, home, guard,
-    { write: (store, owner, patch) => { writeBoardSwitch(store, owner, part, patch); } });
+    { write: (store, owner, patch) => { writeBoardSwitch(store, owner, part, patch); }, ...modeFrom((store, owner) => boardMode(store, owner, part)) });
 const saveWall = (store: Store, owner: string, patch: Record<string, unknown>): void => {
   const next = saveWallSettings(store, owner, { ...wallSettings(store, owner), ...patch });
   audit(store, owner, { action: "policy.changed", actor: owner, subject: `The wall around programs: ${next.mode}, reach ${next.network}`,
@@ -107,7 +232,7 @@ const saveWall = (store: Store, owner: string, patch: Record<string, unknown>): 
 /** mac7/r17-g: a safety extra's switch, saved through the app so its tools come and go with it. */
 const safetyPart = (part: SafetyPart, name: string, guard: Guard): SettingSpec =>
   one(`safety-${part}`, name, `settings-kit.name.safety-${part}`, "settings:permissions", guard,
-    { write: (store, owner, patch) => { saveSafetySwitch(store, owner, part, patch); } });
+    { write: (store, owner, patch) => { saveSafetySwitch(store, owner, part, patch); }, ...modeFrom((store, owner) => safetyMode(store, owner, part)) });
 
 const safety: SettingSpec[] = [
   {
@@ -120,19 +245,21 @@ const safety: SettingSpec[] = [
     ],
     // The approval rules are worked out from the preset, so the preset is saved the way the card saves it.
     write: (store, owner, patch) => { savePolicy(store, owner, patch, "Changed from Settings: presets, reset or a settings file"); },
+    read: (store, owner) => ({ ...readPolicy(store, owner) }),
   },
   one("approval_reviewer", "A second look before approvals", "settings-kit.name.reviewer", "settings:permissions", "guard",
-    { write: (store, owner, patch) => { saveReviewerSettings(store, owner, patch); } }),
+    { write: (store, owner, patch) => { saveReviewerSettings(store, owner, patch); }, read: (store, owner) => ({ ...reviewerSettings(store, owner) }) }),
   one("loop_guard", "Stopping repeated steps", "settings-kit.name.loop-guard", "settings:permissions", "guard",
-    { write: (store, owner, patch) => { saveLoopGuardSettings(store, owner, patch); } }),
+    { write: (store, owner, patch) => { saveLoopGuardSettings(store, owner, patch); }, ...modeFrom(loopGuardMode) }),
   one("folder_trust_mode", "Trusted folders", "settings-kit.name.folder-trust", "settings:permissions", "guard",
-    { write: (store, owner, patch) => { saveFolderTrustSettings(store, owner, patch); } }),
+    { write: (store, owner, patch) => { saveFolderTrustSettings(store, owner, patch); }, ...modeFrom(folderTrustMode) }),
   {
     key: "security-check", name: "Security self-check", t: "settings-kit.name.security-check", home: "settings:permissions",
     fields: [sw("audit", "Check by itself", "settings-kit.field.audit", "guard"),
       sw("malware", "Check add-ons for malware", "settings-kit.field.malware", "guard")],
     // The window hands in the service's own save, which also adds or takes away the check's tool.
     write: (store, owner, patch) => { saveSecurityCheckSettings(store, owner, patch); },
+    read: (store, owner) => ({ ...securityCheckSettings(store, owner) }),
   },
   {
     key: "os-sandbox", name: "The wall around programs", t: "settings-kit.name.os-sandbox", home: "settings:computer",
@@ -150,34 +277,38 @@ const safety: SettingSpec[] = [
 ];
 
 const reach: SettingSpec[] = [
-  one("desktop-control", "Your screen and keyboard", "settings-kit.name.desktop", "settings:computer", "reach", { keepsEnabled: true }),
+  one("desktop-control", "Your screen and keyboard", "settings-kit.name.desktop", "settings:computer", "reach", { keepsEnabled: true, ...desktopHooks }),
   one("keychain-entries", "Passwords from the Keychain", "settings-kit.name.keychain", "settings:secrets", "reach",
-    { keepsEnabled: true, write: (store, owner, patch) => { saveKeychainSettings(store, owner, patch); } }),
+    { keepsEnabled: true, write: (store, owner, patch) => { saveKeychainSettings(store, owner, patch); }, read: (store, owner) => ({ ...readKeychainSettings(store, owner) }) }),
   // mac7/vault-autofill (R17-068): turning this on lets Branch type a saved password into a page, so
   // it reaches further. Only the switch is here: the book of which item goes with which site is the
   // owner's own, written at its card, and nothing brought in from a file or a preset may write one.
   one("vault-autofill", "Filling a saved sign-in", "settings-kit.name.vault-autofill", "settings:secrets", "reach",
-    { keepsEnabled: true, write: (store, owner, patch) => { saveVaultAutofillSettings(store, owner, patch); } }),
+    { keepsEnabled: true, write: (store, owner, patch) => { saveVaultAutofillSettings(store, owner, patch); }, read: (store, owner) => ({ ...readVaultAutofillSettings(store, owner) }) }),
   {
     key: "voice", name: "Voice", t: "settings-kit.name.voice", home: "settings:voice",
     fields: [sw("systemVoice", "Your computer's own voice", "settings-kit.field.system-voice", "reach"),
       yesNo("autoReadAloud", "Read replies aloud automatically", "settings-kit.field.read-aloud", "plain"),
       yesNo("keepAudioOnThisComputer", "Keep audio on this computer", "settings-kit.field.keep-audio", "guard"),
       yesNo("replyWithVoiceOnChannels", "Answer a voice note with a voice note", "settings-kit.field.voice-reply", "reach")],
+    ...voiceHooks,
   },
-  one("media-programs", "Watching and saving videos", "settings-kit.name.video", "settings:models:media", "reach"),
-  one("speech-engines", "Other speech services", "settings-kit.name.speech", "settings:voice", "reach"),
-  one("execution-metrics", "Sending the counters", "settings-kit.name.counters", "settings:advanced", "reach", { keepsEnabled: true }),
+  one("media-programs", "Watching and saving videos", "settings-kit.name.video", "settings:models:media", "reach",
+    parsedBy("media-programs", () => MediaProgramsSchema)),
+  one("speech-engines", "Other speech services", "settings-kit.name.speech", "settings:voice", "reach",
+    parsedBy("speech-engines", () => SpeechEngineSettingsSchema)),
+  one("execution-metrics", "Sending the counters", "settings-kit.name.counters", "settings:advanced", "reach", { keepsEnabled: true,
+    read: (store, owner) => ({ ...executionMetricsSettings(store, owner) }), write: (store, owner, patch) => { saveExecutionMetricsSettings(store, owner, patch); } }),
   // mac7/usage-bar: reading an allowance out of the headers on Branch's own answers is always on and
   // costs nothing. This switch is only for the one service Branch may ask outright — OpenRouter's
   // documented key endpoint — because that is a request made on a timer without being told to, so
   // turning it up reaches further. It ships off. No plan account is ever asked, switch or no switch.
   one("usage-limits", "Asking a service what is left", "settings-kit.name.usage-limits", "settings:data", "reach",
-    { keepsEnabled: true, write: (store, owner, patch) => { saveUsageLimitsSettings(store, owner, patch); } }),
-  one("asks-analytics", "Counting how Branch is used", "settings-kit.name.analytics", "settings:data", "reach"),
-  one("asks-answer-engine", "Quick answers from the web", "settings-kit.name.answers", "library:made", "reach"),
-  one("asks-runtimes", "Other agents answering a conversation", "settings-kit.name.runtimes", "settings:models:connection", "reach"),
-  one("asks-nodes", "Other computers running Branch", "settings-kit.name.nodes", "settings:computer", "reach"),
+    { keepsEnabled: true, write: (store, owner, patch) => { saveUsageLimitsSettings(store, owner, patch); }, read: (store, owner) => ({ ...usageLimitsSettings(store, owner) }) }),
+  one("asks-analytics", "Counting how Branch is used", "settings-kit.name.analytics", "settings:data", "reach", askHooks("analytics")),
+  one("asks-answer-engine", "Quick answers from the web", "settings-kit.name.answers", "library:made", "reach", askHooks("answer-engine")),
+  one("asks-runtimes", "Other agents answering a conversation", "settings-kit.name.runtimes", "settings:models:connection", "reach", askHooks("runtimes")),
+  one("asks-nodes", "Other computers running Branch", "settings-kit.name.nodes", "settings:computer", "reach", askHooks("nodes")),
   // mac7/bind: moving Branch's own door off this computer's loopback lets anything on the private
   // network reach it, so raising it reaches further. It is a choice of two and never an address to
   // type: nothing brought in from a file or a preset may name where this computer listens.
@@ -191,13 +322,18 @@ const reach: SettingSpec[] = [
     // started with BRANCH_LISTEN has asked for the wider door whatever the saved record says, and
     // that is what the owner should see here. Turning it off there is done where the container is
     // started, not on this card.
-    read: (store, owner) => ({ where: listenAsked(store, owner) }),
+    read: ownListen,
   },
-  one("move-in-switch", "Looking at other assistants' folders", "settings-kit.name.move-in", "settings:data", "reach"),
-  one("memory-history", "Keeping the history of what it remembers", "settings-kit.name.memory-history", "library:memory", "reach"),
-  one("pull-request-hook", "Pull requests from changes", "settings-kit.name.pull-requests", "settings:advanced", "reach"),
-  one("skill-installs", "Installing skills from a file", "settings-kit.name.skill-installs", "customize:skills", "reach"),
-  one("workspace-editor", "Code editor", "settings-kit.name.code-editor", "settings:advanced", "reach"),
+  one("move-in-switch", "Looking at other assistants' folders", "settings-kit.name.move-in", "settings:data", "reach",
+    { ...modeFrom(moveInMode), write: (store, owner, patch) => { saveMoveInMode(store, owner, { mode: moveInMode(store, owner), ...patch }); } }),
+  one("memory-history", "Keeping the history of what it remembers", "settings-kit.name.memory-history", "library:memory", "reach",
+    parsedBy("memory-history", () => MemoryHistorySettingsSchema)),
+  one("pull-request-hook", "Pull requests from changes", "settings-kit.name.pull-requests", "settings:advanced", "reach",
+    parsedBy("pull-request-hook", () => PullRequestHookSettingsSchema)),
+  one("skill-installs", "Installing skills from a file", "settings-kit.name.skill-installs", "customize:skills", "reach",
+    parsedBy("skill-installs", () => SkillInstallSettingsSchema)),
+  one("workspace-editor", "Code editor", "settings-kit.name.code-editor", "settings:advanced", "reach",
+    parsedBy("workspace-editor", () => WorkspaceEditorSettingsSchema)),
   // mac7/chat-allowlist: a chat's task holds a short read-and-answer list; this switch lets the
   // owner's own lines add to it, so raising it is reaching further. The lines themselves are not a
   // field here on purpose: nothing brought in from a file or a preset can ever write one.
@@ -206,29 +342,40 @@ const reach: SettingSpec[] = [
     home: "customize:channels",
     fields: [yesNo("extras", "Use my list of what chats may also do", "settings-kit.field.chat-extras", "reach")],
     write: (store, owner, patch) => { saveChatPermissionSettings(store, owner, patch); },
+    read: (store, owner) => ({ ...readChatPermissionSettings(store, owner) }),
   },
   // mac7/wake-pins: listening for a word holds the microphone open by itself, so turning it up
   // reaches further. The word itself is deliberately not a field here: nothing brought in from a
   // file or a preset may ever choose what this computer listens for.
   {
     key: "wake-word", name: "A word that starts a turn", t: "settings-kit.name.wake-word", home: "settings:voice",
+    read: (store, owner) => inForce(WakeWordSettingsSchema, store.get("settings", owner, wakeWordKey)?.data),
+    // Written onto what is in force, never onto a record the app would not run: a change here cannot bring an
+    // unreadable mode back to life (a stored "on" the app ignores stays ignored).
+    write: (store, owner, patch) => { store.save("settings", owner, wakeWordKey, WakeWordSettingsSchema.parse({ ...inForce(WakeWordSettingsSchema, store.get("settings", owner, wakeWordKey)?.data), ...patch })); },
     fields: [sw("mode", "Switch", "settings-kit.field.switch", "reach"),
       { field: "sureness", label: "How sure it must be before it answers", t: "settings-kit.field.wake-sureness",
         guard: "guard", initial: 80, kind: { type: "number", min: 50, max: 99 } }],
   },
   // mac7/live-voice: dictation holds the microphone open while it listens, so turning it up reaches
-  // further. Only the switch is a field, and the switch alone can never open a microphone: nothing
-  // brought in from a file or a preset starts it, because only a press at this window can.
+  // further. Waiting through more silence keeps it open longer. Neither field can start listening:
+  // nothing brought in from a file or a preset starts it, because only a press at this window can.
   {
     key: "live-dictation", name: "Speak and see the words", t: "settings-kit.name.live-dictation", home: "settings:voice",
+    read: (store, owner) => inForce(DictationSettingsSchema, store.get("settings", owner, dictationKey)?.data),
+    // Written onto what is in force, never onto a record the app would not run: a change here cannot bring an
+    // unreadable mode back to life (a stored "on" the app ignores stays ignored).
+    write: (store, owner, patch) => { store.save("settings", owner, dictationKey, DictationSettingsSchema.parse({ ...inForce(DictationSettingsSchema, store.get("settings", owner, dictationKey)?.data), ...patch })); },
     fields: [sw("mode", "Switch", "settings-kit.field.switch", "reach"),
       { field: "silenceSeconds", label: "How long a quiet room ends it", t: "settings-kit.field.dictation-silence",
-        guard: "guard", initial: 4, kind: { type: "number", min: 1, max: 30 } }],
+        guard: "reach", initial: 4, kind: { type: "number", min: 1, max: 30, fractions: true } }],
   },
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
   // r17-i integration review: every reach and platform switch reaches further when raised (src/reach/settings.ts).
   // src/server.ts saves them through Reach, so the tools and the relay follow the switch at once.
-  ...reachParts.map((part) => one(reachKey(part), reachLabels[part], `reach.part.${part}`, reachHomes[part], "reach")),
+  // Q65: shown as saved, not as Lockdown reads it (`reachMode`), so a change is weighed against the owner's own switch.
+  ...reachParts.map((part) => one(reachKey(part), reachLabels[part], `reach.part.${part}`, reachHomes[part], "reach",
+    modeFrom((store, owner) => savedReachMode(store, owner, part)))),
   safetyPart("tool-scripts", "Scripts that call several tools at once", "reach"),
   safetyPart("wasm-add-ons", "Add-ons in a sealed WebAssembly box", "reach"),
   // r17-h: checks run tools and scripts, widgets ask tools on a timer, and requests reach the package lists.
@@ -238,7 +385,8 @@ const reach: SettingSpec[] = [
 ];
 
 const comfort: SettingSpec[] = [
-  one("local-models", "Models on this computer", "settings-kit.name.local-models", "settings:models:local", "plain", { keepsEnabled: true }),
+  one("local-models", "Models on this computer", "settings-kit.name.local-models", "settings:models:local", "plain", { keepsEnabled: true,
+    ...modeFrom(localModelsMode), write: (store, owner, patch) => { saveLocalModelsMode(store, owner, { mode: localModelsMode(store, owner), ...patch }); } }),
   // mac7/one-click (issue #107): installing a program that runs models is the one thing here that
   // changes the owner's own computer, so it is its own switch and counts as reach.
   one("local-runner-install", "Installing a program that runs models", "settings-kit.name.local-runner-install",
@@ -255,14 +403,21 @@ const comfort: SettingSpec[] = [
   // above, which asks its own switch again, so this can never install behind that switch's back.
   one("adapt", "Getting what a stopped task is missing", "settings-kit.name.adapt",
     "settings:models:local", "reach"),
-  one("usage-report", "Usage report", "settings-kit.name.usage-report", "settings:data", "plain", { keepsEnabled: true }),
+  one("usage-report", "Usage report", "settings-kit.name.usage-report", "settings:data", "plain", { keepsEnabled: true,
+    read: (store, owner) => ({ ...usageReportSettings(store, owner) }), write: (store, owner, patch) => { saveUsageReportSettings(store, owner, patch); } }),
   one("event-loop-watch", "Whether Branch is keeping up", "settings-kit.name.event-loop", "settings:advanced", "plain",
-    { write: (store, owner, patch) => { eventLoopWatch.follow(saveEventLoopSettings(store, owner, { ...eventLoopSettings(store, owner), ...patch })); } }),
-  one("run-recording", "Recording each task", "settings-kit.name.recording", "inbox:history", "plain"),
-  one("prompt-library", "Saved prompts", "settings-kit.name.prompts", "automations:procedures", "plain"),
-  one("command-catalog", "The shared commands", "settings-kit.name.commands", "settings:general", "plain"),
-  one("asks-project-board", "Project boards", "settings-kit.name.project-board", "settings:general", "plain"),
-  one("fly-core", "What Branch learns from experience", "settings-kit.name.fly-core", "library:memory", "plain"),
+    { write: (store, owner, patch) => { eventLoopWatch.follow(saveEventLoopSettings(store, owner, { ...eventLoopSettings(store, owner), ...patch })); },
+      read: (store, owner) => ({ ...eventLoopSettings(store, owner) }) }),
+  one("run-recording", "Recording each task", "settings-kit.name.recording", "inbox:history", "plain",
+    parsedBy("run-recording", () => RecordingSettingsSchema)),
+  one("prompt-library", "Saved prompts", "settings-kit.name.prompts", "automations:procedures", "plain",
+    parsedBy("prompt-library", () => PromptLibrarySettingsSchema)),
+  one("command-catalog", "The shared commands", "settings-kit.name.commands", "settings:general", "plain",
+    parsedBy("command-catalog", () => CommandSettingsSchema)),
+  one("asks-project-board", "Project boards", "settings-kit.name.project-board", "settings:general", "plain", askHooks("project-board")),
+  // Saved through the learning core's own switch (src/settings-kit/writers.ts), which also adds or takes away its tool.
+  one("fly-core", "What Branch learns from experience", "settings-kit.name.fly-core", "library:memory", "plain",
+    { read: (store, owner) => ({ ...flyCoreSettings(store, owner) }) }),
   safetyPart("history-repair", "Tidying a conversation before it is sent", "guard"), // "repair" reads as safety-shaped (pair), so it is a guard
   // r17-h: going back in a flow, the shared board, the waiting line and focus view only rearrange the owner's own work.
   board("time-travel", "Going back in a flow", "automations:procedures", "plain"),
@@ -274,16 +429,21 @@ const comfort: SettingSpec[] = [
     // Working on until a goal is met is the assistant acting on its own; the snapshots are what lets you go back.
     fields: [sw("goal", "Keep working until a goal is met", "settings-kit.field.goal", "reach"),
       sw("snapshots", "Record the files before a task", "settings-kit.field.snapshots", "guard")],
+    ...parsedBy("goal-undo", () => GoalUndoSettingsSchema),
   },
   {
     key: "reflection", name: "Looking back over conversations", t: "settings-kit.name.reflection", home: "library:memory",
     fields: [sw("reflection", "Looking back", "settings-kit.field.reflection", "plain"),
       sw("newSkills", "Writing new skills from experience", "settings-kit.field.new-skills", "reach")],
+    // Saved through the learning loop (src/settings-kit/writers.ts).
+    read: (store, owner) => ({ ...reflectionSettings(store, owner) }),
   },
   {
     key: "context-files", name: "The files you write", t: "settings-kit.name.context-files", home: "settings:general",
     fields: ["soul", "identity", "user", "agents", "tools", "sop", "memory", "heartbeat"].map((slot) =>
       sw(`files.${slot}`, `${slot.toUpperCase()}.md`, `settings-kit.field.file-${slot}`, "plain")),
+    read: (store, owner) => ({ ...contextFileSettings(store, owner) }),
+    write: contextFilesWrite,
   },
   {
     key: "retention", name: "How long conversations are kept", t: "settings-kit.name.retention", home: "settings:data",
@@ -291,6 +451,7 @@ const comfort: SettingSpec[] = [
       { field: "keepDays", label: "Older than this many days", t: "settings-kit.field.keep-days", guard: "plain",
         initial: 0, kind: { type: "number", min: 0, max: 3650 } }],
     write: (store, owner, patch) => { saveRetentionSettings(store, owner, { ...retentionSettings(store, owner), ...patch }); },
+    read: (store, owner) => ({ ...retentionSettings(store, owner) }),
   },
 ];
 
@@ -299,23 +460,24 @@ const comfort: SettingSpec[] = [
  * saved through the cards' own checks. The proxy, the certificates, the browser's care and automatic
  * installing are not here and are on the never-touched list: no preset or file may set them.
  */
-const viaComfort = (card: ComfortCard) => (store: Store, owner: string, patch: Record<string, unknown>): void => {
-  saveComfort(store, owner, card, patch);
-};
+const viaComfort = (card: ComfortCard): Hooks => ({
+  write: (store, owner, patch) => { saveComfort(store, owner, card, patch); },
+  read: (store, owner) => ({ ...readComfort(store, owner, card) as Record<string, unknown> }),
+});
 const comfortCards: SettingSpec[] = [
-  { key: "comfort-keys", name: "Shortcuts", t: "comfort.keys.title", home: "settings:general", write: viaComfort("keys"),
+  { key: "comfort-keys", name: "Shortcuts", t: "comfort.keys.title", home: "settings:general", ...viaComfort("keys"),
     fields: [yesNo("vim", "Vim keys in the message box", "comfort.field.vim", "plain")] },
-  { key: "comfort-display", name: "Status line and times", t: "comfort.display.title", home: "settings:appearance", write: viaComfort("display"),
+  { key: "comfort-display", name: "Status line and times", t: "comfort.display.title", home: "settings:appearance", ...viaComfort("display"),
     fields: [yesNo("timestamps", "A time on every message", "comfort.field.timestamps", "plain")] },
-  { key: "comfort-notify", name: "Notifications and sound", t: "comfort.notify.title", home: "settings:notifications", write: viaComfort("notify"),
+  { key: "comfort-notify", name: "Notifications and sound", t: "comfort.notify.title", home: "settings:notifications", ...viaComfort("notify"),
     fields: [
       { field: "method", label: "Where you are told", t: "comfort.field.method", guard: "plain", initial: "system", kind: { type: "choice", options: ["system", "window"] } },
       { field: "sound", label: "Sound", t: "comfort.field.sound", guard: "plain", initial: "off", kind: { type: "choice", options: ["off", "chime", "knock"] } },
     ] },
-  { key: "comfort-files", name: "Ignore files", t: "comfort.files.title", home: "settings:general", write: viaComfort("files"),
+  { key: "comfort-files", name: "Ignore files", t: "comfort.files.title", home: "settings:general", ...viaComfort("files"),
     // Turning .gitignore off lets searches see more of the workspace (never a secret file).
     fields: [yesNo("respectGitignore", "Skip what .gitignore lists", "comfort.field.respectGitignore", "guard", true)] },
-  { key: "comfort-mcp", name: "Tool servers' start-up time", t: "comfort.mcp.title", home: "customize:connections", write: viaComfort("mcp"),
+  { key: "comfort-mcp", name: "Tool servers' start-up time", t: "comfort.mcp.title", home: "customize:connections", ...viaComfort("mcp"),
     fields: [{ field: "startupTimeoutSeconds", label: "Seconds a server may take to start", t: "comfort.field.startupTimeoutSeconds",
       guard: "plain", initial: 10, kind: { type: "number", min: 1, max: 300 } }] },
 ];

@@ -12,6 +12,7 @@ import { foundSources, offerSentence, placeInput, previewOf, recognise, scanSour
 import { archiveTree, folderTree, openSource } from "./migrate/source-tree.js";
 import { moveInMode, requireMoveInAllowed, saveMoveInMode } from "./migrate/switch.js";
 import { MoveInSourceSchema, sourceNames, type MoveInSource } from "./migrate/types.js";
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * Moving in: bringing chats, memory, instructions, skills, tool servers and settings over from
@@ -115,7 +116,10 @@ export async function moveInApi(
   try { app.store.profiles.requireOwner("Bringing things over from another assistant"); }
   catch (error) { throw new MoveInApiError(403, (error as Error).message); }
   if (path === "/api/move-in/switch") {
-    if (post) saveMoveInMode(app.store, owner, await readBody(request));
+    if (post) {
+      const input = await readBody(request);
+      recordedWrite(app.store, owner, byCard("move-in-switch"), ["move-in-switch"], () => saveMoveInMode(app.store, owner, input));
+    }
     else if (!get) throw new MoveInApiError(405, "Use GET or POST");
     return { mode: moveInMode(app.store, owner) };
   }

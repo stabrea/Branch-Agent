@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { extname, isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
+import { sourceCheckedOut } from "../self-development-contract.js"; // Q12
 import type { ToolContext } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
 import type { Diagnostic } from "../language-server.js";
@@ -142,6 +143,9 @@ export class EditChecks {
 
   private async format(formatter: FormatSettings["formatters"][string], absolute: string, timeoutMs: number, context: ToolContext, check: FileCheck): Promise<void> {
     if (this.inWorkspace(formatter.path)) { check.note = "Not tidied: the formatter sits inside the workspace."; return; }
+    // Q12: a formatter is walled to the whole workspace, not to one worktree, and reads the project's
+    // own settings and plug-ins, so none runs while Branch's own source is checked out here.
+    if (sourceCheckedOut(this.deps.files.root)) { check.note = "Not tidied: Branch's own source is checked out in this workspace, and no formatter runs while it is."; return; }
     if (!this.deps.trusted(this.deps.files.base)) { check.note = untrustedNote; return; }
     const wall = this.deps.wall(context, formatter.path);
     if (!wall) { check.note = unwalledNote; return; }

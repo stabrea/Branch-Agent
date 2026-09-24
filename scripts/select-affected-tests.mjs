@@ -73,13 +73,20 @@ function inspectChange(change, config, state) {
     requireFull(state, `Exhaustive-only path changed: ${file}`);
     return;
   }
-  if (matches(file, config.ignored)) return;
+  // `ignored` says a change here cannot change a test's result. That is true of documentation in
+  // general and false of the ledger, which a test reads and checks against itself: `docs/**` swallowed
+  // docs/features.json before the mappings below were ever reached, so the one guard that catches a
+  // hand-typed ledger count never ran on the only diff shape that can make the ledger wrong. A file a
+  // reviewed mapping names is therefore not ignored; a file nothing names still is. Measured when this
+  // was written: of 204 tracked files the ignore list covers, exactly the two a mapping now claims
+  // change behaviour, so this reaches nothing else by accident.
+  const rules = config.mappings.filter((rule) => matches(file, rule.paths));
+  if (!rules.length && matches(file, config.ignored)) return;
   state.productChange = true;
   if (/^(?:tests|packages\/sdk\/test)\/.*\.test\.mjs$/.test(file)) {
     state.selected.add(file);
     return;
   }
-  const rules = config.mappings.filter((rule) => matches(file, rule.paths));
   if (!rules.length) {
     requireFull(state, `No reviewed test mapping exists for: ${file}`);
     return;

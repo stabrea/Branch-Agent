@@ -5,6 +5,7 @@ import { CompletionCheckSchema, evaluateChecks, type CompletionCheck } from "./r
 import type { RunOptions } from "./runtime.js";
 import type { Store } from "./store.js";
 import { goalWithSubgoals } from "./autonomy/subgoals.js"; // r17-b: /subgoal
+import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 
 /**
  * Wave mac2: goal mode. `/goal <objective> [--max n]` keeps one conversation working in rounds until
@@ -125,7 +126,10 @@ export class GoalMode {
   /** Starts a goal; resolves once its first round has begun, so a new conversation has its id. */
   /** This area's switches, as saved. */
   settings(): GoalUndoSettings { return goalUndoSettings(this.store, this.runtime.owner); }
-  saveSettings(input: unknown): GoalUndoSettings { return saveGoalUndoSettings(this.store, this.runtime.owner, input); }
+  /** Q48: the card's save is written down as a change record. */
+  saveSettings(input: unknown): GoalUndoSettings {
+    return recordedWrite(this.store, this.runtime.owner, byCard("goal-undo"), ["goal-undo"], () => saveGoalUndoSettings(this.store, this.runtime.owner, input));
+  }
 
   async start(input: GoalStart): Promise<GoalState> {
     const wanted = GoalStartSchema.parse(input);

@@ -78,20 +78,32 @@ export class Hindsight {
   }
 }
 
-export function registerHindsight(registry: ToolRegistry, hindsight: Hindsight): void {
+/**
+ * FQ-routing.isolated-agents: the bank is one for the whole workspace and its recall and reflect cannot
+ * be narrowed to one agent, so a Trunk or delegated specialist is not handed the owner's — the same
+ * rule memory.outside_recall already keeps (src/learning-more/providers.ts). Keeping is still allowed.
+ * Also refuses a household person (profile on, no agent), matching providers.ts:103 hindsightFor's scope !== ownerName.
+ */
+function ownerOnly(context: { agent?: string; owner?: string }, store?: Store): void {
+  if (context.agent) throw new Error("The Hindsight server keeps one shared bank, so only the owner's own conversations can read it.");
+  if (store && context.owner && store.profiles.scope() !== context.owner)
+    throw new Error("The Hindsight server keeps one shared bank, so only the owner's own conversations can read it.");
+}
+
+export function registerHindsight(registry: ToolRegistry, hindsight: Hindsight, store: Store): void {
   registry.register({
-    name: "hindsight.retain", permission: "memory.write",
+    name: "hindsight.retain", reach: "outbound", permission: "memory.write",
     description: "Keep something in the owner's Hindsight memory server, in addition to Branch's own memory.",
     parameters: RetainSchema, execute: async (input) => hindsight.retain(input),
   });
   registry.register({
-    name: "hindsight.recall", permission: "memory.read",
+    name: "hindsight.recall", reach: "outbound", permission: "memory.read",
     description: "Find what the owner's Hindsight memory server keeps about something.",
-    parameters: RecallSchema, execute: async (input) => hindsight.recall(input),
+    parameters: RecallSchema, execute: async (input, context) => { ownerOnly(context, store); return hindsight.recall(input); },
   });
   registry.register({
-    name: "hindsight.reflect", permission: "memory.read",
+    name: "hindsight.reflect", reach: "outbound", permission: "memory.read",
     description: "Ask the owner's Hindsight memory server for a reasoned answer from what it keeps.",
-    parameters: ReflectSchema, execute: async (input) => hindsight.reflect(input),
+    parameters: ReflectSchema, execute: async (input, context) => { ownerOnly(context, store); return hindsight.reflect(input); },
   });
 }

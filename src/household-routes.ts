@@ -71,6 +71,7 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/asks/surfaces/:id/refresh"),
     own("/api/batch/run"),
     own("/api/coding/ci"),
+    own("/api/collab/events", "GET,POST"), // the household's signed events: each person reads them and publishes as themselves
     own("/api/conversation-mode"), // redesign phase 1: never looser than the owner's setting (src/conversation-mode-api.ts)
     own("/api/documents"),
     own("/api/documents/:id", "DELETE"),
@@ -198,6 +199,8 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/studies/run"),
     own("/api/teams"),
     own("/api/teams/:id/remove"),
+    own("/api/teams/:id/handoffs/:id/accept"), // Q62: a profile answers a team-task offer addressed to it
+    own("/api/teams/:id/handoffs/:id/reject"),
     own("/api/templates/import"),
     own("/api/todos"),
     own("/api/todos/:id"),
@@ -222,9 +225,13 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
  */
 const householdViews: readonly RegExp[] = [/^\/api\/voice\/wake$/, /^\/api\/voice\/dictation(\/|$)/];
 
-/** True when a household person at the window may send this, whatever a short-lived key may. */
+/**
+ * True when a household person at the window may send this, whatever a short-lived key may. A GET
+ * listed above as a person's own (the household's signed events) is theirs to read, though a
+ * short-lived key is still refused it (src/short-lived-keys.ts, ownerOnlyReads).
+ */
 export function householdMaySend(method: string | undefined, path: string): boolean {
   const verb = method ?? "GET";
-  if (verb === "GET") return householdViews.some((pattern) => pattern.test(path));
+  if (verb === "GET" && householdViews.some((pattern) => pattern.test(path))) return true;
   return householdOwnRoutes.some((route) => route.method === verb && route.pattern.test(path));
 }

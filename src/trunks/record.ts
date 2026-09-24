@@ -6,6 +6,7 @@ import { SpecialistStyleSchema } from "../specialist-styles.js";
 import type { Store } from "../store.js";
 import { AvatarSchema, settleAvatar } from "./avatar.js";
 import { TrunkLookSchema } from "./look.js"; // phase2/shell
+import { StartsInSchema } from "./starts-in.js"; // Q44
 
 /**
  * R17-001 (T-01): the Trunk record. A Trunk is a named, long-lived agent that belongs to the owner.
@@ -26,11 +27,26 @@ export const TrunkSchema = TrunkCreateSchema.extend({
   avatar: AvatarSchema.optional(),
   /** phase2/shell: its colour, face, shape and movement (src/trunks/look.ts); absent looks as it always did. */
   look: TrunkLookSchema.optional(),
+  /**
+   * Q44: the computer it starts in, by its id in the device book; null or absent means this computer.
+   * Optional so a record saved before it existed reads as it always did, and an older build, which
+   * only picks the fields it knows, carries it over untouched (src/trunks/starts-in.ts).
+   */
+  startsIn: StartsInSchema.optional(),
+  /**
+   * DG-105: a colour the owner picked as a value (the sample's palette, or any colour), in lower case. It is
+   * drawn only while `look.colour` is null, so a colour chosen later, even by a build from before this field
+   * (which keeps the field it does not know and writes `look.colour`), always wins. Kept outside `look`, whose
+   * record older builds check strictly.
+   */
+  chosenColour: z.string().regex(/^#[0-9a-f]{6}$/i, "Choose a colour such as #1f5139").transform((value) => value.toLowerCase()).nullable().optional(),
   /** The model preset it answers with; empty follows the conversation, then the owner's default. */
   model: z.string().trim().max(64).default(""),
   reasoning: z.enum(reasoningEfforts).nullable().default(null),
   /** Its own character and working instructions (its SOUL), given as text. */
   instructions: z.string().max(8000).default(""),
+  /** The voice it reads its answers in; empty uses the owner's own voice setting. */
+  voice: z.string().trim().max(80).default(""),
   style: SpecialistStyleSchema.default("default"),
   /** Tool permissions it may use; empty means the owner's ordinary set, less anything its reach keeps off. */
   permissions: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
@@ -84,16 +100,23 @@ export function slug(name: string): string {
   return base || "trunk";
 }
 
+/** A Trunk saved before a field existed reads with that field's default: a Trunk from before voices has none (""). */
+function settled(data: unknown): Trunk {
+  const trunk = data as Trunk;
+  return typeof trunk.voice === "string" ? trunk : { ...trunk, voice: "" };
+}
+
 export class TrunkRecords {
   constructor(private readonly store: Store, private readonly owner: string) {}
 
   list(): Trunk[] {
     return this.store.list("governance", this.owner).filter((r) => r.id.startsWith("trunk:"))
-      .map((r) => r.data as unknown as Trunk)
+      .map((r) => settled(r.data))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order || a.name.localeCompare(b.name));
   }
   find(id: string): Trunk | undefined {
-    return this.store.get("governance", this.owner, `trunk:${id}`)?.data as unknown as Trunk | undefined;
+    const data = this.store.get("governance", this.owner, `trunk:${id}`)?.data;
+    return data ? settled(data) : undefined;
   }
   get(id: string): Trunk {
     const trunk = this.find(id);

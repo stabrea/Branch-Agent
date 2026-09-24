@@ -12,7 +12,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
@@ -22,7 +22,10 @@ import { conversationModeApi } from "../dist/conversation-mode-api.js";
 
 const started = (app, runId) => app.store.events(runId).find((event) => event.kind === "run.started").data;
 const writeCall = (path) => call("files.write", { path, content: "x" }, `w-${path}`);
-const exists = (app, path) => existsSync(join(app.runtime.workspace, path));
+/** Whether a file was written: in the shared project, or in a Trunk's own folder under .branch-agents (isolated-agents). */
+const exists = (app, path) => existsSync(join(app.runtime.workspace, path))
+  || (existsSync(join(app.runtime.workspace, ".branch-agents")) && readdirSync(join(app.runtime.workspace, ".branch-agents"))
+    .some((id) => existsSync(join(app.runtime.workspace, ".branch-agents", id, path))));
 
 /** Waits for a task in this conversation whose message starts with `prefix` to have settled. */
 async function settledIn(app, sessionId, prefix, seen = new Set()) {

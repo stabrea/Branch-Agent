@@ -8,6 +8,7 @@ import { z } from "zod";
 import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js";
 import { checksumAssetName } from "./release-assets.js";
 import { buildDev, devToolsMissing, realRun, remoteHead, type DevPhase, type Run } from "./dev-build.js";
+import { fetchAttestationBundles, isBuildProvenance, verifyAttestationBundle, type AttestationLookup } from "./provenance.js";
 
 /**
  * One-button updates from GitHub Releases. The app downloads the published archive, checks it
@@ -79,15 +80,41 @@ export interface ReleaseInfo {
 export type UpdatePhase =
   | "idle" | "checking" | "current" | "available" | "downloading" | "verifying"
   | "unpacking" | "ready" | "applying" | "error" | "unsupported";
+/** Q55: the build that is installed now: its version, and the commit it was built from (null when not recorded). */
+export interface InstalledBuild { version: string; commit: string | null }
+/**
+ * Q55: after a failed update, what the owner still has. "kept": nothing was swapped, the installed
+ * version still runs. "backgroundStopped": the engine working with the window closed was closed for
+ * the update and stays closed until it is started again.
+ */
+export type UpdateOutcome = { kept: string; backgroundStopped: boolean } | null;
 export interface UpdateStatus {
   phase: UpdatePhase;
   message: string;
+  installed: InstalledBuild;
+  /** Set only by a failed install, and cleared by whatever the updater does next. */
+  outcome: UpdateOutcome;
   progress: number | null;
   release: ReleaseInfo | null;
   /** Download size so far and in total, while downloading. */
   bytes: { received: number; total: number } | null;
   updatedAt: string;
+  /** What the build provenance check found for the download being installed, once it has run. */
+  provenance?: { outcome: ProvenanceOutcome; message: string };
 }
+export type ProvenanceOutcome = "checked" | "not-checked" | "none";
+/**
+ * The words for each provenance outcome. They are fixed sentences (no names filled in) so the
+ * window can show them in the chosen language: the same words sit in public/locales under
+ * `updates.provenance.*`. "checked" says what was checked and that the certificate chain was not.
+ */
+export const PROVENANCE_WORDS: Record<ProvenanceOutcome, string> = {
+  checked: "A build provenance record was found for this download. It names this exact file and Branch's release workflow run for a version tag, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.",
+  "not-checked": "The build provenance record for this download was not checked: GitHub could not be reached, did not answer in time, or sent a record that could not be read. The update relies on the published checksum alone, which it passed.",
+  none: "No build provenance record is published for this download. The update relies on the published checksum alone, which it passed.",
+};
+// Beta version of the "checked" message
+export const PROVENANCE_WORDS_BETA_CHECKED = "A build provenance record was found for this download. It names this exact file and Branch's beta workflow run on the mac/cross-platform branch, and its signature matches the certificate that came with it. That certificate's chain back to Sigstore was not verified.";
 const assetSchema = z.object({ name: z.string(), browser_download_url: z.string().url(), size: z.number().int().nonnegative() });
 const releaseSchema = z.object({
   id: z.number().int().positive().optional(),
@@ -164,8 +191,9 @@ function betaAssetMatches(release: z.infer<typeof releaseSchema>, repo: string,
 }
 
 export class Updater {
-  status: UpdateStatus = { phase: "idle", message: "Updates have not been checked yet.", progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
+  status: UpdateStatus;
   private busy = false;
+  private provenance: UpdateStatus["provenance"] | null = null;
   private channel: UpdateChannel;
   private generation = 0;
   /** True while a download, check, unpack or hand-over is under way. */
@@ -173,7 +201,12 @@ export class Updater {
   private readonly fetch: typeof fetch;
   private readonly extract: (archive: string, into: string) => Promise<void>;
   private readonly platform: NodeJS.Platform;
+  private readonly installed: InstalledBuild;
+  /** Q55: this install closed the background engine (a stop that found nothing running does not count). */
+  private stoppedBackground = false;
   constructor(private readonly options: UpdaterOptions) {
+    this.installed = { version: options.currentVersion, commit: options.currentCommit ?? null };
+    this.status = this.fresh("idle", "Updates have not been checked yet.");
     this.channel = options.channel ?? "stable";
     this.fetch = options.fetch ?? globalThis.fetch;
     this.platform = options.platform ?? process.platform;
@@ -181,7 +214,7 @@ export class Updater {
     this.extract = options.extract ?? ((archive, into) => expandArchive(archive, into, platform));
     const reason = unsupportedReason(options, platform);
     if (reason)
-      this.status = { phase: "unsupported", message: reason, progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
+      this.status = this.fresh("unsupported", reason);
   }
   get selectedChannel(): UpdateChannel { return this.channel; }
   setChannel(channel: UpdateChannel): UpdateStatus {
@@ -189,10 +222,12 @@ export class Updater {
     if (channel === this.channel) return this.status;
     this.channel = channel;
     this.generation++;
+    this.provenance = null;
     return this.set("idle", `Checking ${channel} updates has not started yet.`, null, null);
   }
   async check(): Promise<UpdateStatus> {
     if (this.busy) return this.status;
+    this.provenance = null;
     return this.lookUp();
   }
   /** The look-up itself. An install that has already claimed the updater uses this, not `check`. */
@@ -232,6 +267,8 @@ export class Updater {
     // empties the scratch folder the first is downloading into, and the first fails on its own
     // archive. Two hand-overs for one app is the multiplication this row forbids.
     this.busy = true;
+    this.stoppedBackground = false;
+    this.provenance = null;
     let release: ReleaseInfo | null | undefined;
     try {
       // Beta or Stable (#215): a release chosen for the other channel is looked up again.
@@ -270,8 +307,8 @@ export class Updater {
       held = options.hold === true;
       return { script, stagedDir };
     } catch (error) {
-      this.set(error instanceof UpdateDeferredError ? "available" : "error",
-        error instanceof Error ? error.message : String(error), null, release);
+      if (error instanceof UpdateDeferredError) this.set("available", error.message, null, release);
+      else this.keptAfter(error instanceof Error ? error.message : String(error), release);
       // mac7/real-update: a download that went wrong is 130 MB or more of nothing; it is not kept.
       await rm(join(this.options.scratchDir, this.options.assetName!), { force: true }).catch(() => undefined);
       await rm(join(this.options.scratchDir, "unpacked"), { recursive: true, force: true }).catch(() => undefined);
@@ -280,6 +317,21 @@ export class Updater {
   }
   /** Gives back a claim `install({ hold: true })` kept, when the hand-over it was kept for did not start. */
   release(): void { this.busy = false; }
+  /** Q55: whether the install under way closed the background engine, so a failure can say so. */
+  get backgroundStopped(): boolean { return this.stoppedBackground; }
+  /**
+   * Q55: an update that stopped before the hand-over swapped any file. The installed version is
+   * what still runs, and the status says so; the claim is given back.
+   */
+  failed(message: string): UpdateStatus {
+    this.busy = false;
+    return this.keptAfter(message, this.status.release);
+  }
+  private keptAfter(message: string, release: ReleaseInfo | null | undefined): UpdateStatus {
+    this.status = { ...this.set("error", message, null, release ?? null),
+      outcome: { kept: this.installed.version, backgroundStopped: this.stoppedBackground } };
+    return this.status;
+  }
   /** mac3/never-break: the new version must pass its own check on a copy of the data first. */
   private async tryCanary(stagedDir: string, version: string): Promise<void> {
     if (!this.options.canary) return;
@@ -308,7 +360,10 @@ export class Updater {
   private async stopBackground(): Promise<number | null> {
     if (!this.options.stopDaemon) return null;
     this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);
-    return this.options.stopDaemon();
+    const pid = await this.options.stopDaemon();
+    // A null answer means nothing was working in the background, so nothing was closed.
+    this.stoppedBackground = pid !== null;
+    return pid;
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     if (this.channel === "dev") return this.newestDevBuild();
@@ -457,7 +512,48 @@ export class Updater {
     const hash = createHash("sha256");
     const { createReadStream } = await import("node:fs");
     for await (const chunk of createReadStream(archive)) hash.update(chunk as Buffer);
-    if (hash.digest("hex") !== expected) throw new Error("The download did not match the published checksum, so Branch did not install it. Branch is still on the version it had, and nothing was changed. Try the update again; if it keeps happening, download the new version from the releases page by hand.");
+    const digestHex = hash.digest("hex");
+    if (digestHex !== expected) throw new Error("The download did not match the published checksum, so Branch did not install it. Branch is still on the version it had, and nothing was changed. Try the update again; if it keeps happening, download the new version from the releases page by hand.");
+    await this.verifyProvenance(release, digestHex);
+  }
+  /**
+   * A second check on top of the checksum above: whether GitHub has published a signed build
+   * provenance record for this exact file, naming this repository's release workflow. No release
+   * does yet (that needs a workflow change outside this update), so having none is not a failure and
+   * the update goes on with only the checksum behind it, as before. Other kinds of record GitHub
+   * publishes for the file (its own release attestation) are not build provenance and count as none.
+   * When GitHub cannot be asked (a rate limit, a timeout) or a record cannot be read, the outcome is
+   * "not checked", said as such, and the checksum alone stands. A build-provenance record that fails
+   * the checks — a different file, some other workflow, a signature that does not verify — stops the
+   * update the same way a bad checksum does, because a provenance record that lies is worse than no
+   * provenance record at all.
+   */
+  private async verifyProvenance(release: ReleaseInfo, digestHex: string): Promise<void> {
+    this.set("verifying", "Checking for a build provenance record…", null, release);
+    let lookup: AttestationLookup | null;
+    try {
+      lookup = await fetchAttestationBundles({
+        fetch: this.fetch, repo: this.options.repo, digestHex,
+        userAgent: `BranchAgent/${this.options.currentVersion}`,
+      });
+    } catch { return this.provenanceFound("not-checked", release); }
+    const failures: string[] = [];
+    for (const bundle of (lookup?.bundles ?? []).filter(isBuildProvenance)) {
+      try {
+        verifyAttestationBundle(bundle, { repo: this.options.repo, digestHex, version: release.latestVersion });
+        return this.provenanceFound("checked", release);
+      } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+    }
+    if (failures.length)
+      throw new Error(`The download's build provenance record did not check out (${failures[0]}), so Branch did not install it. Branch is still on the version it had, and nothing was changed.`);
+    this.provenanceFound(lookup && lookup.unreadable > 0 ? "not-checked" : "none", release);
+  }
+  private provenanceFound(outcome: ProvenanceOutcome, release: ReleaseInfo): void {
+    // Use the Beta-specific message when a Beta version is checked.
+    const isBeta = outcome === "checked" && /^\d+\.\d+\.\d+-beta\.\d+$/.test(release.latestVersion);
+    const message = isBeta ? PROVENANCE_WORDS_BETA_CHECKED : PROVENANCE_WORDS[outcome];
+    this.provenance = { outcome, message };
+    this.set("verifying", message, null, release);
   }
   private async unpack(archive: string): Promise<string> {
     this.set("unpacking", "Unpacking…", null, this.status.release);
@@ -518,8 +614,12 @@ export class Updater {
     return script;
   }
   private set(phase: UpdatePhase, message: string, progress: number | null = null, release: ReleaseInfo | null = this.status.release, bytes: UpdateStatus["bytes"] = null): UpdateStatus {
-    this.status = { phase, message, progress, release, bytes, updatedAt: new Date().toISOString() };
+    this.status = { ...this.fresh(phase, message), progress, release, bytes,
+      ...(this.provenance ? { provenance: this.provenance } : {}) };
     return this.status;
+  }
+  private fresh(phase: UpdatePhase, message: string): UpdateStatus {
+    return { phase, message, installed: this.installed, outcome: null, progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   }
   /** Marks the hand-over as running once the script has been launched; the app is about to close. */
   applying(): UpdateStatus {

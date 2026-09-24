@@ -8,6 +8,7 @@ import { audit } from "./audit.js";
 import { labelTargets } from "./labels.js";
 import { PolicyRememberSchema } from "./policy.js";
 import { roleLabels } from "./profile-roles.js";
+import { ownerMember, publishGitPatch, reservedKinds } from "./collab-events.js";
 
 /**
  * The web routes for sharing, labels and notes, saved workflows, the waiting line for tasks, days
@@ -26,7 +27,11 @@ const projectId = z.object({ project: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}
 /** Everything the Sharing, Workflows, Waiting line, Days off and People panels show. */
 export function collabState(app: Branch): unknown {
   const owner = app.runtime.owner, profiles = app.store.profiles, scope = profiles.scope();
-  const person = { active: profiles.active(), all: profiles.list(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn() };
+  // Q75: each card says what Branch really holds that person to (their groups narrow it). The owner
+  // sees everyone's; somebody else sees only their own.
+  const held = app.runtime.roles.all(profiles.list().map((profile) => profile.id));
+  const roles = profiles.isOwner() ? held : held.filter((entry) => entry.profileId === profiles.active()?.id);
+  const person = { active: profiles.active(), all: profiles.list(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn(), roles, roleLabels };
   // Shared copies, saved workflows, the waiting line and days off are the owner's, so a screen
   // opened under somebody else's profile shows their labels and nothing of the owner's.
   if (!profiles.isOwner())
@@ -55,6 +60,8 @@ export async function collabApi(app: Branch, request: IncomingMessage, path: str
   if (flow !== notCollab) return flow;
   const queued = await queueApi(app, request, path, body);
   if (queued !== notCollab) return queued;
+  const events = await eventsApi(app, request, path, body);
+  if (events !== notCollab) return events;
   // Days off and quiet hours are the owner's settings and affect everything the app sends.
   if (get && path === "/api/calendar") {
     app.store.profiles.requireOwner("Days off and quiet hours");
@@ -144,15 +151,62 @@ async function queueApi(app: Branch, request: IncomingMessage, path: string, bod
   return notCollab;
 }
 
+/**
+ * Signed collaboration events. A new event is always published under whoever is using the app,
+ * never under a member named in the request; a received event is kept only if its signature holds.
+ * Every household member may read and publish; taking in a relay's event and publishing a git patch
+ * are the owner's alone, and src/server.ts refuses them to a household profile before this runs
+ * (src/household-routes.ts). A household profile's listing leaves the owner-only kinds out.
+ */
+async function eventsApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
+  const owner = app.runtime.owner, events = app.store.collabEvents;
+  if (request.method === "GET" && path === "/api/collab/events") {
+    const query = new URL(request.url ?? "/", "http://local").searchParams;
+    return events.list(owner, { kind: query.get("kind") ?? undefined, text: query.get("q") ?? undefined,
+      repository: query.get("repository") ?? undefined }, { ownerView: app.store.profiles.isOwner() });
+  }
+  if (request.method !== "POST") return notCollab;
+  if (path === "/api/collab/events") {
+    const input = z.object({ kind: z.string(), payload: z.record(z.string(), z.unknown()) }).strict().parse(await body());
+    // One path per kind: a patch here would skip its own checks, so it is sent to its route instead.
+    const reserved = reservedKinds.get(input.kind);
+    if (reserved) throw new Error(`A ${input.kind} event is published through ${reserved.route}`);
+    return events.publish(owner, app.store.profiles.active()?.id ?? ownerMember, input.kind, input.payload);
+  }
+  const known = (repository: string) => app.store.projects.list(owner).some((project) => project.id === repository);
+  if (path === "/api/collab/events/receive") return events.receive(owner, await body(), known);
+  if (path === "/api/collab/git-patches") {
+    return publishGitPatch(events, owner, app.store.profiles.active()?.id ?? ownerMember, await body(), known);
+  }
+  return notCollab;
+}
+
+/** The role somebody new may be given as they are added; the owner's own is not one of them. */
+const NewPersonRoleSchema = z.enum(["adult", "child"]).default("adult");
+
 async function profilesApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
   const profiles = app.store.profiles;
-  if (request.method === "GET" && path === "/api/profiles")
+  if (request.method === "GET" && path === "/api/profiles") {
+    const allRoles = app.runtime.roles.all(profiles.list().map((profile) => profile.id));
+    // When a household person (not the owner) calls this, they see effective and categories only for their own entry
+    const roles = !profiles.isOwner() && profiles.active()
+      ? allRoles.map((entry) => entry.profileId === profiles.active()!.id
+          ? entry
+          : { profileId: entry.profileId, grant: entry.grant })
+      : allRoles;
     return { profiles: profiles.list(), active: profiles.active(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn(),
       // Batch 26 (wave 8): what each person may have Branch do, for the card beside their name.
-      roles: app.runtime.roles.all(profiles.list().map((profile) => profile.id)), roleLabels };
+      roles, roleLabels };
+  }
   if (request.method === "POST" && path === "/api/profiles") {
     profiles.requireOwner("Adding somebody to this computer");
-    return profiles.create(await body());
+    // The role comes with the name and PIN, and is checked before anybody is added, so a Child is
+    // never left behind as an Adult by a second call that failed.
+    const { role, ...person } = (await body() ?? {}) as { role?: unknown };
+    const chosen = NewPersonRoleSchema.parse(role);
+    const made = profiles.create(person);
+    if (chosen !== "adult") app.runtime.roles.save(made.id, { role: chosen });
+    return made;
   }
   if (request.method === "POST" && path === "/api/profiles/switch") {
     const switched = profiles.switch(await body());
