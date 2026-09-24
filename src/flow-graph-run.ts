@@ -218,8 +218,11 @@ export class FlowGraphRunner {
     if (node.kind === "map") return this.mapOver(node, state, options);
     if (node.kind === "subflow") return this.subflow(node, state, options);
     if (node.kind === "prompt") {
+      // Q119: a Trunk's box is shaped as that Trunk's turn: its tools now, and none of the owner's documents.
+      const trunkId = this.runtime.trunkAtWork();
       const run = await this.runtime.run({ prompt: fillIn(node.prompt!, state),
-        signal: AbortSignal.timeout(node.timeoutMs), source: options.source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...this.limited(options) });
+        signal: AbortSignal.timeout(node.timeoutMs), source: options.source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...this.limited(options),
+        ...(trunkId ? { trunkId } : {}) });
       if (run.status !== "completed") throw new Error(`the assistant stopped (${run.status})`);
       return { patch: this.asPatch(node, run.output), output: run.output.slice(0, 2000), childRunId: run.id /* bucket 13: run monitor */ };
     }

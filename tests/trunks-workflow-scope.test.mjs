@@ -26,7 +26,7 @@ function outcomes(app, after, name) {
 }
 
 async function setup(t, permissions = ["memory.read", "memory.write", "workflows.manage", "workflows.read"]) {
-  const { app } = await fixture(t, rules);
+  const { app, provider } = await fixture(t, rules);
   on(app);
   const ada = app.trunks.create({ name: "Ada" }), bo = app.trunks.create({ name: "Bo" });
   for (const trunk of [ada, bo]) app.trunks.edit(trunk.id, { permissions });
@@ -39,7 +39,7 @@ async function setup(t, permissions = ["memory.read", "memory.write", "workflows
     return outcomes(app, after, name);
   };
   const saved = (name) => app.store.list("workflows", owner).find((record) => record.data.name === name);
-  return { app, ada, bo, owner, use, saved };
+  return { app, ada, bo, owner, use, saved, provider };
 }
 
 const approveThenSearch = [{ name: "ok?", kind: "approval", question: "Ship it?" },
@@ -182,4 +182,31 @@ test("a specialist a Trunk hands work to sees only that Trunk's workflows", asyn
   const listed = outcomes(app, after, "workflows.list");
   assert.ok(listed, "Bo's lister listed");
   assert.doesNotMatch(listed, new RegExp(adas.id), "Bo's specialist does not see Ada's workflow");
+});
+
+test("a Trunk's workflow step and flow box are asked as that Trunk, with none of the owner's documents", async (t) => {
+  const { app, ada, owner, use, saved, provider } = await setup(t);
+  await app.documents.add(owner, { name: "Owner note", text: "zebra owner ada step box: the code is OWNERDOC4242." });
+  const asked = (prompt) => provider.requests
+    .filter((request) => request.messages.some((message) => message.role === "user" && String(message.content).includes(prompt)))
+    .map((request) => JSON.stringify(request.messages)).join("\n");
+  // The control: the owner's own step is given the owner's documents, so they are really on.
+  const owners = await app.registry.execute("workflows.create", { name: "owners", steps: [
+    { name: "ask", kind: "prompt", prompt: "zebra owner step" }] }, app.runtime.context());
+  await app.workflows.run(owner, owners.id);
+  assert.match(asked("zebra owner step"), /OWNERDOC4242/, "the owner's own step gets the owner's documents");
+  await use(ada, "workflows.create", { name: "adas", steps: [{ name: "ask", kind: "prompt", prompt: "zebra ada step" }] });
+  await use(ada, "workflows.run", { id: saved("adas").id });
+  const step = asked("zebra ada step");
+  assert.ok(step, "Ada's step asked the model");
+  assert.doesNotMatch(step, /OWNERDOC4242/, "Ada's step is not handed the owner's documents");
+  const graph = app.flows.saveGraph({ name: "Ask", input: {}, state: { said: "text" }, entry: "ask",
+    nodes: [{ id: "ask", name: "Ask", kind: "prompt", prompt: "zebra ada box", output: { said: "text" } }], edges: [] });
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { runId } = await withAccountCall({ owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}));
+  await app.flows.settled(runId);
+  const box = asked("zebra ada box");
+  assert.ok(box, "Ada's flow box asked the model");
+  assert.doesNotMatch(box, /OWNERDOC4242/, "nor is Ada's flow box");
 });

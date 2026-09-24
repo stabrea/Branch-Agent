@@ -378,7 +378,10 @@ export class Workflows {
     const allowed = limit ? { permissions: [...this.runtime.context().permissions].filter((p) => limit.includes(p)) } : {};
     if (step.kind === "prompt") {
       // A chat message's workflow asks the model as the chat, never as a schedule the owner made.
-      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...allowed });
+      // Q119: a Trunk's step is shaped as that Trunk's turn: its tools now, and none of the owner's documents.
+      const trunkId = this.runtime.trunkAtWork();
+      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...allowed,
+        ...(trunkId ? { trunkId } : {}) });
       if (run.status !== "completed") throw new Error(`The step did not finish (${run.status})`);
       return { output: run.output, runId: run.id };
     }
