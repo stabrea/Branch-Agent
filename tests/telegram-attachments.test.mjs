@@ -45,6 +45,8 @@ import { join } from 'node:path';
         const filePaths = Array.from(artifactPaths.values());
         const matchedPath = filePaths.find(p => p.includes(cleanedName));
         assert.ok(matchedPath, `Should have artifact path for ${cleanedName}`);
+        // The exact path the store returned, so the check holds with Windows separators too.
+        assert.ok(run.prompt.includes(`[attached file: ${cleanedName}: ${matchedPath}]`), 'the prompt names the stored file by its exact path');
         assert.deepEqual(await readFile(matchedPath), Buffer.from([1, 2, 3]));
       }
     }
