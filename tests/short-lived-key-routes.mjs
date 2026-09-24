@@ -937,6 +937,11 @@ export const ROUTES = {
   "/api/security-check/fix": "owner POST",
   "/api/security-check/run": "task POST",
   "/api/security-check/settings": "owner POST",
+  // A chat's requests to change Branch itself: what people wrote, and who they are. Reading and
+  // answering them is the owner's alone (src/self-development-requests.ts).
+  "/api/self-development/requests": "secret-read",
+  "/api/self-development/requests/:id/approve": "owner POST",
+  "/api/self-development/requests/:id/decline": "owner POST",
   "/api/sessions": "look",
   "/api/sessions/": "prefix",
   "/api/sessions/:id": "look",

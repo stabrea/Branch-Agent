@@ -151,6 +151,13 @@ export async function prepareBranchSourceChange(
 }
 
 const toolName = "branch.prepare_source_change";
+/**
+ * What preparing a change takes: the tool's parameters, and the owner's yes to a chat's request to
+ * change Branch (src/self-development-requests.ts), so both hold the same fields and limits.
+ */
+export const PrepareSourceChangeSchema = z.object({
+  name: nameSchema, repository: repositorySchema, base: baseSchema.default("mac/cross-platform"), contract: ContractTermsSchema,
+}).strict();
 const contractDescription = "contract: the terms this change is held to, written down before anything changes: allowedPaths (globs inside the worktree, such as src/ui/** or tests/button.test.mjs), permissions (every tool name that may change something, such as files.write, git.commit, github.pull_request_from_changes), expectedTests, definitionOfDone, sideEffects and rollbackPlan.";
 
 /** Only the owner, in the Branch app, may start or widen a change to Branch itself. */
@@ -164,7 +171,7 @@ function registerSelfDevelopment(deps: SelfDevelopmentDeps): void {
     name: toolName,
     permission: "git.remote",
     description: `Prepare a protected, isolated source worktree for changing Branch Agent itself. Use this before requests such as removing a Branch button. It can use the official repository or the owner's GitHub fork, never edits the installed app, and does not open or merge a pull request. ${contractDescription}`,
-    parameters: z.object({ name: nameSchema, repository: repositorySchema, base: baseSchema.default("mac/cross-platform"), contract: ContractTermsSchema }).strict(),
+    parameters: PrepareSourceChangeSchema,
     target: (args) => sourceChangeFolder(deps.workspace, String(args.name)),
     execute: (input, context: ToolContext) => {
       ownerOnly(context);

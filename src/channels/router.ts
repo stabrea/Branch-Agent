@@ -626,6 +626,7 @@ export class ChannelRouter {
     const work = () => runChatCommand(command, {
       runtime: this.runtime, channel, chatId, turn,
       sessionId: this.sessionFor(channel, chatId), permissions: this.chatPermissions(message),
+      from: { senderId: message.senderId, senderName: message.senderName, messageId: message.messageId },
       dropWaiting: () => {
         if (!turn || turn.runId) return false;
         turn.dropped = true;

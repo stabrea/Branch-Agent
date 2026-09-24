@@ -1254,6 +1254,7 @@
   "commands.help": "les commandes utilisables ici ; avec une question, une réponse tirée du guide de Branch",
   "commands.helpMore": "Envoyez /help all pour toutes les commandes, ou /help <question> pour poser une question sur Branch.",
   "commands.history": "cette conversation jusqu'ici",
+  "commands.improve": "demander au propriétaire une modification de Branch lui-même ; seul le propriétaire répond, dans l’application Branch",
   "commands.inbox": "ce qui attend votre accord, ce qui est terminé, et l'historique",
   "commands.init": "examiner ce projet et écrire son fichier d'instructions (AGENTS.md)",
   "commands.installs": "les demandes de nouveaux paquets et serveurs d’outils ; seul le propriétaire répond, et rien ne s’installe tout seul",

@@ -123,7 +123,8 @@ import { SessionLimiter } from "./session-limits.js";
 import { ConversationRetention } from "./retention.js";
 import { GitRunner, type GitRunOptions } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
-import { offerSelfDevelopment } from "./self-development.js";
+import { offerSelfDevelopment, type SelfDevelopmentDeps } from "./self-development.js";
+import { offerSourceRequests, SourceChangeRequests } from "./self-development-requests.js";
 import { ContractBook, contractGuard, contractPreflight } from "./self-development-contract.js"; // Q12
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
@@ -590,10 +591,15 @@ export async function createBranch(options: {
   // database — see the comment on `MemoryReview.provider`.
   store.review.provider = memory.backend;
   registerMemory(registry, store, memory.retrieval, memory.backend);
-  offerSelfDevelopment({
+  const selfDevelopment: SelfDevelopmentDeps = {
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
     git: (input, signal) => gitRunner.run(input, signal), contracts: selfContracts, store,
-  });
+  };
+  offerSelfDevelopment(selfDevelopment);
+  // A change to Branch itself asked for from a chat: the chat only files it, and only the owner answers,
+  // in the Branch app; a yes is prepared exactly as the owner's own (src/self-development-requests.ts).
+  const sourceRequests = new SourceChangeRequests(selfDevelopment);
+  offerSourceRequests(runtime, sourceRequests);
   const contractChecks = { store, owner: options.owner ?? "local", workspace, registry, book: selfContracts,
     git: (input: GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal) };
   registry.beforeTool = contractGuard(contractChecks);
@@ -1305,6 +1311,8 @@ export async function createBranch(options: {
     safetyExtras,
     /** r17-h: going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus, install requests; every part ships off. */
     flowsBoards,
+    /** Requests from a chat to change Branch itself; only the owner answers them (src/self-development-requests.ts). */
+    sourceRequests,
     /** R17-F: learning, deeper (src/learning-more/); every part ships off. */
     learningMore,
     /** mac7/learn: the map and the tour (src/learn/); ships off. */

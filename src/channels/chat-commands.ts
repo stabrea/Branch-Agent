@@ -8,6 +8,7 @@ import { aliasesOn, lookup, parseLine, type CatalogCommand } from "../commands/c
 import { available, commandMode, commandsFor } from "../commands/settings.js";
 import { executeCommand } from "../commands/execute.js";
 import { commandHost } from "../commands/host.js";
+import { improveCommand } from "../self-development-requests.js";
 
 /**
  * Commands a person can type in a chat app while Branch works: stop the task, ask where it is,
@@ -33,7 +34,10 @@ export interface ChatCommandSpec {
   whileWorking: boolean;
   run: (argument: string, context: CommandContext) => string | Promise<string>;
 }
-/** The chat apps' own code for the commands they had first; the rest is the shared code. */
+/**
+ * The chat apps' own code for the commands they had first, and for /improve, which needs the chat
+ * message itself (who sent it, and where); the rest is the shared code.
+ */
 const RUNNERS: Record<string, ChatCommandSpec["run"]> = {
   stop: (_, c) => stop(c),
   status: (_, c) => status(c),
@@ -42,6 +46,7 @@ const RUNNERS: Record<string, ChatCommandSpec["run"]> = {
   usage: (a, c) => usage(a, c),
   btw: (a, c) => aside(a, c),
   help: (a, c) => (a && modeHere(c) !== "off" ? shared("help")(a, c) : chatCommandHelp(modeHere(c))),
+  improve: (a, c) => improveCommand(a, c),
 };
 const modeHere = (context: CommandContext): FeatureMode => commandMode(context.runtime.store, context.runtime.owner);
 /** A command carried out by the shared code, for this chat, with what this chat's sender may do. */
@@ -110,6 +115,8 @@ export interface CommandContext {
   turn: ChatTurn | undefined;
   /** What a task from this chat may use; a side question gets none of it. */
   permissions: string[];
+  /** The message the command came in: who sent it, so a request to change Branch says so. */
+  from?: { senderId: string; senderName: string; messageId: string };
   /** Drops a message that is still waiting to start. True when there was one. */
   dropWaiting(): boolean;
   /** Points the chat at no conversation, so the next message starts a new one. */

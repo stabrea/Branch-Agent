@@ -127,6 +127,7 @@ import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/a
 import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
 import { projectsApi, secretsApi } from "./owner-data-api.js";
 import { HttpError, readJsonBody as readBody } from "./server-http.js";
+import { handlesSourceRequestPath, sourceRequestsApi } from "./self-development-requests.js";
 import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
 import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
 import { handlesLearnPath, learnApi, LearnHttpError } from "./learn/api.js"; // mac7/learn
@@ -1029,6 +1030,13 @@ async function api(
     return miscApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
     });
+  // A change to Branch itself asked for from a chat (src/self-development-requests.ts): reading the requests
+  // and answering them is the owner's alone, in the app window. Short-lived keys and household persons are
+  // refused before this (src/short-lived-keys.ts, src/household-routes.ts), and each answer checks again.
+  if (handlesSourceRequestPath(path)) {
+    app.store.profiles.requireOwner("The list of requests to change Branch itself");
+    return sourceRequestsApi(app.sourceRequests, request.method ?? "GET", path, () => readBody(request));
+  }
   // bucket-18: code editor (A0098)
   if (handlesWorkspaceEditorPath(path))
     return workspaceEditorApi({
