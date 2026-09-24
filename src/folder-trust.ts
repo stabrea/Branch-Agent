@@ -238,12 +238,19 @@ export function folderTrust(store: Store, owner: string, folder: string, platfor
 export function decideFolder(store: Store, owner: string, workspace: string, input: unknown): { path: string; trust: FolderTrust } {
   const { folder, decision } = FolderTrustInputSchema.parse(input);
   const path = workspaceFolder(workspace, folder);
-  // The same folder written another way (letter case on Windows, a link) replaces the old answer.
-  const same = (other: string) => folderContains(realFolder(other), realFolder(path)) && folderContains(realFolder(path), realFolder(other));
+  // The same folder written another way (letter case on Windows, a link) replaces the old answer. An answer whose
+  // path has since been pointed elsewhere is the same folder only by what it was decided about, or as written:
+  // where it leads now is another folder, so deciding that one never drops it (NAS ca01bb3).
+  const decided = decidedReals(store, owner), here = realFolder(path);
+  const same = (other: string) => {
+    const now = realFolder(other), was = decided[other];
+    const meant = was && was !== now ? was : now;
+    return other === path || (folderContains(meant, here) && folderContains(here, meant));
+  };
   const kept = saved(store, owner).folders.filter((entry) => !same(entry.path));
   const folders = [...kept, { path, decision, decidedAt: new Date().toISOString() }].slice(-200);
   store.save("settings", owner, settingsKey, { folders });
-  const reals = { ...decidedReals(store, owner), [path]: realFolder(path) };
+  const reals = { ...decided, [path]: here };
   store.save("settings", owner, realsKey, { reals: Object.fromEntries(folders.flatMap((entry) => reals[entry.path] ? [[entry.path, reals[entry.path]!]] : [])) });
   audit(store, owner, {
     action: "policy.changed", actor: owner, subject: `Folder ${decision === "trust" ? "trusted" : "not trusted"}: ${path}`.slice(0, 300),
