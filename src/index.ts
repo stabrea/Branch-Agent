@@ -122,7 +122,7 @@ import { SessionLimiter } from "./session-limits.js";
 import { ConversationRetention } from "./retention.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
-import { offerSelfDevelopment } from "./self-development.js";
+import { offerSelfDevelopment, registerSourceEditTools } from "./self-development.js";
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
 import { registerSdkKit } from "./sdk-kit.js"; // bucket 21
@@ -558,9 +558,10 @@ export async function createBranch(options: {
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   const selfDevelopment = {
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
-    git: (input: import("./integrations/git-run.js").GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal), store,
+    git: (input: import("./integrations/git-run.js").GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal), store, runtime, files,
   };
   offerSelfDevelopment(selfDevelopment);
+  registerSourceEditTools(selfDevelopment);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // ── R17-S-C (comfort): the owner's proxy and extra certificates for every call Branch makes, and
   // which ignore files hide paths from searches (src/comfort/). Both do nothing until set. ──

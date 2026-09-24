@@ -11,6 +11,9 @@ import { explainGit } from "./integrations/git-run.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { Projects } from "./projects.js";
 import type { ToolRegistry } from "./registry.js";
+import type { Runtime } from "./runtime.js";
+import type { WorkspaceFiles } from "./files.js";
+import { worktreeScope } from "./coding/worktrees.js";
 
 export const branchRepository = "stabrea/Branch-Agent";
 const sourceFolder = "branch-agent-source";
@@ -27,6 +30,8 @@ export interface SelfDevelopmentDeps {
   git: (options: GitRunOptions, signal: AbortSignal) => Promise<GitOutcome>;
   exists?: (path: string) => Promise<boolean>;
   store?: Store;
+  runtime?: Pick<Runtime, "run">;
+  files?: WorkspaceFiles;
 }
 
 const sourceSchema = z.object({ name: nameSchema, repository: repositorySchema, base: baseSchema.default("mac/cross-platform") }).strict();
@@ -77,7 +82,52 @@ export async function decideBranchSourceChange(deps: SelfDevelopmentDeps, id: st
   if (!origin || origin.source !== "channel" || origin.shortLivedKey) throw new Error("Source-change provenance is no longer valid.");
   const input = requestSchema.parse(JSON.parse(row.input));
   repositoryAddress(input.repository);
-  return { id, status, goal: input.goal, result: await prepareBranchSourceChange(deps, input, signal) };
+  const result = await prepareBranchSourceChange(deps, input, signal);
+  if (!deps.runtime) return { id, status, goal: input.goal, result };
+  const folder = String(result.folder);
+  // An approved chat goal remains untrusted input. Only purpose-built, scoped file
+  // tools are available; general files.write also includes unrelated mail/artifact tools.
+  const permissions = ["branch.source_edit"];
+  try {
+    const task = await deps.runtime.run({
+      prompt: `Owner-approved Branch Agent source editing task. Exact requested goal: ${input.goal}\n\nWork only in the isolated worktree. Use branch.source_list, branch.source_read and branch.source_write to make scoped changes. You have no shell, network, Git, account or publishing tools. Do not claim tests or a build ran; report changed files and hand off for separate owner-run verification and draft PR approval.`,
+      source: "owner", signal, timeoutMs: 240_000, permissions,
+      sourceWorktree: { scope: folder, workspace: join(deps.workspace, folder) },
+    });
+    const taskStatus = task.status === "completed" ? "review" : "failed";
+    store.sqlite.prepare("UPDATE branch_source_requests SET status = ? WHERE id = ? AND status = 'approved'").run(taskStatus, id);
+    return { id, status: taskStatus, goal: input.goal, result, taskRunId: task.id, taskStatus: task.status };
+  } catch (error) {
+    store.sqlite.prepare("UPDATE branch_source_requests SET status = ? WHERE id = ? AND status = 'approved'").run("failed", id);
+    throw error;
+  }
+}
+
+/** Editing surface for an owner-approved chat goal. No shell, Git, web, or account tools. */
+export function registerSourceEditTools(deps: SelfDevelopmentDeps): void {
+  if (!deps.files) return;
+  const scoped = () => {
+    if (!/^branch-agent-source\/\.branch-worktrees\/self-[a-z0-9-]+$/.test(worktreeScope() ?? ""))
+      throw new Error("Source editing requires an approved isolated worktree task.");
+  };
+  const path = z.string().min(1).max(500);
+  deps.registry.register({ name: "branch.source_read", permission: "branch.source_edit", group: "code",
+    description: "Read a source file in the isolated worktree (32 KiB maximum).",
+    parameters: z.object({ path }).strict(), target: (a) => a.path,
+    execute: async (a) => { scoped(); return deps.files!.read(a.path); } });
+  deps.registry.register({ name: "branch.source_list", permission: "branch.source_edit", group: "code",
+    description: "List entries in the isolated worktree.",
+    parameters: z.object({ path: path.default(".") }).strict(), target: (a) => a.path,
+    execute: async (a) => { scoped(); return deps.files!.list(a.path); } });
+  deps.registry.register({ name: "branch.source_write", permission: "branch.source_edit", group: "code",
+    description: "Write a source file in the isolated worktree (32 KiB maximum). Read existing files before replacing them.",
+    parameters: z.object({ path, content: z.string().max(32768) }).strict(), target: (a) => a.path,
+    execute: async (a, c) => { scoped();
+      if (deps.files!.readFirst?.holds(c.runId)) await deps.files!.readFirst.require(c.runId, await deps.files!.checked(a.path), a.path);
+      const result = await deps.files!.write(a.path, a.content, c.signal);
+      deps.files!.readFirst?.noteWritten(c.runId, deps.files!.addressOf(a.path));
+      return result;
+    } });
 }
 
 const present = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
@@ -153,7 +203,7 @@ export async function prepareBranchSourceChange(
   const instructions = projectInstructions(input.name, input.base);
   deps.projects.save(deps.owner, { id: projectId, name: `Branch Agent: ${input.name}`, instructions,
     modelPreset: null, repository: branchRepository, folder, profile: null, knowledgeBases: [], branch: "" });
-  deps.projects.setActive(deps.owner, { active: projectId });
+  if (!deps.runtime) deps.projects.setActive(deps.owner, { active: projectId });
   return { project: projectId, folder, branch, base: `${remote}/${input.base}`, pushRepository: repository.repo,
     pullRequestTarget: branchRepository, ready: true, instructions,
     note: "Work only in this isolated copy. The running app and its data are unchanged. Tests and owner review come before a draft pull request." };

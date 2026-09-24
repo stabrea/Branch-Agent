@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { offerSelfDevelopment, prepareBranchSourceChange, proposeBranchSourceChange, decideBranchSourceChange, pendingBranchSourceChanges } from "../dist/self-development.js";
+import { offerSelfDevelopment, registerSourceEditTools, prepareBranchSourceChange, proposeBranchSourceChange, decideBranchSourceChange, pendingBranchSourceChanges } from "../dist/self-development.js";
+import { inWorktree } from "../dist/coding/worktrees.js";
 import { Store } from "../dist/store.js";
 import { offLimitsToShortLivedKeys, offLimitsToHousehold } from "../dist/server.js";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -10,6 +11,23 @@ import { ToolRegistry } from "../dist/registry.js";
 import { z } from "zod";
 
 const completed = (stdout = "") => ({ status: "completed", stdout, stderr: "", exitCode: 0, command: "git" });
+
+test("source editing tools are inert outside the approved worktree and expose no command capability", async () => {
+  const registry = new ToolRegistry(), writes = [];
+  const deps = { registry, files: { read: async (path) => ({ path, content: "old" }),
+    list: async () => [], write: async (path, content) => { writes.push([path, content]); return { path }; } } };
+  registerSourceEditTools(deps);
+  const context = { runId: "task", source: "owner", signal: AbortSignal.timeout(1000),
+    permissions: new Set(["branch.source_edit"]), budget: { step: () => {} } };
+  assert.deepEqual(registry.descriptions(context.permissions).map((tool) => tool.name).sort(),
+    ["branch.source_list", "branch.source_read", "branch.source_write"]);
+  await assert.rejects(registry.execute("branch.source_write", { path: "src/a.ts", content: "new" }, context), /isolated worktree/);
+  await inWorktree("branch-agent-source/.branch-worktrees/self-review", async () => {
+    assert.deepEqual(await registry.execute("branch.source_read", { path: "src/a.ts" }, context), { path: "src/a.ts", content: "old" });
+    await registry.execute("branch.source_write", { path: "src/a.ts", content: "new" }, context);
+  });
+  assert.deepEqual(writes, [["src/a.ts", "new"]]);
+});
 
 test("an owner's fork becomes an isolated Branch Agent project without touching the installed app", async () => {
   let source = false, copy = false, upstream = false;
@@ -110,4 +128,34 @@ test("chat proposal persists without Git; denial, expiry and replay block prepar
   assert.ok(calls.some((args) => args[0] === "fetch"));
   await assert.rejects(decideBranchSourceChange(deps, approved.id, "approve", context.signal), /already answered/);
   stop(); store.close(); rmSync(folder, { recursive: true, force: true });
+});
+
+test("owner approval runs bounded coding in the isolated copy without publish permissions", async () => {
+  const folder = mkdtempSync(join(tmpdir(), "branch-source-coding-"));
+  const store = new Store(join(folder, "branch.sqlite"));
+  const registry = new ToolRegistry();
+  for (const permission of ["files.write", "terminal.execute", "github.manage", "git.remote"])
+    registry.register({ name: `test.${permission}`, permission, description: "test", parameters: z.object({}), execute: async () => ({}) });
+  const runs = [], active = [];
+  const deps = { store, workspace: folder, owner: "local", registry,
+    runtime: { run: async (options) => { runs.push(options); return { id: "coding-run", status: "completed" }; } },
+    projects: { save: () => {}, setActive: (owner, choice) => active.push(choice) },
+    policy: { assertAllowed: async () => {} }, exists: async () => true,
+    git: async ({ args }) => completed(args.join(" ") === "remote get-url origin" ? "https://github.com/stabrea/Branch-Agent.git" : "") };
+  const run = store.createRun("local", "request", undefined, false, "channel");
+  store.event(run.id, "run.started", { source: "channel" });
+  const input = { name: "coding", goal: "Improve the coding workflow safely", repository: "https://github.com/stabrea/Branch-Agent.git", base: "mac/cross-platform" };
+  const proposal = proposeBranchSourceChange(deps, input, { runId: run.id, source: "channel" });
+  const result = await decideBranchSourceChange(deps, proposal.id, "approve", AbortSignal.timeout(30000));
+  assert.equal(result.status, "review");
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].source, "owner");
+  assert.equal(runs[0].timeoutMs, 240000);
+  assert.equal(runs[0].sourceWorktree.scope, "branch-agent-source/.branch-worktrees/self-coding");
+  assert.equal(runs[0].sourceWorktree.workspace, join(folder, runs[0].sourceWorktree.scope));
+  assert.deepEqual(runs[0].permissions, ["branch.source_edit"]);
+  assert.ok(!runs[0].permissions.includes("shell.execute"));
+  assert.deepEqual(active, []);
+  await assert.rejects(decideBranchSourceChange(deps, proposal.id, "approve", AbortSignal.timeout(1000)), /already answered/);
+  store.close(); rmSync(folder, { recursive: true, force: true });
 });
