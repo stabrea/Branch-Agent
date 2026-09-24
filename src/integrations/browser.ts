@@ -145,7 +145,8 @@ export class BranchBrowser {
   /** Checks Chromium's actual request, including each redirect destination, before it is sent. */
   private async guardRequest(request: BrowserRequest, entry?: RunEntry): Promise<void> {
     if (!this.allowed(request.url, entry)) throw new Error('Browser destination is not an allowed origin');
-    if (request.resourceType !== 'Document') return;
+    // Playwright says 'document' and Chromium's pause says 'Document'; both are the same navigation.
+    if (request.resourceType.toLowerCase() !== 'document') return;
     const target = new URL(request.url);
     if (entry?.granted !== target.origin)
       await this.policy?.assertAllowed(target, 'browser address');

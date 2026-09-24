@@ -81,10 +81,10 @@ export class BrowserSession {
       // this, a pop-up pointed at an allowed website that answers 'now go here' reached a website the
       // owner never allowed, and the tab being closed a moment later did not unsend the request.
       this.context.on('page', popup => {
-        const ours = this.creatingTab > 0 || this.pages.includes(popup);
         void this.guardPage(popup)
           .catch(() => undefined)
-          .then(() => (ours ? undefined : popup.close().catch(() => undefined)));
+          .then(() => this.isOurs(popup))
+          .then(ours => (ours ? undefined : popup.close().catch(() => undefined)));
       });
       return page;
     } catch (error) {
@@ -108,32 +108,47 @@ export class BrowserSession {
     return this.newPage();
   }
   private async closeTabWeOpened(page: Page): Promise<void> {
-    if (this.pages.includes(page) || this.creatingTab > 0) return;
+    if (await this.isOurs(page)) return;
     // The route goes on first and the question is asked second. Asking first loses a race the tab
-    // wins: its first request is already in flight while `opener()` is still being answered.
-    let ours = false;
-    await page.route('**/*', route => {
-      if (ours) { void route.abort().catch(() => undefined); return; }
-      void route.fallback().catch(() => undefined);
+    // wins: its first request is already in flight while `opener()` is still being answered. Until the
+    // answer comes, what the tab asks for waits: letting it through meanwhile sent a tab Branch's page
+    // opened to a website the owner never allowed, and every redirect after it.
+    let decide!: (ours: boolean) => void;
+    const decided = new Promise<boolean>(resolve => { decide = resolve; });
+    await page.route('**/*', async route => {
+      if (await decided) { await route.abort().catch(() => undefined); return; }
+      await route.fallback().catch(() => undefined);
     }).catch(() => undefined);
     const opener = await page.opener().catch(() => null);
-    if (!opener || !this.pages.includes(opener)) {
-      // Not ours after all: the owner opened it themselves. Take the route straight back off.
-      await page.unroute('**/*').catch(() => undefined);
-      return;
-    }
-    ours = true;
+    const ours = !!opener && this.pages.includes(opener);
+    decide(ours);
+    // Not ours after all: the owner opened it themselves. Take the route straight back off.
+    if (!ours) { await page.unroute('**/*').catch(() => undefined); return; }
     await page.close().catch(() => undefined);
+  }
+  /**
+   * Whether a page is one the assistant asked for. While one is being made, the page that making it
+   * returns is the only one that counts: counting every page that appears meanwhile let a website's
+   * pop-up in, unguarded, whenever it opened while the assistant was opening a tab.
+   */
+  private async isOurs(page: Page): Promise<boolean> {
+    if (this.pages.includes(page)) return true;
+    return (await this.creating) === page;
   }
   /** True while this run is working inside the owner's own browser rather than one of its own. */
   private borrowed = false;
-  /** Raised while a tab the assistant asked for is being created, so it is not mistaken for a pop-up. */
-  private creatingTab = 0;
+  /** The tab the assistant asked for while it is being made, so it alone is not mistaken for a pop-up. */
+  private creating: Promise<Page | null> | null = null;
   /** Every page this run opens watches for message boxes and for files the site sends. */
   private async newPage(): Promise<Page> {
     if (!this.context) throw new Error('Browser run is closed');
-    this.creatingTab++;
-    const page = await this.context.newPage().finally(() => { this.creatingTab--; });
+    const making = this.context.newPage();
+    const creating = making.catch(() => null);
+    this.creating = creating;
+    const page = await making.catch((error: unknown) => {
+      if (this.creating === creating) this.creating = null;
+      throw error;
+    });
     // In the owner's own browser the website list is put on Branch's tab alone, so their other
     // tabs carry on exactly as before.
     if (this.borrowed) {
@@ -144,25 +159,36 @@ export class BrowserSession {
       // asks for is not opened, and a link that asks for a new tab opens in this one instead, where
       // everything is already checked. Nothing here touches any other tab.
       await page.addInitScript(() => {
+        // Whatever says where a link or form opens — its own target, the page's <base target>, or the
+        // button's formtarget, which outranks the form's — is made this tab. Setting `_self` on the
+        // element itself outranks <base>, so a plain link under <base target=_blank> stays here too.
         const here = (node: Element | null | undefined): void => {
-          if (node && node.getAttribute('target') && node.getAttribute('target') !== '_self')
-            node.setAttribute('target', '_self');
+          if (node) node.setAttribute('target', '_self');
         };
         window.open = () => null;
-        // Links and forms both. A form asking for a new tab is not a link and was not covered by the
-        // first version of this; measured, the tab it opened reached a website the owner never
-        // allowed before anything could be put in its way.
-        addEventListener('click', event => here((event.target as Element | null)?.closest?.('a[target]')), true);
-        addEventListener('submit', event => here(event.target as Element | null), true);
+        // Links, image-map areas and forms. A form asking for a new tab is not a link and was not
+        // covered by the first version of this; measured, the tab it opened reached a website the
+        // owner never allowed before anything could be put in its way.
+        addEventListener('click', event => here((event.target as Element | null)?.closest?.('a[href], area[href]')), true);
+        addEventListener('submit', event => {
+          here(event.target as Element | null);
+          const submitter = (event as SubmitEvent).submitter;
+          if (submitter?.hasAttribute('formtarget')) submitter.setAttribute('formtarget', '_self');
+        }, true);
         // A form submitted by script raises no submit event at all, so the listener above never sees
         // it. Measured: that tab reached a website the owner never allowed. The method itself is
         // where it has to be caught.
         // Branch's own window blocks these outright; the owner's cannot be reconfigured, so the page
         // is stopped from starting one. A worker answers requests from outside the page, where the
         // route and the pause cannot see it — measured, it fetched a website the owner never allowed.
-        if (navigator.serviceWorker)
-          navigator.serviceWorker.register = () =>
-            Promise.reject(new Error('Branch does not start background workers in your browser'));
+        // On the prototype, fixed in place, rather than on the one object: a page could delete an
+        // object's own copy, or call the prototype's with the object, and register one anyway
+        // (measured). A worker shared between tabs is refused the same way.
+        const refuse = () => Promise.reject(new Error('Branch does not start background workers in your browser'));
+        if (typeof ServiceWorkerContainer !== 'undefined')
+          Object.defineProperty(ServiceWorkerContainer.prototype, 'register', { value: refuse, writable: false, configurable: false });
+        if (typeof SharedWorker !== 'undefined')
+          Object.defineProperty(window, 'SharedWorker', { value: undefined, writable: false, configurable: false });
         const sending = HTMLFormElement.prototype.submit;
         HTMLFormElement.prototype.submit = function submitHere(this: HTMLFormElement) {
           here(this);
@@ -181,6 +207,8 @@ export class BrowserSession {
     });
     page.on('download', download => this.pending.push(this.collect(download)));
     this.pages.push(page);
+    // Only now, when it is one of ours by name, does it stop being the tab being made.
+    if (this.creating === creating) this.creating = null;
     return page;
   }
   private async answerRoute(route: Route): Promise<void> {
@@ -191,17 +219,31 @@ export class BrowserSession {
       // supposed: attaching the pause to a pop-up loses a race it cannot win, because the pop-up's
       // first request and the redirect it answers with are already in flight. This is the moment
       // Playwright hands over before anything is sent, so it is the moment the answer has to be no.
-      if (!this.borrowed && this.creatingTab === 0) {
+      if (!this.borrowed) {
         const page = request.frame()?.page();
-        if (page && !this.pages.includes(page)) { await route.abort(); return; }
+        if (page && !(await this.isOurs(page))) { await route.abort(); return; }
       }
       const refused = this.options.guardUrl?.(request.url());
       if (refused) throw new Error(refused);
       await this.guardRequest({ url: request.url(), resourceType: request.resourceType() });
+      // The pause below is on the page's own process. A frame from another website runs in a process
+      // of its own, where Chromium follows redirects without pausing, so a frame's request is sent here
+      // with redirects refused, as every request was before the pause existed. A frame on the page's
+      // own website loses its redirects too; a frame being sent onwards is rare, and never needed.
+      if (this.inFrame(request)) {
+        const response = await route.fetch({ maxRedirects: 0 });
+        if (response.status() >= 300 && response.status() < 400) throw new Error('A frame was sent onwards');
+        await route.fulfill({ response });
+        return;
+      }
       await route.continue();
     } catch {
       await route.abort().catch(() => undefined);
     }
+  }
+  /** True for a request made by a frame inside a page rather than by the page itself. */
+  private inFrame(request: ReturnType<Route['request']>): boolean {
+    try { return request.frame().parentFrame() !== null; } catch { return false; }
   }
   /** Chromium pauses each redirect destination here before sending it, unlike Playwright routes. */
   private async guardPage(page: Page): Promise<void> {

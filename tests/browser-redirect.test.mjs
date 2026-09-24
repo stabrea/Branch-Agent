@@ -255,3 +255,55 @@ test("a site that keeps sending the browser onwards is given up on", async (t) =
   assert.ok(rounds.length <= 8, `it stopped after a few (${rounds.length})`);
   assert.ok(redirectHops <= 5, `and the limit itself stays small (${redirectHops})`);
 });
+
+/**
+ * A frame from another website runs in a process of its own, outside the pause on the page, and Chromium
+ * follows its redirects there without asking (NAS 6e33be0). Its requests are sent with redirects refused,
+ * as every request was before the pause, so a frame an allowed page shows cannot be sent anywhere else.
+ */
+test("a frame from another allowed website cannot be redirected to an unlisted one", async (t) => {
+  let forbiddenHits = 0;
+  const forbidden = createServer((_request, response) => { forbiddenHits += 1; response.end("must not load"); });
+  forbidden.listen(0, "127.0.0.1");
+  await once(forbidden, "listening");
+  t.after(async () => { forbidden.close(); await once(forbidden, "close"); });
+  const forbiddenOrigin = `http://127.0.0.1:${forbidden.address().port}`;
+
+  const framedAsked = [];
+  const framed = createServer((request, response) => {
+    framedAsked.push(request.url);
+    if (request.url === "/f") {
+      response.setHeader("content-type", "text/html");
+      response.end(`<!doctype html><script>fetch("/r").catch(() => {}); setTimeout(() => { location = "/r2"; }, 300);</script>`);
+      return;
+    }
+    response.writeHead(302, { location: `${forbiddenOrigin}/stolen` });
+    response.end();
+  });
+  framed.listen(0, "127.0.0.1");
+  await once(framed, "listening");
+  t.after(async () => { framed.close(); await once(framed, "close"); });
+  // Another website: a different host name is a different site, so Chromium puts its frame in its own process.
+  const framedOrigin = `http://localhost:${framed.address().port}`;
+
+  const page = createServer((_request, response) => {
+    response.setHeader("content-type", "text/html");
+    response.end(`<!doctype html><h1>Report</h1><iframe src="${framedOrigin}/f"></iframe>`);
+  });
+  page.listen(0, "127.0.0.1");
+  await once(page, "listening");
+  t.after(async () => { page.close(); await once(page, "close"); });
+  const pageOrigin = `http://127.0.0.1:${page.address().port}`;
+
+  const browser = new BranchBrowser({ allowedOrigins: [pageOrigin, framedOrigin] });
+  t.after(() => browser.close());
+  const registry = new ToolRegistry();
+  const { registerBrowser } = await import("../dist/integrations/browser.js");
+  registerBrowser(registry, browser);
+  await registry.execute("browser.navigate", { url: pageOrigin }, context());
+  for (let waited = 0; waited < 40 && !(framedAsked.includes("/r") && framedAsked.includes("/r2")); waited++)
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.ok(framedAsked.includes("/r") && framedAsked.includes("/r2"), `the frame really asked: ${framedAsked.join(" ")}`);
+  assert.equal(forbiddenHits, 0, "neither the frame's fetch nor its own navigation was sent onwards");
+});

@@ -56,6 +56,13 @@ const routes = {
   '/opens': page(`<a id="go" target="_blank">open</a><script>const to=new URLSearchParams(location.search).get("to");const a=document.getElementById("go");a.href=to;a.click();</script>`),
   // A form that asks for a new tab: a shape the link rewrite does not cover.
   '/opens-form': page(`<form id="f" target="_blank" method="GET"><button type="submit">go</button></form><script>const to=new URLSearchParams(location.search).get("to");const f=document.getElementById("f");f.action=to;f.submit();</script>`),
+  // The other ways a page asks for a new tab: a plain link under <base target>, an image-map area, and a
+  // button's formtarget, which outranks its form's own target.
+  '/opens-base': page(`<base target="_blank"><a id="go">open</a><script>const to=new URLSearchParams(location.search).get("to");const a=document.getElementById("go");a.href=to;a.click();</script>`),
+  '/opens-area': page(`<map name="m"><area id="go" shape="rect" coords="0,0,50,50" target="_blank"></map><img usemap="#m" width="50" height="50" alt=""><script>const to=new URLSearchParams(location.search).get("to");const a=document.getElementById("go");a.href=to;a.click();</script>`),
+  '/opens-formtarget': page(`<form id="f" method="GET"><button id="b" type="submit" formtarget="_blank">go</button></form><script>const to=new URLSearchParams(location.search).get("to");const f=document.getElementById("f");f.action=to;f.requestSubmit(document.getElementById("b"));</script>`),
+  // A page that goes round the worker block: the prototype's own method, and deleting the page's copy.
+  '/worker-around': page(`<script>const to=new URLSearchParams(location.search).get("to");const go=async (register)=>{try{await register();await navigator.serviceWorker.ready;const sw=(await navigator.serviceWorker.getRegistration()).active;if(sw)sw.postMessage(to);}catch{}};go(()=>ServiceWorkerContainer.prototype.register.call(navigator.serviceWorker,"/worker.js"));try{delete navigator.serviceWorker.register;}catch{}go(()=>navigator.serviceWorker.register("/worker.js"));try{new SharedWorker("/worker.js");}catch{}</script>`),
   // A page that starts a background worker and asks it to fetch wherever the query string names.
   '/worker': page(`<script>navigator.serviceWorker.register("/worker.js").then(async () => {await navigator.serviceWorker.ready;const sw = (await navigator.serviceWorker.getRegistration()).active;if (sw) sw.postMessage(new URLSearchParams(location.search).get("to"));}).catch(() => { document.title = "refused"; });</script>`),
   '/cookie': page('<p id="who">?</p><script>document.getElementById("who").textContent="cookie is "+document.cookie</script>'),
@@ -303,6 +310,22 @@ test("in the owner's own browser, a tab Branch opens reaches nothing and is not 
     await new Promise(resolve => { setTimeout(resolve, 4000); });
 
     assert.equal(forbiddenHits, 0, 'nor by a background worker the page tried to start');
+
+    // Every other way a page says "open this in a new tab", and the ways round the worker block, measured
+    // escaping before this (NAS b7f2560): each one opens here or not at all, and reaches nothing.
+    let opened = 0;
+    owned.on('page', () => { opened += 1; });
+    for (const where of ['opens-base', 'opens-area', 'opens-formtarget']) {
+      await h.registry.execute('browser.navigate', {url: `${h.origin}/${where}?to=${encodeURIComponent(elsewhere)}`}, context);
+      await new Promise(resolve => { setTimeout(resolve, 2500); });
+      assert.equal(forbiddenHits, 0, `nor by ${where}`);
+      assert.equal(owned.pages().filter(page => !page.isClosed()).length, theirTabs + 1, `and ${where} left no tab behind`);
+      assert.equal(opened, 0, `${where} opened in Branch's own tab, not a new one`);
+    }
+    await h.registry.execute('browser.navigate',
+      {url: `${h.origin}/worker-around?to=${encodeURIComponent(`${elsewhere}/from-worker`)}`}, context);
+    await new Promise(resolve => { setTimeout(resolve, 4000); });
+    assert.equal(forbiddenHits, 0, 'nor by a worker started round the block');
   } finally {
     await h.close();
     await owned.close().catch(() => undefined);
