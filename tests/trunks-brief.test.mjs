@@ -50,6 +50,9 @@ test("Q134: a Trunk is refused the owner's morning brief: to read it, to send it
   }
   assert.equal(JSON.stringify(app.brief.settings(app.runtime.owner)), before.settings, "the owner's brief settings are unchanged");
   assert.equal(briefs(), before.sent, "no brief was sent");
+  // A specialist the owner's task delegates to (`agent` set, no Trunk) is refused as well (NAS fa889df).
+  await assert.rejects(app.registry.execute("brief.preview", {}, { ...app.runtime.context(), agent: "researcher" }),
+    /morning brief is the owner's/);
   // Work Ada set going without a turn of its own (a workflow's tool step) is hers too.
   const { withAccountCall } = await import("../dist/accounts/context.js");
   await assert.rejects(withAccountCall({ owner: app.runtime.owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
