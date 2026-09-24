@@ -104,6 +104,8 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */
 const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/backup$/,
+  // Q168 B: what a restore is holding for the owner's yes carries their model accounts and who may get in.
+  /^\/api\/restore\/held$/,
   // Collaboration: the household's signed events (what members wrote).
   /^\/api\/collab\/events$/,
   /^\/api\/jev$/,

@@ -79,9 +79,24 @@ export const thisComputerSettings: readonly string[] = [
   "folder_trust", "folder_trust_mode", "folder-trust-real", "remote-agent-pairing", "remote-computers", "secret-commands", "devices-book",
 ];
 const thisComputerPrefixes: readonly string[] = ["remote-agent:"];
+/** The restore's own list of rows waiting for the owner's yes (src/restore-held.ts): about this computer, so it stays too. */
+export const restoreHeldKey = "restore-held";
 /** Whether a settings row stays on this computer: never in a backup, never taken from one, and kept by a replacing restore. */
 export const staysOnThisComputer = (id: string): boolean =>
-  signInSettings.includes(id) || thisComputerSettings.includes(id) || thisComputerPrefixes.some((start) => id.startsWith(start));
+  signInSettings.includes(id) || thisComputerSettings.includes(id) || thisComputerPrefixes.some((start) => id.startsWith(start))
+  || id === restoreHeldKey;
+/**
+ * The owner's own preferences that say where their words go or who gets in (Q168 B): the model accounts and
+ * connections, approved chat senders and the allow list, who may view or drive the owner's conversations, each
+ * person's role, and the approval rules. They are worth bringing back, so a backup carries them, but a restore
+ * never puts one in place by itself: it holds it for the owner's yes, row by row, and this computer's own stays
+ * until then. One that is the same as this computer's is not held at all (a restore point minutes old).
+ */
+export const heldSettings: readonly string[] = ["accounts", "model-connections", "sender-allowlist", "people-shares", "people-groups", "policy"];
+const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:"];
+export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start));
+/** A settings row from a backup, waiting for the owner's yes: its owner, its id and its data as the file had it. */
+export interface HeldRow { owner: string; id: string; data: string }
 const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && staysOnThisComputer(String(row.id));
 
 /**
@@ -135,17 +150,20 @@ export interface RestoreOptions {
 }
 
 /** Inserts every row of the archive into a fresh install, in one transaction; unknown columns are refused. */
-export function importBackup(db: DatabaseSync, input: unknown, options: RestoreOptions = {}): { tables: number; rows: number } {
+export function importBackup(db: DatabaseSync, input: unknown, options: RestoreOptions = {}): { tables: number; rows: number; held: HeldRow[] } {
   const archive = parseBackupArchive(input);
   if (!options.replaceExisting && hasState(db)) throw new Error("This copy already has conversations, memory or skills. Restore into a fresh install (empty data folder) instead.");
   let tables = 0, rows = 0;
+  const held: HeldRow[] = [];
   db.exec("BEGIN");
   try {
     if (options.replaceExisting)
       for (const table of [...backupTables].reverse())
         if (!appendOnly(table) && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table))
           if (table === "settings") {
-            const kept = (db.prepare("SELECT DISTINCT id FROM settings").all() as { id: string }[]).map((row) => row.id).filter(staysOnThisComputer);
+            // What stays on this computer stays, and so does this computer's value of anything held for the owner's yes.
+            const kept = (db.prepare("SELECT DISTINCT id FROM settings").all() as { id: string }[]).map((row) => row.id)
+              .filter((id) => staysOnThisComputer(id) || heldForTheOwner(id));
             db.prepare(`DELETE FROM settings WHERE id NOT IN (${kept.map(() => "?").join(",")})`).run(...kept);
           }
           else db.exec(`DELETE FROM ${table}`);
@@ -158,6 +176,11 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
       tables++;
       for (const given of list) {
         if (staysHere(table, given)) continue;
+        if (table === "settings" && heldForTheOwner(String(given.id))) {
+          const here = db.prepare("SELECT data FROM settings WHERE owner=? AND id=?").get(String(given.owner), String(given.id)) as { data: string } | undefined;
+          if (here?.data !== given.data) held.push({ owner: String(given.owner), id: String(given.id), data: String(given.data) });
+          continue;
+        }
         const row = disarmed(table, given);
         if (!row) continue;
         const keys = Object.keys(row).filter((k) => columns.has(k));
@@ -172,7 +195,7 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
   dropIndex(db);
-  return { tables, rows };
+  return { tables, rows, held };
 }
 
 /**
