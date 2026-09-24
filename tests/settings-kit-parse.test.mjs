@@ -449,4 +449,9 @@ test("Q99: put-back asks when a saved value the kit does not weigh differs from 
   const stray = await call("/api/settings-kit/put-back", { key: "voice" });
   assert.equal(stray.status, 409, JSON.stringify(stray.body));
   assert.doesNotMatch(stray.body.error, /other saved values/);
+  // Every unweighed value as shipped: none is named, only the guard.
+  store.save("settings", owner, "voice", { ...VoiceSettingsSchema.parse({}), systemVoice: "bogus" });
+  const same = await call("/api/settings-kit/put-back", { key: "voice" });
+  assert.equal(same.status, 409, JSON.stringify(same.body));
+  assert.doesNotMatch(same.body.error, /other saved values/, "a value as shipped is not named");
 });
