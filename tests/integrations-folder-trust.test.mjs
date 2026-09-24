@@ -1117,6 +1117,22 @@ test("Q128: a copy deleted by hand is listed as gone, not as a working copy", as
   assert.deepEqual([...copies].sort((a, b) => a.name.localeCompare(b.name)), [{ name: "binned", gone: true }, { name: "kept" }]);
 });
 
+test("Q107: a folder made by hand with a line break in its name cannot add a copy to the list",
+  { skip: process.platform === "win32" && "a folder name cannot hold a line break on Windows" }, async (t) => {
+  const { app, workspace } = await fixture(t);
+  const proj = join(workspace, "work", "proj");
+  await mkdir(proj, { recursive: true });
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "commit", "-q", "--allow-empty", "-m", "first");
+  await app.git.worktree({ folder: "work/proj", action: "add", name: "kept" }, signal());
+  // Git's plain list writes this folder's name over two lines, the second naming a copy that was never made.
+  // Spelled as Git spells the repository (its real path, so /private/var on macOS), as a real copy of it would be.
+  const phantom = join(String(gitIn(proj, "rev-parse", "--show-toplevel")).trim(), ".branch-worktrees", "phantom");
+  gitIn(proj, "worktree", "add", "-q", "-b", "odd", join(workspace, `hand\nworktree ${phantom}`));
+  const { copies } = await app.git.worktree({ folder: "work/proj", action: "list" }, signal());
+  assert.deepEqual(copies, [{ name: "kept" }]);
+});
+
 test("Q108: a trust covers the folder the owner trusted, not wherever its path leads after it became a link",
   { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
   const { app, workspace, owner } = await fixture(t);

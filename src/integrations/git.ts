@@ -73,9 +73,18 @@ export class GitTools {
    */
   private async registered(cwd: string, name: string, signal: AbortSignal): Promise<string | null> {
     const home = canonical(join(cwd, WORKTREE_HOME));
+    return (await this.worktreePaths(cwd, signal)).find((path) => basename(path) === name && canonical(dirname(path)) === home) ?? null;
+  }
+  /**
+   * Every folder on Git's worktree list, exactly as Git wrote it. With `-z` each field ends in a NUL, so a newline
+   * in a folder somebody made by hand cannot pass for a line of its own. Git before 2.36 has no `-z`: its lines, as before.
+   */
+  private async worktreePaths(cwd: string, signal: AbortSignal): Promise<string[]> {
+    const fields = await this.runner.run({ cwd, args: ["worktree", "list", "--porcelain", "-z"] }, signal);
+    if (fields.status === "completed")
+      return fields.stdout.split("\0").filter((field) => field.startsWith("worktree ")).map((field) => field.slice(9));
     const stdout = (await this.run(cwd, ["worktree", "list", "--porcelain"], signal)).stdout;
-    return stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9).trim())
-      .find((path) => basename(path) === name && canonical(dirname(path)) === home) ?? null;
+    return stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9).trim());
   }
   /** Q107: removals in one repository go one at a time, so another cannot take a copy off Git's list mid-check. */
   private readonly removing = new Map<string, Promise<unknown>>();
@@ -180,8 +189,7 @@ export class GitTools {
     const cwd = await this.folder(input.folder);
     const home = join(cwd, WORKTREE_HOME);
     if (input.action === "list") {
-      const stdout = (await this.run(cwd, ["worktree", "list", "--porcelain"], signal)).stdout;
-      const paths = stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9).trim());
+      const paths = await this.worktreePaths(cwd, signal);
       // Git may print a folder in a different spelling (Windows short names, case); compare real paths.
       const base = canonical(home);
       const inside = (path: string) => { const rel = relative(base, canonical(path)); return rel !== "" && !rel.startsWith(".."); };
