@@ -138,7 +138,8 @@ function plan(app: ComfortApp, body: unknown) {
   requireOwnerHere(store, updateWords);
   if (input.checked) noteUpdateCheck(store, owner);
   const busyTasks = busyTaskCount(store);
-  return updatePlan(store, owner, { busyTasks, updaterPhase: input.updaterPhase });
+  // The Update button asks this too: tasks working now are offered a wait before anything closes.
+  return { ...updatePlan(store, owner, { busyTasks, updaterPhase: input.updaterPhase }), busyTasks };
 }
 
 export async function comfortApi(app: ComfortApp, request: IncomingMessage, path: string,
