@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { loadWeights, parseFilesFrom, parseShard, shareFiles, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
@@ -91,17 +93,39 @@ test("a renamed or new file still runs, and a weight for a file that is gone cha
   }
 });
 
+/** The shares the pick job lays out when the owner's computers have so many idle runners, from its own script. */
+function sharesFor(workflow, legion, macmini) {
+  const script = workflow.jobs.pick.steps[0].run;
+  const body = /node -e '([\s\S]*?)\n\s*' "/.exec(script)[1];
+  const keepOff = /'(\^tests\/[^']*)'\s*$/.exec(script.trim())[1];
+  const output = join(mkdtempSync(join(tmpdir(), "branch-pick-")), "out");
+  const run = spawnSync(process.execPath, ["-e", body, String(legion), String(macmini), keepOff], { env: { ...process.env, GITHUB_OUTPUT: output }, encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  return { keepOff, rows: JSON.parse(readFileSync(output, "utf8").replace(/^matrix=/, "")).include };
+}
+
 test("the build machines run every share, 1 to N, on every system, so no share of the suite is dropped", () => {
   const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
-  const bySystem = new Map();
-  for (const { os, shard, total } of workflow.jobs.test.strategy.matrix.include) {
-    bySystem.set(os, [...(bySystem.get(os) ?? []), { shard, total }]);
-  }
-  assert.deepEqual([...bySystem.keys()].sort(), ["macos-latest", "ubuntu-latest", "windows-latest"]);
-  for (const [os, shares] of bySystem) {
-    const total = shares[0].total;
-    assert.ok(shares.every((share) => share.total === total), `${os}: every share names the same total`);
-    assert.deepEqual(shares.map((share) => share.shard).sort((a, b) => a - b), Array.from({ length: total }, (_, i) => i + 1), `${os}: shares 1..${total}`);
+  for (const [legion, macmini] of [[0, 0], [3, 0], [0, 2], [3, 2], [1, 1]]) {
+    const { keepOff, rows } = sharesFor(workflow, legion, macmini);
+    assert.deepEqual([...new Set(rows.map((row) => row.os))].sort(), ["linux", "macos", "windows"], `${legion}/${macmini}: every system`);
+    // Shares that split the suite between them: grouped by the machines they run on; each group covers 1..N.
+    const groups = new Map();
+    for (const row of rows.filter((row) => !row.only)) {
+      const key = `${row.os} ${JSON.stringify(row.labels)}`;
+      groups.set(key, [...(groups.get(key) ?? []), row]);
+    }
+    for (const [key, shares] of groups) {
+      const total = shares[0].total;
+      assert.ok(shares.every((share) => share.total === total), `${key}: every share names the same total`);
+      assert.deepEqual(shares.map((share) => share.shard).sort((x, y) => x - y), Array.from({ length: total }, (_, i) => i + 1), `${key}: shares 1..${total}`);
+    }
+    // What an owner's computer leaves out, a hosted share of the same system runs, so nothing is dropped.
+    for (const own of rows.filter((row) => row.own)) {
+      assert.equal(own.exclude, keepOff, `${own.os}: the owner's computer leaves out exactly the desktop and uninstall tests`);
+      assert.ok(rows.some((row) => row.os === own.os && row.only === keepOff && !row.own), `${own.os}: a hosted share runs what it leaves out`);
+    }
+    assert.equal(rows.filter((row) => row.own).length, legion + macmini, `${legion}/${macmini}: one share per idle runner`);
   }
   assert.deepEqual(workflow.jobs.verify.needs, ["test", "package"], "verify waits for every share and every package");
 });
