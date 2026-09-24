@@ -190,6 +190,8 @@ test("Q143: knowledge.refresh writes up only the conversations a Trunk took part
   assert.equal(JSON.stringify(refreshed).includes("OWNERSECRET4242"), false, "nor does anything of it come back to her");
   assert.ok(shown.some((digest) => digest.includes("ADAOWN77")), "her own conversation is still written up");
   assert.equal(refreshed.conversations, 1);
+  // The cost it reports is of what it read: the owner's conversations are not counted into it either.
+  assert.equal(refreshed.cost?.conversations, 1, JSON.stringify(refreshed.cost));
 
   shown.length = 0;
   await app.registry.execute("knowledge.refresh", { collection: base.id, conversations: 10 }, app.runtime.context());
