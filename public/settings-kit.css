@@ -37,6 +37,9 @@ button.kit-info {
   font: italic 600 11px/1 Georgia, serif;
   cursor: pointer;
 }
+button.kit-info::before {
+  content: "i";
+}
 button.kit-info:hover,
 button.kit-info[aria-expanded="true"] {
   background: none;

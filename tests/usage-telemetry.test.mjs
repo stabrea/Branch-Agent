@@ -310,9 +310,9 @@ test("U8: the report card lives in Data and the counters card in Advanced, at 40
   assert.equal(await choice.inputValue(), "off");
   assert.equal(await page.locator("#usage-report-body").isHidden(), true, "off shows only the switch");
   await choice.selectOption("on");
-  const save = page.getByRole("button", { name: "Save as notes", exact: true }).and(page.locator("#usage-report-card button"));
+  const save = page.getByRole("button", { name: "Save as notes", exact: true }).and(page.locator("#usage-report-card button:not(.kit-info)"));
   await save.waitFor({ state: "visible" });
-  assert.equal(await page.locator("#usage-report-card button:not(.quiet):not(.sg-more)").count(), 1, "one filled button"); // "N more" can end the card (DG-199)
+  assert.equal(await page.locator("#usage-report-card button:not(.quiet):not(.sg-more):not(.kit-info)").count(), 1, "one filled button"); // "N more" can end the card (DG-199)
   const [download] = await Promise.all([page.waitForEvent("download"), save.click()]);
   assert.match(download.suggestedFilename(), /^usage-report-last-30-days\.md$/);
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

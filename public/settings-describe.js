@@ -228,8 +228,9 @@ function addInfo(label, seen) {
   if (!sentenceOf(control)) return;
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "kit-info";
-  button.textContent = "i";
+  // A quiet button, and its "i" is drawn by the style sheet: the mark is no word to translate, and the button
+  // is named by its aria-label, which is.
+  button.className = "kit-info quiet-button";
   // Not aria-haspopup: what opens holds words about this setting and nothing to do, so it is no
   // dialog and no menu. aria-expanded below says the words are showing; that is the whole truth.
   button.setAttribute("aria-expanded", "false");

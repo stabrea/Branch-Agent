@@ -281,7 +281,7 @@ test("a refresh that started before Save cannot redraw over the saved value or r
     const input = document.getElementById("knobs-maxSteps");
     input.value = "25";
     input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "25" }));
-    [...document.querySelectorAll("#knobs-limits-card button")]
+    [...document.querySelectorAll("#knobs-limits-card button:not(.kit-info)")]
       .find((button) => button.textContent.trim() === "Save").click();
   });
   await postCaptured;
@@ -311,7 +311,7 @@ test("a refresh completed while Save is in flight cannot redraw an older value",
     const input = document.getElementById("knobs-maxSteps");
     input.value = "25";
     input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "25" }));
-    document.querySelector("#knobs-limits-card button").click();
+    document.querySelector("#knobs-limits-card button:not(.kit-info)").click();
   });
   await saveCaptured;
   await page.evaluate(() => globalThis.branchKnobs.refresh());

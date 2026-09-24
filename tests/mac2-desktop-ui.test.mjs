@@ -590,7 +590,7 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   await page.locator("#screen-switch-card-mode").selectOption("on");
   /* ci-flakes-4: a press on a Windows build machine can sit in Playwright's "performing click action"
      and never land (see tests/places.mjs). Save is pressed again while the card has not said so. */
-  await pressUntil(page.locator("#screen-switch-card button"),
+  await pressUntil(page.locator("#screen-switch-card button:not(.kit-info)"),
     () => became(page, () => document.getElementById("screen-switch-card-status").textContent === "Saved."),
     "the screen card to say it saved");
   assert.equal(readDesktopSettings(app.store, app.runtime.owner).mode, "on");
@@ -599,7 +599,7 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   // The window draws these cards again every 3 seconds: a choice not yet saved stays (ci-flakes-3).
   await page.waitForTimeout(3500);
   assert.equal(await page.locator("#system-voice-card-mode").inputValue(), "when-needed", "the choice is still theirs");
-  await pressUntil(page.locator("#system-voice-card button"),
+  await pressUntil(page.locator("#system-voice-card button:not(.kit-info)"),
     () => became(page, () => document.getElementById("system-voice-card-status").textContent === "Saved."),
     "the voice card to say it saved");
   assert.equal(voiceSettings(app.store, app.runtime.owner).systemVoice, "when-needed");
@@ -625,7 +625,7 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
   assert.equal(await page.locator("#os-permissions-card h3").textContent(), "Ce que cet ordinateur autorise");
   assert.equal(await page.locator("#keychain-card-label").textContent(), "Mots de passe du trousseau de votre Mac");
-  assert.equal(await page.locator("#system-voice-card button").textContent(), "Enregistrer ce choix");
+  assert.equal(await page.locator("#system-voice-card button:not(.kit-info)").textContent(), "Enregistrer ce choix");
   assert.equal(await buttons.first().textContent(), "Ouvrir les Réglages Système");
   assert.equal(await page.locator("#keychain-service").getAttribute("placeholder"), "par exemple api.github.com");
   const unkeyed = await page.evaluate((ids) => ids.flatMap((id) => [...document.getElementById(id).querySelectorAll("h2, h3, p, button, label, option")])
