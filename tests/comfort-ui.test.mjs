@@ -346,7 +346,15 @@ test("R17-S15: keys kept from the owner do nothing owner-only while the window i
     globalThis.__trunks = 0;
     document.getElementById("rail-new-trunk").addEventListener("click", () => { globalThis.__trunks += 1; });
   });
-  await page.evaluate(() => import("/app.js").then((app) => app.noteWindowProfile(false)));
+  // A real household window: the server switches to Sam, so a later refresh of the window's state agrees
+  // instead of setting it back to the owner (which made this test fail about one run in two on a Mac).
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  await page.evaluate(async (id) => {
+    const response = await fetch("/api/profiles/switch", { method: "POST", body: JSON.stringify({ profileId: id, pin: "2468" }),
+      headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token"), "content-type": "application/json" } });
+    if (!response.ok) throw new Error(`switch: ${response.status} ${await response.text()}`);
+    (await import("/app.js")).noteWindowProfile(false);
+  }, sam.id);
   await page.waitForFunction(() => document.documentElement.dataset.household === "on");
   await page.keyboard.press("Alt+t");
   assert.equal(await page.evaluate(() => globalThis.__trunks), 0, "no new Trunk from a household window");
