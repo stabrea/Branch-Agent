@@ -93,3 +93,41 @@ test("B5 sending and the answer follow the newest message, unless the person has
   assert.ok((await gap(page)) <= 80, `sending went to the newest message (${await gap(page)} px above the bottom)`);
   assert.deepEqual(errors, []);
 });
+
+test("B5 a real answer landing does not pull someone reading further up down (NAS 545cb4d)", async (t) => {
+  let release = null, calls = 0;
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() {
+    calls += 1;
+    // The second answer waits until the person has scrolled up to read.
+    if (calls > 1) await new Promise((resolve) => { release = resolve; });
+    return { content: long, toolCalls: [] };
+  } });
+  await send(page, "First, a long answer please.");
+  await page.locator("#prompt").fill("And a second one.");
+  await page.locator("#send").click();
+  for (let i = 0; i < 100 && !release; i += 1) await page.waitForTimeout(50);
+  assert.ok(release, "control: the second answer is on its way");
+  const box = await page.locator("#workspace").boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
+  for (let i = 0; i < 20 && await page.evaluate(() => document.getElementById("workspace").scrollTop) > 0; i += 1) await page.mouse.wheel(0, -2000);
+  assert.equal(await page.evaluate(() => document.getElementById("workspace").scrollTop), 0, "control: reading from the top");
+  release();
+  await page.waitForFunction(() => document.querySelectorAll("#conversation .message.assistant").length >= 2, null, { timeout: 20000 });
+  await page.waitForTimeout(800);
+  assert.equal(await page.evaluate(() => document.getElementById("workspace").scrollTop), 0, "the answer landing leaves the reader where they are");
+  assert.deepEqual(errors, []);
+});
+
+test("B5 opening a conversation from Recents in a fresh window starts at its newest message", async (t) => {
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
+  await send(page, "A long answer to come back to.");
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  const row = page.locator("#rail-list .rail-item").filter({ hasText: "A long answer to come back to" });
+  await row.waitFor({ timeout: 20000 });
+  await row.click();
+  await page.waitForFunction(() => document.querySelectorAll("#conversation .message.assistant").length >= 1, null, { timeout: 20000 });
+  await page.waitForTimeout(500);
+  assert.ok((await gap(page)) <= 80, `opened at the newest message (${await gap(page)} px above the bottom)`);
+  assert.deepEqual(errors, []);
+});

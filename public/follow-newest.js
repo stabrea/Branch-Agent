@@ -53,6 +53,15 @@ $("chat-form")?.addEventListener("submit", followNewest);
 const watched = [$("conversation"), $("live-row")].filter(Boolean);
 const observer = new MutationObserver(keepUp);
 for (const node of watched) observer.observe(node, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["hidden"] });
-/* Opening another conversation starts at its newest message. */
-new MutationObserver(followNewest).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
+/* Opening another conversation starts at its newest message. The same conversation set again (the window reloads it
+   when an answer lands) is not another one, nor is a new conversation getting its id on its first send: someone may
+   have scrolled up to read while it worked (NAS 545cb4d). */
+let shownSession = $("conversation")?.dataset.sessionId ?? "";
+new MutationObserver(() => {
+  const now = $("conversation")?.dataset.sessionId ?? "";
+  // From none (a first send, or a fresh window opening one from Recents), following as it arrives is enough.
+  const opened = now !== shownSession && shownSession !== "";
+  shownSession = now;
+  if (opened) followNewest();
+}).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
 globalThis.branchFollowNewest = { follow: followNewest, get following() { return following; } };
