@@ -303,3 +303,42 @@ test("a Trunk's flow run keeps to what that Trunk may use now, when the owner ca
   assert.doesNotMatch(JSON.stringify(done), /ADAOWN5150/, "the search does not run with the tool Ada no longer holds");
   assert.equal(done.status, "failed", JSON.stringify(done).slice(0, 300));
 });
+
+test("Q123: a side model call made from a Trunk's workflow step goes as that Trunk's, with its keys", async (t) => {
+  // NAS d830e7a (B2): the review's claim that a step's side call carries the Trunk's mark had no test.
+  const { currentAccountCall } = await import("../dist/accounts/context.js");
+  const { z } = await import("zod");
+  const marks = [];
+  const { app } = await fixture(t, [({ last }) => {
+    if (last?.role !== "user" || last.content !== "SIDEQ7701") return null;
+    marks.push(currentAccountCall()?.trunk ?? null);
+    return "fine";
+  }, ...rules]);
+  on(app);
+  const ada = app.trunks.create({ name: "Ada" });
+  app.registry.register({ name: "probe.aside", permission: "probe.read", description: "Asks the model one side question.",
+    parameters: z.object({}).strict(), execute: async (_input, context) => {
+      const preset = app.runtime.models.plan(app.runtime.owner, "").candidates[0];
+      return { said: await app.runtime.completeAside(app.store.createRun(app.runtime.owner, "aside"), context, preset, "SIDEQ7701") };
+    } });
+  app.trunks.edit(ada.id, { permissions: ["workflows.manage", "workflows.read", "probe.read"] });
+  await app.trunks.introduced();
+  const step = [{ name: "ask", kind: "tool", tool: "probe.aside", args: {} }];
+  const owners = await app.registry.execute("workflows.create", { name: "owners", steps: step }, app.runtime.context());
+  await app.workflows.run(app.runtime.owner, owners.id);
+  assert.equal(marks.pop(), null, "the control: the owner's own step's side call is not a Trunk's");
+  await app.trunks.say(ada.id, `tool workflows.create ${JSON.stringify({ name: "adas", steps: step })}`);
+  const id = app.store.list("workflows", app.runtime.owner).find((record) => record.data.name === "adas").id;
+  await app.trunks.say(ada.id, `tool workflows.run ${JSON.stringify({ id })}`);
+  const mark = marks.pop();
+  assert.ok(mark?.keys, "Ada's step's side call is marked as a Trunk's, with her keys");
+});
+
+test("a Trunk's list of flows holds none of the owner's graph flows", async (t) => {
+  // NAS d830e7a (B4): flows.list handed Ada the owner's graph flows: ids, names, box tools and literal values.
+  const { app, ada, use } = await setup(t);
+  app.flows.saveGraph({ name: "OwnerPeek", input: {}, state: { found: "text" }, entry: "look",
+    nodes: [{ id: "look", name: "LookOWNERBOX", kind: "tool", tool: "memory.search", args: { query: "OWNERARG4471" }, output: { found: "text" } }], edges: [] });
+  assert.match(JSON.stringify(app.flows.list()), /OwnerPeek/, "the control: the owner's own list holds it");
+  assert.doesNotMatch(await use(ada, "flows.list", {}), /OwnerPeek|LookOWNERBOX|OWNERARG4471/);
+});
