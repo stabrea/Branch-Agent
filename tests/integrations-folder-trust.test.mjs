@@ -772,3 +772,49 @@ test("Q100: a repository that carries its copies folder as a link gets no copy, 
       assert.equal(existsSync(join(proj, link, made)), false, `nothing written at ${link}/${made}`);
   }
 });
+
+test("Q100: a copy's own place that the repository already fills (a link out, or a folder) gets no copy",
+  { skip: process.platform === "win32" && "links need privileges on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const outside = await mkdtemp(join(tmpdir(), "branch-q100-outside-empty-"));
+  t.after(() => discardTemp(outside));
+  const proj = join(workspace, "work", "proj");
+  await mkdir(join(proj, ".branch-worktrees", "held"), { recursive: true });
+  await writeFile(join(proj, ".branch-worktrees", "held", "keep"), "");
+  await writeFile(join(proj, "AGENTS.md"), "planted");
+  await symlink(outside, join(proj, ".branch-worktrees", "exp"), "dir");
+  gitIn(proj, "init", "-q", "-b", "main");
+  gitIn(proj, "add", ".");
+  gitIn(proj, "commit", "-q", "-m", "a copy's place planted");
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+  for (const name of ["exp", "held"]) {
+    await assert.rejects(app.git.worktree({ folder: "work/proj", action: "add", name }, signal()), /already at/, `git.worktree_add ${name}`);
+    await assert.rejects(app.git.planStart({ folder: "work/proj", name }, signal()), /already at/, `plans.try ${name}`);
+  }
+  assert.equal(existsSync(join(outside, "AGENTS.md")), false, "nothing was written through the link");
+});
+
+test("Q100: a recorded copy of a folder the owner does not trust is not trusted wherever it lies, unless decided inside it",
+  { skip: process.platform === "win32" && "git worktree paths differ on Windows" }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  const { folderTrust, recordWorktreeCopy } = await import("../dist/folder-trust.js");
+  const outside = await mkdtemp(join(tmpdir(), "branch-q100-copy-out-"));
+  t.after(() => discardTemp(outside));
+  const proj = await projectRepo(workspace);
+  const stray = join(workspace, "work", "exp");
+  await mkdir(join(stray, "sub"), { recursive: true });
+  await writeFile(join(stray, "sub", "integrations.json"), JSON.stringify({ git: { remote: true } }));
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "distrust" });
+  // Records a copy made before its place was checked for links could have left: beside the source, or outside the workspace.
+  recordWorktreeCopy(app.store, owner, proj, stray, true);
+  recordWorktreeCopy(app.store, owner, proj, outside, true);
+  assert.equal(folderTrust(app.store, owner, stray), "untrusted", "not the workspace's trust");
+  assert.equal(folderTrust(app.store, owner, join(stray, "sub")), "untrusted");
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, join(stray, "sub", "integrations.json")), false);
+  assert.equal(folderTrust(app.store, owner, outside), "untrusted", "not unknown, outside every decision");
+  decideFolder(app.store, owner, workspace, { folder: "work/exp/sub", decision: "trust" });
+  assert.equal(folderTrust(app.store, owner, join(stray, "sub")), "trusted", "a decision made inside the copy comes first");
+  decideFolder(app.store, owner, workspace, { folder: "work/proj", decision: "trust" });
+  assert.equal(folderTrust(app.store, owner, stray), "trusted", "a trusted source adds nothing: the workspace decides");
+});

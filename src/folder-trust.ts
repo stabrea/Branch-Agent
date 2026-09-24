@@ -150,17 +150,29 @@ function listedBy(source: string, copy: string): boolean {
   });
 }
 
-/** How far a folder is trusted, from the closest folder the owner has decided about. */
-export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
+/** The owner's decision closest above `inner` (a real path), or null when none covers it. */
+function closestDecision(entries: Saved["folders"], inner: string, platform: NodeJS.Platform) {
   let best: { depth: number; decision: "trust" | "distrust"; path: string } | null = null;
-  const entries = saved(store, owner).folders;
-  if (!entries.length) return "unknown";
-  const inner = realFolder(folder, platform);
   for (const entry of entries) {
     const outer = realFolder(entry.path, platform);
     if (!folderContains(outer, inner, platform)) continue;
     const depth = outer.length;
     if (!best || depth >= best.depth) best = { depth, decision: entry.decision, path: outer };
+  }
+  return best;
+}
+/** How far a folder is trusted, from the closest folder the owner has decided about. */
+export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
+  const entries = saved(store, owner).folders;
+  if (!entries.length) return "unknown";
+  const inner = realFolder(folder, platform);
+  const best = closestDecision(entries, inner, platform);
+  // Q100: a copy Branch made of a folder the owner does not trust is not trusted either, wherever it ended up
+  // (a copy made before its place was checked for links may lie outside the source, or outside every decision).
+  // Only a decision the owner made inside the copy itself comes first.
+  for (const one of copies(store, owner)) {
+    if (!folderContains(one.copy, inner, platform) || (best && folderContains(one.copy, best.path, platform))) continue;
+    if (closestDecision(entries, one.source, platform)?.decision === "distrust") return "untrusted";
   }
   if (!best) return "unknown";
 

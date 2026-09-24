@@ -24,16 +24,20 @@ function canonical(path: string): string {
 export interface GitChange { path: string; state: string }
 
 /**
- * Q100: the folder a repository's parallel copies go in, made when missing. It must be a real folder in the
- * repository: a `.branch-worktrees` the repository itself carries as a link would put Branch's copy somewhere
- * else, outside the folder it was asked about (and out of reach of that folder's trust).
+ * Q100: where a new parallel copy called `name` goes, in the repository's copies folder (made when missing).
+ * Git writes the copy through every folder on the way, so the copies folder must be a real folder in the
+ * repository, and nothing may be at the copy's own place yet: a link the repository carries at either would
+ * put Branch's copy somewhere else, outside the folder it was asked about (and out of reach of its trust).
  */
-async function copiesHome(cwd: string): Promise<string> {
+async function copyPlace(cwd: string, name: string): Promise<string> {
   const home = join(cwd, WORKTREE_HOME);
   await mkdir(home, { recursive: true });
   if (!(await lstat(home)).isDirectory() || canonical(home) !== join(canonical(cwd), WORKTREE_HOME))
     throw new Error(`${WORKTREE_HOME} in this folder is a link, so no parallel copy is made here: it would land outside the folder.`);
-  return home;
+  const target = join(home, name);
+  if (await lstat(target).then(() => true, (error: NodeJS.ErrnoException) => error.code !== "ENOENT"))
+    throw new Error(`Something is already at ${WORKTREE_HOME}/${name} in this folder, so no parallel copy is made there.`);
+  return target;
 }
 
 export class GitTools {
@@ -150,7 +154,7 @@ export class GitTools {
       this.onCopy({ source: cwd, copy: target, made: false });
       return { folder: input.folder, name: input.name, removed: true };
     }
-    await copiesHome(cwd);
+    await copyPlace(cwd, input.name);
     const create = input.branch ? ["-b", input.branch] : ["--detach"];
     await this.run(cwd, ["worktree", "add", ...create, target], signal, { timeoutMs: 60000 });
     this.onCopy({ source: cwd, copy: target, made: true });
@@ -166,10 +170,10 @@ export class GitTools {
   async planStart(input: { folder: string; name: string; from?: string | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
     const branch = planBranch(input.name);
-    const home = await copiesHome(cwd);
+    const target = await copyPlace(cwd, input.name);
     const from = input.from ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
-    await this.run(cwd, ["worktree", "add", "-b", branch, join(home, input.name), from], signal, { timeoutMs: 60000 });
-    this.onCopy({ source: cwd, copy: join(home, input.name), made: true });
+    await this.run(cwd, ["worktree", "add", "-b", branch, target, from], signal, { timeoutMs: 60000 });
+    this.onCopy({ source: cwd, copy: target, made: true });
     return { folder: input.folder, name: input.name, branch, from, path: `${WORKTREE_HOME}/${input.name}`,
       note: "Work in that folder. Ask for the difference when you are done, and merge it back only when it looks right." };
   }
