@@ -75,8 +75,22 @@ export const signInSettings: readonly string[] = ["people-passkeys", "people-sig
   "remote-devices", "devices-book", "sender-allowlist"];
 /** Settings kept on this computer by the start of their id: one row per paired chat sender, or per other install. */
 export const signInPrefixes: readonly string[] = ["channel-pair:", "remote-agent:"];
-const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings"
-  && (signInSettings.includes(String(row.id)) || signInPrefixes.some((prefix) => String(row.id).startsWith(prefix)));
+/**
+ * What else is about this computer and whom it trusts, not about the owner's work (Q168 A), so it stays here
+ * too: which workspaces' integration files are trusted to load, the outside assistants this Branch pairs with,
+ * the SSH computers and the programs Branch may run on them, and the commands that fetch secrets. From a file,
+ * each one could point Branch at a program, a machine or a person the owner never chose here.
+ */
+export const thisComputerSettings: readonly string[] = [
+  "folder_trust", "folder_trust_mode", "folder-trust-real", "remote-agent-pairing", "remote-computers", "secret-commands",
+];
+/**
+ * Whether a settings row stays on this computer: never in a backup, never taken from one, and kept by a replacing
+ * restore. One test for all three, so what a backup leaves out and what a replace keeps can never drift apart.
+ */
+export const staysOnThisComputer = (id: string): boolean =>
+  signInSettings.includes(id) || thisComputerSettings.includes(id) || signInPrefixes.some((start) => id.startsWith(start));
+const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && staysOnThisComputer(String(row.id));
 
 /**
  * A restored schedule keeps its job but not its standing yes (Q168 C). Its check script waits for the
@@ -138,8 +152,10 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
     if (options.replaceExisting)
       for (const table of [...backupTables].reverse())
         if (!appendOnly(table) && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table))
-          if (table === "settings") db.prepare(`DELETE FROM settings WHERE id NOT IN (${signInSettings.map(() => "?").join(",")})`
-            + signInPrefixes.map(() => " AND substr(id, 1, ?) <> ?").join("")).run(...signInSettings, ...signInPrefixes.flatMap((prefix) => [prefix.length, prefix]));
+          if (table === "settings") {
+            const kept = (db.prepare("SELECT DISTINCT id FROM settings").all() as { id: string }[]).map((row) => row.id).filter(staysOnThisComputer);
+            db.prepare(`DELETE FROM settings WHERE id NOT IN (${kept.map(() => "?").join(",")})`).run(...kept);
+          }
           else db.exec(`DELETE FROM ${table}`);
     prepareFlyRestore(db, archive);
     if (archive.tables.self_development_contracts?.length) ensureContractTable(db);
