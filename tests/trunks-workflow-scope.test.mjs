@@ -313,3 +313,12 @@ test("Q123: a side model call made from a Trunk's workflow step goes as that Tru
   const mark = marks.pop();
   assert.ok(mark?.keys, "Ada's step's side call is marked as a Trunk's, with her keys");
 });
+
+test("a Trunk's list of flows holds none of the owner's graph flows", async (t) => {
+  // NAS d830e7a (B4): flows.list handed Ada the owner's graph flows: ids, names, box tools and literal values.
+  const { app, ada, use } = await setup(t);
+  app.flows.saveGraph({ name: "OwnerPeek", input: {}, state: { found: "text" }, entry: "look",
+    nodes: [{ id: "look", name: "LookOWNERBOX", kind: "tool", tool: "memory.search", args: { query: "OWNERARG4471" }, output: { found: "text" } }], edges: [] });
+  assert.match(JSON.stringify(app.flows.list()), /OwnerPeek/, "the control: the owner's own list holds it");
+  assert.doesNotMatch(await use(ada, "flows.list", {}), /OwnerPeek|LookOWNERBOX|OWNERARG4471/);
+});

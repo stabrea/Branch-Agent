@@ -127,7 +127,12 @@ export class Flows {
     const { state, ...rest } = workflow;
     return { ...rest, graph: flowGraph(workflow.steps, state) };
   }
-  list(): FlowView[] { return [...this.graphFlows(), ...this.workflows.list(this.mine).map((flow) => this.view(flow))]; }
+  list(): FlowView[] {
+    // Q119 (NAS d830e7a): a flow drawn as a graph is the owner's, boxes, tools and values in them, so a Trunk's list
+    // holds only its own saved workflows, as workflows.list does.
+    const graphs = this.runtime.trunkAtWork() ? [] : this.graphFlows();
+    return [...graphs, ...this.workflows.list(this.mine).map((flow) => this.view(flow))];
+  }
   get(id: string): FlowView {
     const graph = this.store.get("flow_graphs", this.mine, id);
     if (graph) return graphView(FlowGraphSchema.parse(graph.data), id);
