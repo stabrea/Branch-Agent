@@ -296,6 +296,10 @@
     {
       "paths": ["public/vault-autofill.js"],
       "tests": ["tests/vault-autofill-ui.test.mjs"]
+    },
+    {
+      "paths": ["docs/features.json", "docs/features.md"],
+      "tests": ["tests/settings-page-count.test.mjs"]
     }
   ]
 }

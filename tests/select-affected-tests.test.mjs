@@ -268,3 +268,61 @@ test("the historical composer regression cannot receive a narrow green result", 
   assert.ok(result.tests.includes("tests/calm-ui.test.mjs"));
   assert.ok(result.tests.includes("tests/tool-targets-comprehensive-guard.test.mjs"));
 });
+
+/**
+ * The ledger's own guard used to be unreachable from the five-minute lane. `docs/**` and `**` + `/*.md`
+ * are in `ignored`, and `ignored` was read before the mappings, so a change to docs/features.json —
+ * the one diff shape that can make the ledger lie — selected no tests at all, including the test whose
+ * only job is to catch a hand-typed ledger count.
+ */
+test("a change to the ledger picks up the guard that reads it, inside the fast budget", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const weights = JSON.parse(readFileSync(new URL("test-weights.json", import.meta.url), "utf8")).linux;
+  for (const path of ["docs/features.json", "docs/features.md"]) {
+    const result = selectImpact([{ status: "M", paths: [path] }], { config: checkedIn, weights });
+    assert.equal(result.classification, "narrow", path);
+    assert.deepEqual(result.tests, ["tests/leak-guard.test.mjs", "tests/settings-page-count.test.mjs"], path);
+    assert.equal(result.browserNeeded, false, path);
+    assert.ok(result.predictedSeconds < checkedIn.budgetSeconds, `${path}: ${result.predictedSeconds}s`);
+  }
+});
+
+test("the real ledger edit that started this selects the guard rather than nothing", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const result = selectImpact([
+    { status: "M", paths: ["docs/features.json"] },
+    { status: "M", paths: ["docs/features.md"] },
+  ], { config: checkedIn, weights: { "tests/leak-guard.test.mjs": 2.327 } });
+  assert.equal(result.classification, "narrow");
+  assert.ok(result.tests.includes("tests/settings-page-count.test.mjs"));
+});
+
+test("documentation nothing claims is still documentation", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  for (const path of ["docs/design.md", "docs/configuration.md", "docs/testing.md", "README.md"]) {
+    const result = selectImpact([{ status: "M", paths: [path] }], { config: checkedIn });
+    assert.equal(result.classification, "docs-only", path);
+    assert.deepEqual(result.tests, [], path);
+  }
+});
+
+/**
+ * The change above says a file a reviewed mapping names is not ignored. That is only safe while the
+ * ledger is the only thing it reaches, so the boundary is measured here instead of being remembered:
+ * a mapping added later with a broad enough pattern would pull documentation back into the lane, and
+ * this is where that shows up.
+ */
+test("the ledger is the only thing the ignore list would have swallowed, and every mapping is reachable", () => {
+  const checkedIn = JSON.parse(readFileSync(new URL("test-impact.json", import.meta.url), "utf8"));
+  const withoutMappings = { ...checkedIn, mappings: [] };
+  const swallowed = [];
+  for (const rule of checkedIn.mappings) {
+    for (const path of rule.paths) {
+      const reached = selectImpact([{ status: "M", paths: [path] }], { config: checkedIn });
+      assert.notEqual(reached.classification, "docs-only", `${path} is mapped but unreachable`);
+      const alone = selectImpact([{ status: "M", paths: [path] }], { config: withoutMappings });
+      if (alone.classification === "docs-only") swallowed.push(path);
+    }
+  }
+  assert.deepEqual(swallowed.sort(), ["docs/features.json", "docs/features.md"]);
+});
