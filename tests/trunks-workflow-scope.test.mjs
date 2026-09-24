@@ -342,3 +342,32 @@ test("a Trunk's list of flows holds none of the owner's graph flows", async (t) 
   assert.match(JSON.stringify(app.flows.list()), /OwnerPeek/, "the control: the owner's own list holds it");
   assert.doesNotMatch(await use(ada, "flows.list", {}), /OwnerPeek|LookOWNERBOX|OWNERARG4471/);
 });
+
+test("a Trunk reads the steps of its own flow runs only, never the owner's or another Trunk's", async (t) => {
+  // NAS 911afbf (A4): with time travel on, Ada's own turn read a run of the owner's graph flow, box outputs
+  // included, through flow.steps.
+  const { withAccountCall } = await import("../dist/accounts/context.js");
+  const { app, ada, bo, owner, use } = await setup(t, ["memory.read", "workflows.manage", "workflows.read"]);
+  app.flowsBoards.setMode("time-travel", { mode: "on" });
+  await app.registry.execute("memory.put", { text: "zebra owner OWNERPRIV3391", source: "the owner" }, app.runtime.context());
+  const graph = app.flows.saveGraph({ name: "Look", input: {}, state: { found: "text" }, entry: "look",
+    nodes: [{ id: "look", name: "Look", kind: "tool", tool: "memory.search", args: { query: "zebra" }, output: { found: "text" } }], edges: [] });
+  const owners = app.flows.startGraph(graph.id, {}).runId;
+  await app.flows.settled(owners);
+  const adas = (await withAccountCall({ owner, sessionId: "", runId: "", trunk: { keys: ada.keys, id: ada.id } },
+    async () => app.flows.startGraph(graph.id, {}))).runId;
+  await app.flows.settled(adas);
+  // The control, in a task of the owner's own: the owner reads their own run's values.
+  const asked = await app.runtime.run({ prompt: `tool flow.steps ${JSON.stringify({ runId: owners })}`, onTextDelta: () => undefined });
+  assert.match(outcomes(app, 0, "flow.steps"), /OWNERPRIV3391/, `the control: ${asked.status}`);
+  const theirs = await use(ada, "flow.steps", { runId: owners });
+  assert.match(theirs, /no flow run of yours/, "Ada is refused the owner's run");
+  assert.doesNotMatch(theirs, /OWNERPRIV3391/);
+  assert.doesNotMatch(await use(ada, "flow.steps", { runId: adas }), /REFUSED|no flow run of yours/, "her own run is hers to read");
+  assert.match(await use(bo, "flow.steps", { runId: adas }), /no flow run of yours/, "and Bo is refused Ada's");
+  // A run with no record of whose it is (an older one, or its record gone) reads as the owner's: Ada is refused it,
+  // and asking stamps nobody on it (NAS fed082d).
+  app.store.delete("settings", owner, `flow-run-trunk:${owners}`);
+  assert.match(await use(ada, "flow.steps", { runId: owners }), /no flow run of yours/, "Ada is refused an unrecorded run");
+  assert.equal(app.store.get("settings", owner, `flow-run-trunk:${owners}`), undefined, "and her asking stamps nobody on it");
+});

@@ -40,7 +40,14 @@ const timeTravel: Registrar = (registry, boards) => {
   registry.register({ name: "flow.steps", permission: "workflows.read",
     description: "Every step of one run of a saved flow, with the values it held after each step. Reading only; going back to a step is the owner's, in Automations.",
     parameters: z.object({ runId: id }).strict(),
-    execute: async (args, context) => { reader(boards, context); return boards.timeTravel.steps(args.runId); } });
+    execute: async (args, context) => {
+      reader(boards, context);
+      // Q119 (NAS 911afbf): a Trunk reads the steps, and the values they held, of its own runs only; the owner's
+      // or another Trunk's read as not there.
+      if (context.trunk && boards.timeTravel.whose(args.runId) !== context.trunk)
+        throw new Error("There is no flow run of yours with that id.");
+      return boards.timeTravel.steps(args.runId);
+    } });
 };
 
 const recipeChecks: Registrar = (registry, boards) => {
