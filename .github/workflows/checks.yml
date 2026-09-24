@@ -88,12 +88,12 @@ jobs:
               add(os, ["self-hosted", label], idle, { own: label, exclude: keepOff, concurrency: spare, ...extra });
               rows.push({ os, labels: hosted, shard: 1, total: 1, only: keepOff, ...extra });
             };
-            // With Linux on the Legion PC's WSL runners, GitHub's machines left over (about 20 at once) take more Windows shares.
+            // With Linux on the Legion PC WSL runners, GitHub machines left over (about 20 at once) take more Windows shares.
             if (legion > 0) own("windows", "branch-legion", legion, "windows-latest", "4,1", windows);
             else add("windows", "windows-latest", wsl > 0 && screens === "off" ? 12 : 10, windows);
             if (macmini > 0) own("macos", "branch-macmini", macmini, "macos-latest", "4,2"); else add("macos", "macos-latest", 5);
-            // Linux goes to the Legion PC's WSL runners (label branch-wsl, a separate distro with no Windows drive): 24 cores
-            // run six ordinary files and two browser files at once per share, against GitHub's four processors.
+            // Linux goes to the Legion PC WSL runners (label branch-wsl, a separate distro with no Windows drive): 24 cores
+            // run six ordinary files and two browser files at once per share, against GitHub four processors.
             if (wsl > 0) own("linux", "branch-wsl", wsl, "ubuntu-latest", "6,2"); else add("linux", "ubuntu-latest", 8);
             require("fs").appendFileSync(process.env.GITHUB_OUTPUT, "matrix=" + JSON.stringify({ include: rows }) + "\n");
             console.log(`Windows on ${legion || "no"} Legion runner(s) (screens ${screens}), macOS on ${macmini || "no"} Mac mini runner(s), Linux on ${wsl || "no"} WSL runner(s); ${rows.length} shares.`);

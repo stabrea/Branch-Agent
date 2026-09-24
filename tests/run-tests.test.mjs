@@ -139,6 +139,12 @@ test("a test worker killed without an exit code names its signal and assigned fi
   assert.equal(testProcessStatus({ status: 7, signal: null }, [], () => assert.fail("ordinary exits are silent")), 7);
 });
 
+test("the pick step is a shell script bash can read: nothing inside its quoted node program ends the quotes", () => {
+  const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
+  const check = spawnSync("bash", ["-n"], { input: workflow.jobs.pick.steps[0].run, encoding: "utf8" });
+  assert.equal(check.status, 0, check.stderr);
+});
+
 test("a train's Windows shares leave the browser files to Linux and macOS, and need no browser for it", () => {
   const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
   for (const [legion, macmini] of [[0, 0], [3, 0], [0, 2]]) {
