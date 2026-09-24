@@ -171,7 +171,7 @@ export function registerHistory(registry: ToolRegistry, store: Store): void {
     target: (input) => `another conversation (${input.conversation.slice(0, 60)})`,
     execute: async (input, context) => {
       const { owner, current } = historyScope(store, context);
-      return attachConversation(store, owner, input, current, context.runId);
+      return attachConversation(store, owner, input, current, context.runId, context.agent);
     },
   });
 }
@@ -183,6 +183,11 @@ export function registerHistory(registry: ToolRegistry, store: Store): void {
  * the task is in, never a temporary one, never one the library hides; the words come back as
  * untrusted data, like every other look into the past. Several matches are always a question back,
  * never a guess, and the whole answer is kept inside what a tool may return.
+ *
+ * An agent's turn brings in only what history.read already lets it read (`participation`): a Trunk,
+ * a conversation it answered in; a delegated specialist, none. Its words are looked for among those
+ * conversations alone, so the owner's other conversations never decide which one it gets, or whether
+ * it is asked to choose.
  */
 export const HistoryAttachSchema = z.object({
   conversation: z.string().trim().min(2).max(200),
@@ -197,15 +202,15 @@ const clip = (text: string, limit: number): string => {
   return points.length > limit ? `${points.slice(0, limit).join("")}…` : text;
 };
 
-function whichConversation(store: Store, owner: string, wanted: string, current: string | undefined): string {
+function whichConversation(store: Store, owner: string, wanted: string, current: string | undefined, agent: string | undefined): string {
   if (uuid.test(wanted)) {
     if (wanted === current) throw new Error("That is the conversation this task is already in.");
     const visible = !store.hiddenSessions().includes(wanted) && store.ownsSession(owner, wanted)
-      && !store.sessionTemporary(wanted);
+      && !store.sessionTemporary(wanted) && canAccessSession(store.sqlite, wanted, agent);
     if (!visible) throw new Error("There is no conversation of yours with that id.");
     return wanted;
   }
-  const found = store.searchSessions(owner, { query: wanted }).sessions.filter((one) => one.sessionId !== current);
+  const found = store.searchSessions(owner, { query: wanted }, agent).sessions.filter((one) => one.sessionId !== current);
   if (!found.length) throw new Error(`No other conversation mentions "${wanted}". Try other words, or its id.`);
   // One row per conversation, so two rows are two conversations even when they open the same way.
   if (found.length > 1) {
@@ -216,8 +221,8 @@ function whichConversation(store: Store, owner: string, wanted: string, current:
 }
 
 export function attachConversation(store: Store, owner: string, input: z.infer<typeof HistoryAttachSchema>,
-  current: string | undefined, runId: string | undefined) {
-  const sessionId = whichConversation(store, owner, input.conversation, current);
+  current: string | undefined, runId: string | undefined, agent?: string) {
+  const sessionId = whichConversation(store, owner, input.conversation, current, agent);
   const said = store.messages(sessionId).filter((message) => message.role === "user" || message.role === "assistant");
   const latest: { role: string; content: string }[] = [];
   let spent = 0;
