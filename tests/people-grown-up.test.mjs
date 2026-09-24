@@ -75,6 +75,8 @@ test("People opens on the eyebrow, the title and + Invite someone; the dialog ch
   await dialog.waitFor({ state: "detached" });
   assert.equal((await f.call("/api/profiles")).profiles.length, 0, "cancelling adds nobody");
 
+  const roleCalls = [];
+  f.page.on("request", (request) => { if (/\/api\/profiles\/[^/]+\/role$/.test(new URL(request.url()).pathname)) roleCalls.push(request.url()); });
   await f.page.locator("#people-invite").click();
   await dialog.getByLabel("Name").fill("Jo");
   await dialog.getByRole("group", { name: "Role" }).getByRole("button", { name: "Child" }).click();
@@ -87,6 +89,7 @@ test("People opens on the eyebrow, the title and + Invite someone; the dialog ch
   const card = f.page.locator(`.person-card[data-person="${jo.id}"]`);
   await card.waitFor();
   assert.equal(await card.locator(".shell-pill").innerText(), "Child", "with the role chosen in the dialog");
+  assert.deepEqual(roleCalls, [], "added with the role in one call, so a failed second call cannot leave a Child as an Adult");
   assert.deepEqual(await mayOf(card), ["read:yes", "browse:no", "files:no", "commands:no", "message:no", "spend:no", "settings:no"]);
   assert.deepEqual(await factsOf(card), ["Trunks=None", "Projects=All of them", "Daily allowance=None", "PIN=Set"]);
   assert.deepEqual(f.errors, []);
@@ -118,6 +121,51 @@ test("each card lists what the grant really allows, the owner's card changes the
   assert.equal(await f.page.getByRole("button", { name: "Change look" }).count(), 0);
   assert.deepEqual(await mayOf(f.page.locator(`.person-card[data-person="${sam.id}"]`)),
     ["read:yes", "browse:no", "files:yes", "commands:no", "message:no", "spend:no", "settings:no"]);
+  assert.deepEqual(f.errors, []);
+});
+
+test("a person's own card ticks only what Branch enforces and names their own Trunks", async (t) => {
+  const f = await fixture(t);
+  for (const part of ["trunks", "rooms"]) await f.call("/api/trunks/switch", { part, mode: "on" });
+  const scout = (await f.call("/api/trunks", { name: "Scout" })).trunk;
+  const quill = (await f.call("/api/trunks", { name: "Quill" })).trunk;
+  const ledger = (await f.call("/api/trunks", { name: "Ledger" })).trunk;
+  const pip = (await f.call("/api/trunks", { name: "Pip" })).trunk;
+  const kim = await f.call("/api/profiles", { name: "Kim", pin: "1234" });
+  const sam = await f.call("/api/profiles", { name: "Sam", pin: "5678" });
+  // Kim is an Adult in a group that only lets its members look things up.
+  await f.call("/api/people/settings", { mode: "on" });
+  const family = await f.call("/api/people/groups", { name: "Family", members: [kim.id], categories: ["read"] });
+  assert.equal(family.groups?.length, 1, JSON.stringify(family));
+  await f.call("/api/trunks/rooms", { name: "Homework", members: [scout.id, quill.id], people: [kim.id] });
+  await f.call("/api/trunks/rooms", { name: "Owner only", members: [ledger.id, pip.id], people: [] });
+  // Sam is narrowed to read + files as an Adult, then made a Child from his card.
+  await f.call(`/api/profiles/${sam.id}/role`, { role: "adult", categories: ["read", "files"] });
+  await f.open();
+  await f.people();
+  const samCard = f.page.locator(`.person-card[data-person="${sam.id}"]`);
+  await samCard.getByRole("group", { name: "What Sam may do" }).getByRole("button", { name: "Child" }).click();
+  await f.page.waitForFunction((id) => document.querySelector(`.person-card[data-person="${id}"] .shell-pill`)?.textContent === "Child", sam.id);
+  const onlyRead = ["read:yes", "browse:no", "files:no", "commands:no", "message:no", "spend:no", "settings:no"];
+  const kimCard = f.page.locator(`.person-card[data-person="${kim.id}"]`);
+  assert.deepEqual(await mayOf(kimCard), onlyRead, "the owner sees Kim's group narrowing");
+  assert.deepEqual(await mayOf(samCard), onlyRead, "the owner sees the Child cap");
+  const ownerSees = await factsOf(kimCard);
+  assert.equal(ownerSees[0], "Trunks=Scout, Quill", "the Trunks in the rooms Kim was let into");
+
+  for (const [person, pin] of [[kim, "1234"], [sam, "5678"]]) {
+    await f.call("/api/profiles/switch", { profileId: person.id, pin });
+    await f.page.reload();
+    await f.page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
+    await f.page.waitForFunction(() => document.documentElement.dataset.household === "on");
+    await f.people();
+    const own = f.page.locator(`.person-card[data-person="${person.id}"]`);
+    assert.deepEqual(await mayOf(own), onlyRead, `${person.name}'s own card ticks only what Branch enforces`);
+    const facts = await factsOf(own);
+    if (person === kim) assert.deepEqual(facts, ownerSees, "Kim's own Trunks are the ones the owner's card lists, not room names");
+    else assert.equal(facts[0], "Trunks=None", "Sam is in no room");
+    await f.call("/api/profiles/switch", { profileId: null });
+  }
   assert.deepEqual(f.errors, []);
 });
 

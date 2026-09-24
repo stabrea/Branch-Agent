@@ -5286,7 +5286,8 @@ one that counts, so anything wrong or missing can simply be corrected there. It 
 incomplete and is not kept up to date for you.
 
 **People who share this computer.** `POST /api/profiles` gives somebody else a name and a PIN of
-four to eight digits (the PIN is stored only as a scrypt hash), `POST /api/profiles/switch` moves
+four to eight digits (the PIN is stored only as a scrypt hash), and may carry `role` (`"adult"`, the
+default, or `"child"`) so they are added with it in one step; `POST /api/profiles/switch` moves
 between them and back to the owner (`{ profileId: null }`), and `POST /api/profiles/:id/remove`
 removes one. Only the owner may add or remove people. Five wrong PINs in a row stop that profile
 accepting any for five minutes. While somebody's profile is switched on, the conversation list,
@@ -6512,7 +6513,9 @@ Each person's card on the People screen shows their role and what they are held 
 
 New routes: `GET|POST /api/profiles/{id}/role` (only the owner may set one). The grant is
 `{ role, categories, projects, dailySpendLimit }`; `categories` uses the same seven kinds the
-approval settings group tools by.
+approval settings group tools by. In `GET /api/profiles`, each entry of `roles` has the saved
+`grant`, the `effective` grant Branch really holds that person to (their role, narrowed by any group
+they are in), and `categories`, the kinds that effective grant allows.
 
 ## Doing a task again, and reading the difference (batch 26, wave 8)
 

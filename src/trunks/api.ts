@@ -77,7 +77,10 @@ function overview(trunks: Trunks, person: TrunksHttpDeps["person"]) {
   const modes = trunks.modes();
   if (person) {
     trunks.require("rooms");
-    return { modes, labels: [], trunks: [], rooms: trunks.rooms.forPerson(person.id).map(roomSummary) };
+    // Each room also names the Trunks in it (as the room itself does for them), so a person's own
+    // card can say which Trunks they may reach without seeing the owner's whole list.
+    return { modes, labels: [], trunks: [], rooms: trunks.rooms.forPerson(person.id)
+      .map((room) => ({ ...roomSummary(room), roster: trunks.rooms.roster(room) })) };
   }
   return { modes, labels: trunkParts.map((part) => ({ part, label: trunkLabels[part] })),
     ...(modes.trunks === "off" ? { trunks: [], rooms: [] } : trunks.roster()) };
