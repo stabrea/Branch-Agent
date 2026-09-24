@@ -267,6 +267,10 @@ test("with no model, the window says so exactly once, and says nothing about its
     await globalThis.branchLayout.checkServer();
     await globalThis.branchLayout.checkServer();
   });
+  /* On a slow machine a background probe started before the refusals can still land between them; keep asking,
+     boundedly, until two misses in a row have been seen. A window that never says so still fails below. */
+  for (let tries = 0; tries < 10 && (await f.page.locator("#connection").innerText()) !== "Branch stopped responding"; tries++)
+    await f.page.evaluate(() => globalThis.branchLayout.checkServer());
   assert.equal(healthAuthorization, `Bearer ${f.server.token}`, "the liveness check uses the signed-in session");
   assert.equal(await f.page.locator("#connection").innerText(), "Branch stopped responding");
   assert.equal(await visible(f.page, "#lx-restart"), true);

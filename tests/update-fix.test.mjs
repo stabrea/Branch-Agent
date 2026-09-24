@@ -36,7 +36,8 @@ async function failedUpdate(t, before = async () => {}, model = provider) {
     await app.trunks.introduced();
     await server.close(); await app.close();
     for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
-    await discardTemp(root);
+    // The browser's own helper can hold TEMP a while after it closes on a slow Windows machine.
+    await discardTemp(root, { tries: 60, pause: 100 });
   });
   const { journal } = openActivationJournal(join(dataDir, activationJournalName));
   journal.stage({ kind: "update", fromVersion: "1.0.0", toVersion: "2.0.0", target: join(root, "installed"), previous: null, candidate: null,
