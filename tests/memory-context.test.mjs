@@ -60,7 +60,7 @@ test("facts saved twice are offered as one merge suggestion and nothing is remov
   assert.equal(app.store.list("memory", "local").length, 3, "suggesting changes nothing");
   assert.equal(app.store.review.proposals("local").length, 1);
 
-  const applied = app.store.review.decide("local", staged[0].id, true);
+  const applied = await app.store.review.decide("local", staged[0].id, true);
   assert.equal(applied.applied.setAside.length, 1);
   const left = app.store.list("memory", "local");
   assert.equal(left.length, 2, "one of the pair is set aside, the unrelated fact is untouched");
@@ -91,7 +91,7 @@ test("a newer fact about the same subject wins and the older one is archived wit
   assert.deepEqual(staged.map((p) => p.kind), ["archive"]);
   assert.equal(app.store.list("memory", "local").length, 3, "the older fact is still there while the suggestion waits");
 
-  app.store.review.decide("local", staged[0].id, true);
+  await app.store.review.decide("local", staged[0].id, true);
   const left = app.store.list("memory", "local");
   assert.equal(left.length, 2);
   assert.ok(left.some((record) => record.id === newer.id));
@@ -111,7 +111,7 @@ test("a newer fact about the same subject wins and the older one is archived wit
   const before = app.store.list("memory", "local").length;
   const again = app.memory.hygiene.suggest("local");
   assert.deepEqual(again.staged.map((proposal) => proposal.kind), ["archive"]);
-  app.store.review.decide("local", again.staged[0].id, false);
+  await app.store.review.decide("local", again.staged[0].id, false);
   assert.equal(app.store.list("memory", "local").length, before);
   assert.ok(app.store.list("memory", "local").some((record) => record.id === second.id));
 });

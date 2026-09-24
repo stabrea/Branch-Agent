@@ -301,7 +301,7 @@ test("D15 refreshing from conversations proposes cards and adds nothing on its o
   const refreshed = await app.registry.execute("knowledge.refresh", { collection: made.id, conversations: 3 }, context);
   assert.equal(refreshed.staged.length, 1, "a suggestion was made");
   assert.equal(app.knowledgeParts.bases.one("local", made.id).documents, 0, "and nothing was added without the owner");
-  app.store.review.decide("local", refreshed.staged[0].id, true);
+  await app.store.review.decide("local", refreshed.staged[0].id, true);
   assert.equal(app.knowledgeParts.bases.one("local", made.id).documents, 1, "accepting it puts it in the knowledge base");
   assert.ok((await app.knowledgeParts.bases.search("local", { collection: made.id, query: "boiler serviced" })).length);
 });
@@ -355,7 +355,7 @@ test("D18 a fact from a conversation is later found again with the knowledge bas
   // What was said in a conversation, written up and accepted exactly as the review screen does it.
   const proposal = app.store.review.propose("local", { kind: "knowledge-card", source: "Suggested after a conversation",
     note: "Add it", card: { title: "Boiler service", body: "Dane Heating services the boiler every March.", collection: made.id } });
-  app.store.review.decide("local", proposal.id, true);
+  await app.store.review.decide("local", proposal.id, true);
   const answered = await app.retrieval.search("local", "who services the boiler");
   assert.ok(answered.passages.length, "the fact comes back when it is next needed");
   assert.equal(answered.passages[0].from, "knowledge", "and the knowledge base is named as where it came from");

@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { SavedRecord, Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { FactKindSchema, MemoryLayerSchema, layerForKind, layerOf } from "./memory-layers.js";
+import type { MemoryBackend } from "./memory-backend.js"; // FQ-memory.providers
 
 export const maximumMemoryArchiveBytes = 16 * 1024 * 1024;
 export const MemoryDataSchema = z.object({
@@ -171,14 +172,18 @@ export class MemoryFacts {
     this.db.prepare("INSERT OR REPLACE INTO memory(id,owner,data,created_at,updated_at,revision) VALUES(?,?,?,?,?,?)")
       .run(record.id, owner, JSON.stringify(record.data), record.createdAt, record.updatedAt, record.revision);
   }
-  /** Facts a conversation's runs saved by themselves, split into removable and kept (owner-edited) ones. */
-  forgetPreview(owner: string, sessionId: string) {
+  /**
+   * Facts a conversation's runs saved by themselves, split into removable and kept (owner-edited) ones.
+   * `outside` is what an outside memory service holds for this owner when one is switched on
+   * (src/memory-provider.ts), so a conversation's facts are found wherever they were saved.
+   */
+  forgetPreview(owner: string, sessionId: string, outside: readonly MemoryRecord[] = []) {
     if (!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner))
       throw new Error("Conversation not found");
     const runIds = new Set(this.db.prepare("SELECT id FROM tasks WHERE session_id=?").all(sessionId).map(row => String(row.id)));
     const remove: { id: string; text: string; source: string; createdAt: string }[] = [];
     const excluded: { id: string; text: string; reason: string }[] = [];
-    for (const record of this.list(owner)) {
+    for (const record of [...this.list(owner), ...outside]) {
       if (!runIds.has(String(record.data.originRunId || record.data.sourceRunId))) continue;
       const text = String(record.data.text);
       if (record.revision > 1) excluded.push({ id: record.id, text, reason: `You edited this after it was saved (revision ${record.revision}), so it stays.` });
@@ -186,10 +191,14 @@ export class MemoryFacts {
     }
     return { sessionId, remove, excluded, suppressed: this.suppressed(owner, sessionId) };
   }
-  /** Removes the previewed facts (or a chosen subset) and stops the conversation from saving memory again on its own. */
-  forget(owner: string, input: unknown) {
+  /**
+   * Removes the previewed facts (or a chosen subset) kept on this computer and stops the conversation
+   * from saving memory again on its own. `ids` is every fact chosen, so the caller can remove the
+   * ones an outside memory service holds as well.
+   */
+  forget(owner: string, input: unknown, outside: readonly MemoryRecord[] = []) {
     const { sessionId, ids } = z.object({ sessionId: z.string().uuid(), ids: z.array(MemoryIdSchema).max(500).optional() }).strict().parse(input);
-    const preview = this.forgetPreview(owner, sessionId);
+    const preview = this.forgetPreview(owner, sessionId, outside);
     const removable = new Set(preview.remove.map(entry => entry.id));
     const chosen = ids ?? [...removable];
     if (chosen.some(id => !removable.has(id))) throw new Error("Only facts listed in the preview can be forgotten");
@@ -200,7 +209,7 @@ export class MemoryFacts {
       this.db.prepare("INSERT OR IGNORE INTO memory_suppressions VALUES(?,?,?)").run(owner, sessionId, new Date().toISOString());
       this.db.exec("COMMIT");
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
-    return { sessionId, removed: chosen.length, excluded: preview.excluded, suppressed: true };
+    return { sessionId, removed: chosen.length, ids: chosen, excluded: preview.excluded, suppressed: true };
   }
   /** Retention: facts untouched for longer than the policy are archived (restorable) or purged, with a report. */
   hygiene(owner: string, input: unknown, now: number = Date.now()) {
@@ -418,7 +427,32 @@ export interface FactSearch {
 export const memoryScope = (store: Store, context: { owner: string }): string =>
   context.owner === store.profiles.ownerName ? store.profiles.scope() : context.owner;
 
-export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch): void {
+/**
+ * FQ-memory.providers: when the owner has switched an outside memory service on, the assistant's
+ * basic remember/recall/forget loop below goes to it instead of this computer's database —
+ * `src/memory-provider.ts` is the one place that decides which, read fresh on every call. Facts
+ * that depend on Branch's own revision history (`memory.keep`, `memory.at`, `memory.timeline`, and
+ * the hygiene/versions screens) stay on this computer's database either way: they are Branch's own
+ * bookkeeping on top of a fact, not part of what `MemoryBackend` promises a backend does.
+ */
+export interface OutsideMemoryProvider extends MemoryBackend {
+  isOutside(owner: string): boolean;
+  withFactLock?<T>(owner: string, id: string, fn: () => Promise<T>): Promise<T>;
+  forgetSettled?(owner: string, sessionId: string): Promise<void>;
+  serviceFor?(owner: string): MemoryBackend | undefined;
+  takeBack?(owner: string, id: string, service: MemoryBackend): Promise<boolean>;
+}
+/**
+ * Takes back a fact just written for `owner`: from the service it was written to when that is known
+ * (NAS 4654193: the owner may have switched since), otherwise through the provider. True only when the
+ * service said it deleted it; a fact it did not have yet may still arrive, and is hidden here either way.
+ */
+export function takeBackFact(provider: OutsideMemoryProvider, owner: string, id: string, service: MemoryBackend | undefined): Promise<boolean> {
+  const taking = service && provider.takeBack ? provider.takeBack(owner, id, service) : provider.forget(owner, id);
+  return taking.then((deleted) => deleted === true, () => false);
+}
+
+export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch, provider?: OutsideMemoryProvider): void {
   registry.register({ name: "memory.put", description: "Save one clear fact with its source. Give entity and attribute when it may change later, so a newer fact ends the earlier one.",
     permission: "memory.write", parameters: PutMemorySchema,
     execute: async (value, context) => {
@@ -431,8 +465,28 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       const { scope: _requested, ...rest } = value; void _requested;
       // A kind decides how long the fact lasts unless it says otherwise: only a scribble is short-lived.
       const layer = layerForKind(value.kind ?? "fact-about-world");
-      return staged(store, context, { kind: "put", text: value.text, source: value.source })
-        ?? store.save("memory", owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId }, agent);
+      const proposal = staged(store, context, { kind: "put", text: value.text, source: value.source });
+      if (proposal) return proposal;
+      const data = { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId };
+      if (!provider?.isOutside(owner)) return store.save("memory", owner, randomUUID(), data, agent);
+      const id = randomUUID();
+      const service = provider.serviceFor?.(owner); // taken with the write, so a switch since cannot redirect the takeback
+      const saved = await provider.write(owner, id, data).catch(async (error: unknown) => {
+        // A save Branch reports as failed is never read back: the service may still apply one it was too slow
+        // to answer, after a Forget has already looked. This id is new, so nothing of the owner's is hidden.
+        await takeBackFact(provider, owner, id, service);
+        throw error;
+      });
+      // "Forget this conversation" may have run while the service was still saving this fact, and it could not see
+      // a fact the service did not have yet. Once any Forget of it now running has settled, what was saved is taken
+      // back (and never read back) and refused the same way if the conversation was forgotten.
+      if (sessionId) await provider.forgetSettled?.(owner, sessionId);
+      if (sessionId && store.memorySuppressed(owner, sessionId)) {
+        const deleted = await takeBackFact(provider, owner, id, service);
+        throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view."
+          + (deleted ? "" : " The outside memory service would not delete what it had just saved, so it may still keep it; Branch will not read it back."));
+      }
+      return saved;
     } });
   registry.register({ name: "memory.keep", description: "Keep a note from this job for good, so ending the job does not clear it.",
     permission: "memory.write", parameters: z.object({ id: MemoryIdSchema }).strict(),
@@ -454,17 +508,32 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
     permission: "memory.write", parameters: UpdateMemorySchema,
     execute: async (value, context) => {
       const owner = memoryScope(store, context);
+      const agent = memoryAgent(context);
+      const outside = !!provider?.isOutside(owner);
       // FQ-routing.isolated-agents: checked before staging, so an id outside this agent's own scope
-      // never even reaches the review queue as a proposal.
-      if (!writableTo(store.get("memory", owner, value.id) as MemoryRecord | undefined, memoryAgent(context)))
-        throw new Error("Memory not found");
-      return staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source })
-        ?? store.updateMemory(owner, value, context.runId);
+      // never even reaches the review queue as a proposal (on an outside service as on this computer).
+      // Only an agent's reach needs the fact read first; the owner may change any of theirs.
+      const current = agent && outside ? await provider!.read(owner, value.id) : store.get("memory", owner, value.id) as MemoryRecord | undefined;
+      if (!writableTo(current, agent)) throw new Error("Memory not found");
+      const proposal = staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source });
+      if (proposal) return proposal;
+      if (!outside) return store.updateMemory(owner, value, context.runId);
+      if (!provider!.withFactLock) return Promise.reject(new Error("Provider does not support outside updates"));
+      return provider!.withFactLock(owner, value.id, async () => {
+        const previous = await provider!.read(owner, value.id);
+        if (!previous || !writableTo(previous, agent)) throw new Error("Memory not found");
+        if (previous.revision !== value.expectedRevision) throw new Error("Memory changed since you opened it. Reload it before saving.");
+        // The fact keeps whose it is and how long it lasts: only its words change.
+        const { tags, expiresAt, scope, layer } = previous.data as { tags?: string[]; expiresAt?: string; scope?: string; layer?: string };
+        return provider!.write(owner, value.id, { text: value.text, source: value.source, sourceRunId: context.runId,
+          ...(tags ? { tags } : {}), ...(expiresAt ? { expiresAt } : {}), ...(scope ? { scope } : {}), ...(layer ? { layer } : {}) });
+      });
     } });
   registry.register({ name: "memory.search", description: "Search this owner's facts by words and, where the provider allows it, by meaning.",
     permission: "memory.read", parameters: z.object({ query: z.string().max(200) }).strict(),
     execute: async (value, context) => {
       const owner = memoryScope(store, context);
+      if (provider?.isOutside(owner)) return provider.search(owner, value.query, memoryAgent(context));
       if (!retrieval) return store.searchMemory(owner, value.query, memoryAgent(context));
       const hits = await retrieval.search(owner, value.query, memoryAgent(context), 20, context.signal);
       return hits.map((hit) => ({ ...hit.record, score: hit.score, importance: hit.importance, matched: hit.matched }));
@@ -473,11 +542,17 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
     parameters: z.object({ id: MemoryIdSchema }).strict(),
     execute: async (value, context) => {
       const owner = memoryScope(store, context);
+      const outside = !!provider?.isOutside(owner);
       // FQ-routing.isolated-agents: an id outside this agent's own scope is refused exactly as a
       // missing one is (returns false, nothing thrown) — an unauthorised Trunk learns nothing about
       // whether that id even exists.
-      if (!writableTo(store.get("memory", owner, value.id) as MemoryRecord | undefined, memoryAgent(context))) return false;
-      return staged(store, context, { kind: "delete", memoryId: value.id }) ?? store.delete("memory", owner, value.id);
+      const agent = memoryAgent(context);
+      // Only an agent's reach needs the fact read first; the owner may delete any of theirs.
+      const current = agent && outside ? await provider!.read(owner, value.id) : store.get("memory", owner, value.id) as MemoryRecord | undefined;
+      if (!writableTo(current, agent)) return false;
+      const proposal = staged(store, context, { kind: "delete", memoryId: value.id });
+      if (proposal) return proposal;
+      return outside ? provider!.forget(owner, value.id) : store.delete("memory", owner, value.id);
     } });
 }
 

@@ -25,7 +25,7 @@ import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
 import { registerSecondOpinion } from "./second-opinion-tools.js";
-import { registerMemory } from "./memory.js";
+import { memoryScope, registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
 import { chooseForInjection } from "./memory-layers.js";
@@ -34,6 +34,7 @@ import { memorySnapshotLimits } from "./memory-review.js";
 import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { SqliteMemoryBackend } from "./memory-backend.js";
+import { MemoryProvider } from "./memory-provider.js"; // FQ-memory.providers
 import { Scheduler, registerSchedules, nextTurn } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
@@ -521,7 +522,9 @@ export async function createBranch(options: {
     retrieval: new MemoryRetrieval(store, runtime.models),
     hygiene: undefined as unknown as MemoryHygiene,
     tidy: undefined as unknown as MemoryTidy,
-    backend: new SqliteMemoryBackend(store),
+    // FQ-memory.providers: set once `web` exists, below — an outside memory service can then
+    // replace this computer's database rather than only sit beside it.
+    backend: undefined as unknown as MemoryProvider,
     transfer: new MemoryTransfer(store),
   };
   memory.hygiene = new MemoryHygiene(store, memory.retrieval);
@@ -539,7 +542,6 @@ export async function createBranch(options: {
   runtime.leakGuard.options = () => leakOptions(store, runtime.owner);
   // ── end R17-S-B ──
   syncMixtures(store, runtime.owner, runtime.models); // R17-051: none until the owner makes one
-  registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
   const sessionTree = new SessionTree(store.sqlite);
@@ -576,6 +578,17 @@ export async function createBranch(options: {
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   // Q12: Branch changing its own source is held to a contract written before anything changes.
   const selfContracts = new ContractBook(store.sqlite);
+  // FQ-memory.providers: an outside memory service the owner switches on in Settings replaces this
+  // computer's database for the assistant's remember/recall/forget loop, not only sits beside it —
+  // src/memory-provider.ts reads the owner's choice fresh on every call, and web.policy is the same
+  // guard every other outside address in Branch is checked against.
+  memory.backend = new MemoryProvider(store, new SqliteMemoryBackend(store), web.policy, globalThis.fetch,
+    async (name) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose: "an outside memory service" }))[name]!);
+  // An accepted put/update/delete suggestion in the Memory review screen goes wherever memory.put/
+  // update/delete themselves would go right now, rather than always landing in this computer's
+  // database — see the comment on `MemoryReview.provider`.
+  store.review.provider = memory.backend;
+  registerMemory(registry, store, memory.retrieval, memory.backend);
   offerSelfDevelopment({
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
     git: (input, signal) => gitRunner.run(input, signal), contracts: selfContracts, store,
@@ -1016,6 +1029,8 @@ export async function createBranch(options: {
   registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
   // Notes a task made only for itself go when the task ends, unless the owner asked to keep one.
   registry.onRunFinished(async (context) => { try { store.clearTaskScratch(context.owner, context.runId); } catch { /* nothing to clear */ } });
+  // FQ-memory.providers: and the ones an outside memory service holds, when one is switched on.
+  registry.onRunFinished(async (context) => { await memory.backend.clearOutsideScratch(memoryScope(store, context), context.runId).catch(() => undefined); });
   // Wave 9: what the assistant notices for itself from what actually happened. It only ever
   // suggests; every suggestion carries what it was learned from, and turning one down is final.
   const learning = new MemoryLearning(store);
