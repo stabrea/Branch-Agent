@@ -10,6 +10,76 @@
   margin-top: 2px;
 }
 
+/* The "i" beside a setting's name (the sample's), and what it opens. The label shrinks to its words
+   so the "i" sits on the same line; a label holding a tick box keeps its row shape. */
+label.kit-info-named {
+  display: inline-block;
+  vertical-align: middle;
+}
+label.kit-info-named:has(> input[type="checkbox"], > input[type="radio"]) {
+  display: inline-flex;
+}
+button.kit-info {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 0 0 4px;
+  padding: 0;
+  vertical-align: middle;
+  border: 1px solid var(--line-2);
+  border-radius: 50%;
+  background: none;
+  box-shadow: none;
+  color: var(--text-3);
+  font: italic 600 11px/1 Georgia, serif;
+  cursor: pointer;
+}
+button.kit-info::before {
+  content: "i";
+}
+button.kit-info:hover,
+button.kit-info[aria-expanded="true"] {
+  background: none;
+  color: var(--copper-text);
+  border-color: var(--copper-edge);
+}
+.kit-info-pop {
+  position: fixed;
+  z-index: 96;
+  display: grid;
+  gap: 2px;
+  width: min(320px, calc(100vw - 20px));
+  padding: 8px 10px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 98%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  backdrop-filter: blur(22px) saturate(1.5);
+  box-shadow: var(--card-shadow);
+  color: var(--text);
+  font-size: 13px;
+}
+.kit-info-pop[hidden] {
+  display: none;
+}
+.kit-info-pop b {
+  margin-top: 4px;
+  font-weight: 620;
+}
+.kit-info-pop p {
+  margin: 0;
+  color: var(--text-2);
+}
+.kit-info-pop .kit-info-name {
+  padding-bottom: 4px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 560;
+}
+
 /* ---------- public/settings-kit.js: the changes a preset, a reset or a file would make ---------- */
 .kit-changes {
   display: grid;
