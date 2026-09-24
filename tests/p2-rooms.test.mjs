@@ -4,11 +4,16 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { call, fixture, on } from "./trunks-helpers.mjs";
 import { runOrigin } from "../dist/key-context.js";
 
+/** Whether a Trunk wrote room.txt: a Trunk's own turn works in its own folder under .branch-agents (isolated-agents),
+ *  so the file is looked for there as well as in the shared project. */
+const roomFileWritten = (app) => existsSync(join(app.runtime.workspace, "room.txt"))
+  || (existsSync(join(app.runtime.workspace, ".branch-agents")) && readdirSync(join(app.runtime.workspace, ".branch-agents"))
+    .some((id) => existsSync(join(app.runtime.workspace, ".branch-agents", id, "room.txt"))));
 /** Ann writes `room.txt` when the owner's message says "write"; a tool result is answered with "Done". */
 const writer = [({ system, last }) => {
   const text = String(last?.content ?? "");
@@ -35,7 +40,7 @@ test("piece 1: a Trunk's turn in an Ask first room asks, although the owner's ow
   pickConversationMode(app, r.sessionId, "ask");
   app.trunks.rooms.send(r.id, { text: "@ann write it" });
   await app.trunks.rooms.settled(r.id);
-  assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), false, "nothing written without a yes");
+  assert.equal(roomFileWritten(app), false, "nothing written without a yes");
   const waiting = app.trunks.rooms.view(r.id).waiting;
   assert.equal(waiting.length, 1);
   assert.equal(waiting[0].memberId, ann.id);
@@ -55,7 +60,7 @@ test("piece 1: a Full access room lets its Trunks act, but never past a Trunk's 
   pickConversationMode(app, r.sessionId, "full");
   app.trunks.rooms.send(r.id, { text: "@ann write it" });
   await app.trunks.rooms.settled(r.id);
-  assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), true, "the owner's Full access room did not ask");
+  assert.equal(roomFileWritten(app), true, "the owner's Full access room did not ask");
   // Ann may not run commands (a Trunk's reach starts off), so the room's Full access does not give it any.
   const shape = app.runtime.trunkShape({ sessionId: r.memberSessions[ann.id] });
   assert.equal(shape.permissions.includes("shell.execute"), false);
@@ -74,7 +79,7 @@ test("piece 1: a short-lived key's message in a Full access room is held to the 
   app.trunks.rooms.send(r.id, { text: "@ben hello" });
   underShortLivedKey(() => app.trunks.rooms.send(r.id, { text: "@ann write it" }));
   await app.trunks.rooms.settled(r.id);
-  assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), false, "the key's message did not get Full access");
+  assert.equal(roomFileWritten(app), false, "the key's message did not get Full access");
   assert.equal(app.trunks.rooms.view(r.id).waiting.length, 1, "it asks, as the owner's setting says");
 });
 
@@ -219,7 +224,7 @@ test("piece 1: after a restart the room's turns still follow the room's mode", a
     events: [{ seq: 1, kind: "user", text: "@ann write it", at: new Date().toISOString() }] });
   app.trunks.rooms.resumeAll();
   await app.trunks.rooms.settled(r.id);
-  assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), false);
+  assert.equal(roomFileWritten(app), false);
   assert.equal(app.trunks.rooms.view(r.id).waiting.length, 1);
 });
 
@@ -232,7 +237,7 @@ test("piece 1: a yes given in the room lets the Trunk carry on, rather than aski
   const [ask] = app.trunks.rooms.view(r.id).waiting;
   app.trunks.rooms.answer(r.id, { memberId: ann.id, decision: "allow", ...(ask.fingerprint ? { fingerprint: ask.fingerprint } : {}) });
   await app.trunks.rooms.settled(r.id);
-  assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), true);
+  assert.equal(roomFileWritten(app), true);
   const view = app.trunks.rooms.view(r.id);
   assert.equal(view.waiting.length, 0);
   assert.deepEqual(view.events.map((e) => e.kind), ["user", "waiting", "member"]);
@@ -410,7 +415,7 @@ test("integration review: a Trunk's side of a room follows the room's mode, even
   pickConversationMode(app, r.memberSessions[ann.id], "full");
   app.trunks.rooms.send(r.id, { text: "@ann write it" });
   await app.trunks.rooms.settled(r.id);
-  assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), false, "the room's Ask first holds");
+  assert.equal(roomFileWritten(app), false, "the room's Ask first holds");
   assert.equal(app.trunks.rooms.view(r.id).waiting.length, 1);
 });
 
