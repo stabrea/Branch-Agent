@@ -384,7 +384,7 @@ test.skip("calm: an approval question, its answers, the waiting banner and Inbox
 });
 
 // Redesign: Coming soon (lock: "Turn it off" on the Lockdown banner, and Settings › Permissions' "Turn Lockdown on"), checked
-// at 4460a085. (Lockdown itself turns on and off from the mode menu: mode-menu-lockdown.test.mjs.)
+// at ef021c57. (Lockdown itself turns on and off from the mode menu: mode-menu-lockdown.test.mjs.)
 test.skip("calm: Lockdown says so while it is on, and turns off from the banner", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#lx-more").click();

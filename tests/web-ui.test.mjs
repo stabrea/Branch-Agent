@@ -156,7 +156,7 @@ test("U1 a saved note keeps its inline formatting and still cannot carry markup"
 });
 
 // Redesign: Coming soon (inspect: "Look inside the last reply" in the conversation's More menu, chatmenu), checked at
-// 4460a085; a reply's own Look inside is not drawn.
+// ef021c57; a reply's own Look inside is not drawn.
 test.skip("U2 Look inside shows a scripted task's tool rows and saves as JSON", async (t) => {
   let asked = 0;
   const { app, page, errors } = await fixture(t, {
