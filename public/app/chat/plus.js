@@ -1,24 +1,56 @@
 /* The composer's + menu, 1:1 with the prototype's. Attach files reads the picked files in this window and sends them with
    the next message (POST /api/run attachments, within the engine's limits); Mention and Use a skill type @ or / into the box;
-   Temporary conversation starts the next conversation as one the engine never keeps (POST /api/run temporary). Folders,
-   screenshots, asking questions first and the thinking row stay greyed until the engine can do them. */
+   Temporary conversation starts the next conversation as one the engine never keeps (POST /api/run temporary); Who
+   answers in this conversation is Branch or one of the engine's Trunks (GET and POST /api/trunks/conversations/<id>),
+   drawn for an ordinary or Trunk conversation once the engine has said who answers it. Folders, screenshots and asking
+   questions first stay greyed until the engine can do them. */
 
-import { $, esc, applyCss } from "../core/dom.js";
+import { $, esc, applyCss, renderNow } from "../core/dom.js";
 import { ic, openPop, closePop, mi, toast } from "../core/ui.js";
-import { S } from "../core/state.js";
+import { S, refresh } from "../core/state.js";
+import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { plusMore } from "./media.js";
 
 const MAX_FILES = 6, MAX_BYTES = 32 * 1024 * 1024;
-const Q = { files: [], temporary: false };
+const Q = { files: [], temporary: false, who: null, whoFor: null };
 
 function menu() {
   return mi("attach", "clip", "Attach files") + mi("add-folder", "folder", "Add a folder") + mi("shot", "camera", "Take a screenshot") + "<hr>"
     + mi("insert", "at", "Mention a Trunk", "<kbd>@</kbd>", 'data-v="@"') + mi("insert", "slash", "Use a skill", "<kbd>/</kbd>", 'data-v="/"') + "<hr>"
-    + `<div class="row-in"><span>${ic("ghost", "s")} Temporary conversation</span><input class="sw" type="checkbox" id="pm-temp" data-sw="temp" ${Q.temporary ? "checked" : ""} ${S.chat ? "disabled" : ""} aria-label="Temporary conversation"></div><div class="row-in"><span>${ic("help", "s")} Ask me questions first</span><input class="sw" type="checkbox" id="pm-ask" data-sw="askqs" aria-label="Ask me questions first"></div><div class="row-in"><span>Thinking</span><span class="seg">${["Quick", "Normal", "Deep"].map((t) => `<button type="button" data-act="think" data-v="${t}" aria-pressed="false">${t}</button>`).join("")}</span></div>`
-    + "<hr>" + mi("goal-fill", "target", "Set a goal", "<kbd>/goal</kbd>") // handled in goal.js
+    + `<div class="row-in"><span>${ic("ghost", "s")} Temporary conversation</span><input class="sw" type="checkbox" id="pm-temp" data-sw="temp" ${Q.temporary ? "checked" : ""} ${S.chat ? "disabled" : ""} aria-label="Temporary conversation"></div><div class="row-in"><span>${ic("help", "s")} Ask me questions first</span><input class="sw" type="checkbox" id="pm-ask" data-sw="askqs" aria-label="Ask me questions first"></div>`
+    + whoRows() + "<hr>" + mi("goal-fill", "target", "Set a goal", "<kbd>/goal</kbd>") // handled in goal.js
     + mi("prompts-fill", "star", "Saved prompts", "<kbd>/</kbd>"); // handled in messages.js
+}
+
+/* Who answers the open conversation, as the engine said when it was opened; a room is chosen through its members instead. */
+const radio = (v, t, s, on) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${on}" data-act="who" data-v="${esc(v)}"><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(t)}</span>${s ? `<span class="mi-s">${s}</span>` : ""}</span></button>`;
+function whoRows() {
+  const w = Q.whoFor === S.chat ? Q.who : null;
+  if (!S.chat || !w || (w.kind !== "plain" && w.kind !== "trunk")) return "";
+  const now = w.trunk?.id ?? "";
+  return '<hr><div class="ph">Who answers in this conversation</div>' + radio("", "Branch", "The assistant on this computer", now === "")
+    + (w.trunks ?? []).map((t) => radio(t.id, t.name, "", now === t.id)).join("");
+}
+
+/* After the conversation is drawn: ask the engine who answers it, once per conversation. With Trunks off it has no answer. */
+export async function loadWho() {
+  const sid = S.chat ?? null;
+  if (Q.whoFor === sid) return;
+  Q.whoFor = sid;
+  Q.who = sid ? await api(`trunks/conversations/${encodeURIComponent(sid)}`).catch(() => null) : null;
+}
+
+async function chooseWho(el) {
+  const sid = S.chat;
+  closePop();
+  if (!sid) return;
+  try { Q.who = await api(`trunks/conversations/${encodeURIComponent(sid)}`, { trunkId: el.dataset.v || null }); } catch (error) { toast(error.message); return; }
+  Q.whoFor = sid;
+  await refresh().catch((error) => toast(error.message));
+  renderNow();
+  toast(`${Q.who.trunk?.name ?? "Branch"} answers in this conversation.`);
 }
 
 /* The files waiting to go with the next message, in the design's file chip; clicking one takes it off. */
@@ -77,10 +109,11 @@ function insert(text) {
 }
 
 export function initPlus() {
-  markLive(["plusmenu", "attach", "unattach", "insert", "sw:pm-temp"]);
+  markLive(["plusmenu", "attach", "unattach", "insert", "sw:pm-temp", "who"]);
   on("plusmenu", (el) => openPop(el, menu() + plusMore()));
   on("attach", () => pick());
   on("unattach", (el) => { Q.files.splice(+el.dataset.i, 1); redraw(); });
   on("insert", (el) => insert(el.dataset.v));
+  on("who", (el) => chooseWho(el));
   document.addEventListener("change", (e) => { if (e.target.id === "pm-temp") Q.temporary = e.target.checked; });
 }

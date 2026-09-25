@@ -10,7 +10,11 @@ import { markLive } from "../core/features.js";
 import { text } from "./markdown.js";
 import { chips, loadChips, initChips, startMode } from "./chips.js";
 import { drawPane, initPane } from "./pane.js";
-import { attached, takePending, initPlus } from "./plus.js";
+import { attached, takePending, initPlus, loadWho } from "./plus.js";
+import { recBar, initRec } from "./rec.js";
+import { checkpointRows, initCheckpoints } from "./checkpoints.js";
+import { selfCard, loadSelfChange, initSelfChange } from "./selfchange.js";
+import { teachBar, teachAdopt, initTeach } from "./teach.js";
 import { findBar, applyFind, initFind } from "./find.js";
 import { initToolsHub } from "./toolshub.js";
 import { initDictate } from "./dictate.js";
@@ -62,7 +66,7 @@ function askCard(q) {
 function thread() {
   let lastRole = null;
   const rows = C.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.from !== "branch").map((m) => {
-    const html = m.role === "user" ? user(m) : bot(m, lastRole !== "assistant");
+    const html = m.role === "user" ? user(m) : bot(m, lastRole !== "assistant") + checkpointRows(m, C.messages) + selfCard(m, C.messages);
     lastRole = m.role;
     return html;
   });
@@ -88,7 +92,7 @@ export const sendingPrompt = () => (C.sending && !C.sessionId ? C.prompt : null)
 
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
-  return `${narrowHead}${findBar()}${pinsBar()}${besideWrap(`<div class="scroll" id="scroll">${goalStrip(C.sessionId)}<div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
+  return `${narrowHead}${recBar()}${teachBar(C.sessionId)}${findBar()}${pinsBar()}${besideWrap(`<div class="scroll" id="scroll">${goalStrip(C.sessionId)}<div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
 }
 export function after(main) {
   /* Newest at the bottom stays in view only while the reader is at the bottom; someone reading back keeps their place. */
@@ -102,6 +106,8 @@ export function after(main) {
   applyFind();
   loadChips();
   loadGoal(C.sessionId);
+  loadWho();
+  loadSelfChange(C.sessionId, C.messages);
 }
 
 export async function openConversation(id) {
@@ -175,6 +181,7 @@ async function send(words) {
     const run = await api("run", { prompt, ...(C.sessionId ? { sessionId: C.sessionId } : {}), ...takePending(!C.sessionId), ...(C.sessionId ? {} : startMode()) });
     C.sessionId = run.sessionId;
     S.chat = run.sessionId;
+    teachAdopt(run.sessionId);
     C.messages = (await api("sessions/" + run.sessionId)).messages ?? C.messages;
     await loadWaiting();
   } catch (error) {
@@ -253,6 +260,10 @@ export function init() {
   initMessages({ state: () => C, sendText: (words) => send(words), reopen: openConversation });
   initRemember();
   initGoal();
+  initRec();
+  initCheckpoints();
+  initSelfChange();
+  initTeach({ start: startConversation });
   onRender(drawPane);
   markLive(["ask", "send", "side", "stop-run"]);
   on("stop-run", () => stopRun());
