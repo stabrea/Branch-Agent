@@ -1,8 +1,8 @@
 // Checks every control the approvals-and-modes area made live, against a running engine, through the engine's own routes.
 //   PORT=<port> TOKEN=<hex> [CERT=<cert.pem> KEY=<key.pem>] node design/redesign/tools/verify-approvals-modes.cjs
 // Without CERT and KEY only the Lockdown checks run; the save-progress checks need the setup below.
-// 1. Lockdown on (the mode menu's switch) turns the engine's Lockdown on (GET /api/lockdown); while it is on the switch is
-//    greyed and turning it off never leaves the page.
+// 1. Lockdown, both ways, confirmed each time with GET /api/lockdown: the mode menu's switch on and then off; the
+//    Overview's Lockdown button on, then the red banner it shows, whose "Turn it off" switches it off.
 // 2. The save-progress offer: a stand-in model service answers with the allowance headers of a window 98% used and holds
 //    its reply, so a task is really running near a measured limit. The offer appears from GET /api/usage/glance; Save
 //    progress sends the running task the engine's note (GET /api/runs/<id>/inspect steering, and seen arriving at the
@@ -75,23 +75,42 @@ async function signIn(page) {
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 60000 });
 }
 
-async function lockdown(page, sent) {
-  await api("lockdown", { on: false });
+const lockedNow = async () => (await api("lockdown")).on;
+async function modeSwitch(page) {
+  await page.locator('[data-act="newmenu"]').first().click();
+  await page.locator('[data-act="newconv"]').first().click();
   await page.locator('[data-act="modemenu2"]').click();
-  const sw = page.locator("#pm-lock2");
-  check(!(await sw.isChecked()) && (await sw.isEnabled()), "the Lockdown switch is off and can be turned on");
-  await sw.click();
-  check((await until("Lockdown on", async () => (await api("lockdown")).on)) === true, "Lockdown on: GET /api/lockdown says on");
-  // The menu draws itself again from the engine's answer (GET /api/conversation-mode locked).
-  const now = page.locator('#pm-lock2[disabled][aria-disabled="true"]');
-  const greyed = await now.waitFor({ timeout: 15000 }).then(() => true, () => false);
-  check(greyed && (await now.isChecked()), "while on, the switch is drawn on and greyed");
-  await now.evaluate((el) => { el.disabled = false; el.checked = false; el.dispatchEvent(new Event("change", { bubbles: true })); });
-  await pause(1500);
-  check(!sent.some((b) => /"on":false/.test(b)), "turning it off never leaves the page");
-  check((await api("lockdown")).on === true, "GET /api/lockdown still says on");
-  await page.keyboard.press("Escape");
+  return page.locator("#pm-lock2");
+}
+/* The mode menu's switch, on and then off. */
+async function lockdownSwitch(page) {
   await api("lockdown", { on: false });
+  let sw = await modeSwitch(page);
+  check(!(await sw.isChecked()) && (await sw.isEnabled()), "the mode menu's Lockdown switch is off and can be switched");
+  await sw.click();
+  check((await until("Lockdown on", lockedNow)) === true, "switch on: GET /api/lockdown says on");
+  // The menu draws itself again from the engine's answer (GET /api/conversation-mode locked).
+  sw = page.locator("#pm-lock2:checked");
+  await sw.waitFor({ timeout: 15000 });
+  check(await sw.isEnabled(), "while on, the switch is drawn on and can be switched off");
+  await sw.click();
+  check((await until("Lockdown off", async () => !(await lockedNow()))) === true, "switch off: GET /api/lockdown says off");
+  await page.keyboard.press("Escape");
+}
+/* The places' red banner: shown while Lockdown is on (#app.locked), its "Turn it off" switches it off. The Overview's
+   Lockdown button switches it on. */
+async function lockdownBanner(page) {
+  await api("lockdown", { on: false });
+  await page.locator('[data-act="view"][data-v="overview"]').first().click();
+  await page.locator('.tile [data-act="lock"]').click();
+  check((await until("Lockdown on", lockedNow)) === true, "the Overview's Lockdown button: GET /api/lockdown says on");
+  const banner = page.locator('.lock-banner [data-act="lock"]').first();
+  await banner.waitFor({ state: "visible", timeout: 15000 });
+  check(await page.locator("#app.locked").count() === 1, "while on, the window shows the Lockdown banner");
+  await banner.click();
+  check((await until("Lockdown off", async () => !(await lockedNow()))) === true, "the banner's Turn it off: GET /api/lockdown says off");
+  await page.locator(".lock-banner").first().waitFor({ state: "hidden", timeout: 15000 });
+  check(await page.locator("#app.locked").count() === 0, "the banner is gone once it is off");
 }
 
 async function saveProgressOffer(page, saves, port) {
@@ -141,15 +160,15 @@ async function notNow(page, saves, before) {
   const server = CERT && KEY ? await standIn() : null;
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1366, height: 900 }, serviceWorkers: "block" });
-  const errors = [], lockBodies = [], saves = [];
+  const errors = [], saves = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("request", (r) => {
-    if (r.url().endsWith("/api/lockdown") && r.method() === "POST") lockBodies.push(r.postData() ?? "");
     if (r.url().endsWith("/api/usage/save-progress")) saves.push(r.url());
   });
   try {
     await signIn(page);
-    await lockdown(page, lockBodies);
+    await lockdownSwitch(page);
+    await lockdownBanner(page);
     if (server) await notNow(page, saves, await saveProgressOffer(page, saves, server.address().port));
     else console.log("SKIP save-progress: needs CERT, KEY and the engine setup in this file's header");
   } catch (error) { check(false, error.message); }
