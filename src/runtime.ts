@@ -1057,6 +1057,9 @@ ${run.output.slice(0, 6000)}`;
     instructions = "",
   ): Promise<Run> {
     options = this.carryOrigin(options, parent); // mac7/outside-resume
+    // Q213 (NAS 6a6e954): every refusal of a task as it starts (the budget, the inlet filter, a busy conversation) stays
+    // above this function's first await. The approve route waits one turn for them (server.ts settleAsked), so a refusal
+    // after real waiting would be answered as "carrying on".
     // Check the monthly budget before creating the run
     if (!parent) {
       const refusal = this.monthlyBudgetRefusal();
