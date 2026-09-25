@@ -119,8 +119,21 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
   },
   "ask-before-changes": {
     label: "Ask before changes",
-    description: "Reading is free. Anything that changes a file, runs a command or acts on a web page waits for your yes.",
-    rules: [{ tool: "*", applies: "changes", decision: "ask", remember: "session" }],
+    description: "Reading on this computer is free. Anything that changes a file, runs a command or acts on a web page waits for your yes, and a new website is checked with you once.",
+    rules: [
+      { tool: "*", applies: "changes", decision: "ask", remember: "session" },
+      // Q235: the whole-app Careful preset picks this one, and a preset named Careful never lets through anything the
+      // workspace preset asks about, so it names the same tools. Looking things up and opening a website reach outside:
+      // each site is asked once.
+      { tool: "shell.execute", decision: "ask", remember: "session" },
+      { tool: "shell.session.*", decision: "ask", remember: "session" },
+      { tool: "remote.run", decision: "ask", remember: "session" },
+      { tool: "browser.click", decision: "ask", remember: "session" },
+      { tool: "browser.fill", decision: "ask", remember: "session" },
+      { tool: "browser.upload", decision: "ask", remember: "session" },
+      { tool: "browser.navigate", decision: "ask", remember: "always" },
+      { tool: "web.*", decision: "ask", remember: "always" },
+    ],
   },
   workspace: {
     label: "Just do it inside my workspace",

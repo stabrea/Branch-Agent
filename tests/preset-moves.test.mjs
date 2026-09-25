@@ -117,7 +117,7 @@ test("the approval card and the settings kit keep the owner's refusals through a
   assert.equal(card.status, 200, "the owner's own move on the card is made at once, with no extra question");
   assert.deepEqual(card.body.policy.rules, [refusal, ...presetRules("read-only")], "the card's preset keeps the refusal");
   await api("POST", "/api/policy", { preset: "workspace" });
-  const plan = { source: "set", key: "policy", field: "preset", value: "ask-before-changes" };
+  const plan = { source: "set", key: "policy", field: "preset", value: "off" };
   const preview = (await api("POST", "/api/settings-kit/preview", plan)).body;
   assert.equal(preview.changes.find((change) => change.id === "policy.preset")?.loosens, true, "looking things up on the web stops asking");
   const unticked = await api("POST", "/api/settings-kit/apply", { plan, accept: ["policy.preset"], confirmLoosening: false });
@@ -125,7 +125,7 @@ test("the approval card and the settings kit keep the owner's refusals through a
   assert.equal(policy().preset, "workspace");
   const made = await api("POST", "/api/settings-kit/apply", { plan, accept: ["policy.preset"], confirmLoosening: true });
   assert.equal(made.status, 200);
-  assert.deepEqual(policy().rules, [refusal, ...presetRules("ask-before-changes")], "the kit's writer keeps it too");
+  assert.deepEqual(policy().rules, [refusal, ...presetRules("off")], "the kit's writer keeps it too");
 });
 
 test("near the most rules a policy holds, a preset's own lines are never cut", async (t) => {
@@ -207,28 +207,25 @@ test("moving from the workspace preset to Read only is less careful: settings.ch
   assert.equal(policy().preset, "read-only");
 });
 
-test("moving from the workspace preset to Ask before changes is less careful too: looking things up on the web stops asking", async (t) => {
-  const { app, owner, as, policy, move } = await fixture(t);
+test("a preset named Careful never makes anything less careful: Ask before changes still asks before looking things up (Q235)", async (t) => {
+  const { app, owner, move, answer } = await fixture(t);
   savePolicy(app.store, owner, { preset: "workspace" });
-  assert.equal(move("ask-before-changes").changes[0].loosens, true);
+  assert.equal(move("ask-before-changes").changes[0].loosens, false, "from the workspace preset nothing gets looser");
   const careful = changesFor(app.store, owner, presets.find((preset) => preset.id === "careful").sets, app.registry).changes;
-  assert.equal(careful.find((change) => change.id === "policy.preset")?.loosens, true, "the whole-app Careful preset marks it too");
-  // In the train with dogfood A1: the catalogue sees this move as possibly looser, so its one question is asked every
-  // time (settingsHold once-only), and that yes is what lets settings.change make it. The question says what loosens.
-  const input = presetChange("ask-before-changes");
-  const check = app.runtime.checkPolicy("settings.change", input, as());
-  assert.equal(check.onceOnly, true, "asked every time");
-  assert.match(check.label, /look things up/i, "and the question says what would stop asking");
-  assert.equal(policy().preset, "workspace", "nothing changed before the yes");
+  assert.equal(careful.find((change) => change.id === "policy.preset")?.loosens, false, "so the whole-app Careful preset loosens nothing");
+  savePolicy(app.store, owner, { preset: "ask-before-changes" });
+  assert.equal(answer("web.fetch"), "ask", "looking something up on the web is asked about");
+  assert.equal(answer("browser.navigate"), "ask", "and so is opening a website");
 });
 
-test("moving from Ask before changes to Read only only tightens, so it is an ordinary change", async (t) => {
+test("moving from the workspace preset to Ask before changes only tightens, so it is an ordinary change (Q235)", async (t) => {
   const { app, owner, as, policy, move, run } = await fixture(t);
-  savePolicy(app.store, owner, { preset: "ask-before-changes" });
-  assert.equal(move("read-only").changes[0].loosens, false);
-  assert.ok(!app.runtime.checkPolicy("settings.change", presetChange("read-only"), as()).onceOnly, "the ordinary question");
-  assert.equal((await run("settings.change", presetChange("read-only"))).changed.length, 1);
-  assert.equal(policy().preset, "read-only");
+  savePolicy(app.store, owner, { preset: "workspace" });
+  assert.equal(move("ask-before-changes").changes[0].loosens, false);
+  // The catalogue alone still marks this move as one that may loosen (dogfood A1's settingsHold), so its question is the
+  // once-only one; weighed on the tools it only tightens, so settings.change makes it after that yes.
+  assert.equal((await run("settings.change", presetChange("ask-before-changes"))).changed.length, 1);
+  assert.equal(policy().preset, "ask-before-changes");
 });
 
 test("a move is weighed by what the owner's own rules answer, not by the preset's place in the list", async (t) => {
@@ -250,17 +247,14 @@ test("a move is weighed by what the owner's own rules answer, not by the preset'
 
 test("work started from outside, and a conversation on Full access, are weighed too, even when the owner's own answers stay", async (t) => {
   const { app, owner, move } = await fixture(t);
-  // A yes for one website hides a question about that site that only work from outside (a trigger, a schedule,
-  // a chat app) is still held to.
+  // Q235: work from outside (a trigger, a schedule, a chat app) is held to Ask before changes, which now asks about
+  // each website, so a move that drops the owner's own question about a site never lets outside work through it.
   savePolicy(app.store, owner, { rules: [{ tool: "web.fetch", match: "example.com", decision: "allow" }, { tool: "web.fetch", match: "example.com", decision: "ask" }] });
-  const [site] = move("ask-before-changes").changes;
-  assert.equal(site.loosens, true);
-  assert.match(site.looser ?? "", /look things up without asking for work started from outside/);
-  // The same with a yes for every website.
+  const [site] = move("off").changes;
+  assert.doesNotMatch(site.looser ?? "", /for work started from outside/, "outside work still asks about the site");
   savePolicy(app.store, owner, { rules: [{ tool: "web.*", decision: "allow" }, { tool: "web.*", decision: "ask" }] });
-  const [outside] = move("ask-before-changes").changes;
-  assert.equal(outside.loosens, true);
-  assert.match(outside.looser ?? "", /look things up without asking for work started from outside/);
+  const [outside] = move("off").changes;
+  assert.doesNotMatch(outside.looser ?? "", /for work started from outside/, "and about every site");
   // Full access keeps only the owner's own rules, so their own question ends with the move even where the new preset asks the same.
   savePolicy(app.store, owner, { rules: [{ tool: "web.search", decision: "ask" }] });
   const [full] = move("workspace").changes;
@@ -270,7 +264,7 @@ test("work started from outside, and a conversation on Full access, are weighed 
 
 test("undoing a less careful move, with a refusal added since, is refused in words that name what would loosen, and the refusal stays", async (t) => {
   const { app, owner, policy, answer, standing, run } = await fixture(t);
-  savePolicy(app.store, owner, { preset: "ask-before-changes" });
+  savePolicy(app.store, owner, { preset: "read-only" });
   await run("settings.loosen", presetChange("workspace"));
   const record = settingsHistory(app.store, owner)
     .find((entry) => entry.source === "talk" && entry.changes.some((change) => change.setting === "policy.preset"));
@@ -287,7 +281,7 @@ test("undoing a less careful move, with a refusal added since, is refused in wor
   const undo = (body) => settingsKitApi(deps, "POST", "/api/settings-kit/undo", async () => body);
   await assert.rejects(undo({ record: record.id }), /less careful/);
   await undo({ record: record.id, confirmLoosening: true });
-  assert.equal(policy().preset, "ask-before-changes");
+  assert.equal(policy().preset, "read-only");
   assert.equal(answer("web.fetch"), "deny");
 });
 
