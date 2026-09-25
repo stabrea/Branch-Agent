@@ -551,6 +551,22 @@ test("F6 a new version with the owner's to-dos waiting still started cleanly, an
     "a question waiting and an interrupted schedule are not a broken start");
 });
 
+// NAS e2ff08b: no test ran a really broken start through the first-start record. A workspace Branch cannot write to
+// fails the program's own check, so that start is recorded as unclean and the way back is offered.
+test("F6 a start whose own checks fail is recorded as unclean", { skip: process.platform === "win32" ? "POSIX file modes" : false }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
+  const dataDir = join(root, "data");
+  const app = await branchIn(t, root);
+  await mkdir(dataDir, { recursive: true });
+  await recordFirstStart(dataDir, "0.0.1-before", true);
+  const { chmod } = await import("node:fs/promises");
+  await chmod(app.runtime.workspace, 0o500);
+  const server = await startServer(app, { dataDir, port: 0, presence: "app" });
+  t.after(async () => { await chmod(app.runtime.workspace, 0o700); await server.close(); await app.close(); await discardTemp(root); });
+  const check = await readFirstStart(dataDir);
+  assert.deepEqual([check.version, check.previousVersion, check.healthy], [app.version, "0.0.1-before", false], "a start that cannot write its workspace is not clean");
+});
+
 test("F6 a start is unclean only when the program's own checks fail", () => {
   const report = (failing) => ({ ok: false, checkedAt: new Date().toISOString(), items: ["Saved data", "Workspace folder", "Device key", "Models", "ChatGPT account", "Models on this computer", "Channels", "Schedules", "Tasks waiting for you"].map((name) => ({ name, ok: name !== failing, summary: "" })) });
   for (const name of ["Saved data", "Workspace folder", "Device key", "Models", "ChatGPT account"])
