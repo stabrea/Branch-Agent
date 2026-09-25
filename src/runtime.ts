@@ -2488,8 +2488,8 @@ ${run.output.slice(0, 6000)}`;
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
               // integrate/empty-completion: only within the reply's room and a bounded window.
-              onReasoningDelta: thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
-                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }), this.firstReplyWait(run, preset, firstCapMs))
+              onReasoningDelta: this.thinkingShown(run, thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
+                forMs: this.reliability.modelStallMs * thinkingStallWindows })) }), this.firstReplyWait(run, preset, firstCapMs))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -2543,6 +2543,23 @@ ${run.output.slice(0, 6000)}`;
     return { firstMs, ...(capMs === undefined ? {} : { capMs }), quiet: { afterMs: Math.min(localQuietMs, this.reliability.modelStallMs), notify: () =>
       this.store.event(run.id, "model.loading", { preset: preset.id, model: preset.model, waitSeconds: Math.round(firstMs / 1000),
         message: "Waiting for the model on this computer to start. It may be loading into memory." }) } };
+  }
+  /**
+   * Dogfood B1 ("no thought process shown while it works"): with "show reasoning" on (its default), the thinking a
+   * model writes is shown on the live row as it comes: the newest part of it, at most once a second and at most 60
+   * times in one model call, so a long think never floods the record. With it off, it is only heard, as before.
+   */
+  private thinkingShown(run: Run, heard: (text: string) => void): (text: string) => void {
+    if (!knobs.showsReasoning(this.store, this.owner)) return heard;
+    let text = "", last = 0, shown = 0;
+    return (delta) => {
+      heard(delta);
+      text = (text + delta).slice(-600);
+      const now = Date.now();
+      if (shown >= 60 || now - last < 1000) return;
+      last = now; shown += 1;
+      this.store.event(run.id, "model.thinking", { text: this.hideSecrets(text.trim().slice(-300)) });
+    };
   }
   /** R17-S12: with "show reasoning" off, no caller (task, side question, debate turn) gets the thinking. */
   private shownThinking(completion: Completion): Completion {
