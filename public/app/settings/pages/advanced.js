@@ -4,7 +4,7 @@ import { level, E } from "../../core/state.js";
 import { token } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
-import { toast } from "../../core/ui.js";
+import { toast, openDlg } from "../../core/ui.js";
 
 export function draw() {
   const lv = level();
@@ -90,10 +90,12 @@ async function openLogs() {
     const key = token.get();
     const response = await fetch("/api/logs", { cache: "no-store", headers: key ? { authorization: "Bearer " + key } : {} });
     if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || String(response.status));
-    const url = URL.createObjectURL(new Blob([await response.text()], { type: "text/plain" }));
-    window.open(url, "_blank");
+    const text = await response.text();
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     setTimeout(() => URL.revokeObjectURL(url), 60000);
-    toast("Logs open in a new window.");
+    /* The desktop app refuses new windows (src/desktop/main.ts), so there the same lines open in a dialog instead. */
+    if (window.open(url, "_blank")) toast("Logs open in a new window.");
+    else openDlg({ title: "Open logs", wide: true, body: `<pre class="code6" data-css="white-space:pre-wrap;margin:0;max-height:60vh;overflow:auto">${esc(text)}</pre>`, foot: '<button class="btn" type="button" data-act="dlg-close">Close</button>' });
   } catch (error) { toast(error.message); }
 }
 

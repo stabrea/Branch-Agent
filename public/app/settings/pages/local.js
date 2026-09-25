@@ -15,7 +15,8 @@ export const L = { data: null, catalog: null };
 /* Which size of each offer is chosen (window state): offer id → quant. */
 const chosen = {};
 
-export const gb = (bytes) => (bytes ? `${(bytes / 1e9).toFixed(1)} GB` : "");
+/* Counted the way the engine counts in its own sentences ("31.4 GB memory"): 1024³ bytes to a GB. */
+export const gb = (bytes) => (bytes ? `${(bytes / 2 ** 30).toFixed(1)} GB` : "");
 export const DOWNLOAD_ICON = '<svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>';
 
 export async function loadLocal() {

@@ -11,8 +11,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
 
+/* DATA_DIR is optional: with it, the gateway's suggested change is written there (the assistant's gateway.propose tool
+   would need a model run) so "Use it" and "Discard" can be tried; without it those two are skipped. */
 const PORT = process.env.PORT, TOKEN = process.env.TOKEN, DATA_DIR = process.env.DATA_DIR;
-if (!PORT || !TOKEN || !DATA_DIR) { console.error("Set PORT, TOKEN and DATA_DIR."); process.exit(2); }
+if (!PORT || !TOKEN) { console.error("Set PORT and TOKEN (and DATA_DIR for the gateway's suggestion)."); process.exit(2); }
 const BASE = `http://127.0.0.1:${PORT}`;
 const results = [];
 const check = (name, ok, detail = "") => { results.push({ name, ok: Boolean(ok), detail }); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  (" + detail + ")" : ""}`); };
@@ -27,7 +29,11 @@ async function api(p, body) {
 
 /* ---------- stand-ins ---------- */
 function listen(port, handler) {
-  return new Promise((resolve, reject) => { const s = http.createServer(handler); s.once("error", reject); s.listen(port, "127.0.0.1", () => resolve(s)); });
+  return new Promise((resolve, reject) => {
+    const s = http.createServer(handler);
+    s.once("error", (e) => reject(new Error(e.code === "EADDRINUSE" ? `port ${port} is in use (is ${port === 11434 ? "Ollama" : "a proxy"} running?); stop it and run again` : e.message)));
+    s.listen(port, "127.0.0.1", () => resolve(s));
+  });
 }
 const readBody = (req) => new Promise((done) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => { try { done(JSON.parse(b || "{}")); } catch { done({}); } }); });
 const json = (res, data) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(data)); };
@@ -66,7 +72,8 @@ const ollama = () => listen(11434, async (req, res) => {
 
 /* ---------- the window ---------- */
 async function main() {
-  const servers = [await proxy(), await ollama()];
+  let servers;
+  try { servers = [await proxy(), await ollama()]; } catch (e) { console.error(e.message); process.exit(2); }
   const browser = await chromium.launch();
   const page = await (await browser.newContext()).newPage();
   const errors = [];
@@ -231,7 +238,7 @@ async function modelsPage(page) {
   await page.waitForTimeout(1500);
   let d = (await api("local-models/downloads")).downloads.find((x) => x.model === slow.model);
   const shown = await page.locator("#dl-t").textContent();
-  check("dl-go: the engine is downloading and the dialog shows its progress", d && !d.done && shown === `${Math.round(d.percent)}% downloaded` || (d && shown.endsWith("% downloaded")), `${d?.status} ${d?.percent}% / "${shown}"`);
+  check("dl-go: the engine is downloading and the dialog shows its progress", Boolean(d) && !d.done && /^\d+% downloaded$/.test(shown), `${d?.status} ${d?.percent}% / "${shown}"`);
   await click(page, '[data-act="lm-stop"]');
   await page.waitForTimeout(1200);
   d = (await api("local-models/downloads")).downloads.find((x) => x.model === slow.model);
@@ -256,7 +263,7 @@ async function localPage(page) {
   const pill = (await card.locator(".pill").textContent()).trim();
   const install = (await card.locator('[data-act="lm-get"]').textContent()).trim();
   const tip = await card.locator(".pill").getAttribute("data-tip");
-  check("lm-v: the card shows that size's fit and download from the engine", pill === other.note.split(":")[0] && tip === other.note && install.endsWith(`${(other.downloadBytes / 1e9).toFixed(1)} GB`), `${pill} / ${install}`);
+  check("lm-v: the card shows that size's fit and download from the engine", pill === other.note.split(":")[0] && tip === other.note && install.endsWith(`${(other.downloadBytes / 2 ** 30).toFixed(1)} GB`), `${pill} / ${install}`);
   const loaded = data.oneClick.loaded[0]?.name;
   const removable = data.ollama.models.find((m) => m.name !== loaded)?.name;
   await click(page, `[data-act="lm-rm"][data-id="${removable}"]`);
@@ -316,6 +323,7 @@ async function usagePage(page) {
 }
 
 async function gatewayPage(page) {
+  if (!DATA_DIR) { console.log("SKIP  gw-prop (needs DATA_DIR)"); return; }
   const proposal = (hold) => fs.writeFileSync(path.join(DATA_DIR, "gateway.proposed.json"), JSON.stringify({ config: { mode: "off", startSeconds: 90, holdSeconds: hold, maxQuickCrashes: 4, gapSeconds: 300, watchSeconds: 300, workerEnv: {} }, why: "Written by the verify script.", proposedAt: new Date().toISOString(), check: { ok: true, detail: "started" } }));
   proposal(31);
   await openPage(page, "gateway");

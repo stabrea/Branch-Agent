@@ -114,7 +114,8 @@ export function init() {
     renderNow();
   });
 
-  /* The status bar's update menu: close it and open Settings › Updates & about (navigation only). */
+  /* The status bar's update menu: close it and open Settings › Updates & about (navigation only). The menu is drawn
+     by the shell (shell/usage.js), which marks the item live when it draws it. */
   on("updmenu-go", () => {
     closePop();
     S.view = "settings";
@@ -151,7 +152,7 @@ export function init() {
   for (const page of Object.values(PAGES)) {
     live.push(...(page.live ? Object.keys(page.live) : []));
   }
-  markLive(["setpage", "setgo", "setlevel", "updmenu-go", ...live]);
+  markLive(["setpage", "setgo", "setlevel", ...live]);
 }
 
 export function after(main) {
