@@ -7,7 +7,8 @@
    running task to write down where it is (POST /api/usage/save-progress), Not now dismisses it. Each window is offered once. */
 
 import { esc } from "../core/dom.js";
-import { openPop, mi, toast, app } from "../core/ui.js";
+import { openPop, mi, toast, app, ic } from "../core/ui.js";
+import { ACT } from "./activity.js";
 import { E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
@@ -96,8 +97,20 @@ async function saveProgress() {
   } catch (error) { toast(error.message); }
 }
 
+/* "Running in the background": each task the engine lists, named by its Trunk or conversation, with the engine's own
+   words for what it is doing; a spinner while it works, a clock while it waits. */
+function tasksPop() {
+  const rows = ACT.list.map((a) => {
+    const s = E.sessions.find((x) => (x.sessionId ?? x.id) === a.sessionId), t = E.trunks.find((x) => x.id === s?.trunkId || (x.chatSessionId && x.chatSessionId === a.sessionId));
+    const on = (a.task?.state ?? "working") === "working", said = a.current || a.working || String(a.prompt ?? "").split("\n")[0];
+    return `<div class="mi" role="menuitem"><span class="ico">${ic(on ? "spin" : "clock", on ? "s spin" : "s")}</span><span><span class="mi-t">${esc(t?.name || s?.opening || s?.title || "")}</span><span class="mi-s">${esc(said)}</span></span></div>`;
+  }).join("");
+  return `<div class="ph">Running in the background</div>${rows}<hr>${mi("bg-new", "plus", "Start something in the background", "<kbd>/bg</kbd>")}`;
+}
+
 export function initUsage() {
-  markLive(["usagepop", "updmenu", "ckpt-save", "ckpt-no"]);
+  markLive(["usagepop", "updmenu", "ckpt-save", "ckpt-no", "tasks10"]);
+  on("tasks10", (el) => openPop(el, tasksPop()));
   on("ckpt-save", saveProgress);
   on("ckpt-no", () => document.querySelector(".ckpt-q")?.remove());
   checkLimits();
