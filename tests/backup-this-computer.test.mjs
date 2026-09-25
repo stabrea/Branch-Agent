@@ -30,7 +30,7 @@ const keys = [...thisComputerSettings, "devices-book", "remote-agent:helper"];
 
 test("the list is what Q168 A names, and devices-book stays too (named once, with the #186 fix's sign-ins)", () => {
   assert.deepEqual([...thisComputerSettings].sort(), ["comfort-update-failed", "folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode",
-    "keychain-entries", "listen-address", "os-sandbox", "reach-machine-name", "reach-relay-seen", "reach-relay-settings", "reach-remote-trunks-keys",
+    "keychain-entries", "listen-address", "lockdown", "os-sandbox", "reach-machine-name", "reach-relay-seen", "reach-relay-settings", "reach-remote-trunks-keys",
     "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup", "safety-emergency-stop", "secret-commands"]);
   assert.equal(staysOnThisComputer("devices-book"), true);
   assert.equal(thisComputerSettings.includes("devices-book"), false, "one list names it, not two");
@@ -113,7 +113,7 @@ test("an emergency stop pressed here stays pressed through a replacing restore; 
 // it has already taken) are about this computer: never in a backup, never planted, and kept by a replace.
 test("where this computer listens, its name, and its place at a relay stay on it (NAS 2db8099)", async (t) => {
   const { app, owner, setting } = await fixture(t);
-  const here = ["listen-address", "reach-machine-name", "reach-relay-settings", "reach-relay-seen"];
+  const here = ["listen-address", "reach-machine-name", "reach-relay-settings", "reach-relay-seen", "lockdown", "safety-wasm-add-on:tidy"];
   for (const key of here) app.store.save("settings", owner, key, { mine: key });
   const archive = app.store.backup(app.version);
   for (const key of here) assert.ok(!archive.tables.settings.some((row) => row.id === key), `${key} is not in the backup`);
@@ -121,4 +121,19 @@ test("where this computer listens, its name, and its place at a relay stay on it
   for (const key of here) archive.tables.settings.push({ id: key, owner, data: JSON.stringify({ planted: key }), created_at: now, updated_at: now });
   await restoreBackup(app, async () => archive, true);
   for (const key of here) assert.deepEqual(setting(key), { mine: key }, `${key}: this computer's own stays`);
+});
+
+// NAS 23e7382: a file's `lockdown` carried a `before` of its own ({policy: off, desktop-control: on}); "Lockdown off"
+// wrote it back as it was, so held rows went into place with nobody asked. Lockdown now stays on this computer.
+test("a file's Lockdown never replaces this computer's, so turning it off puts back only this computer's own values", async (t) => {
+  const { app, owner, setting } = await fixture(t);
+  app.store.save("settings", owner, "policy", { preset: "ask-before-changes", rules: [] });
+  const archive = app.store.backup(app.version);
+  const now = new Date().toISOString();
+  archive.tables.settings.push({ id: "lockdown", owner, created_at: now, updated_at: now,
+    data: JSON.stringify({ on: true, since: now, before: { policy: { preset: "off" }, "desktop-control": { enabled: true } } }) });
+  await restoreBackup(app, async () => archive, true);
+  assert.notEqual(setting("lockdown")?.on, true, "the file's Lockdown is not in place");
+  assert.deepEqual(setting("policy"), { preset: "ask-before-changes", rules: [] }, "and nothing it carried can be written back");
+  assert.equal(setting("desktop-control"), undefined);
 });

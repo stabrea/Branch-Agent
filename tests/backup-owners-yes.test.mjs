@@ -171,7 +171,7 @@ test("an automatic job in a backup waits for the owner's yes; this computer's ow
 // NAS 2db8099: catalogue ids on neither list still travelled and were put in place. The guards and what reaches
 // further now wait for the owner's yes, and this computer's own stays; what is about this computer stays here.
 const guardsAndReach = ["desktop-control", "approval_reviewer", "loop_guard", "security-check", ...safetyParts.map(safetyKey),
-  ...reachParts.map(reachKey), "reach-relay-chats", "reach-usb-rules", "reach-agent-git-sources"];
+  ...reachParts.map(reachKey), "reach-relay-chats", "reach-usb-rules", "reach-agent-git-sources", "reach-platform-settings"];
 test("the guards and what reaches further wait for the owner's yes; the two safety rows about this computer stay (NAS 2db8099)", async (t) => {
   for (const id of ["safety-emergency-stop", "safety-code-approvals-setup"]) assert.equal(heldForTheOwner(id), false, `${id} stays, it is not held`);
   for (const id of guardsAndReach) assert.equal(staysOnThisComputer(id), false, `${id} is on one list only`);

@@ -99,7 +99,12 @@ export const thisComputerSettings: readonly string[] = [
   // this computer's name among the others, and its place at a chat relay: its id there, and the envelopes it has
   // already taken, whose older list would let one be taken twice.
   "listen-address", "reach-machine-name", "reach-relay-settings", "reach-relay-seen",
+  // NAS 23e7382: Lockdown, like the stop. Its `before` holds this computer's own values, which "Lockdown off" writes
+  // back as they are, so a file's copy would put held rows in place with nobody asked, or release a pressed Lockdown.
+  "lockdown",
 ];
+/** NAS 23e7382: one row per add-on file on this disk, its fingerprint (src/safety-extras/wasm-add-ons.ts). */
+const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:"];
 /** The restore's own list of rows waiting for the owner's yes (src/restore-held.ts): about this computer, so it stays too. */
 export const restoreHeldKey = "restore-held";
 /**
@@ -107,7 +112,7 @@ export const restoreHeldKey = "restore-held";
  * restore. One test for all three, so what a backup leaves out and what a replace keeps can never drift apart.
  */
 export const staysOnThisComputer = (id: string): boolean =>
-  signInSettings.includes(id) || thisComputerSettings.includes(id) || signInPrefixes.some((start) => id.startsWith(start))
+  signInSettings.includes(id) || thisComputerSettings.includes(id) || [...signInPrefixes, ...thisComputerPrefixes].some((start) => id.startsWith(start))
   || id === restoreHeldKey;
 /**
  * The owner's own preferences that say where their words go or who gets in (Q168 B): the model accounts and
@@ -127,7 +132,9 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   // one off. What reaches further than this computer, or acts by itself: the screen and keyboard, each reach part's
   // switch, the chats a relay may bring, the USB rules that start a task, and the git sources the assistant shares to.
   "desktop-control", "approval_reviewer", "loop_guard", "security-check", ...safetyParts.map(safetyKey), ...reachParts.map(reachKey),
-  "reach-relay-chats", "reach-usb-rules", "reach-agent-git-sources"];
+  "reach-relay-chats", "reach-usb-rules", "reach-agent-git-sources",
+  // NAS 23e7382: which chat accounts count as the owner for `/platform`, read before the sender list is.
+  "reach-platform-settings"];
 /** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
 const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:"];
 export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start));
