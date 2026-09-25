@@ -406,24 +406,41 @@ export function standingRule(rule: PolicyRule): PolicyRule {
 }
 /**
  * At the most rules a policy holds, the oldest rule of the owner's own makes room for the newest
- * answer, in front: never a line of the preset, and never the answer just given.
+ * answer, in front: never a line of the preset, and never the answer just given. Q212: a rule that is
+ * not a refusal goes first. A standing yes or question never pushes out one of the owner's refusals, so
+ * when only refusals are left it is not kept (`dropped` null); a new refusal may take the oldest one's place.
  */
-function withRoom(rules: PolicyRule[], preset: PolicyPresetName): PolicyRule[] {
-  if (rules.length <= maximumPolicyRules) return rules;
+function withRoom(rules: PolicyRule[], preset: PolicyPresetName): { rules: PolicyRule[]; dropped: PolicyRule | undefined } | null {
+  if (rules.length <= maximumPolicyRules) return { rules, dropped: undefined };
   const lines = new Set(presetRules(preset).map(ruleKey));
-  const oldest = rules.findLastIndex((rule, at) => at > 0 && !lines.has(ruleKey(rule)));
-  return oldest < 0 ? rules.slice(0, maximumPolicyRules) : rules.filter((_rule, at) => at !== oldest);
+  const own = (rule: PolicyRule, at: number): boolean => at > 0 && !lines.has(ruleKey(rule));
+  let oldest = rules.findLastIndex((rule, at) => own(rule, at) && rule.decision !== "deny");
+  if (oldest < 0 && rules[0]!.decision === "deny") oldest = rules.findLastIndex(own);
+  if (oldest < 0) return null;
+  return { rules: rules.filter((_rule, at) => at !== oldest), dropped: rules[oldest] };
 }
 /** Records a standing answer as a rule in front of the others, so it beats the broader ones. */
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {
   const current = readPolicy(store, owner);
   const added = standingRule(PolicyRuleSchema.parse(rule));
-  const next: Policy = { ...current, rules: withRoom([added, ...current.rules], current.preset) };
+  const room = withRoom([added, ...current.rules], current.preset);
+  const subject = `${added.tool} on ${added.match}`;
+  if (!room) {
+    // Q212: the answer still counts for the question it was given to; it is only not remembered.
+    audit(store, owner, {
+      action: "policy.changed", actor: owner, subject, outcome: "not kept",
+      reason: `A standing "${added.decision}" was not remembered: the approval rules are full (${maximumPolicyRules}), and making room would drop one of your refusals. Remove some rules to keep more answers.`,
+    });
+    return current;
+  }
+  const next: Policy = { ...current, rules: room.rules };
   store.save("settings", owner, policyKey, next);
   audit(store, owner, {
-    action: "policy.changed", actor: owner, subject: `${added.tool} on ${added.match}`,
+    action: "policy.changed", actor: owner, subject,
     reason: `A standing "${added.decision}" was remembered from a question you answered`
-      + (added.resource ? `, for the command ${added.resource.pattern}` : ""), outcome: "saved",
+      + (added.resource ? `, for the command ${added.resource.pattern}` : "")
+      + (room.dropped ? `. The rules were full, so your oldest rule (${room.dropped.decision} ${room.dropped.tool} on ${room.dropped.match}) made room` : ""),
+    outcome: "saved",
   });
   return next;
 }

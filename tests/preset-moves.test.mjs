@@ -146,12 +146,23 @@ test("near the most rules a policy holds, a preset's own lines are never cut", a
   assert.deepEqual(policy().rules.slice(-lines.length), lines);
   assert.ok(!policy().rules.some((rule) => rule.tool === `helper.t${kept.length - 1}`), "the oldest of the owner's rules made room");
   assert.ok(policy().rules.some((rule) => rule.tool === `helper.t${kept.length - 2}`));
-  // Read only's one refusal of every change is never the one cut.
+  // Read only's one refusal of every change is never the one cut. Q212: nor is one of the owner's refusals, for a
+  // standing yes: with only refusals left, the yes is not remembered, and the audit says why.
   store("read-only", [...ownRefusals(299, "other"), ...presetRules("read-only")]);
+  const full = policy().rules;
+  standing("other.newest", "allow");
+  assert.deepEqual(policy().rules, full, "a standing yes pushes out none of the owner's refusals");
+  assert.equal(evaluatePolicy(policy(), { tool: "files.write", target: "a.txt", readOnly: false }).decision, "deny");
+  assert.equal(evaluatePolicy(policy(), { tool: `other.t${298}`, target: "x", readOnly: false }).decision, "deny", "the oldest refusal stays");
+  assert.match(app.store.audit.list(owner, { limit: 5 }).map((entry) => `${entry.outcome}: ${entry.reason}`).join("\n"), /not kept: .*full \(300\).*drop one of your refusals/);
+  // With one of the owner's own yeses among them, that yes makes room instead, and the audit names it.
+  store("read-only", [...ownRefusals(298, "other"), { tool: "other.yes", match: "*", applies: "any", decision: "allow", remember: "always" }, ...presetRules("read-only")]);
   standing("other.newest", "allow");
   assert.equal(policy().rules.length, 300);
-  assert.deepEqual(policy().rules.at(-1), presetRules("read-only")[0]);
-  assert.equal(evaluatePolicy(policy(), { tool: "files.write", target: "a.txt", readOnly: false }).decision, "deny");
+  assert.equal(policy().rules[0].tool, "other.newest");
+  assert.ok(!policy().rules.some((rule) => rule.tool === "other.yes"), "the owner's yes made room");
+  assert.equal(policy().rules.filter((rule) => rule.tool.startsWith("other.t")).length, 298, "every refusal stays");
+  assert.match(app.store.audit.list(owner, { limit: 5 }).map((entry) => entry.reason).join("\n"), /made room/);
   // A move whose kept refusals and own lines would not fit is refused in plain words, and nothing changes.
   store("off", ownRefusals(295, "more"));
   assert.throws(() => savePolicy(app.store, owner, { preset: "workspace" }), /more than the 300/);
