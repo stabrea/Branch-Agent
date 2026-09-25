@@ -488,6 +488,7 @@ async function staticFile(
     // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
     "/heartbeat.js": ["heartbeat.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
+    "/same-card.js": ["same-card.js", "text/javascript; charset=utf-8"],
     "/mcp-workbench.js": ["mcp-workbench.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
