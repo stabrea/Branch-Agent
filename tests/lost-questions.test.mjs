@@ -157,3 +157,26 @@ test("F8 follow-up: a key stops only its own waiting task, a stop drops only tha
   assert.deepEqual((await stop(other.id)).body, { cancelled: true }, "the owner stops it");
   assert.deepEqual(app.runtime.approvals.waiting(live.sessionId).map((question) => question.runId), [live.id], "only its own question went");
 });
+
+// Q229 (NAS d157ab3): "Stop it" on a task waiting for its plan's yes stops the plan too, so the owner's next "ok" in
+// that conversation is an ordinary message and never starts the plan they stopped.
+test("F8 follow-up 2: stopping a task that waits on its plan stops the plan, and a later ok starts nothing", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-lost-questions-"));
+  t.after(() => discardTemp(root));
+  const app = await open(root);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); });
+  // What the conductor leaves when a plan waits for the owner (src/orchestration.ts start()).
+  const run = app.store.createRun(app.runtime.owner, "plan my move");
+  app.runtime.orchestration.savePlan({ runId: run.id, sessionId: run.sessionId, prompt: "plan my move",
+    steps: [{ title: "Write the packing list", changes: true }], current: 0, approved: false, createdAt: new Date().toISOString(),
+    decision: "waiting", clearedThrough: -1 });
+  app.store.event(run.id, "plan.awaiting_approval", { steps: ["Write the packing list"] });
+  app.store.finish(run.id, "needs_input", "Here is the plan. Shall I go ahead?");
+  const stopped = await fetch(`${server.url}/api/runs/${run.id}/cancel`, { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: "{}" }).then((r) => r.json());
+  assert.deepEqual(stopped, { cancelled: true });
+  assert.equal(app.runtime.orchestration.plan(run.sessionId), undefined, "the stopped plan is gone");
+  const later = await app.runtime.run({ prompt: "ok, thanks", sessionId: run.sessionId });
+  assert.equal(app.store.events(later.id).filter((event) => event.kind.startsWith("plan.")).length, 0, "an ok starts no plan");
+});

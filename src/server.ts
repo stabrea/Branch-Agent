@@ -1523,6 +1523,9 @@ async function api(
       if (run.status !== "needs_input" && run.status !== "interrupted") return { cancelled: false };
       // Q222: by the task, so a question with no fingerprint never takes another task's question with it.
       app.runtime.approvals.dropFor(run.sessionId, run.id);
+      // Q229 (NAS d157ab3): a plan waiting for the owner's yes, or stopped at a check-back, goes with its task, so a
+      // later "ok" in the conversation never starts a plan the owner stopped.
+      if (app.runtime.orchestration.plan(run.sessionId)?.runId === run.id) app.runtime.orchestration.clearPlan(run.sessionId);
       app.store.finish(run.id, "cancelled", run.output);
       return { cancelled: true };
     }
