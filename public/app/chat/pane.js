@@ -1,6 +1,7 @@
 /* The side panel beside a conversation (design doc 4.6), 1:1 with the prototype's: Activity (each tool the task used, from
    the conversation's own messages), Plan (GET /api/runs/<id>/plan), Files (what each task changed, from its run) and
-   Memory. Browser and Terminal keep their tabs, greyed, until the engine can show them. */
+   Memory, and Terminal (each command the tasks ran, from GET /api/panels/work: terminal.js). Browser opens the full-size
+   view of the browser (stage.js), as the prototype's panel hands 'browser' to the stage. */
 
 import { $, esc, applyCss } from "../core/dom.js";
 import { ic } from "../core/ui.js";
@@ -9,9 +10,11 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
 import { sendingPrompt } from "./chat.js";
+import { initStage } from "./stage.js";
+import { terminalBody, loadWork } from "./terminal.js";
 
 const TABS = [["activity", "Activity"], ["plan", "Plan"], ["files", "Files"], ["memory", "Memory"], ["browser", "Browser"], ["terminal", "Terminal"]];
-const REAL = new Set(["activity", "plan", "files", "memory"]);
+const REAL = new Set(["activity", "plan", "files", "memory", "terminal"]);
 const P = { sid: null, messages: [], plan: null, at: 0 };
 
 /* This conversation's tasks; before a new conversation has its id, the task its first message started. */
@@ -56,7 +59,8 @@ function files() {
   return changed.map((f) => { const st = f.existed ? "Changed" : "Made"; return `<button class="memrow" type="button" data-css="text-align:left" data-act="fileopen" data-n="${esc(f.path)}"><span><b data-css="font-weight:500">${esc(f.path)}</b></span><small>+${Number(f.added) || 0} −${Number(f.removed) || 0}</small><span class="pill ${st === "Made" ? "done" : "warn"}" data-css="grid-row:1 / span 2;grid-column:2;align-self:center">${st}</span></button>`; }).join("");
 }
 
-const BODY = { activity, plan, files, memory: () => '<p class="empty">Nothing remembered was used here.</p>' };
+const BODY = { activity, plan, files, memory: () => '<p class="empty">Nothing remembered was used here.</p>', terminal: () => terminalBody(S.chat) };
+const tabAct = (id) => (REAL.has(id) ? "ptabp" : id === "browser" ? "stage" : "ptabp-" + id);
 
 export function drawPane() {
   const pane = $("#pane"), body = $("#body");
@@ -66,10 +70,11 @@ export function drawPane() {
   body?.classList.toggle("pane-on", open);
   if (!open) { pane.innerHTML = ""; return; }
   const tab = REAL.has(S.pane) ? S.pane : "activity";
-  pane.innerHTML = `<div class="pane-h"><div class="ptabs" role="tablist">${TABS.map(([id, l]) => `<button class="ptab" role="tab" type="button" aria-selected="${tab === id}" data-act="${REAL.has(id) ? "ptabp" : "ptabp-" + id}" data-p="${id}">${l}</button>`).join("")}</div><button class="icon-btn" type="button" aria-label="Close the side panel" data-act="pane" data-p="close">${ic("x")}</button></div><div class="pane-b">${BODY[tab]()}</div>`;
+  pane.innerHTML = `<div class="pane-h"><div class="ptabs" role="tablist">${TABS.map(([id, l]) => `<button class="ptab" role="tab" type="button" aria-selected="${tab === id}" data-act="${tabAct(id)}" data-p="${id}" data-v="${id}">${l}</button>`).join("")}</div><button class="icon-btn" type="button" aria-label="Close the side panel" data-act="pane" data-p="close">${ic("x")}</button></div><div class="pane-b">${BODY[tab]()}</div>`;
   applyCss(pane);
   greyOut(pane);
   loadPane();
+  if (tab === "terminal") loadWork(S.chat);
 }
 
 /* The open conversation's messages and its newest task's plan, read again at most every two seconds; the panel alone is
@@ -90,6 +95,7 @@ async function loadPane() {
 }
 
 export function initPane() {
+  initStage();
   markLive(["pane", "ptabp"]);
   on("pane", (el) => {
     const p = el.dataset.p, inHead = !!el.closest(".head");
