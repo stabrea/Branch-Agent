@@ -158,6 +158,23 @@ test("the ring shows the tightest connection, opens the glass list on click and 
   assert.deepEqual(f.errors, []);
 });
 
+test("dogfood B24: the computer chip's line fits whole, and a ring with nothing reported says what it is", async (t) => {
+  for (const width of [1440, 1024]) {
+    const f = await fixture(t, { width });
+    const line = f.page.locator("#app-switcher .rail-target small");
+    assert.match(await line.innerText(), /^You are here · Online$/);
+    // Measured unrounded: the old words were 177.4px in a 177px box, enough for an ellipsis that whole pixels hide.
+    const fit = await line.evaluate((node) => { const words = document.createRange(); words.selectNodeContents(node);
+      return { words: words.getBoundingClientRect().width, room: node.getBoundingClientRect().width }; });
+    assert.ok(fit.words <= fit.room + 0.01, `the line is not cut at ${width}px (${fit.words} in ${fit.room})`);
+    await refreshRing(f.page);
+    const ring = f.page.locator("#usage-ring");
+    await ring.waitFor({ state: "visible" });
+    assert.equal(await ring.innerText(), "Usage limits: none reported yet", "the words say what the ring is about");
+    assert.deepEqual(f.errors, []);
+  }
+});
+
 test("the ring can be hidden in Settings, and nobody but the owner ever sees it", async (t) => {
   const f = await fixture(t);
   await refreshRing(f.page);
