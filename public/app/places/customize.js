@@ -112,7 +112,7 @@ export function draw() {
     const version = E.state.version || "0.20.0";
     html += `<div class="rows"><p class="hint" data-css="margin:4px 0 10px">One Branch, everywhere you are. Open any card to see that surface; the switcher in the title bar does the same.</p>
       <div class="grid2">
-      <div class="tile"><div class="th"><span class="ico-tile">${ic('desktop', 's')}</span><b>Windows</b></div><p>This computer and taofik-ai · Branch ${esc(version)}</p>
+      <div class="tile"><div class="th"><span class="ico-tile">${ic('desktop', 's')}</span><b>Windows</b></div><p>This computer · Branch ${esc(version)}</p>
         <div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="desktop">Open this view</button></div></div>
       <div class="tile"><div class="th"><span class="ico-tile">${ic('monitor', 's')}</span><b>Mac</b></div><p>The same app on a Mac · menu bar icon with usage</p>
         <div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="mac">Open this view</button></div></div>

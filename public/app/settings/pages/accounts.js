@@ -4,6 +4,7 @@ import { esc, render } from "../../core/dom.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
+import { toast } from "../../core/ui.js";
 
 let view = null;
 const flat = () => (view?.pools ?? []).flatMap((p) => p.accounts.map((a) => ({ ...a, pool: p.pool, kind: p.kind, first: p.defaultAccount === a.id })));
@@ -59,9 +60,19 @@ export function draw() {
 
 export function init() {
   load();
+  on("acct-up", (el) => {
+    const i = parseInt(el.dataset.i || "0", 10);
+    const accts = flat();
+    if (i < accts.length) {
+      const acct = accts[i];
+      api("accounts/update", { pool: acct.pool, account: acct.id, move: "up" })
+        .then(() => load(), (e) => { console.error(e); toast(e.message); });
+    }
+  });
+  markLive(["acct-up"]);
 }
 
-export const live = {};
+export const live = { "acct-up": true };
 
 export function after(col) {
   // Set up control listeners after rendering

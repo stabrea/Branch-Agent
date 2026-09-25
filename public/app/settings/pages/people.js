@@ -1,7 +1,10 @@
 /* Settings › people: bind real engine data and wire controls. */
-import { esc } from "../../core/dom.js";
+import { esc, render } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
+import { on } from "../../core/actions.js";
+import { markLive } from "../../core/features.js";
+import { toast } from "../../core/ui.js";
 
 const hex = (c) => (/^#[0-9a-f]{3,8}$/i.test(String(c ?? "")) ? c : "#56616B");
 
@@ -15,6 +18,7 @@ async function loadProfiles() {
     if (profiles.length > 0) {
       selectedProfile = profiles[0];
     }
+    render();
   } catch (err) {
     console.error("Failed to load profiles:", err);
     profiles = [];
@@ -122,8 +126,19 @@ export async function load() {
 }
 
 export function init() {
-  // Handlers for people settings
+  loadProfiles();
+  on("p-sel", (el) => {
+    const profileId = el.dataset.v;
+    const found = profiles.find(p => p.id === profileId);
+    if (found) {
+      selectedProfile = found;
+      render();
+    }
+  });
+  // A person's role decides what they may do on this computer: that change waits for the security review, so it stays greyed.
+  markLive(["p-sel"]);
 }
 
 export const live = {
+  "p-sel": null,
 };

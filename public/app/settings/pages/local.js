@@ -5,6 +5,7 @@ import { api } from "../../core/api.js";
 import { renderNow } from "../../core/dom.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
+import { toast } from "../../core/ui.js";
 
 let localData = null;
 
@@ -32,11 +33,11 @@ export function draw() {
 
   // Hardware info
   html += `<div class="hw12">`;
-  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9.5 9.5h5v5h-5zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"></path></svg></span><span><small>Processor</small><b>${hw.processor || 'Unknown'}</b></span></div>`;
-  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg></span><span><small>Memory</small><b>${hw.memory || 'Unknown'}</b></span></div>`;
-  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16.5V20"></path></svg></span><span><small>Graphics</small><b>${hw.gpu || 'Unknown'}</b></span></div>`;
-  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"></path></svg></span><span><small>Free space</small><b>${hw.freeSpace || 'Unknown'}</b></span></div>`;
-  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"></rect><path d="M7 9.5l3 2.5-3 2.5M12.5 15h4"></path></svg></span><span><small>Runtime</small><b>${hw.runtime || 'None'}</b></span></div>`;
+  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9.5 9.5h5v5h-5zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"></path></svg></span><span><small>Processor</small><b>${esc(hw.processor || 'Unknown')}</b></span></div>`;
+  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg></span><span><small>Memory</small><b>${esc(hw.memory || 'Unknown')}</b></span></div>`;
+  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16.5V20"></path></svg></span><span><small>Graphics</small><b>${esc(hw.gpu || 'Unknown')}</b></span></div>`;
+  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"></path></svg></span><span><small>Free space</small><b>${esc(hw.freeSpace || 'Unknown')}</b></span></div>`;
+  html += `<div class="hw-c12"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"></rect><path d="M7 9.5l3 2.5-3 2.5M12.5 15h4"></path></svg></span><span><small>Runtime</small><b>${esc(hw.runtime || 'None')}</b></span></div>`;
   html += `</div>`;
 
   // Recommended models
@@ -57,7 +58,7 @@ export function draw() {
       html += `<div class="lm-tags12">`;
       if (model.tags) {
         model.tags.forEach(tag => {
-          html += `<span class="tag6">${tag}</span>`;
+          html += `<span class="tag6">${esc(tag)}</span>`;
         });
       }
       html += `</div>`;
@@ -72,7 +73,7 @@ export function draw() {
 
       html += `<div class="acts">`;
       if (model.running) {
-        html += `<span class="pill done"><i></i>Running · port ${model.port}</span><button class="btn sm" type="button" data-act="lm-chat">Say hello</button><button class="btn ghost sm" type="button" data-act="lm-rm" data-id="${esc(model.id)}">Remove</button>`;
+        html += `<span class="pill done"><i></i>Running · port ${esc(String(model.port))}</span><button class="btn sm" type="button" data-act="lm-chat">Say hello</button><button class="btn ghost sm" type="button" data-act="lm-rm" data-id="${esc(model.id)}">Remove</button>`;
       } else if (model.fit !== 'no') {
         html += `<button class="btn pri sm" type="button" data-act="lm-get" data-id="${esc(model.id)}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Install ${esc(model.size)}</button>`;
       } else {
@@ -121,6 +122,21 @@ export function draw() {
 
 export function init() {
   loadLocalData();
+  on("lm-get", (el) => {
+    const modelId = el.dataset.id;
+    if (modelId) {
+      api("local-models/pull", { model: modelId })
+        .then(() => { toast("Starting download..."); loadLocalData(); }, (e) => toast(e.message));
+    }
+  });
+  on("lm-rm", (el) => {
+    const modelId = el.dataset.id;
+    if (modelId) {
+      api("local-models/remove", { model: modelId })
+        .then(() => { toast("Model removed."); loadLocalData(); }, (e) => toast(e.message));
+    }
+  });
+  markLive(["lm-get", "lm-rm"]);
 }
 
 export async function load() {
@@ -128,7 +144,8 @@ export async function load() {
 }
 
 export const live = {
-  // Wire up controls to real routes
+  "lm-get": true,
+  "lm-rm": true
 };
 
 export function after(col) {

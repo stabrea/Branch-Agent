@@ -8,9 +8,12 @@ import { on } from "../core/actions.js";
 import { ic, av, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { text } from "./markdown.js";
-import { chips, loadChips, initChips } from "./chips.js";
+import { chips, loadChips, initChips, startMode } from "./chips.js";
 import { drawPane, initPane } from "./pane.js";
 import { attached, takePending, initPlus } from "./plus.js";
+import { findBar, applyFind, initFind } from "./find.js";
+import { initToolsHub } from "./toolshub.js";
+import { initDictate } from "./dictate.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -74,11 +77,12 @@ function composer() {
 
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
-  return `${narrowHead}<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>${composer()}`;
+  return `${narrowHead}${findBar()}<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>${composer()}`;
 }
 export function after(main) {
   const box = $("#scroll", main);
   if (box) box.scrollTop = box.scrollHeight;
+  applyFind();
   loadChips();
 }
 
@@ -130,7 +134,7 @@ async function send() {
   watchThinking(true);
   renderNow();
   try {
-    const run = await api("run", { prompt, ...(C.sessionId ? { sessionId: C.sessionId } : {}), ...takePending(!C.sessionId) });
+    const run = await api("run", { prompt, ...(C.sessionId ? { sessionId: C.sessionId } : {}), ...takePending(!C.sessionId), ...(C.sessionId ? {} : startMode()) });
     C.sessionId = run.sessionId;
     S.chat = run.sessionId;
     C.messages = (await api("sessions/" + run.sessionId)).messages ?? C.messages;
@@ -186,6 +190,9 @@ export function init() {
   initChips();
   initPane();
   initPlus();
+  initFind();
+  initToolsHub();
+  initDictate();
   onRender(drawPane);
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));

@@ -4,19 +4,57 @@ import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
-import { renderNow } from "../../core/dom.js";
+import { render } from "../../core/dom.js";
+import { toast } from "../../core/ui.js";
 
-let voiceSettings = { listening: 'push-to-talk', voice: 'Oak', dictation: true };
+let voiceSettings = {
+  autoReadAloud: false,
+  voiceId: "default",
+  systemVoice: "off",
+  keepAudioOnThisComputer: false,
+};
+
+let comfortVoice = {
+  pushToTalkKey: "",
+  maxRecordingSeconds: null,
+};
 
 async function loadVoiceSettings() {
   try {
-    const data = await api("voice/settings");
-    voiceSettings = data || { listening: 'push-to-talk', voice: 'Oak', dictation: true };
+    const [v, c] = await Promise.all([
+      api("voice/settings"),
+      api("comfort").then(r => r.values?.voice || comfortVoice),
+    ]);
+    voiceSettings = v || voiceSettings;
+    comfortVoice = c || comfortVoice;
   } catch (err) {
     console.error("Failed to load voice settings:", err);
-    voiceSettings = { listening: 'push-to-talk', voice: 'Oak', dictation: true };
   }
-  renderNow();
+  render();
+}
+
+async function saveVoiceSettings(updates) {
+  try {
+    const merged = { ...voiceSettings, ...updates };
+    await api("voice/settings", merged);
+    voiceSettings = merged;
+    render();
+  } catch (err) {
+    toast(err.message || "Failed to save voice settings");
+    render();
+  }
+}
+
+async function saveComfortVoice(updates) {
+  try {
+    const merged = { ...comfortVoice, ...updates };
+    await api("comfort", { card: "voice", values: merged });
+    comfortVoice = merged;
+    render();
+  } catch (err) {
+    toast(err.message || "Failed to save voice comfort settings");
+    render();
+  }
 }
 
 export function draw() {
@@ -24,34 +62,27 @@ export function draw() {
 
   let html = `<h1>Voice</h1><p class="lede">Talking to Branch. Voice stays on this computer.</p>`;
   html += `<div class="sec"><h2>Talking</h2>`;
-  html += `<div class="ctl"><b>Listening</b><span class="right"><span class="seg" role="group" aria-label="Listening">`;
-  html += `<button type="button" aria-pressed="${voiceSettings.listening === 'off' ? 'true' : 'false'}" data-act="seg">Off</button>`;
-  html += `<button type="button" aria-pressed="${voiceSettings.listening === 'push-to-talk' ? 'true' : 'false'}" data-act="seg">Push to talk</button>`;
-  html += `<button type="button" aria-pressed="${voiceSettings.listening === 'wake-word' ? 'true' : 'false'}" data-act="seg">Wake word</button>`;
-  html += `</span></span><small>Push to talk holds the key; wake word listens for "Hey Branch".</small></div>`;
-  html += `<div class="ctl"><b>Push-to-talk key</b><span class="right"><kbd data-css="font-size:12px;padding:4px 8px">Right Ctrl</kbd><button class="btn sm" type="button" data-act="toast" data-msg="Press the key you want to use.">Change</button></span><small>Hold it anywhere in Windows.</small></div>`;
+  html += `<div class="ctl"><b>System voice</b><span class="right"><span class="seg" role="group" aria-label="System voice">`;
+  html += `<button type="button" aria-pressed="${voiceSettings.systemVoice === 'off' ? 'true' : 'false'}" data-act="sys-voice" data-v="off">Off</button>`;
+  html += `<button type="button" aria-pressed="${voiceSettings.systemVoice === 'on' ? 'true' : 'false'}" data-act="sys-voice" data-v="on">On</button>`;
+  html += `<button type="button" aria-pressed="${voiceSettings.systemVoice === 'auto' ? 'true' : 'false'}" data-act="sys-voice" data-v="auto">Auto</button>`;
+  html += `</span></span><small>Use the computer's own voice for speaking. On only when you ask, since it keeps the microphone open.</small></div>`;
+  html += `<div class="ctl"><b>Keep audio on this computer</b><input class="sw" type="checkbox" id="v-local" ${voiceSettings.keepAudioOnThisComputer ? 'checked' : ''} aria-label="Keep audio on this computer" data-sw="set"><small>Nothing with sound leaves this computer; cloud routes refuse instead.</small></div>`;
   html += `</div>`;
 
   html += `<div class="sec"><h2>Speaking back</h2>`;
-  html += `<div class="ctl"><b>Voice</b><span class="right"><span class="seg" role="group" aria-label="Voice">`;
-  html += `<button type="button" aria-pressed="${voiceSettings.voice === 'Oak' ? 'true' : 'false'}" data-act="seg">Oak</button>`;
-  html += `<button type="button" aria-pressed="${voiceSettings.voice === 'Birch' ? 'true' : 'false'}" data-act="seg">Birch</button>`;
-  html += `<button type="button" aria-pressed="${voiceSettings.voice === 'Off' ? 'true' : 'false'}" data-act="seg">Off</button>`;
-  html += `</span></span><small>Read replies out loud in this voice.</small></div>`;
-  html += `<div class="ctl"><b>Dictation in the message box</b><input class="sw" type="checkbox" id="v-dict" ${voiceSettings.dictation ? 'checked' : ''} aria-label="Dictation in the message box" data-sw="set"><small>The microphone button turns speech into text.</small></div>`;
+  html += `<div class="ctl"><b>Read replies aloud</b><span class="right"><span class="seg" role="group" aria-label="Read replies aloud">`;
+  html += `<button type="button" aria-pressed="${!voiceSettings.autoReadAloud ? 'true' : 'false'}" data-act="auto-read" data-v="false">No</button>`;
+  html += `<button type="button" aria-pressed="${voiceSettings.autoReadAloud ? 'true' : 'false'}" data-act="auto-read" data-v="true">Yes</button>`;
+  html += `</span></span><small>Read every reply, or ask first.</small></div>`;
   html += `</div>`;
 
   // Advanced sections
   if (lv >= 1) {
-    html += `<div class="sec x15-sec"><h2>Listening, more</h2>`;
-    html += `<div class="ctl"><b>Wake word</b><input class="sw" type="checkbox" id="f15-wake-word" aria-label="Wake word" data-sw="set"><small>"Hey Branch", heard on this computer only. Off until you choose: it keeps the microphone open.</small></div>`;
-    html += `<div class="ctl"><b>Stop listening after silence</b><span class="right num15"><input class="inp" value="1.5" aria-label="Stop listening after silence"><small>s</small></span><small>For live dictation.</small></div>`;
-    html += `<div class="ctl"><b>Answer aloud</b><span class="right"><span class="seg" role="group" aria-label="Answer aloud">`;
-    html += `<button type="button" aria-pressed="false" data-act="seg">Never</button>`;
-    html += `<button type="button" aria-pressed="true" data-act="seg">When I talk</button>`;
-    html += `<button type="button" aria-pressed="false" data-act="seg">Always</button>`;
-    html += `</span></span><small></small></div>`;
-    html += `<div class="ctl"><b>Spoken morning brief</b><input class="sw" type="checkbox" id="f15-spoken-morning-brief" aria-label="Spoken morning brief" data-sw="set"><small>The written brief, read out at 7:30 on the speaker you choose.</small></div>`;
+    html += `<div class="sec x15-sec"><h2>Live conversations</h2>`;
+    html += `<div class="ctl"><b>Max duration</b><span class="right num15"><input class="inp" value="10" aria-label="Max duration" disabled><small>minutes</small></span><small>A live conversation stops itself after this many minutes.</small></div>`;
+    html += `<div class="ctl"><b>Max cost</b><span class="right num15"><input class="inp" value="1" aria-label="Max cost" disabled><small>USD</small></span><small>Stops once it has cost this much.</small></div>`;
+    html += `<div class="ctl"><b>Voice detection</b><input class="sw" type="checkbox" id="f15-voice-detect" aria-label="Voice detection" data-sw="set" disabled><small>Let the service decide when you have stopped speaking, rather than pressing the button.</small></div>`;
     html += `</div>`;
   }
 
@@ -60,6 +91,16 @@ export function draw() {
 
 export function init() {
   loadVoiceSettings();
+
+  on("sys-voice", (el) => {
+    const value = el.dataset.v;
+    saveVoiceSettings({ systemVoice: value });
+  });
+
+  on("auto-read", (el) => {
+    const value = el.dataset.v === "true";
+    saveVoiceSettings({ autoReadAloud: value });
+  });
 }
 
 export async function load() {
@@ -67,7 +108,8 @@ export async function load() {
 }
 
 export const live = {
-  // Wire up controls to real routes
+  "sys-voice": true,
+  "auto-read": true,
 };
 
 export function after(col) {

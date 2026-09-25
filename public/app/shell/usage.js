@@ -1,9 +1,11 @@
-/* The status bar's usage popover, 1:1 with the prototype's "What each connection has left": one row per connection from
-   GET /api/usage/glance, a bar only where the service gave a limit, and the engine's own sentence when it gave none.
+/* The status bar's version popover says what the engine plans to do about updates (POST /api/comfort/update-plan);
+   installing goes through the desktop app's updater, so Install stays greyed here. Its usage popover is 1:1 with the
+   prototype's "What each connection has left": one row per connection from GET /api/usage/glance, a bar only where the service gave a limit, and the engine's own sentence when it gave none.
    Accounts are shown side by side, never added together. */
 
 import { esc } from "../core/dom.js";
-import { openPop } from "../core/ui.js";
+import { openPop, mi } from "../core/ui.js";
+import { E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -32,7 +34,13 @@ function popHTML(g) {
     <div class="lim-foot">${month}<span class="tb-grow"></span><button class="btn sm" type="button" data-act="setgo" data-v="usage">Open Usage</button></div></div>`;
 }
 
+function updatePop(plan) {
+  const version = E.state?.version ?? "";
+  return `<div class="pt">Branch ${esc(version)}</div><p class="pp">${esc(plan?.reason ?? "")}</p>${mi("install", "check", "Install when nothing is running")}${mi("closepop", "clock", "Remind me tomorrow")}`;
+}
+
 export function initUsage() {
-  markLive(["usagepop"]);
+  markLive(["usagepop", "updmenu"]);
+  on("updmenu", async (el) => openPop(el, updatePop(await api("comfort/update-plan", {}).catch(() => null)), { right: true }));
   on("usagepop", async (el) => openPop(el, popHTML(await api("usage/glance").catch(() => null)), { right: true }));
 }

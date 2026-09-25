@@ -9,11 +9,12 @@ import { greyOut, markLive } from "../core/features.js";
 import { head as chatHead, openConversation, startConversation } from "../chat/chat.js";
 import { initExtras } from "./extras.js";
 import { initUsage } from "./usage.js";
+import { api } from "../core/api.js";
+import { SQ, searchHTML, askEngine } from "./search.js";
 
 const WIDE = matchMedia("(min-width: 761px)");
 const PLACES = [["overview", "home", "Overview"], ["inbox", "inbox", "Inbox"], ["automations", "clock", "Automations"],
   ["library", "book", "Library"], ["team", "users", "Team"], ["customize", "sliders", "Customize"]];
-let query = "";
 
 const sessionId = (s) => s.sessionId ?? s.id;
 const sessionTitle = (s) => s.title || s.opening || "New conversation";
@@ -38,13 +39,35 @@ function row(s) {
     <p>${esc(s.lastMessage ?? "")}</p></button>`;
 }
 
+/* Typing in search asks the engine for words inside conversations after a short pause; the box keeps focus and caret. */
+let searchTimer;
+function searchInside(q) {
+  clearTimeout(searchTimer);
+  if (!q.trim()) return;
+  searchTimer = setTimeout(async () => {
+    if (!(await askEngine(q.trim()))) return;
+    const box = $("#side-q"), typing = document.activeElement === box, from = box?.selectionStart, to = box?.selectionEnd;
+    renderNow();
+    if (typing) { const again = $("#side-q"); again?.focus(); again?.setSelectionRange(from, to); }
+  }, 200);
+}
+
+/* The engine's projects (GET /api/projects), read when the fold is opened. A project's own page is not in this window yet. */
+let projects = [];
+const projectRows = () => projects.map((pr) => `<button class="nav" type="button" data-act="project" data-v="${esc(pr.id)}">${ic("folder", "s")}${esc(pr.name)}</button>`).join("");
+async function toggleProjects() {
+  S.projOpen = !S.projOpen;
+  if (S.projOpen) projects = (await api("projects").catch(() => null))?.all ?? projects;
+  renderNow();
+}
+
 function list() {
-  const q = query.toLowerCase();
-  const rows = E.sessions.filter((s) => !q || sessionTitle(s).toLowerCase().includes(q));
+  if (SQ.q.trim()) return `<nav class="list searching9" aria-label="Conversations">${searchHTML()}</nav>`;
+  const rows = E.sessions;
   const pinned = rows.filter((s) => s.pinned);
   const recent = rows.filter((s) => !s.pinned);
   return `<nav class="list" aria-label="Conversations">
-    <button class="lh lh-btn" type="button" data-act="projtoggle" aria-expanded="false">${ic("chev", "s")}Projects</button>
+    <button class="lh lh-btn" type="button" data-act="projtoggle" aria-expanded="${!!S.projOpen}">${ic(S.projOpen ? "down" : "chev", "s")}Projects</button>${S.projOpen ? projectRows() : ""}
     ${pinned.length ? `<div class="lh">Pinned</div>${pinned.map(row).join("")}` : ""}
     ${recent.length ? `<div class="lh">Recent</div>${recent.map(row).join("")}` : ""}</nav>`;
 }
@@ -55,7 +78,7 @@ function side() {
   const person = active?.name || E.profiles?.roleLabels?.owner?.label || "";
   return `<div class="resizer" data-resize="side"><i class="grip9"></i></div>
     <button class="machine" type="button" data-act="machines" data-tip="Which computer you’re talking to"><span class="mico">${ic("monitor", "s")}</span><span class="mach14"><b>This computer</b><i class="dot"></i></span>${ic("chev", "s")}</button>
-    <div class="side-top"><label class="sq9">${ic("search", "s")}<input id="side-q" type="search" placeholder="Search" value="${esc(query)}" autocomplete="off" aria-label="Search chats, Trunks, messages and past sessions"><kbd>Ctrl K</kbd></label><button class="icon-btn" type="button" aria-label="New conversation, Trunk, room or automation" data-act="newmenu">${ic("plus")}</button></div>
+    <div class="side-top"><label class="sq9">${ic("search", "s")}<input id="side-q" type="search" placeholder="Search" value="${esc(SQ.q)}" autocomplete="off" aria-label="Search chats, Trunks, messages and past sessions">${SQ.q ? `<button type="button" class="sq-x" data-act="sq-clear" aria-label="Clear the search">${ic("x", "s")}</button>` : "<kbd>Ctrl K</kbd>"}</label><button class="icon-btn" type="button" aria-label="New conversation, Trunk, room or automation" data-act="newmenu">${ic("plus")}</button></div>
     <button class="lh lh-btn places-h14" type="button" data-act="places14" aria-expanded="${!S.placesShut}">${ic("chev", "s")}Places</button>
     <div class="side-nav nav7">${PLACES.map(([v, i, l]) => `<button class="nav" type="button" data-act="view" data-v="${v}" aria-current="${S.view === v}">${ic(i)}${l}${v === "inbox" && n ? `<span class="cnt">${n}</span>` : ""}</button>`).join("")}</div>
     ${list()}
@@ -100,6 +123,11 @@ export function drawShell() {
 }
 
 export function initShell() {
+  markLive(["sq-f", "sq-clear", "projtoggle"]);
+  on("projtoggle", () => toggleProjects());
+  on("sq-f", (el) => { SQ.f = el.dataset.v; renderNow(); });
+  on("sq-clear", () => { SQ.q = ""; SQ.f = "all"; renderNow(); $("#side-q")?.focus(); });
+  document.addEventListener("keydown", (e) => { if (e.target.id === "side-q" && e.key === "Escape") { SQ.q = ""; e.target.blur(); renderNow(); } });
   initExtras();
   initUsage();
   markLive(["chat", "newconv", "newmenu", "places14", "owner", "themeset", "theme-flip", "side-toggle", "guide"]);
@@ -112,7 +140,7 @@ export function initShell() {
   on("theme-flip", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
   on("side-toggle", () => { document.getElementById("app").classList.toggle("side-hidden"); renderNow(); });
   on("guide", (el) => openPop(el, mi("tour", "spark", "Take the tour", "2 min") + mi("whatsnew", "star", "What’s new")));
-  document.addEventListener("input", (e) => { if (e.target.id === "side-q") { query = e.target.value; const pos = e.target.selectionStart; renderNow(); const box = $("#side-q"); box?.focus(); box?.setSelectionRange(pos, pos); } });
+  document.addEventListener("input", (e) => { if (e.target.id === "side-q") { if (!SQ.q.trim()) SQ.f = "all"; SQ.q = e.target.value; searchInside(SQ.q); const pos = e.target.selectionStart; renderNow(); const box = $("#side-q"); box?.focus(); box?.setSelectionRange(pos, pos); } });
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#side-q")?.focus(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") { e.preventDefault(); startConversation(); }
