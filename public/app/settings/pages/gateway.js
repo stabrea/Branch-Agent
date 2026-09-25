@@ -4,6 +4,7 @@ import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { render } from "../../core/dom.js";
+import { toast } from "../../core/ui.js";
 
 let gwData = null;
 
@@ -20,7 +21,7 @@ export function init() {
   loadGateway();
   on("gw-mode", (el) => {
     const mode = el.dataset.v;
-    api("never-break", { mode }).catch(e => console.error("Failed to set gateway mode:", e));
+    api("never-break", { mode }).then(() => loadGateway(), (e) => toast(e.message));
   });
   markLive(["gw-mode"]);
 }
