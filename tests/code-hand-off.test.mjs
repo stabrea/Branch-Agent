@@ -1,14 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { ContractBook } from "../dist/self-development-contract.js";
-import { HandOff, claudeAllowedCommands, programCall, readClaude, readCodex } from "../dist/coding/hand-off.js";
+import { HandOff, claudeAllowedCommands, handOffReason, programCall, readClaude, readCodex } from "../dist/coding/hand-off.js";
+import { addPolicyRule } from "../dist/policy.js";
 
 /**
  * Branch builds Branch: a coding job handed to the owner's own Claude Code or Codex, inside one folder. The program
@@ -91,7 +92,8 @@ test("a job in a workspace repository is done by the program in that folder, and
   assert.equal(result.status, "done");
   assert.equal(result.summary, "Changed a to 2.");
   assert.deepEqual(result.changed, ["src/a.ts"]);
-  assert.equal(f.calls[0].call.cwd, join(f.workspace, "site"));
+  // The code reads the folder with realpathSync.native, which on Windows also expands a short 8.3 name (RUNNER~1).
+  assert.equal(f.calls[0].call.cwd, realpathSync.native(join(f.workspace, "site")), "the folder where it really is");
   assert.equal(f.calls[0].prompt, "Set a to 2.");
   const steps = f.app.store.events(job.runId).filter((event) => event.kind === "code.hand_off.step");
   assert.equal(steps.length, 2, "each line the program printed is shown on the task as it comes");
@@ -200,4 +202,177 @@ test("the hand-off is a tool in the code toolbox that reaches outside this compu
   assert.equal(f.app.registry.groupOf("code.hand_off"), "code");
   assert.deepEqual(f.app.registry.targetsOf("code.hand_off", { program: "codex", folder: "site", task: "x" }, context(f.app)),
     [{ kind: "write", path: "site", folder: true }]);
+});
+
+test("Claude Code runs no commands of its own: nothing walls them in, so Branch runs the checks afterwards (NAS 22aa6e3)", () => {
+  assert.deepEqual([...claudeAllowedCommands], []);
+  const claude = programCall("claude-code", "/work/repo");
+  assert.ok(claude.args.includes("acceptEdits"));
+  assert.equal(claude.args.includes("--allowedTools"), false, "no command is allowed by name");
+  assert.equal(claude.args.some((arg) => /^Bash\(/.test(arg)), false);
+});
+
+test("a link in the workspace that leads out of it is refused, not followed (NAS 22aa6e3)", async (t) => {
+  const f = await fixture(t);
+  const outside = join(f.root, "outside-repo");
+  await mkdir(outside, { recursive: true });
+  await repository(outside);
+  await mkdir(f.workspace, { recursive: true });
+  await symlink(outside, join(f.workspace, "link"));
+  const never = f.handOff(async () => { throw new Error("the program was started"); });
+  await assert.rejects(never.run({ program: "codex", folder: "link", task: "x", minutes: 1 }, context(f.app)), /leads out of it/);
+  assert.equal(f.calls.length, 0);
+});
+
+test("handing a job over is asked every time, just this once, even with a standing yes for it", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-hand-off-ask-"));
+  let asked = false;
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: { name: "scripted", async complete() {
+    if (asked) return { content: "Done.", toolCalls: [] };
+    asked = true;
+    return { content: "", toolCalls: [{ id: "h1", name: "code.hand_off", arguments: JSON.stringify({ program: "codex", folder: "site", task: "fix it" }) }] };
+  } } });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  addPolicyRule(app.store, owner, { tool: "code.hand_off", match: "*", decision: "allow", remember: "always" });
+  const run = await app.runtime.run({ prompt: "hand it over" });
+  const question = app.runtime.approvals.questionFor(run.sessionId);
+  assert.ok(question, "asked, although a standing yes names it");
+  assert.equal(question.onceOnly, true);
+  assert.throws(() => app.runtime.approve(run.sessionId, "allow", "always", question.fingerprint));
+  assert.ok(handOffReason.length > 0);
+});
+
+/**
+ * The after-check runs Git in the folder as the owner. A job could write the folder's own Git settings so that a
+ * later `git diff` or `git checkout` would run a program the job chose. So Branch reads the folder's own settings
+ * before the job and again after, and if the job changed them it runs no more Git there: nothing is checked or kept.
+ * The stand-in "program" here writes those settings the way a real one could, and leaves a marker the planted
+ * program would write; the marker staying absent is the proof that no such program ran.
+ */
+
+test("a job that plants a Git filter in the folder's own settings gets no program run by the after-check, and the owner is told", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const marker = join(f.root, "FILTER_RAN");
+  const result = await f.handOff(async (call) => {
+    const git = (...a) => execFileSync("git", a, { cwd: call.cwd });
+    git("config", "filter.x.clean", `sh -c 'echo ran > ${marker}; cat'`);
+    git("config", "filter.x.smudge", `sh -c 'echo ran > ${marker}; cat'`);
+    git("config", "filter.x.required", "true");
+    await writeFile(join(call.cwd, ".gitattributes"), "README.md filter=x\n");
+    await writeFile(join(call.cwd, "README.md"), "tampered\n");
+    return { code: 0, lines: claudeLines("done"), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(f.app));
+  assert.equal(existsSync(marker), false, "the after-check ran no Git, so the planted filter never ran");
+  assert.equal(result.status, "repository settings changed");
+  assert.deepEqual([result.changed, result.undone], [[], []], "nothing is reported as checked or kept");
+  assert.match(result.summary, /settings|config/i);
+});
+
+test("the same holds for a diff textconv program planted in the folder's own settings", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const marker = join(f.root, "TEXTCONV_RAN");
+  const result = await f.handOff(async (call) => {
+    const git = (...a) => execFileSync("git", a, { cwd: call.cwd });
+    git("config", "diff.x.textconv", `sh -c 'echo ran > ${marker}; cat'`);
+    await writeFile(join(call.cwd, ".gitattributes"), "README.md diff=x\n");
+    await writeFile(join(call.cwd, "README.md"), "tampered\n");
+    return { code: 0, lines: claudeLines("done"), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(f.app));
+  assert.equal(existsSync(marker), false, "no diff text was produced in the folder, so no textconv program ran");
+  assert.equal(result.status, "repository settings changed");
+  assert.deepEqual(result.changed, [], "nothing is reported as checked");
+});
+
+test("a job that points the folder's config at a file it planted is caught the same way", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const marker = join(f.root, "INCLUDE_RAN");
+  const result = await f.handOff(async (call) => {
+    const git = (...a) => execFileSync("git", a, { cwd: call.cwd });
+    const planted = join(call.cwd, ".git", "planted.inc");
+    git("config", "--file", planted, "filter.x.clean", `sh -c 'echo ran > ${marker}; cat'`);
+    git("config", "--file", planted, "filter.x.required", "true");
+    git("config", "include.path", "planted.inc");
+    await writeFile(join(call.cwd, ".gitattributes"), "README.md filter=x\n");
+    await writeFile(join(call.cwd, "README.md"), "tampered\n");
+    return { code: 0, lines: claudeLines("done"), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(f.app));
+  assert.equal(existsSync(marker), false, "the after-check ran no Git, so the pulled-in filter never ran");
+  assert.equal(result.status, "repository settings changed");
+});
+
+test("an untouched folder whose owner-level Git config has a filter still hands off and is checked as usual", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-hand-off-ok-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return { content: "Noted.", toolCalls: [] }; } } });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const globalConfig = join(root, "owner.gitconfig");
+  await writeFile(globalConfig, `[filter "lfs"]\n\tclean = cat\n\tsmudge = cat\n[credential]\n\thelper = store\n`);
+  const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_SYSTEM: "/dev/null" };
+  const calls = [];
+  const git = async ({ cwd, args }) => {
+    try { return { status: "completed", stdout: execFileSync("git", args, { cwd, encoding: "utf8", env: gitEnv }), stderr: "" }; }
+    catch (error) { return { status: "failed", stdout: "", stderr: String(error.stderr ?? error.message) }; }
+  };
+  const handOff = (run) => new HandOff({ store: app.store, owner, workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    book: new ContractBook(app.store.sqlite), git, run: async (call, prompt, env, signal, timeoutMs, onLine) => { calls.push({ call }); return run(call, onLine); } });
+  await repository(join(root, "workspace", "site"));
+  const result = await handOff(async (call, onLine) => {
+    await writeFile(join(call.cwd, "src", "a.ts"), "export const a = 2;\n");
+    const lines = claudeLines("changed a"); lines.forEach(onLine);
+    return { code: 0, lines, stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(app));
+  assert.equal(result.status, "done", "an owner-level filter does not trip the refusal");
+  assert.deepEqual(result.changed, ["src/a.ts"]);
+  assert.equal(calls.length, 1, "the program still ran");
+});
+
+// Legion's adversarial of R19: a job left its folder through a link it made in it, or by writing next to it, and the
+// after-check (which only sees the folder's own repository) said "done".
+test("a job that makes a link out of its folder and writes through it ends as left its folder, and the link is removed", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const outside = join(f.root, "outside");
+  await mkdir(outside, { recursive: true });
+  const result = await f.handOff(async (call, onLine) => {
+    await symlink(outside, join(call.cwd, "escape"), process.platform === "win32" ? "junction" : "dir");
+    await writeFile(join(call.cwd, "escape", "pwned.txt"), "x");
+    claudeLines("Done.").forEach(onLine);
+    return { code: 0, lines: claudeLines("Done."), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "Anything.", minutes: 5 }, context(f.app));
+  assert.equal(result.status, "left its folder");
+  assert.match(result.summary, /made a link out of the folder/);
+  assert.equal(existsSync(join(f.workspace, "site", "escape")), false, "the link is removed");
+  assert.equal(existsSync(join(outside, "pwned.txt")), true, "what it points at is left alone for the owner to look at");
+  assert.deepEqual(result.changed, [], "nothing from the run is kept as done");
+});
+
+test("a job that writes next to its folder ends as left its folder, naming what it wrote", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const result = await f.handOff(async (call, onLine) => {
+    await writeFile(join(call.cwd, "..", "escape.txt"), "x");
+    claudeLines("Done.").forEach(onLine);
+    return { code: 0, lines: claudeLines("Done."), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "Anything.", minutes: 5 }, context(f.app));
+  assert.equal(result.status, "left its folder");
+  assert.match(result.summary, /added escape\.txt next to the folder/);
+});
+
+test("a link that already led out before the job, and neighbours it did not touch, are not the job's", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const outside = join(f.root, "outside");
+  await mkdir(outside, { recursive: true });
+  await symlink(outside, join(f.workspace, "site", "shared"), process.platform === "win32" ? "junction" : "dir");
+  await writeFile(join(f.workspace, "notes.txt"), "the owner's own file next to the folder");
+  const result = await f.handOff(async (call, onLine) => {
+    await writeFile(join(call.cwd, "src", "a.ts"), "export const a = 2;\n");
+    claudeLines("Changed a to 2.").forEach(onLine);
+    return { code: 0, lines: claudeLines("Changed a to 2."), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "Set a to 2.", minutes: 5 }, context(f.app));
+  assert.equal(result.status, "done");
+  assert.ok(existsSync(join(f.workspace, "site", "shared")), "the owner's own link stays");
 });

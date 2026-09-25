@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmdirSync, statSync, unlinkSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { errorText, type ToolContext } from "../contracts.js";
 import { refuseSignInForTrunk } from "../accounts/context.js";
@@ -20,10 +22,15 @@ import { startCall } from "../windows-command.js";
  * src/asks/codex-app-server.ts, both read-only); this is the one door where they may change files, and it is
  * held three ways:
  * - Each program's own limits: Codex runs with `--sandbox workspace-write` in the folder; Claude Code runs with
- *   `--permission-mode acceptEdits` in the folder, and the only commands it may run are the ones listed here.
+ *   `--permission-mode acceptEdits` in the folder and runs no commands at all (the list below is only read-only Git
+ *   with no program of the folder's), since nothing walls its commands in the way Codex's sandbox does (NAS 22aa6e3,
+ *   Mac mini 2e70eda). The checks are run afterwards through Branch's own held tools.
  * - Branch's own check afterwards: every file the job changed is listed against where it started, and inside
  *   Branch's own source (a self-development worktree) anything outside the contract's allowed paths is put back
  *   and named, so the contract holds whatever the program did. Sending still goes through the contract's push check.
+ *   That check runs Git in the folder, so if the job rewrote the folder's own Git settings (its config, the files
+ *   that config pulls in, its attributes or its hooks) Branch runs no more Git there: nothing is checked or kept,
+ *   and the owner is told. The owner's own global and system config is untouched, so their sign-in stays.
  * - It is the owner's sign-in, so a Trunk or somebody else on this computer never reaches it.
  */
 
@@ -45,11 +52,18 @@ export const HandOffInputSchema = z.object({
 }).strict();
 export type HandOffInput = z.infer<typeof HandOffInputSchema>;
 
-/** The commands Claude Code may run by itself in the folder: the checks and read-only Git, nothing that sends. */
-export const claudeAllowedCommands = [
-  "Bash(node --test:*)", "Bash(npm run build)", "Bash(npm run build:*)", "Bash(npx tsc:*)",
-  "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-];
+/**
+ * The commands Claude Code may run by itself in the folder: none. A build or test runs the folder's own scripts,
+ * which the job may just have edited, with the owner's account and outside any wall; and Git reads the folder's own
+ * settings, which the job may edit too. Claude Code edits; Branch runs the checks afterwards.
+ */
+export const claudeAllowedCommands: readonly string[] = [];
+
+/** Handing a job over is asked every time, just this once: the program works with the owner's own sign-in. */
+export const handOffReason = "Your Claude Code or Codex would change files in that folder with your own sign-in, so this is asked every time.";
+export function handOffHold(tool: string): { reason: string; onceOnly: true } | null {
+  return tool === "code.hand_off" ? { reason: handOffReason, onceOnly: true } : null;
+}
 
 export interface ProgramCall { command: string; args: string[]; cwd: string }
 export function programCall(program: HandOffProgram, folder: string, model?: string, effort?: string): ProgramCall {
@@ -57,7 +71,7 @@ export function programCall(program: HandOffProgram, folder: string, model?: str
   if (program === "claude-code")
     return { command: "claude", cwd: folder, args: ["-p", "--output-format", "stream-json", "--verbose", ...chosen,
       ...(effort ? ["--effort", effort] : []),
-      "--permission-mode", "acceptEdits", "--allowedTools", ...claudeAllowedCommands] };
+      "--permission-mode", "acceptEdits", ...(claudeAllowedCommands.length ? ["--allowedTools", ...claudeAllowedCommands] : [])] };
   return { command: "codex", cwd: folder, args: ["exec", "--json", "--sandbox", "workspace-write", "--cd", folder, ...chosen,
     ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []), "-"] };
 }
@@ -159,23 +173,143 @@ export interface HandOffDeps {
 export interface HandOffResult {
   program: HandOffProgram;
   account: string;
-  status: "done" | "failed" | "limit reached" | "sign in again" | "stopped" | "timed out";
+  status: "done" | "failed" | "limit reached" | "sign in again" | "stopped" | "timed out" | "repository settings changed" | "left its folder";
   summary: string;
   steps: string[];
   changed: string[];
   undone: string[];
 }
 
+/** Where a folder's own Git settings live: its `.git` when that is a directory, or the directories a linked worktree's `.git` file points at. */
+function gitDirsOf(folder: string): { common: string; perWorktree: string } | null {
+  const dotGit = join(folder, ".git");
+  let isDirectory = false;
+  try { isDirectory = statSync(dotGit).isDirectory(); } catch { return null; }
+  if (isDirectory) return { common: dotGit, perWorktree: dotGit };
+  let pointer = "";
+  try { pointer = readFileSync(dotGit, "utf8"); } catch { return null; }
+  const target = /^gitdir:\s*(.+?)\s*$/m.exec(pointer)?.[1];
+  if (!target) return null;
+  const perWorktree = resolve(folder, target);
+  let common = perWorktree;
+  try { const shared = readFileSync(join(perWorktree, "commondir"), "utf8").trim(); if (shared) common = resolve(perWorktree, shared); }
+  catch { /* a standalone git directory has no commondir */ }
+  return { common, perWorktree };
+}
+
+/** The files a Git config pulls in with `include.path` / `includeIf.*.path`, each resolved to an absolute path. */
+function includeTargets(configFile: string, text: string): string[] {
+  const base = dirname(configFile), targets: string[] = [];
+  let inInclude = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+    if (line.startsWith("[")) { inInclude = /^\[\s*(include|includeIf)\b/i.test(line); continue; }
+    const captured = inInclude ? /^path\s*=\s*(.+?)\s*$/i.exec(line)?.[1] : undefined;
+    if (!captured) continue;
+    let value = captured.replace(/^"(.*)"$/, "$1");
+    if (value.startsWith("~/")) value = join(homedir(), value.slice(2));
+    targets.push(isAbsolute(value) ? value : resolve(base, value));
+  }
+  return targets;
+}
+
+/**
+ * A fingerprint of the settings in the folder's own repository that could make Git start a program: its local
+ * config and every file that config pulls in, the per-worktree config, the git-directory attributes file, and the
+ * hooks. Read straight from disk, so it can be taken before a job and again after without running Git itself. When
+ * a job rewrites any of them this string changes, and the after-check then runs no Git in the folder (NAS 22aa6e3).
+ * The owner's own global and system config is never read here, so their credential helpers and filters (git-lfs)
+ * keep working for a folder a job did not touch.
+ */
+export function repoOwnSettings(folder: string): string {
+  const parts: [string, string][] = [];
+  const record = (label: string, path: string): string => {
+    try { const bytes = readFileSync(path); parts.push([label, `sha256:${createHash("sha256").update(bytes).digest("hex")}`]); return bytes.toString("utf8"); }
+    catch { parts.push([label, "absent"]); return ""; }
+  };
+  const dotGit = join(folder, ".git");
+  try { if (!statSync(dotGit).isDirectory()) record(".git", dotGit); } catch { parts.push([".git", "absent"]); }
+  const dirs = gitDirsOf(folder);
+  if (dirs) {
+    const seen = new Set<string>();
+    const queue = [join(dirs.common, "config"), join(dirs.common, "config.worktree"), join(dirs.perWorktree, "config.worktree")];
+    while (queue.length) {
+      const file = queue.shift()!;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      for (const target of includeTargets(file, record(`config:${file}`, file))) if (!seen.has(target)) queue.push(target);
+    }
+    record("info/attributes", join(dirs.common, "info", "attributes"));
+    let hooks: string[] = [];
+    try { hooks = readdirSync(join(dirs.common, "hooks")).sort(); } catch { /* no hooks directory */ }
+    parts.push(["hooks", hooks.join(",")]);
+    for (const name of hooks) record(`hooks/${name}`, join(dirs.common, "hooks", name));
+  }
+  return JSON.stringify(parts.sort());
+}
+
+/**
+ * The adversarial of R19 (Legion, 2026-09-25): a job could leave its folder through a link it made inside it (to
+ * somewhere else on disk, then write through it) or by writing next to the folder, and the Git after-check, which only
+ * sees the folder's own repository, said "done". These two looks catch both; writes further out are held back by the
+ * programs' own limits (Claude Code runs no commands; Codex runs in its workspace-write sandbox).
+ */
+const linkLookLimit = 200_000;
+/** Every link inside the folder (not following links, skipping `.git`) that leads out of it, as "path -> target". */
+export function linksOut(folder: string): { links: Set<string>; complete: boolean } {
+  const links = new Set<string>();
+  const stack = [folder];
+  let seen = 0;
+  while (stack.length) {
+    const dir = stack.pop()!;
+    let entries: import("node:fs").Dirent[] = [];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (++seen > linkLookLimit) return { links, complete: false };
+      const path = join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        let target = "";
+        try { target = realpathSync.native(path); } catch { target = resolve(dir, readlinkSafe(path)); }
+        const from = relative(folder, target);
+        if (from.startsWith("..") || resolve(from) === from) links.add(`${relative(folder, path)} -> ${target}`);
+      } else if (entry.isDirectory() && entry.name !== ".git") stack.push(path);
+    }
+  }
+  return { links, complete: true };
+}
+function readlinkSafe(path: string): string { try { return readlinkSync(path); } catch { return ""; } }
+/** The folder's neighbours (its parent directory's entries, except the folder itself), each with when it last changed. */
+export function neighbours(folder: string): Map<string, number> {
+  const parent = dirname(folder), found = new Map<string, number>();
+  let entries: string[] = [];
+  try { entries = readdirSync(parent); } catch { return found; }
+  for (const name of entries) {
+    const path = join(parent, name);
+    if (path === folder) continue;
+    try { found.set(name, lstatSync(path).mtimeMs); } catch { /* gone while looking */ }
+  }
+  return found;
+}
+
 export class HandOff {
   constructor(private readonly deps: HandOffDeps) {}
 
-  /** The folder from the workspace, refused when it leaves the workspace or is not a Git repository. */
+  /**
+   * The folder from the workspace, refused when it leaves the workspace or is not a Git repository. Judged where it
+   * really is: a link in the workspace that leads out of it is refused, not followed (NAS 22aa6e3).
+   */
   folderOf(folder: string): { absolute: string; fromWorkspace: string } {
-    const absolute = resolve(this.deps.workspace, folder);
-    const fromWorkspace = relative(this.deps.workspace, absolute).split(sep).join("/");
-    if (fromWorkspace.startsWith("..") || resolve(fromWorkspace) === fromWorkspace)
-      throw new Error("The folder must be inside the workspace.");
-    if (!existsSync(absolute) || !statSync(absolute).isDirectory()) throw new Error(`There is no folder ${fromWorkspace} in the workspace.`);
+    const written = resolve(this.deps.workspace, folder);
+    const inside = (root: string, path: string): string | null => {
+      const from = relative(root, path).split(sep).join("/");
+      return from.startsWith("..") || resolve(from) === from ? null : from;
+    };
+    if (inside(this.deps.workspace, written) === null) throw new Error("The folder must be inside the workspace.");
+    if (!existsSync(written) || !statSync(written).isDirectory()) throw new Error(`There is no folder ${folder} in the workspace.`);
+    const absolute = realpathSync.native(written);
+    const fromWorkspace = inside(realpathSync.native(this.deps.workspace), absolute);
+    if (fromWorkspace === null) throw new Error("The folder must be inside the workspace: that one leads out of it.");
     if (!existsSync(join(absolute, ".git"))) throw new Error(`${fromWorkspace} is not a Git repository, so what the job changed could not be told.`);
     return { absolute, fromWorkspace };
   }
@@ -225,6 +359,10 @@ export class HandOff {
     if (context.agent) throw new Error("Handing a job to the owner's Claude Code or Codex is the owner's own; a specialist cannot.");
     const folder = this.folderOf(input.folder), account = input.account ?? primaryAccount;
     const env = this.environment(input.program, account);
+    // The folder's own Git settings as they were before the job, so a job that rewrites them is caught below.
+    const settingsBefore = repoOwnSettings(folder.absolute);
+    // Links that already led out of the folder, and what sat next to it, so only what the job did is judged below.
+    const linksBefore = linksOut(folder.absolute).links, besideBefore = neighbours(folder.absolute);
     const start = (await this.gitText(folder.absolute, ["rev-parse", "--verify", "HEAD"], context.signal)).trim();
     let shown = 0;
     const onLine = (line: string): void => {
@@ -234,6 +372,11 @@ export class HandOff {
       context.signal, input.minutes * 60_000, onLine);
     if (ran.missing) throw new Error(`"${programCall(input.program, folder.absolute).command}" is not installed on this computer.`);
     const report = input.program === "codex" ? readCodex(ran.lines) : readClaude(ran.lines);
+    // A job could have written the folder's own `.git` settings (its config, attributes or hooks) so that the
+    // steps below would run a program of its choosing. If any of them changed, run no Git in the folder at all.
+    if (repoOwnSettings(folder.absolute) !== settingsBefore) return this.settingsChanged(input, account, report, context);
+    const left = this.leftFolder(folder.absolute, linksBefore, besideBefore);
+    if (left) return this.leftItsFolder(input, account, report, context, left);
     const changed = await this.changedSince(folder.absolute, start, AbortSignal.timeout(60_000));
     const undone = await this.keepToContract(folder, start, changed, AbortSignal.timeout(60_000));
     const status: HandOffResult["status"] = context.signal.aborted ? "stopped" : ran.timedOut ? "timed out"
@@ -241,6 +384,47 @@ export class HandOff {
     const result: HandOffResult = { program: input.program, account, status,
       summary: (report.summary || report.failed || ran.stderr.trim()).slice(0, 4000), steps: report.steps.slice(-40),
       changed: [...changed.tracked, ...changed.added].filter((file) => !undone.includes(file)), undone };
+    this.deps.store.event(context.runId, "code.hand_off", { ...result, summary: result.summary.slice(0, 500) });
+    return result;
+  }
+
+  /**
+   * What the job did outside its folder, in plain words, or null when nothing. A new link leading out is removed at
+   * once (only the link, never what it points at); a changed neighbour is only named, since it is not the job's to keep.
+   */
+  private leftFolder(folder: string, linksBefore: Set<string>, besideBefore: Map<string, number>): string | null {
+    const found: string[] = [];
+    const now = linksOut(folder);
+    for (const link of now.links) if (!linksBefore.has(link)) {
+      const path = join(folder, link.split(" -> ")[0]!);
+      try { unlinkSync(path); } catch { try { rmdirSync(path); } catch { /* a junction is removed as a directory */ } }
+      found.push(`made a link out of the folder (${link}), which I removed`);
+    }
+    if (!now.complete) found.push(`has more than ${linkLookLimit.toLocaleString()} files, so not every link in it could be looked at`);
+    for (const [name, when] of neighbours(folder)) {
+      const before = besideBefore.get(name);
+      if (before === undefined) found.push(`added ${name} next to the folder`);
+      else if (before !== when) found.push(`changed ${name} next to the folder`);
+    }
+    return found.length ? found.join("; ") : null;
+  }
+
+  /** The job reached outside its folder. What it did inside is not trusted either: nothing is checked or kept. */
+  private leftItsFolder(input: HandOffInput, account: string, report: ProgramReport, context: ToolContext, what: string): HandOffResult {
+    const result: HandOffResult = { program: input.program, account, status: "left its folder",
+      summary: `The job reached outside the folder it was given: it ${what}. I checked and kept nothing from this run. `
+        + "Look over the folder and what is next to it yourself before you trust anything from it.",
+      steps: report.steps.slice(-40), changed: [], undone: [] };
+    this.deps.store.event(context.runId, "code.hand_off", { ...result, summary: result.summary.slice(0, 500) });
+    return result;
+  }
+
+  /** The job changed the folder's own Git settings. Branch runs no more Git in it: nothing is checked or put back, and the owner is told plainly. */
+  private settingsChanged(input: HandOffInput, account: string, report: ProgramReport, context: ToolContext): HandOffResult {
+    const result: HandOffResult = { program: input.program, account, status: "repository settings changed",
+      summary: "The job changed this folder's own Git settings (its config, attributes or hooks), so I ran no more Git in it: "
+        + "nothing it did was checked or put back. Look the folder over yourself before you trust or keep anything from this run.",
+      steps: report.steps.slice(-40), changed: [], undone: [] };
     this.deps.store.event(context.runId, "code.hand_off", { ...result, summary: result.summary.slice(0, 500) });
     return result;
   }
@@ -253,7 +437,8 @@ export function registerHandOff(registry: ToolRegistry, handOff: HandOff): void 
       + "folder of the workspace that is a Git repository: the program reads, edits and runs the checks there, and this answers "
       + "with what it did and which files changed. Choose the account from Settings › Accounts, or leave it out for the usual one. "
       + "When the answer says the plan's limit was reached, try another account. Inside Branch's own source, anything the job "
-      + "changed outside the contract's allowed paths is put back and named.",
+      + "changed outside the contract's allowed paths is put back and named. A job that makes a link out of its folder, or "
+      + "writes next to it, ends as \"left its folder\" and nothing from it is kept.",
     parameters: HandOffInputSchema,
     // The program may change anything in the folder, so a rule about any folder inside it counts; inside Branch's
     // own source the contract must cover the whole folder, and is held again file by file afterwards.
