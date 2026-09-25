@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
 import { memoryAgent } from "./trunks/memory-scope.js"; // FQ-routing.isolated-agents
+import { mixtureProviderName } from "./model-savings/mixture.js"; // NAS cc72768
 import { trunkFilesHome } from "./trunks/file-root.js"; // Q114
 import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
@@ -256,6 +257,24 @@ export function attachmentsNote(attachments?: AttachmentRef[]): string {
   if (!attachments?.length) return "";
   const names = attachments.map((one) => `${one.name} (${one.kind})`);
   return `\n\n[attached ${attachments.length === 1 ? "file" : "files"}: ${names.join(", ")}]`;
+}
+/**
+ * NAS cc72768: connections whose `model` is not the model writing. A mixture is priced as its priciest member
+ * (every member would be told that name), an installed program is named by its command, and the Codex app-server
+ * by what it is; "configured" and "demo" stand in where no model was named (src/providers.ts `defaultPreset`).
+ */
+const namesNoModel = (preset: Pick<ModelPreset, "model"> & { provider?: { name: string } }): boolean =>
+  ["configured", "demo"].includes(preset.model) || preset.provider?.name === mixtureProviderName
+  || /^(cli-agent|app-server|retired):/.test(preset.provider?.name ?? "");
+/** Dogfood B18: the first system message, with the line that says which model and connection are answering. */
+export function withModelIdentity(messages: Message[], preset: Pick<ModelPreset, "name" | "model"> & { provider?: { name: string } }): Message[] {
+  const first = messages[0];
+  if (first?.role !== "system") return messages;
+  const who = namesNoModel(preset)
+    ? `The connection answering now is "${preset.name}".`
+    : `The model answering now is ${preset.model}, through the connection "${preset.name}".`;
+  const line = `\n\n${who} If asked which model you are, say so.`;
+  return [{ ...first, content: first.content + line }, ...messages.slice(1)];
 }
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
 const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
@@ -2245,6 +2264,11 @@ ${run.output.slice(0, 6000)}`;
       pinned: pinnedMessages.length,
     };
   }
+  /**
+   * Dogfood B18: asked "which model are you?", GPT-6 Sol said it had no reliable view of its name. Each attempt tells
+   * the model which connection is answering (a fallback is told its own), as one line at the end of the first system
+   * message, so the line changes only when the model does.
+   */
   private async completeWithRetries(
     run: Run,
     messages: Message[],
@@ -2264,7 +2288,8 @@ ${run.output.slice(0, 6000)}`;
         : undefined;
       const preset = route.candidates[route.index]!;
       try {
-        return await this.complete(run, messages, context, preset, route.reasoning, emit, undefined, firstReply.capMs);
+        // NAS cc72768: an isolated grader is given its instructions and nothing else (src/evaluation-honesty.ts).
+        return await this.complete(run, context.isolated ? messages : withModelIdentity(messages, preset), context, preset, route.reasoning, emit, undefined, firstReply.capMs);
       } catch (error) {
         const ceiling = this.replyCeilings.get(run.id) ?? baseReplyCeiling;
         if (isOutOfRoomThinking(error) && ceiling < maxReplyCeiling && !context.signal.aborted) {
