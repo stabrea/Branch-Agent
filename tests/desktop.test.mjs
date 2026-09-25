@@ -220,10 +220,11 @@ test(
         await page.locator("html").getAttribute("data-theme"),
         "daylight",
       );
-      // Q244: the rail's "Branch Agent home" link is not drawn in the restarted window's layout (R21: the click found no
-      // link in 30 s), so the step goes home the way the link does, to "/", and the reconnect after it says it worked.
-      await page.goto(new URL("/", page.url()).href);
-      console.log("Desktop restart: went home");
+      // Q244: on the Windows runner, taking the restarted window to "/" (by the rail's link or by address) left the whole
+      // app answering nothing, its main process included, until it was ended (R21 runs 36186496292, 36188638363). That is
+      // kept as its own row; here the restarted app is reloaded, as the first one is, and must connect again.
+      await page.reload();
+      console.log("Desktop restart: reloaded");
       await connected(page);
       console.log("Desktop restart: home again");
       await settled(page, "restart");
