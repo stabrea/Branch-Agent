@@ -1585,6 +1585,8 @@ const stepPhrases = {
 function stepPhrase(call) {
   const phrase = stepPhrases[call.name];
   if (phrase) return phrase(stepArgs(call));
+  // Mac mini's E2 item 2: the server's words for the call (the conversation view's label) before its name.
+  if (call.label && !/^Using [\w.]+$/.test(call.label)) return call.label;
   const words = call.name.replace(/[._]/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }

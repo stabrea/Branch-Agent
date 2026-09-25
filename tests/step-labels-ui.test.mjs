@@ -83,3 +83,14 @@ test("a practice run, a stopped command and odd arguments each read as what they
   assert.match(lines[2][1], /Ran `npm`/, "arguments that are not a list are left out");
   assert.deepEqual(errors, []);
 });
+
+test("a step the page has no words for uses the server's words, never the tool's name (Mac mini's E2 item 2)", async (t) => {
+  const { page, errors } = await fixture(t, [{ id: "g1", name: "git.status", arguments: "{}" }]);
+  await page.getByText(prompt).first().click();
+  const step = page.locator("#conversation .tool-step").first();
+  await step.waitFor({ timeout: 30000 });
+  const label = (await step.locator("summary").innerText()).trim();
+  assert.match(label, /^Checking what changed/, label);
+  assert.doesNotMatch(label, /git status/i);
+  assert.deepEqual(errors, []);
+});

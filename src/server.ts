@@ -18,7 +18,7 @@ import { RunInputSchema, errorText, maximumImagesPerTurn, runBodyLimit, type Run
 import type { ImagePart } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
-import { liveActivity, staleAfterMs, queuedActivity, type RunActivity } from "./activity.js";
+import { describeToolCall, liveActivity, staleAfterMs, queuedActivity, type RunActivity } from "./activity.js";
 import { runResult } from "./results.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import {
@@ -2069,7 +2069,7 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
   if (match && request.method === "GET" && !match[2]) {
     const person = app.store.profiles.active();
     const shared = person && app.trunks.rooms.forPerson(person.id).some((room) => room.sessionId === match[1]);
-    return app.store.sessionView(shared ? app.runtime.owner : owner, match[1]!);
+    return withStepWords(app.store.sessionView(shared ? app.runtime.owner : owner, match[1]!));
   }
   if (match && match[2] === "skill") {
     if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
@@ -4701,4 +4701,18 @@ async function stopServer(app: Branch, server: Server): Promise<void> {
   await schedulesStopped;
   server.closeAllConnections();
   await closed;
+}
+
+/**
+ * Dogfood E2 part 2 (Mac mini's item 2): each tool call in a conversation carries what it does in words, so the page's
+ * step row never falls back to the tool's name with its dots turned into spaces ("knowledge list").
+ */
+function withStepWords<T>(view: T): T {
+  const messages = (view as { messages?: { toolCalls?: { name: string; arguments: string; label?: string }[] }[] }).messages;
+  for (const message of messages ?? []) for (const call of message.toolCalls ?? []) {
+    let args: unknown = {};
+    try { args = JSON.parse(call.arguments || "{}"); } catch { /* words from the name alone */ }
+    call.label = describeToolCall(call.name, args);
+  }
+  return view;
 }
