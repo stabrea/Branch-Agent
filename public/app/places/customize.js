@@ -98,7 +98,7 @@ export function draw() {
     const channelCount = channelSetup.length;
     html += `<p class="hint" data-css="margin:4px 0 10px">Talk to Branch from other apps. Each chat app reaches the Trunk you choose; with the gateway on, they work while Branch is closed.</p>
       <div class="ch-wrap12"><div class="ch-top12"><label class="set-search" data-css="margin:0;flex:1"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M20 20l-4-4"></path></svg><input id="ch-q" value="" placeholder="Search ${channelCount} chat apps" aria-label="Search chat apps" autocomplete="off"></label>
-      <span class="seg"><button type="button" data-act="ch-fam" data-v="all" aria-pressed="true">All</button><button type="button" data-act="ch-fam" data-v="core" aria-pressed="false">Popular</button><button type="button" data-act="ch-fam" data-v="chat" aria-pressed="false">Work chat</button><button type="button" data-act="ch-fam" data-v="parity" aria-pressed="false">More</button></span></div>
+      <span class="seg"><button type="button" data-act="ch-fam" data-v="all" aria-pressed="true">All</button><button type="button" data-act="ch-fam" data-v="core" aria-pressed="false">Popular</button><button type="button" data-act="ch-fam" data-v="chat" aria-pressed="false">Work chat</button><button type="button" data-act="ch-fam" data-v="parity" aria-pressed="false">More</button></span></div> // state: the list shows every family until a filter works
       <div class="ch-grid12">`;
     if (channelSetup.length) {
       html += channelSetup.map(ch => {
@@ -109,7 +109,7 @@ export function draw() {
     html += `</div><div class="tile phone12"><div class="th"><span class="ico-tile">${ic('phone', 's')}</span><b>Your phone</b></div><p>Answer approvals and talk to Trunks from the Branch app.</p>
       <div class="acts"><button class="btn pri sm" type="button" data-act="pair">Pair a phone</button></div></div></div>`;
   } else if (tab === "everywhere") {
-    const version = E.state.version || "0.20.0";
+    const version = E.state?.version ?? "";
     html += `<div class="rows"><p class="hint" data-css="margin:4px 0 10px">One Branch, everywhere you are. Open any card to see that surface; the switcher in the title bar does the same.</p>
       <div class="grid2">
       <div class="tile"><div class="th"><span class="ico-tile">${ic('desktop', 's')}</span><b>Windows</b></div><p>This computer · Branch ${esc(version)}</p>

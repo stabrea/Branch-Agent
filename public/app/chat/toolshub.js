@@ -17,7 +17,7 @@ function list() {
     ["skills", "Skills", (E.state?.skills ?? []).map((s) => ({ id: s.id ?? s.name, name: s.name ?? s.id, desc: s.description ?? "" }))]];
   const sec = ([k, label, items]) => {
     const shown = items.filter((x) => !q || `${x.name} ${x.desc}`.toLowerCase().includes(q));
-    return shown.length ? `<div class="th9-h">${label}<span>${shown.length} on</span></div>${shown.map((x) => `<div class="th9-row"><span class="ico-tile">${ic(k === "mcp" ? "plug" : "bolt", "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.desc)}</small></span><input type="checkbox" class="sw" data-sw="tool9" id="tool9-${esc(x.id)}" checked aria-label="${esc(x.name)} in this conversation"></div>`).join("")}` : "";
+    return shown.length ? `<div class="th9-h">${label}<span>${shown.length} on</span></div>${shown.map((x) => `<div class="th9-row"><span class="ico-tile">${ic(k === "mcp" ? "plug" : "bolt", "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.desc)}</small></span><input type="checkbox" class="sw" data-sw="tool9" id="tool9-${esc(x.id)}" aria-label="${esc(x.name)} in this conversation"></div>`).join("")}` : "";
   };
   return kinds.map(sec).join("") || (q ? '<p class="hint" data-css="margin:10px 4px">No tool by that name.</p>' : "");
 }

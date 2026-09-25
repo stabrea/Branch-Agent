@@ -67,17 +67,13 @@ export function draw() {
 export async function after() {
   const tab = S.tabs.library || "memory";
   if (tab === "documents") {
-    try {
-      const fresh = await api("documents").catch(() => []);
-      const key = JSON.stringify(fresh);
-      if (key !== docsKey) { docsKey = key; docsList = Array.isArray(fresh) ? fresh : []; renderNow(); }
-    } catch (e) { /* silently fail */ }
+    const fresh = await api("documents").catch(() => []);
+    const key = JSON.stringify(fresh);
+    if (key !== docsKey) { docsKey = key; docsList = Array.isArray(fresh) ? fresh : []; renderNow(); }
   } else if (tab === "made") {
-    try {
-      const fresh = await api("artifacts").catch(() => []);
-      const key = JSON.stringify(fresh);
-      if (key !== artsKey) { artsKey = key; artsList = Array.isArray(fresh) ? fresh : []; renderNow(); }
-    } catch (e) { /* silently fail */ }
+    const fresh = await api("artifacts").catch(() => []);
+    const key = JSON.stringify(fresh);
+    if (key !== artsKey) { artsKey = key; artsList = Array.isArray(fresh) ? fresh : []; renderNow(); }
   }
 }
 

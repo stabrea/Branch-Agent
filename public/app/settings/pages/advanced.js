@@ -14,9 +14,9 @@ export function draw() {
   // Service diagnostics
   html += "<div class=\"tile\" data-css=\"margin-top:12px\"><div class=\"th\"><b>Branch service</b><span class=\"pill done ml\"><i></i>Running</span></div>";
   html += "<dl class=\"kv\" data-css=\"background:none;padding:0\">";
-  html += "<dt>Version</dt><dd>" + esc(s.version || "0.19.4") + "</dd>";
-  html += "<dt>Address</dt><dd>" + esc(s.address || "127.0.0.1:3210") + "</dd>";
-  html += "<dt>Process</dt><dd>" + esc(s.pid || "unknown") + "</dd>";
+  html += "<dt>Version</dt><dd>" + esc(s.version ?? "") + "</dd>";
+  html += "<dt>Address</dt><dd>" + esc(s.address ?? "") + "</dd>";
+  html += "<dt>Process</dt><dd>" + esc(s.pid ?? "") + "</dd>";
   html += "</dl>";
   html += "<div class=\"acts\"><button class=\"btn sm\" type=\"button\" data-act=\"toast\" data-msg=\"Branch service restarted.\">Restart</button><button class=\"btn ghost sm\" type=\"button\" data-act=\"toast\" data-msg=\"Logs open in a new window.\">Open logs</button></div>";
   html += "</div>";

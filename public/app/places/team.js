@@ -21,7 +21,7 @@ function liveTab() {
 }
 
 function peopleTab() {
-  let html = `<div class="runs6"><div class="run6"><div class="run-h">${av({kind: "main"}, 30)}<span class="grow"><b>You</b><small>This computer · Branch ${E.state?.version || "0.19.4"}</small></span></div></div></div>`;
+  let html = `<div class="runs6"><div class="run6"><div class="run-h">${av({kind: "main"}, 30)}<span class="grow"><b>You</b><small>This computer · Branch ${esc(E.state?.version ?? "")}</small></span></div></div></div>`;
   return html;
 }
 

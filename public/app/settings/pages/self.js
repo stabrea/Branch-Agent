@@ -72,7 +72,7 @@ function policySection() {
   const askFirstRules = E.state?.askFirst;
   const askFirst = askFirstRules && Object.keys(askFirstRules).length > 0;
   return "<div class=\"sec\"><h2>What Branch may change about itself</h2>" +
-    "<div class=\"ctl\"><b>Its own settings</b><span class=\"right\"><span class=\"seg\" role=\"group\" aria-label=\"Its own settings\"><button type=\"button\" aria-pressed=\"true\" data-act=\"seg\">Ask me first</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Never</button></span></span><small>It shows you the change first, tried on a throwaway copy.</small></div>" +
+    "<div class=\"ctl\"><b>Its own settings</b><span class=\"right\"><span class=\"seg\" role=\"group\" aria-label=\"Its own settings\"><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Ask me first</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Never</button></span></span><small>It shows you the change first, tried on a throwaway copy.</small></div>" +
     "<div class=\"ctl\"><b>Its own program and your saved work</b><span class=\"right\"><span class=\"pill idle\">Never, by itself</span></span><small>This one can’t be switched on.</small></div>" +
     "<div class=\"ctl\"><b>Work on its own code in a separate copy</b><input class=\"sw\" type=\"checkbox\" id=\"self-dev\" aria-label=\"Work on its own code in a separate copy\" data-sw=\"set\"><small>A private copy of Branch’s source. The installed app is never touched. Off until you switch it on.</small></div></div>";
 }

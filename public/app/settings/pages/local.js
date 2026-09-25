@@ -126,14 +126,14 @@ export function init() {
     const modelId = el.dataset.id;
     if (modelId) {
       api("local-models/pull", { model: modelId })
-        .then(() => { toast("Starting download..."); loadLocalData(); }, (e) => toast(e.message));
+        .then(() => loadLocalData(), (e) => toast(e.message));
     }
   });
   on("lm-rm", (el) => {
     const modelId = el.dataset.id;
     if (modelId) {
       api("local-models/remove", { model: modelId })
-        .then(() => { toast("Model removed."); loadLocalData(); }, (e) => toast(e.message));
+        .then(() => { toast("Removed. The space is free again."); loadLocalData(); }, (e) => toast(e.message));
     }
   });
   markLive(["lm-get", "lm-rm"]);

@@ -30,7 +30,7 @@ const pressed = (on) => `aria-pressed="${on}"`;
 const pose = (i) => POSES[i] ? `<img class="pose11 ob-pose11" src="/art/branch-${POSES[i]}.webp" alt="" loading="lazy" decoding="async" draggable="false">` : "";
 const prov = (act, k, v, icon, name, sub, on) =>
   `<button class="prov" type="button" data-act="${act}" data-k="${k}" data-v="${v}" ${pressed(on)}><span class="ico-tile">${ic(icon, "s")}</span><b>${name}</b><small>${sub}</small></button>`;
-const ctl = (id, name, sub) => `<div class="ctl"><b>${name}</b><input class="sw" type="checkbox" id="${id}" checked aria-label="${name}" data-sw="set"><small>${sub}</small></div>`;
+const ctl = (id, name, sub) => `<div class="ctl"><b>${name}</b><input class="sw" type="checkbox" id="${id}" aria-label="${name}" data-sw="set"><small>${sub}</small></div>`;
 
 function welcome(o) {
   return `<div class="ob-stage11"><video class="pose11 vid11 ob-art11" src="/art/anim-idle.webm" poster="/art/branch-wave.webp" muted loop autoplay playsinline aria-hidden="true"></video></div><h2>Hi, I’m Branch.</h2><p>An assistant that lives on this computer, with Trunks that each take one job. This takes about three minutes; you can change everything later.</p><div class="ob-trust"><b>How Branch stays safe</b><ul class="may6"><li>${ic("check", "s")}It asks before it sends, deletes, spends or installs anything.</li><li>${ic("check", "s")}Your conversations and keys stay on your computers.</li><li>${ic("check", "s")}You can take over, stop it, or roll back any change.</li></ul><label class="chk"><input type="checkbox" id="ob-trust" ${o.trust ? "checked" : ""}> I understand Branch can act on this computer when I allow it</label></div>`;
@@ -49,7 +49,7 @@ function modelRows(o) {
   for (const p of o.pools) for (const a of p.accounts ?? []) rows.push([p.pool, a.label || p.pool, p.pool + (p.defaultAccount === a.id ? " · used next" : "")]);
   for (const m of o.local) rows.push(["ollama", `${m.name ?? m.model ?? m}, on this computer`, "Ollama"]);
   if (!rows.length && E.state?.activeModel) rows.push([E.state.activeModel.presetName, E.state.activeModel.presetName, E.state.activeModel.model ?? ""]);
-  return rows.map(([id, name, sub], i) => `<div class="prow">${logo(id, name, 30)}<span class="grow"><b>${esc(name)}</b><small>${esc(sub)}</small></span><input class="sw" type="checkbox" checked data-sw="ob-brain" data-i="${i}" aria-label="${esc(name)}"></div>`).join("");
+  return rows.map(([id, name, sub], i) => `<div class="prow">${logo(id, name, 30)}<span class="grow"><b>${esc(name)}</b><small>${esc(sub)}</small></span><input class="sw" type="checkbox" data-sw="ob-brain" data-i="${i}" aria-label="${esc(name)}"></div>`).join("");
 }
 
 function testOut(o) {
@@ -87,7 +87,7 @@ function reach(o) {
 function tools(o) {
   const found = o.servers.map((s) => [s.id ?? s.name, s.name ?? s.id, s.description ?? ""]);
   const rows = found.length ? found : [["outlook", "Outlook", "Mail and calendar · sign in on their site"], ["drive", "Google Drive", "Documents · sign in on their site"], ["github", "GitHub", "Code and issues · sign in on their site"]];
-  return `<h2 tabindex="-1">Tools to start with</h2><p>Recommended for the Trunks you picked. Everything else is under the plug.</p><div class="rows">${rows.map(([id, n, s]) => `<div class="prow">${logo(id, n, 28)}<span class="grow"><b>${esc(n)}</b><small>${esc(s)}</small></span><input class="sw" type="checkbox" data-sw="set" checked aria-label="${esc(n)}"></div>`).join("")}</div>`;
+  return `<h2 tabindex="-1">Tools to start with</h2><p>Recommended for the Trunks you picked. Everything else is under the plug.</p><div class="rows">${rows.map(([id, n, s]) => `<div class="prow">${logo(id, n, 28)}<span class="grow"><b>${esc(n)}</b><small>${esc(s)}</small></span><input class="sw" type="checkbox" data-sw="set" aria-label="${esc(n)}"></div>`).join("")}</div>`;
 }
 
 function keep(o) {

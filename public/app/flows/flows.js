@@ -5,7 +5,6 @@ import * as setup from "./setup.js";
 import * as tour from "./tour.js";
 import * as chat from "./chat.js";
 import * as pair from "./pair.js";
-import * as models from "./models.js";
 import * as connectors from "./connectors.js";
 import { S, E } from "../core/state.js";
 import { onRender } from "../core/dom.js";
@@ -18,7 +17,6 @@ export function init() {
   tour.init();
   chat.init();
   pair.init();
-  models.init();
   connectors.init();
   onRender(checkFirstRun);
 }
