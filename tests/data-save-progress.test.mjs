@@ -28,7 +28,7 @@ async function dataPage(t, width) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
   const open = async () => {
     await page.locator("body.sg-ready").waitFor();
@@ -74,7 +74,7 @@ test("DG-055 the switch still saves the question at 95%, and it comes back after
   const after = (await call("/api/usage/glance/settings")).settings.saveProgress;
   assert.notEqual(after, before);
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await open();
   assert.equal(await page.locator("#glance-save-progress").isChecked(), after === "ask");
   assert.deepEqual(errors, []);

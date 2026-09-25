@@ -34,7 +34,7 @@ async function fixture(t, provider) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   return { app, page, server, errors };
 }
 /** Walks past the first-run panel so the conversation column is what is on screen. */
@@ -217,7 +217,7 @@ test("W3 a message put to a specialist comes back signed with that specialist's 
     { definition: { name: "The bookkeeper", purpose: "Files invoices.", instructions: "File invoices.", permissions: ["files.read"] },
       activeVersion: 1, status: "active", versions: [] });
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
 
   await page.waitForFunction(() => document.getElementById("composer-specialist").options.length > 1);
   /* The calm window keeps the picker under More; choosing there chooses the real one. */

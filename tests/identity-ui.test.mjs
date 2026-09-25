@@ -23,7 +23,7 @@ async function fixture(t) {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(server.url); await page.getByLabel('Session token', { exact: true }).fill(server.token);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  await page.locator('#workspace').waitFor({ state: 'visible', timeout: 120000 }); await openSettingFor(page, '#identity-name');
+  await page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 }); await openSettingFor(page, '#identity-name');
   return { page, requests, errors, server };
 }
 async function edit(page, name, instructions) {
@@ -48,7 +48,7 @@ test('identity saves across reload and the next task receives its name and instr
   const f = await fixture(t);
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Branch Agent');
   await edit(f.page, 'Juniper', 'Use concise answers and cite saved sources.'); await save(f.page);
-  await f.page.reload(); await f.page.locator('#workspace').waitFor({ state: 'visible', timeout: 120000 });
+  await f.page.reload(); await f.page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
   await openSettingFor(f.page, '#identity-name');
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Juniper');
   assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Use concise answers and cite saved sources.');

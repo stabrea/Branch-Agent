@@ -46,7 +46,7 @@ async function openApp(t, width = 1280) {
   await token.waitFor({ state: "visible", timeout: 120000 });
   await token.fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#knobs-launch-file-card").waitFor({ state: "attached" });
   return { app, page, launchFile };
 }

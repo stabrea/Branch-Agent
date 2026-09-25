@@ -30,7 +30,7 @@ async function fixture(t, provider) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await showEverything(page);
   if (await page.locator("#first-run").isVisible()) {
     await page.getByRole("button", { name: /Try it without an account/ }).click();
@@ -122,7 +122,7 @@ test("B5 opening a conversation from Recents in a fresh window starts at its new
   const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
   await send(page, "A long answer to come back to.");
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   const row = page.locator("#rail-list .rail-item").filter({ hasText: "A long answer to come back to" });
   await row.waitFor({ timeout: 20000 });
   await row.click();
@@ -161,7 +161,7 @@ test("Q198 a conversation opened from Recents after a scroll up on the empty scr
   const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
   await send(page, "A long answer to come back to.");
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => globalThis.branchFollowNewest, null, { timeout: 20000 });
   // A wheel turned upward over the empty screen.
   await page.evaluate(() => document.getElementById("workspace").dispatchEvent(new WheelEvent("wheel", { deltaY: -300, bubbles: true })));
@@ -181,7 +181,7 @@ test("a slash command on the empty screen leaves no send under way: Recents stil
   const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
   await send(page, "A long answer to open again.");
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => globalThis.branchFollowNewest, null, { timeout: 20000 });
   await page.locator("#prompt").fill("/help");
   await page.locator("#prompt").press("Enter");
@@ -204,7 +204,7 @@ test("a first send that fails leaves no send under way: Recents still opens at t
   const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
   await send(page, "A long answer after a failed send.");
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => globalThis.branchFollowNewest, null, { timeout: 20000 });
   let refused = 0;
   await page.route("**/api/run", (route) => { refused += 1; return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "The service is not answering." }) }); });

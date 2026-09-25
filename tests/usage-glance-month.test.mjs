@@ -50,7 +50,7 @@ test("the list's foot reads This month: about $… beside Open Usage, in English
   await page.goto(f.server.url);
   await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   const foot = page.locator("#usage-pop .glance-foot");
   const openList = async () => {
     await page.evaluate(() => globalThis.branchUsageGlance.refresh());

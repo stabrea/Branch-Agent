@@ -30,7 +30,7 @@ async function openApp(t) {
   await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openSettingFor(page, "#problem-report-card");
   // The card sits below Updating by itself and The keeper (DG-192) and fills its form only once it is seen,
   // so it is scrolled to the way a person reaches it.

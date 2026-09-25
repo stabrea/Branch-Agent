@@ -39,7 +39,7 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   /* No model yet is said once, in plain words: practice mode (0.18.1). */
   assert.match(await page.locator("#demo-notice").textContent(), /Practice mode/);
   /* The acorn is off by default and the calm window keeps the side pane away until work runs, so
