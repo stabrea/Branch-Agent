@@ -175,7 +175,7 @@ import { People } from "./people/index.js";
 import { peopleEnabled } from "./people/settings.js";
 import { interopMode } from "./interop/settings.js";
 import { requireBoundSession } from "./people/access.js";
-import { keyAnswerRefusal, keyStopRefusal, runOrigin, shortLivedKeyMark } from "./key-context.js";
+import { keyAnswerRefusal, keyStopRefusal, keyViewOfQuestion, runOrigin, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
@@ -1813,7 +1813,9 @@ async function api(
     // name of their own: nothing they do reaches the owner's folder or the owner's memory.
     return runToolChecksSafely(app, AbortSignal.timeout(120000));
   if (request.method === "GET" && path === "/api/policy")
-    return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
+    return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(),
+      // A short-lived key sees another task's question without its fingerprint; it may answer only its own tasks'.
+      waiting: app.runtime.approvals.waiting().map((question) => keyViewOfQuestion(app.store, question)) };
   if (request.method === "POST" && path === "/api/policy") {
     const input = await readBody(request);
     return { policy: recordedWrite(app.store, app.runtime.owner, { writer: "owner-in-window", source: "card", detail: "policy" }, ["policy"],

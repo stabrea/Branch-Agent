@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { PendingApproval } from "./approvals.js";
 
 /**
  * Whether the work in progress was asked for with a short-lived key (`branch token create`) rather
@@ -128,6 +129,16 @@ export function keyAnswerRefusal(store: EventReader, runId: string | undefined):
   const { keyId } = shortLivedKeyMark();
   if (!keyId || !runId) return otherKeysQuestionRefusal;
   return runOrigin(store, runId).keyIds.includes(keyId) ? null : otherKeysQuestionRefusal;
+}
+/**
+ * A waiting question as the request's caller may see it. A short-lived key is shown another task's question without
+ * its fingerprint, by the same rule that decides whether it may answer; its own tasks' questions keep theirs. Anyone
+ * else sees the question as it is. The question itself is never changed: the answer is bound to that fingerprint.
+ */
+export function keyViewOfQuestion(store: EventReader, question: PendingApproval): PendingApproval {
+  if (question.fingerprint === undefined || !keyAnswerRefusal(store, question.runId)) return question;
+  const { fingerprint: _withheld, ...shown } = question;
+  return shown;
 }
 
 /**
