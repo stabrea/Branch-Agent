@@ -2,6 +2,9 @@
  * Wave 6: the web app's own screens. Markdown that is rendered and never trusted, the "Look inside"
  * panel, stepping into a task while it works, the context meter, the developer playground, the
  * installable-app files, and switching the language.
+ *
+ * Redesign: the new window (public/app/**). Replies are #conversation > .b, their words .txt, drawn by
+ * public/app/chat/markdown.js text(); the approval card is #live-ask with the action's verb (.btn.pri).
  */
 import test from "node:test";
 import { openPlace, openSettingFor, showEverything } from "./places.mjs";
@@ -46,13 +49,12 @@ async function fixture(t, provider) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
-  await showEverything(page);
   return { app, page, server, errors, browser };
 }
 /** Walks past the first-run panel, when there is one, so the conversation column is what is on screen. */
 async function settle(page) {
-  if (await page.locator("#first-run").isHidden()) return;
+  /* Redesign: the new window opens on the conversation; setup is opened from Guide, not in the way. */
+  if (await page.locator("#first-run").count() === 0 || await page.locator("#first-run").isHidden()) return;
   /* "Try it without an account" finishes first run in one click. */
   await page.getByRole("button", { name: /Try it without an account/ }).click();
   await page.locator("#first-run").waitFor({ state: "hidden" });
@@ -61,24 +63,25 @@ async function settle(page) {
 test("U1 the markdown fixture renders its real structure and never becomes markup", async (t) => {
   const { page, errors } = await fixture(t);
   const source = await readFile(FIXTURE, "utf8");
+  /* Redesign: the new window's renderer, public/app/chat/markdown.js text(), which returns the reply's HTML. */
   const shape = await page.evaluate(async (markdown) => {
-    const { renderMarkdown } = await import("/markdown.js");
+    const { text } = await import("/app/chat/markdown.js");
     const host = document.createElement("div");
-    host.className = "markdown";
-    host.append(renderMarkdown(markdown));
+    host.className = "txt";
+    host.innerHTML = text(markdown);
     document.body.append(host);
-    const code = host.querySelector(".code-block");
+    const code = host.querySelector("pre")?.closest(".code-block") ?? host.querySelector("pre")?.parentElement;
     return {
       headings: [...host.querySelectorAll("h1,h2,h3")].map((n) => n.textContent),
-      listItems: [...host.querySelectorAll("ul.md-list li")].map((n) => n.textContent),
-      ordered: host.querySelectorAll("ol.md-list li").length,
-      tableHeads: [...host.querySelectorAll(".md-table th")].map((n) => n.textContent),
-      tableCells: host.querySelectorAll(".md-table td").length,
+      listItems: [...host.querySelectorAll("ul li")].map((n) => n.textContent),
+      ordered: host.querySelectorAll("ol li").length,
+      tableHeads: [...host.querySelectorAll("table th")].map((n) => n.textContent),
+      tableCells: host.querySelectorAll("table td").length,
       link: host.querySelector("a")?.getAttribute("href") ?? null,
       linkTarget: host.querySelector("a")?.getAttribute("target") ?? null,
       inlineCode: [...host.querySelectorAll("p code")].map((n) => n.textContent),
       language: code?.querySelector(".code-language")?.textContent ?? null,
-      copyLabel: code?.querySelector(".code-copy")?.textContent ?? null,
+      copyLabel: code?.querySelector(".code-copy, button")?.textContent ?? null,
       codeText: code?.querySelector("pre code")?.textContent ?? null,
       quote: host.querySelector("blockquote")?.textContent ?? null,
       /* Nothing in the source may have become a real element or a live handler. */
@@ -88,6 +91,14 @@ test("U1 the markdown fixture renders its real structure and never becomes marku
       javascriptLinks: [...host.querySelectorAll("a")].filter((a) => a.href.startsWith("javascript:")).length,
     };
   }, source);
+  assert.equal(shape.scripts, 0, "a script tag in the source is never a script tag on the page");
+  assert.equal(shape.images, 0, "an onerror image in the source is never an image on the page");
+  assert.equal(shape.javascriptLinks, 0, "a javascript: link is never followable");
+  assert.ok(shape.rawTextHasTag, "the tag survives as visible text, which is the point");
+  assert.deepEqual(shape.listItems, ["a plain bullet", "a bullet with bold inside", "a bullet with code inside"]);
+  assert.equal(shape.ordered, 2, "the numbered list rendered");
+  assert.ok(shape.inlineCode.includes("branch start"), "inline code became a code element");
+  assert.match(shape.codeText, /const answer = 42;/);
   assert.deepEqual(shape.headings, ["A sample document", "What it covers", "One more level"]);
   assert.deepEqual(shape.listItems, ["a plain bullet", "a bullet with bold inside", "a bullet with code inside"]);
   assert.equal(shape.ordered, 2, "the numbered list rendered");
@@ -115,22 +126,28 @@ test("U1 a reply written in markdown is rendered in the conversation, not shown 
   await settle(page);
   await page.locator("#prompt").fill("Say something in markdown.");
   await page.locator("#send").click();
-  await page.locator(".message.assistant .markdown").waitFor({ timeout: 30000 });
-  assert.equal(await page.locator(".message.assistant .markdown h1").innerText(), "Heading");
-  assert.equal(await page.locator(".message.assistant .markdown strong").innerText(), "bold");
+  await page.locator("#conversation > .b .txt").waitFor({ timeout: 30000 });
+  assert.equal(await page.locator("#conversation > .b .txt strong").innerText(), "bold");
+  assert.match(await page.locator("#conversation > .b .txt pre").innerText(), /let x = 1;/);
+  assert.doesNotMatch(await page.locator("#conversation > .b .txt").innerText(), /```/, "the fence is not shown raw");
+  assert.equal(await page.locator("#conversation > .b .txt h1").innerText({ timeout: 5000 }), "Heading", "a heading is not shown raw");
   /* The label is written out in the markup; the stylesheet is what shouts it. */
-  assert.equal(await page.locator(".message.assistant .code-language").textContent(), "js");
+  assert.equal(await page.locator("#conversation > .b .code-language").textContent({ timeout: 5000 }), "js");
   assert.deepEqual(errors, []);
 });
 
 test("U1 a saved note keeps its inline formatting and still cannot carry markup", async (t) => {
-  const { page, errors } = await fixture(t);
+  const { app, page, errors } = await fixture(t);
   await settle(page);
-  await openPlace(page, "memory");
-  await page.getByLabel("Remember something").fill("Prefer **short** answers and `npm start`, never <script>alert(1)</script>.");
-  await page.getByRole("button", { name: "Save memory", exact: true }).click();
-  const card = page.locator("#memory-list article h3").first();
-  await card.waitFor();
+  /* Redesign: replaced by the new window (typing a note into Library › Memory; in the design a Trunk suggests what to
+     remember and the person keeps it). The note is kept through the engine, and Library › Memory draws it. */
+  app.store.save("memory", "local", "web-ui-note", { text: "Prefer **short** answers and `npm start`, never <script>alert(1)</script>." });
+  await page.reload();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator('#side [data-act="view"][data-v="library"]').click();
+  await page.locator('#main [data-act="ptab"][data-place="library"][data-v="memory"]').click();
+  const card = page.locator("#main .prow").filter({ hasText: "answers" }).first();
+  await card.waitFor({ timeout: 10000 });
   assert.equal(await card.locator("strong").innerText(), "short", "bold became a real element");
   assert.equal(await card.locator("code").innerText(), "npm start", "inline code became a real element");
   assert.equal(await card.locator("script").count(), 0, "a script tag in a saved note is never a script tag");
@@ -138,7 +155,9 @@ test("U1 a saved note keeps its inline formatting and still cannot carry markup"
   assert.deepEqual(errors, []);
 });
 
-test("U2 Look inside shows a scripted task's tool rows and saves as JSON", async (t) => {
+// Redesign: Coming soon (chatmenu: "Look inside the last reply"; a reply's own Look inside is not drawn), checked
+// at afa6ad94.
+test.skip("U2 Look inside shows a scripted task's tool rows and saves as JSON", async (t) => {
   let asked = 0;
   const { app, page, errors } = await fixture(t, {
     name: "scripted",
@@ -194,7 +213,9 @@ test("U2 Look inside shows a scripted task's tool rows and saves as JSON", async
   assert.deepEqual(errors, []);
 });
 
-test("U3 the live row appears during a slow task and Stop cancels it", async (t) => {
+// Redesign: replaced by the new window ("Ask it to wait", "Tell it to carry on" and telling a working task something
+// from its live row are not in the design; Stop in Send's place is checked in calm-ui "a running task reads under its message").
+test.skip("U3 the live row appears during a slow task and Stop cancels it", async (t) => {
   let release;
   const held = new Promise((resolve) => { release = resolve; });
   const { page, errors } = await fixture(t, {
@@ -234,7 +255,39 @@ test("U3 the live row appears during a slow task and Stop cancels it", async (t)
   assert.deepEqual(errors, []);
 });
 
-test("U3 an approval question appears in the conversation and the answer reaches the policy route", async (t) => {
+/* Redesign: the new card's own verb allows once; the answer is checked where it lands (the write happens). */
+test("U3 an approval question appears in the conversation and the answer reaches the policy route (the new window)", async (t) => {
+  let asked = 0;
+  const { app, page, errors } = await fixture(t, {
+    name: "scripted",
+    async complete() {
+      asked += 1;
+      return asked === 1
+        ? { content: "", toolCalls: [{ id: "c1", name: "files.write", arguments: JSON.stringify({ path: "gated.txt", content: "x" }) }] }
+        : asked === 2 ? { content: "", toolCalls: [{ id: "c2", name: "files.write", arguments: JSON.stringify({ path: "gated.txt", content: "x" }) }] }
+        : { content: "Done.", toolCalls: [] };
+    },
+  });
+  await page.evaluate(async (token) => {
+    await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) });
+  }, await page.evaluate(() => sessionStorage.getItem("branch-token")));
+  await page.locator("#prompt").fill("Write a gated file.");
+  await page.locator("#send").click();
+  await page.locator("#live-ask").waitFor({ state: "visible", timeout: 20000 });
+  assert.match(await page.locator("#live-ask").innerText(), /gated\.txt/, "the card says what it is about");
+  const approved = page.waitForRequest((request) => request.url().endsWith("/api/policy/approve"));
+  await page.locator("#live-ask .btn.pri").click();
+  assert.equal((await approved).postDataJSON().decision, "allow", "the answer reached the policy route");
+  for (let i = 0; i < 100 && !(await app.registry.execute("files.list", { path: "." }, app.runtime.context()).then((r) => JSON.stringify(r).includes("gated.txt"), () => false)); i++)
+    await page.waitForTimeout(100);
+  assert.ok(JSON.stringify(await app.registry.execute("files.list", { path: "." }, app.runtime.context())).includes("gated.txt"), "the yes let the write happen");
+  assert.equal(await page.locator("#live-ask").count(), 0, "the card is gone once answered");
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: Coming soon (ask-always, "Always allow"), checked at afa6ad94; "Yes, just now", "Yes, for this conversation"
+// and "Before I go ahead" are replaced by the new card (the action's verb, Always allow, Don’t allow).
+test.skip("U3 an approval question appears in the conversation and the answer reaches the policy route", async (t) => {
   let asked = 0;
   const { app, page, errors } = await fixture(t, {
     name: "scripted",
@@ -272,19 +325,23 @@ test("U4 the context chip and the cost under the box fill in after a task (DG-10
   await settle(page);
   await page.locator("#prompt").fill("Hello there.");
   await page.locator("#send").click();
-  await page.locator(".message.assistant").waitFor({ timeout: 30000 });
-  await page.waitForFunction(() => Number(document.querySelector(".lx-foot-context")?.dataset.share) >= 0
-    && /Context used \d+%/.test(document.querySelector(".lx-foot-context")?.textContent ?? ""));
+  await page.locator("#conversation > .b .txt").waitFor({ timeout: 30000 });
+  /* Redesign: the context meter is the status bar's "Room left" (prototype data-act="roommenu"), and the conversation's
+     cost is the prototype's .cost15 ("What this conversation has cost so far"). */
+  await page.waitForFunction(() => /Room left/.test(document.querySelector('#statusbar [data-act="roommenu"]')?.textContent ?? ""), null, { timeout: 10000 });
   assert.equal(await page.locator("#meter-row").count(), 0, "the old meter bar is gone");
-  assert.match(await page.evaluate(() => document.getElementById("conversation-cost").textContent), /^About .+ so far$|^$/, "a price shows only when one is known");
+  assert.match(await page.evaluate(() => document.querySelector(".cost15")?.textContent ?? ""), /\$|^$/, "a price shows only when one is known");
   assert.deepEqual(errors, []);
 });
 
 test("U5 the playground runs a read-only tool and shows what came back", async (t) => {
   const { page, errors } = await fixture(t);
   await settle(page);
-  await openSettingFor(page, "#playground");
-  await page.locator("#playground summary").click();
+  /* Redesign: the Playground is a Settings row ("Try any tool through a form.", Open), found by Settings' search. */
+  await page.locator('#side [data-act="view"][data-v="settings"]').click();
+  await page.locator('[data-act="setlevel"][data-v="technical"]').click();
+  await page.locator("#set-q").fill("Playground");
+  await page.locator("#main").getByRole("button", { name: "Open", exact: true }).first().click({ timeout: 10000 });
   await page.waitForFunction(() => document.getElementById("play-tool").options.length > 1);
   await page.locator("#play-tool").selectOption("files.write");
   await page.locator("#play-field-path").fill("playground.txt");
@@ -306,8 +363,11 @@ test("U5 a tool the settings say to ask about stops and asks before it runs", as
     await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) });
   }, await page.evaluate(() => sessionStorage.getItem("branch-token")));
   await settle(page);
-  await openSettingFor(page, "#playground");
-  await page.locator("#playground summary").click();
+  /* Redesign: the Playground is a Settings row ("Try any tool through a form.", Open), found by Settings' search. */
+  await page.locator('#side [data-act="view"][data-v="settings"]').click();
+  await page.locator('[data-act="setlevel"][data-v="technical"]').click();
+  await page.locator("#set-q").fill("Playground");
+  await page.locator("#main").getByRole("button", { name: "Open", exact: true }).first().click({ timeout: 10000 });
   await page.waitForFunction(() => document.getElementById("play-tool").options.length > 1);
   await page.locator("#play-tool").selectOption("files.write");
   await page.locator("#play-field-path").fill("asked.txt");
@@ -339,10 +399,8 @@ test("U6 the installable-app files are served and the worker is skipped inside t
   assert.equal(manifest.start_url, "/");
   assert.equal(manifest.display, "standalone");
   assert.equal(manifest.icons.length, 3);
-  /* The page in a browser registers a worker; the same page inside the desktop app does not. */
-  await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller) || navigator.serviceWorker.getRegistrations().then((r) => r.length > 0));
-  const registrations = await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length);
-  assert.ok(registrations > 0, "the browser keeps the app's files");
+  /* Redesign: replaced by the new window (the page registering a worker in a browser was the old window's app.js; the
+     design has no installable-app step). What stays: the files are served, and the desktop page never registers one. */
   const desktopPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   t.after(() => desktopPage.close());
   const workerRequests = [];
@@ -363,14 +421,16 @@ test("U6 the installable-app files are served and the worker is skipped inside t
 test("U6 the offline banner says plainly that nothing new can happen", async (t) => {
   const { page } = await fixture(t);
   await settle(page);
-  assert.ok(await page.locator("#offline-banner").isHidden(), "nothing is said while the computer answers");
+  /* Redesign: the status bar says "Connected", "Offline" or "Connecting" (design doc 3, status bar; 1.x Offline state). */
+  const status = page.locator('#statusbar [data-act="machines"]');
+  assert.doesNotMatch(await status.innerText(), /Offline/, "nothing is said while the computer answers");
   await page.context().setOffline(true);
   await page.evaluate(() => dispatchEvent(new Event("offline")));
-  await page.locator("#offline-banner").waitFor({ state: "visible" });
-  assert.match(await page.locator("#offline-banner").innerText(), /cannot do anything new/);
+  await page.waitForFunction(() => /Offline|Connecting/.test(document.querySelector('#statusbar [data-act="machines"]')?.textContent ?? ""), null, { timeout: 10000 });
+  assert.doesNotMatch(await status.innerText(), /Connected/, "it no longer says Connected");
   await page.context().setOffline(false);
   await page.evaluate(() => dispatchEvent(new Event("online")));
-  await page.locator("#offline-banner").waitFor({ state: "hidden" });
+  await page.waitForFunction(() => /Connected/.test(document.querySelector('#statusbar [data-act="machines"]')?.textContent ?? ""), null, { timeout: 10000 });
 });
 
 test("U6 the shell fits a 400 pixel window with the new rows on screen", async (t) => {
@@ -382,13 +442,14 @@ test("U6 the shell fits a 400 pixel window with the new rows on screen", async (
   await page.setViewportSize({ width: 400, height: 800 });
   await page.locator("#prompt").fill("Hello.");
   await page.locator("#send").click();
-  await page.locator(".message.assistant").waitFor({ timeout: 30000 });
-  await page.waitForFunction(() => /Context used/.test(document.querySelector(".lx-foot-context")?.textContent ?? ""));
+  await page.locator("#conversation > .b .txt").waitFor({ timeout: 30000 });
+  // Redesign: replaced by the new window (the "Context used" chip under the box; the meter is in the status bar).
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(overflow <= 1, `no sideways scrolling at 400 px (overflow ${overflow})`);
 });
 
-test("U7 switching the language changes a visible label and English stays the fallback", async (t) => {
+// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at afa6ad94.
+test.skip("U7 switching the language changes a visible label and English stays the fallback", async (t) => {
   const { page, server, errors } = await fixture(t);
   for (const path of ["/locales/en.json", "/locales/fr.json"]) {
     const response = await fetch(server.url + path, { headers: { origin: server.url } });
@@ -420,7 +481,9 @@ test("U7 switching the language changes a visible label and English stays the fa
   assert.deepEqual(errors, []);
 });
 
-test("U7 dates and numbers follow the chosen language", async (t) => {
+// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at afa6ad94; /i18n.js is the
+// old window's module.
+test.skip("U7 dates and numbers follow the chosen language", async (t) => {
   const { page } = await fixture(t);
   const shown = await page.evaluate(async () => {
     const { formatNumber, formatDate, setLanguage } = await import("/i18n.js");
@@ -439,7 +502,9 @@ test("U7 dates and numbers follow the chosen language", async (t) => {
 
 const PUBLIC = join(import.meta.dirname, "..", "public");
 
-test("Q2 no stylesheet but the token layer writes a colour down", async (t) => {
+// Redesign: replaced by the new window (its colours are the tokens on :root in public/app.css, design doc 2; the other
+// public/*.css files are the old window's).
+test.skip("Q2 no stylesheet but the token layer writes a colour down", async (t) => {
   const sheets = (await readdir(PUBLIC)).filter((name) => name.endsWith(".css") && name !== "tokens.css");
   assert.ok(sheets.length >= 3, "the stylesheets moved; this test is looking in the wrong place");
   const offenders = [];
@@ -455,7 +520,8 @@ test("Q2 no stylesheet but the token layer writes a colour down", async (t) => {
   assert.deepEqual(offenders, [], "every colour belongs in public/tokens.css");
 });
 
-test("Q6 the page never shows a key where a word should be", async (t) => {
+// Redesign: replaced by the new window (the new public/index.html carries no data-t keys; its words are the design's).
+test.skip("Q6 the page never shows a key where a word should be", async (t) => {
   const html = await readFile(join(PUBLIC, "index.html"), "utf8");
   const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
   const keys = [...new Set([...html.matchAll(/data-t(?:-label|-placeholder|-title)?="([^"]+)"/g)].map((m) => m[1]))];
@@ -481,7 +547,8 @@ test("Q6 each of the ten sections has its own words on file", async (t) => {
 /* Wave 8: the coverage test is tightened. It used to ask only that every key in the markup had
    English words; now it asks the other way round — that no button, field label or tick box on the
    page says anything that is not behind a key, so switching the language leaves nothing in English. */
-test("Q6 every button and field label on the page says its words through a key", async (t) => {
+// Redesign: replaced by the new window (the new public/index.html carries no data-t keys; its words are the design's).
+test.skip("Q6 every button and field label on the page says its words through a key", async (t) => {
   const html = await readFile(join(PUBLIC, "index.html"), "utf8");
   const nameless = [];
   /* A button or label whose whole content is plain words must carry the key for those words. */
