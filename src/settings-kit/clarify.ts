@@ -272,13 +272,24 @@ function nearQuestion(near: readonly Candidate[]): string {
 }
 
 /**
+ * The owner's own card these words name, for settings.find. A line of broad words (the window's look) gives way when
+ * another word names a catalogue setting by a telling word of its own, as "status" does in "change the appearance of
+ * the status line": the request is about that setting, so the near guess asks about it instead.
+ */
+function ownersCardFor(request: string): OwnersOwn | undefined {
+  const phrased = phrasedFor(request, everyField()).holds;
+  const besideASetting = namingWords(request).some((word) => !phrased.has(word) && telling(word));
+  return saidFor(request).find((entry) => entry.owners && !(entry.broad && besideASetting))?.owners;
+}
+
+/**
  * Dogfood B20: words that name no setting in the catalogue. The answer is never "which setting do you mean?" with
  * nothing to choose from. A setting only the owner changes is named, with where it is; otherwise the settings nearest
  * to the words are offered in one question (a near guess is only ever asked about, never planned); otherwise the
  * answer says plainly that there is no such setting. Nothing is planned in any of them.
  */
 function unmatched(store: Store, owner: string, request: string, value: unknown): Clarified {
-  const own = ownersOwnFor(request);
+  const own = ownersCardFor(request);
   if (own) return { status: "elsewhere", setting: own.name, where: own.where, note: ownersOwnNote(own), planned: false };
   const near = nearest(request, value).found, saysNot = negated(request), quoted = `"${request.slice(0, 80)}"`;
   if (!near.length) return { status: "none", planned: false, note: `${saysNot ? "Your words say not to, so nothing is planned. " : ""}${namingWords(request).length
@@ -290,14 +301,27 @@ function unmatched(store: Store, owner: string, request: string, value: unknown)
 
 /** Words that name Branch's settings outright. */
 const settingsNamed = new Set(["setting", "settings", "preference", "preferences"]);
+
+/**
+ * Whether the words are aimed at Branch itself: they turn something on or off or switch to it ("turn on dark mode",
+ * "switch to light mode", "toggle dark mode"), or they name Branch or say "your" ("make Branch's text bigger", "change
+ * your theme"). "Add a dark mode to my website" is not.
+ */
+function aimedAtBranch(words: readonly string[]): boolean {
+  return words.includes("toggle") || ["enable", "disable", "activate", "deactivate"].some((verb) => words.includes(verb))
+    || (["turn", "switch"].some((verb) => words.includes(verb)) && ["on", "off", "to"].some((way) => words.includes(way)))
+    || ["branch", "branchs", "your"].some((word) => words.includes(word));
+}
+
 /**
  * Dogfood B20: whether these words are about Branch's own settings, so a task can start with the settings tools in reach
- * rather than searching for them. They name settings outright, say a phrase people use for one, or turn on or off
- * something the catalogue names. "Turn on the lights" and "switch to the other branch" are not.
+ * rather than searching for them. They name settings outright, say a phrase people use for one (broad words only when
+ * aimed at Branch), or turn on or off something the catalogue names. "Turn on the lights" and "switch to the other
+ * branch" are not.
  */
 export function talksAboutSettings(text: string): boolean {
   const words = wordsOf(text);
-  if (words.some((word) => settingsNamed.has(word)) || saidFor(text).length) return true;
+  if (words.some((word) => settingsNamed.has(word)) || saidFor(text).some((entry) => !entry.broad || aimedAtBranch(words))) return true;
   const turning = (["turn", "switch", "toggle"].some((verb) => words.includes(verb)) && (words.includes("on") || words.includes("off")))
     || ["enable", "disable", "activate", "deactivate"].some((verb) => words.includes(verb));
   return turning && (candidatesFor(text).length > 0 || nearest(text).shared >= 2);
