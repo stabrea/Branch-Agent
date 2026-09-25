@@ -496,6 +496,7 @@ async function staticFile(
     "/linux-desktop.js": ["linux-desktop.js", "text/javascript; charset=utf-8"], // FQ-execution.desktop
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/activity-log.js": ["activity-log.js", "text/javascript; charset=utf-8"], // mac7/diagnostics
+    "/restore-held.js": ["restore-held.js", "text/javascript; charset=utf-8"], // Q230 part 3
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/deployment.js": ["deployment.js", "text/javascript; charset=utf-8"],
     "/pair": ["pair.html", "text/html; charset=utf-8"],

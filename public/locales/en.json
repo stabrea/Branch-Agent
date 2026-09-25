@@ -6208,5 +6208,17 @@
   "host-bridge.add-first": "Add a computer above first",
   "host-bridge.run-yes": "Yes, run it",
   "host-bridge.ran-on": "Ran on {computer}",
-  "playback.remove-clip": "Take {name} off this message"
+  "playback.remove-clip": "Take {name} off this message",
+  "restoreHeld.title": "A restore is waiting for your answer",
+  "restoreHeld.about": "These came from a backup file, but each can change who Branch talks to, what it runs or how careful it is, so each waits for your answer. Until you answer, this computer's own stay.",
+  "restoreHeld.useAll": "Use all from the backup",
+  "restoreHeld.keepAll": "Keep all of this computer's",
+  "restoreHeld.use": "Use the backup's",
+  "restoreHeld.keep": "Keep this computer's",
+  "restoreHeld.items": "{count} saved",
+  "restoreHeld.used": "{group} now comes from the backup.",
+  "restoreHeld.kept": "{group} stays as this computer has it.",
+  "restoreHeld.usedAll": "Everything waiting now comes from the backup.",
+  "restoreHeld.keptAll": "Everything waiting stays as this computer has it.",
+  "restoreHeld.failed": "That answer could not be saved."
 }
