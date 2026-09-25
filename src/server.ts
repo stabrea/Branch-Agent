@@ -5,9 +5,9 @@ import {
   type Server,
 } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { readFile, writeFile, lstat } from "node:fs/promises";
-import { dirname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
+import { dirname, extname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { TeamHandoffs, TeamHandoffRefusedError } from "./team-handoff.js";
@@ -431,6 +431,38 @@ const studySummary = (result: StudyRunResult) => ({
   rows: result.rows, tasks: result.tasks.length, resumed: result.resumed, stoppedEarly: result.stoppedEarly,
 });
 
+/** The new window's files (public/app/**) and its art (public/art/**), served by exact name only. */
+const windowFolders = ["app", "art"];
+const windowTypes: Record<string, string> = {
+  ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg",
+  ".webm": "video/webm", ".mp4": "video/mp4", ".woff2": "font/woff2",
+};
+let windowFileList: Map<string, [string, string]> | undefined;
+/**
+ * Redesign: the list is read from the folders once, at the first request, and never again. A request only ever
+ * picks an entry from it; nothing from the request is joined onto a disk path. Links, hidden files, names with
+ * anything but letters, digits, dot, dash or underscore, and unknown kinds of file are left out.
+ */
+function windowFiles(): Map<string, [string, string]> {
+  if (windowFileList) return windowFileList;
+  const found = new Map<string, [string, string]>();
+  const walk = (relative: string): void => {
+    const folder = fileURLToPath(new URL(`../public/${relative}/`, import.meta.url));
+    if (!existsSync(folder)) return;
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(entry.name)) continue;
+      const inside = `${relative}/${entry.name}`;
+      if (entry.isDirectory()) walk(inside);
+      const type = entry.isFile() ? windowTypes[extname(entry.name).toLowerCase()] : undefined;
+      if (type) found.set(`/${inside}`, [inside, type]);
+    }
+  };
+  for (const folder of windowFolders) walk(folder);
+  windowFileList = found;
+  return found;
+}
+
 async function staticFile(
   path: string,
   response: ServerResponse,
@@ -450,6 +482,7 @@ async function staticFile(
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+    "/app.css": ["app.css", "text/css; charset=utf-8"], // redesign: the new window's one stylesheet
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     // mac2/desktop-ui: this computer's own permission switches, and the Keychain list on a Mac.
     "/os-permissions.js": ["os-permissions.js", "text/javascript; charset=utf-8"],
@@ -724,7 +757,7 @@ async function staticFile(
     "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
     "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
   };
-  const asset = assets[path];
+  const asset = Object.hasOwn(assets, path) ? assets[path] : windowFiles().get(path);
   if (!asset) return false;
   const body = await readFile(
     new URL("../public/" + asset[0], import.meta.url),
