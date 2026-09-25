@@ -65,6 +65,8 @@ export function init() {
     const value = el.dataset.v;
     saveNotifySettings({ releaseChannel: value });
   });
+
+  markLive(["n-method", "n-sound", "n-update", "n-channel"]);
 }
 
 export const live = {

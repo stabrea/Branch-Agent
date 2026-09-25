@@ -83,9 +83,8 @@ export function draw() {
 }
 
 export function init() {
-  // Wire controls to real routes when needed
+  markLive([]);
 }
 
 export const live = {
-  // No controls wired yet
 };

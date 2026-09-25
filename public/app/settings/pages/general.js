@@ -74,5 +74,4 @@ export async function load() {
 }
 
 export const live = {
-  // No controls wired yet
 };

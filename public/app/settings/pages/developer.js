@@ -15,14 +15,16 @@ export function draw() {
   html += "<div class=\"ctl\"><b>Use language servers</b><input class=\"sw\" type=\"checkbox\" id=\"dv-ls\" aria-label=\"Use language servers\" data-sw=\"set\"><small>Programs you already installed, one per line.</small></div>";
   html += "<div class=\"ctl\"><b>Use a debugger</b><input class=\"sw\" type=\"checkbox\" id=\"dv-dbg\" aria-label=\"Use a debugger\" data-sw=\"set\"><small>Nothing downloads, and nothing runs until this is on.</small></div>";
   html += "</div>";
+  html += "<div class=\"sec\"><h2>Playground</h2>";
+  html += "<div class=\"ctl\"><b>Try any tool</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"playground-open\">Open</button></span><small>Pick a tool, fill the form, see the raw answer.</small></div>";
+  html += "</div>";
 
   return html;
 }
 
 export function init() {
-  // Wire controls to real routes when needed
+  // Playground deferred: needs full implementation with tool dialog UI
 }
 
 export const live = {
-  // No controls wired yet
 };
