@@ -920,7 +920,7 @@ export const carryOnWords = "Yes, go ahead.";
  */
 /** What an answer did to the task that asked (NAS bd6cf44): the window says so, rather than always "it carries on". */
 type Settled = "carrying-on" | "still-waiting" | "settled";
-function settleAsked(app: Branch, asked: { runId: string; sessionId: string; source: string }, decision: "allow" | "deny"): Settled {
+async function settleAsked(app: Branch, asked: { runId: string; sessionId: string; source: string }, decision: "allow" | "deny"): Promise<Settled> {
   const run = app.store.run(asked.runId);
   if (!run || run.status !== "needs_input" || app.runtime.approvals.waiting(asked.sessionId).length) return "still-waiting";
   // Only the owner's own task, answered by the owner at the window: never a key's (it records source "owner" too,
@@ -947,9 +947,13 @@ function settleAsked(app: Branch, asked: { runId: string; sessionId: string; sou
     // yes is still there for the owner's next message), rather than being marked done with its work undone.
     // A carry-on refused as it starts (the monthly budget, the owner's inlet filter, a closing app) leaves the task waiting
     // and writes down why, where the task's own record shows it (NAS bd6cf44).
-    void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined })
-      .catch((error: unknown) => app.store.event(run.id, "run.carry_on_refused", { reason: errorText(error).slice(0, 300) }));
-    return "carrying-on";
+    let refused = false;
+    const carry = runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined })
+      .catch((error: unknown) => { refused = true; app.store.event(run.id, "run.carry_on_refused", { reason: errorText(error).slice(0, 300) }); });
+    // NAS 0adb368: a refusal as it starts (the budget, an inlet filter, a busy conversation) settles within microtasks,
+    // so one turn of the event loop tells it apart, and the window never says "it carries on" when nothing did.
+    await Promise.race([carry, new Promise((resolve) => setTimeout(resolve, 0))]);
+    return refused ? "still-waiting" : "carrying-on";
   }
   app.store.finish(run.id, decision === "allow" ? "completed" : "cancelled", run.output);
   return "settled";
@@ -1812,7 +1816,7 @@ async function api(
     if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
       throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
     const answered = app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
-    if (asked && input.carryOn) return { ...answered, task: settleAsked(app, asked, input.decision) };
+    if (asked && input.carryOn) return { ...answered, task: await settleAsked(app, asked, input.decision) };
     return answered;
   }
   if (request.method === "GET" && path === "/api/governance")

@@ -260,7 +260,10 @@ test("a carry-on refused as it starts leaves the task waiting and writes down wh
   const first = await f.app.runtime.run({ prompt: "write b.txt" });
   const asked = f.app.runtime.approvals.questionFor(first.sessionId);
   f.app.store.save("settings", f.app.runtime.owner, "usage_budget", { pauseAtBudget: true, maxMonthlyTokens: 0 });
-  assert.equal((await f.call("policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true })).status, 200);
+  const said = await f.call("policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true });
+  assert.equal(said.status, 200);
+  // NAS 0adb368: the window is told the truth, so it never says "It carries on" when the budget stopped it.
+  assert.equal(said.body.task, "still-waiting", "a refused carry-on answers still-waiting");
   assert.ok(await settled(() => f.app.store.events(first.id).some((event) => event.kind === "run.carry_on_refused")), "why is written down");
   const refused = f.app.store.events(first.id).find((event) => event.kind === "run.carry_on_refused");
   assert.match(String(refused.data.reason), /budget/i);
