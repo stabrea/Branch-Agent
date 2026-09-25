@@ -46,6 +46,9 @@ test("a nudge after an empty reply reaches the model but is never shown as the o
   const mine = await page.locator("#conversation .message.user").allInnerTexts();
   assert.equal(mine.length, 1, `only the owner's own message is shown as theirs (${mine.join(" | ")})`);
   assert.doesNotMatch(await page.locator("#conversation").innerText(), /Your last reply was empty/);
+  // NAS's Q206 review: Edit matches the drawn bubbles to the owner's messages, so a nudge must not be counted there either.
+  await page.locator("#conversation .message.user button[data-t=\"rewind.edit\"]").first().click();
+  await page.locator("#conversation .message.user .rewind-editor").waitFor({ timeout: 15000 });
   assert.deepEqual(errors, []);
 });
 
@@ -60,4 +63,27 @@ test("the nudge after a failed answer check is marked as Branch's too", async (t
   assert.equal(users.length, 2);
   assert.match(users[1].content, /did not pass its check/);
   assert.equal(users[1].from, "branch");
+});
+
+test("the terminal's history, the knowledge digest and the owner's turn count leave Branch's nudges out (NAS's Q206 LOW)", async (t) => {
+  const { historyLines } = await import("../dist/terminal-commands.js");
+  const { conversationDigest } = await import("../dist/knowledge-cards.js");
+  const { ownerTurns } = await import("../dist/reflection/evidence.js");
+  const root = await mkdtemp(join(tmpdir(), "branch-nudges-readers-"));
+  await mkdir(join(root, "workspace"), { recursive: true });
+  let round = 0;
+  const replies = [
+    { content: "", toolCalls: [{ id: "c1", name: "files.list", arguments: "{\"path\":\".\"}" }] },
+    { content: "", toolCalls: [] },
+    { content: "I listed the folder; it is empty.", toolCalls: [] },
+  ];
+  const provider = { name: "scripted", async complete() { return replies[Math.min(++round, 3) - 1]; } };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const run = await app.runtime.run({ prompt });
+  const messages = app.store.messages(run.sessionId);
+  assert.ok(messages.some((message) => message.from === "branch"), "the conversation holds a nudge");
+  assert.doesNotMatch(historyLines(app.runtime, run.sessionId).join("\n"), /Your last reply was empty/);
+  assert.doesNotMatch(conversationDigest(messages), /Your last reply was empty/);
+  assert.equal(ownerTurns(messages), 1);
 });
