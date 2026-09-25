@@ -16,6 +16,15 @@ export function drawnFrom(card, data) {
   return card;
 }
 
+/** Controls a person types into; a box, a choice or a button saves at once, so it is never "being typed in". */
+const clicked = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"]);
+/** True while the focus is in a field of `card` that is typed into, so drawing it again would throw the typing away. */
+export function editing(card) {
+  const at = typeof document === "undefined" ? null : document.activeElement;
+  if (!card || !at || !card.contains(at)) return false;
+  return at.tagName === "TEXTAREA" || at.isContentEditable || (at.tagName === "INPUT" && !clicked.has(at.type));
+}
+
 const controls = (card) => [...card.querySelectorAll("input, select, textarea")];
 const shown = (control) => (control.type === "checkbox" || control.type === "radio" ? String(control.checked) : control.value);
 
@@ -25,9 +34,10 @@ export function sameCard(old, next) {
   return before.length === after.length && before.every((control, at) => shown(control) === shown(after[at]));
 }
 
-/** Puts `next` where `old` is (or at the end of `parent`), unless it is the same card. True when it was swapped in. */
+/** Puts `next` where `old` is (or at the end of `parent`), unless it is the same card or the owner is typing in it.
+ *  True when it was swapped in. */
 export function swapCard(old, next, parent = document.body) {
-  if (sameCard(old, next)) return false;
+  if (sameCard(old, next) || editing(old)) return false;
   if (old) old.replaceWith(next); else parent.append(next);
   return true;
 }

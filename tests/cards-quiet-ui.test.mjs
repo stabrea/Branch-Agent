@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
+import { openPlace } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -72,4 +73,34 @@ test("a change to something the card does not show still draws it again, so its 
       body: JSON.stringify({ workingDays: [1, 2, 3, 4] }) });
   });
   await page.waitForFunction((selector) => document.querySelector(selector) !== globalThis.q207, part, { timeout: 15000 });
+});
+
+// Mac mini a7d4fd3: the 3 s refresh threw away typing that was not saved yet (the days-off hours, and the number of tasks
+// at once on the Scheduled page), on the trunk as well as at Q207. A part being typed in now waits for the owner to leave it.
+test("typing in the days-off hours is kept through the refresh, and leaving the field unsaved puts back what is saved", async (t) => {
+  const page = await openApp(t);
+  await openPlace(page, "settings:notifications");
+  const from = '#lx-collab-days-off > [data-part="days-off"] input[type="time"]';
+  const was = await page.locator(from).first().inputValue();
+  await page.locator(from).first().evaluate((input) => {
+    input.focus(); input.value = "23:15"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    globalThis.q207typing = input;
+  });
+  await page.waitForTimeout(7000); // two refreshes
+  assert.deepEqual(await page.evaluate(() => [globalThis.q207typing.isConnected, globalThis.q207typing.value]), [true, "23:15"]);
+  await page.evaluate(() => globalThis.q207typing.blur());
+  await page.waitForFunction(({ selector, value }) => document.querySelector(selector)?.value === value, { selector: from, value: was }, { timeout: 15000 });
+});
+
+test("typing the number of tasks at once on the Scheduled page is kept through the refresh", async (t) => {
+  const page = await openApp(t);
+  await openPlace(page, "automations:scheduled");
+  const field = page.locator("#collab-container input[type=number][max='8']");
+  await field.click();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("5");
+  await field.evaluate((input) => { globalThis.q207typing = input; });
+  await page.waitForTimeout(7000); // two refreshes
+  assert.deepEqual(await page.evaluate(() => [globalThis.q207typing.isConnected, globalThis.q207typing.value,
+    document.activeElement === globalThis.q207typing]), [true, "5", true]);
 });

@@ -11,7 +11,7 @@
 import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.js";
 import { openPalette } from "/shell.js";
 import { t } from "/i18n.js";
-import { sameCard } from "/same-card.js";
+import { editing, sameCard } from "/same-card.js";
 import { changeAppearance, currentAppearance } from "/appearance.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
 import { DEFAULT_THEME, solid, surfaceOf, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
@@ -951,8 +951,9 @@ function moveCollab() {
     const host = $(slot);
     if (!node || !host) continue;
     const was = host.querySelector(`:scope > [data-part="${part}"]`);
-    // Q207: a part drawn the same as the one already home is dropped, so an unchanged page stays quiet.
-    if (sameCard(was, node)) { node.remove(); continue; }
+    // Q207: a part drawn the same as the one already home is dropped, so an unchanged page stays quiet. One the owner
+    // is typing in stays too, until they leave the field (the refresh after that draws it again).
+    if (sameCard(was, node) || editing(was)) { node.remove(); continue; }
     was?.remove();
     host.append(node);
   }
