@@ -7,7 +7,7 @@ import type { Runtime } from "../runtime.js";
 import type { PolicyRemember } from "../policy.js";
 import { Deliveries } from "./deliveries.js";
 import { audit } from "../audit.js";
-import { maxArtifactBytes } from "../artifacts.js";
+import { ArtifactTooLarge, maxArtifactBytes, maxArtifactName } from "../artifacts.js";
 import { decide, readSenderAllowlist } from "./allowlist.js";
 import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
@@ -236,6 +236,15 @@ function noteSender(message: InboundMessage): string {
 }
 /** A message that goes over the sender's ceiling is told so at most once in this many milliseconds. */
 const ceilingNoticeMs = 60_000;
+
+/** A stored file's name, cut to the store's longest, keeping a short extension such as `.pdf`. */
+function fitName(prefix: string, name: string): string {
+  const room = maxArtifactName - prefix.length;
+  if (name.length <= room) return prefix + name;
+  const dot = name.lastIndexOf(".");
+  const extension = dot > 0 && name.length - dot <= 10 ? name.slice(dot) : "";
+  return prefix + name.slice(0, Math.max(1, room - extension.length)) + extension;
+}
 
 export class ChannelRouter {
   private readonly adapters = new Map<string, { adapter: ChannelAdapter; policy: ChannelPolicy }>();
@@ -626,6 +635,7 @@ export class ChannelRouter {
     const work = () => runChatCommand(command, {
       runtime: this.runtime, channel, chatId, turn,
       sessionId: this.sessionFor(channel, chatId), permissions: this.chatPermissions(message),
+      from: { senderId: message.senderId, senderName: message.senderName, messageId: message.messageId },
       dropWaiting: () => {
         if (!turn || turn.runId) return false;
         turn.dropped = true;
@@ -759,23 +769,28 @@ export class ChannelRouter {
       const images: { mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string; name: string }[] = [];
       const files: string[] = [];
       for (const inbound of turn.messages) for (const attachment of inbound.attachments ?? []) {
-        if (attachment.size !== undefined && attachment.size > maxArtifactBytes) {
+        const tooLarge = async () => {
           await live?.finish("error");
           await this.deliver(message.channel, message.chatId, `That file is larger than ${maxArtifactBytes / 1024 / 1024} MB, so it was not used`,
             `file-size:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
-          return "failed";
-        }
-        const bytes = await attachment.bytes();
+          return "failed" as const;
+        };
+        if (attachment.size !== undefined && attachment.size > maxArtifactBytes) return await tooLarge();
+        // A chat app that did not say how big the file is finds out while fetching it, and says so the same way.
+        const bytes = await attachment.bytes().catch((error: unknown) => { if (error instanceof ArtifactTooLarge) return null; throw error; });
+        if (!bytes) return await tooLarge();
         if (attachment.kind === "picture" && ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(attachment.mediaType)) {
           if (bytes.byteLength > 5 * 1024 * 1024) throw new Error("Telegram picture exceeds the runtime's 5 MB picture limit");
           images.push({ mediaType: attachment.mediaType as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data: Buffer.from(bytes).toString("base64"), name: attachment.name });
         } else {
           if (!this.runtime.artifacts) throw new Error("Runtime artifact storage is unavailable");
-          const safe = attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 48).replace(/^[^a-zA-Z0-9]+/, "") || "file";
+          // Cut to fit where it is stored (fitName), which keeps its extension; the prompt names it in full, up to 200.
+          const safe = attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200).replace(/^[^a-zA-Z0-9]+/, "") || "file";
           // A forum topic's chat is "<group>:<topic>", and a stored file's folder takes only letters, digits, dots, dashes
           // and underscores. The sign stays, so a group and a person whose ids differ only by it keep separate folders.
           const cleanedChatId = message.chatId.replace(/[^a-zA-Z0-9._-]/g, "_");
-          const artifact = await this.runtime.artifacts.write(`inbound-${message.channel}-${cleanedChatId}`, `${message.messageId}-${attachment.sourceId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}-${safe}`, attachment.mediaType, Buffer.from(bytes));
+          const stored = fitName(`${message.messageId}-${attachment.sourceId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}-`, safe);
+          const artifact = await this.runtime.artifacts.write(`inbound-${message.channel}-${cleanedChatId}`, stored, attachment.mediaType, Buffer.from(bytes));
           files.push(`${safe}: ${artifact.path}`);
         }
       }

@@ -8,6 +8,7 @@ import { reachKey, reachParts } from "./reach/settings.js";
 import { safetyKey, safetyParts } from "./safety-extras/settings.js";
 import { neverTouched, settingsCatalogue } from "./settings-kit/catalogue.js";
 import { coveredSettings } from "./lockdown.js";
+import { ensureWikiTables, wikiTables } from "./wiki.js";
 
 /**
  * Whole-application backup: every table that holds the person's state, as plain rows, so it can be
@@ -43,12 +44,14 @@ const requiredTables = [
  */
 const appendOnlyTables = ["self_development_contracts"] as const;
 const appendOnly = (table: string): boolean => (appendOnlyTables as readonly string[]).includes(table);
-export const backupTables = [...requiredTables, ...flyTables, ...appendOnlyTables] as const;
+export const backupTables = [...requiredTables, ...flyTables, ...appendOnlyTables, ...wikiTables] as const;
 const RowSchema = z.record(z.string().regex(/^[a-z_]+$/), z.union([z.string(), z.number(), z.null()]));
 const TablesSchema = z.object({
   ...Object.fromEntries(requiredTables.map((table) => [table, z.array(RowSchema)])) as Record<(typeof requiredTables)[number], z.ZodArray<typeof RowSchema>>,
   ...Object.fromEntries(flyTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof flyTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
   ...Object.fromEntries(appendOnlyTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof appendOnlyTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
+  // The wiki's pages and their history (src/wiki.ts). A backup from before the wiki has none.
+  ...Object.fromEntries(wikiTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof wikiTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
 }).strict();
 export const BackupArchiveSchema = z.object({
   format: z.literal("branch-agent-backup"),
@@ -227,7 +230,9 @@ export function exportBackup(db: DatabaseSync, appVersion: string): BackupArchiv
 /** Whether this install already holds someone's state; restoring over it is refused. */
 export function hasState(db: DatabaseSync): boolean {
   const count = (table: string) => Number((db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number | bigint }).n);
-  return count("sessions") > 0 || count("memory") > 0 || count("installed_skills") > 0;
+  // NAS review of #194: a Branch holding only wiki pages has work in it too, so a restore does not merge over them.
+  const wiki = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='wiki_pages'").get() ? count("wiki_pages") : 0;
+  return count("sessions") > 0 || count("memory") > 0 || count("installed_skills") > 0 || wiki > 0;
 }
 
 export interface RestoreOptions {
@@ -258,6 +263,7 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
           else db.exec(`DELETE FROM ${table}`);
     prepareFlyRestore(db, archive);
     if (archive.tables.self_development_contracts?.length) ensureContractTable(db);
+    if (wikiTables.some((table) => archive.tables[table]?.length)) ensureWikiTables(db);
     for (const table of backupTables) {
       const list = archive.tables[table];
       if (!list?.length) continue;

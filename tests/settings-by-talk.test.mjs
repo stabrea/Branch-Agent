@@ -8,7 +8,7 @@
  *   3. a chat app doing it, or a helper of a chat's task                   → refused
  *   4. a schedule, a trigger or another program (MCP, A2A) doing it        → refused
  *   5. an ordinary change slipping through with no question                → asked, under every rule set, even "allow everything"
- *   6. the model answering "yes, less careful" by itself                   → settings.change refuses it; settings.loosen is asked every time and never kept
+ *   6. the model answering "yes, less careful" by itself                   → never: a less careful change is asked of the owner every time, never kept
  *   7. a change saved around the setting's own save (a tool left behind)   → saved through the window's writers
  *   8. reaching something that is not a setting (a key, a connection)     → refused by name, nothing written
  * Everything runs on its own data folder and a closed port; the owner's own Branch is never touched.
@@ -67,15 +67,16 @@ test("an ordinary change is saved through the setting's own save, so its tool co
   assert.deepEqual(again.changed, [], "asking for what is already so changes nothing");
 });
 
-test("a change that makes Branch less careful is refused by settings.change and made only by settings.loosen", async (t) => {
-  const { run, app } = await fixture(t);
+test("a change that makes Branch less careful is asked about every time, and the one yes lets settings.change make it", async (t) => {
+  const { run, app, as } = await fixture(t);
   const loose = (await run("settings.list", {})).shown.find((row) => row.lessCareful?.startsWith("turning it up") && row.value === "off");
   assert.ok(loose, "the catalogue has a switch that reaches further when turned on");
   const ask = { changes: [{ setting: loose.setting, value: "on" }] };
-  await assert.rejects(run("settings.change", ask), /less careful.*settings\.loosen/s);
-  assert.equal((await run("settings.list", { search: loose.setting })).shown[0].value, "off", "nothing was written");
+  const held = app.runtime.checkPolicy("settings.change", ask, as(), "fp-loose");
+  assert.deepEqual([held.decision, held.remember], ["ask", "never"], "the owner is asked every time, and the yes is never kept");
+  assert.equal((await run("settings.list", { search: loose.setting })).shown[0].value, "off", "nothing is written before that yes");
   await assert.rejects(run("settings.loosen", { changes: [{ setting: "fly-core.mode", value: "on" }] }), /None of these makes Branch less careful/);
-  const made = await run("settings.loosen", ask);
+  const made = await run("settings.change", ask);
   assert.equal(made.changed.length, 1);
   assert.equal((await run("settings.list", { search: loose.setting })).shown[0].value, "on");
   assert.ok(app.store.audit.list(app.runtime.owner, { limit: 5 }).length);
@@ -205,4 +206,19 @@ test("outside work through the runtime's own path gets none of it, the look-only
     }
   }
   assert.equal(app.learningCore.settings().mode, "off");
+});
+
+test("a change that loosens only from how the owner set things by hand is not made by settings.change (NAS b86e65a)", async (t) => {
+  const { app, owner, run } = await fixture(t);
+  const { readPolicy } = await import("../dist/policy.js");
+  const { mayLoosen } = await import("../dist/settings-kit/tools.js");
+  // The owner's own hand-made rules, saved as the approval card saves them.
+  savePolicy(app.store, owner, { preset: "custom", rules: [{ tool: "web.fetch", match: "*", decision: "deny", remember: "always" }] });
+  assert.equal(readPolicy(app.store, owner).preset, "custom", "control: the owner's own rule makes it custom");
+  const input = { changes: [{ setting: "policy.preset", value: "read-only" }] };
+  assert.equal(mayLoosen(input), false, "control: the catalogue alone sees no loosening, so the question was not once-only");
+  await assert.rejects(run("settings.change", input), /settings\.loosen/);
+  assert.ok(readPolicy(app.store, owner).rules.some((rule) => rule.tool === "web.fetch" && rule.decision === "deny"), "the owner's rule is still there");
+  const loosened = await run("settings.loosen", input);
+  assert.equal(loosened.changed.length, 1, "settings.loosen, which asks every time, can make it");
 });

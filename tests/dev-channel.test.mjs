@@ -195,12 +195,13 @@ test("without the running change on record, its version decides whether the buil
   await control.install();
 });
 
-test("Dev looks every five minutes and never builds and restarts by itself", () => {
+test("Dev looks every five minutes and, with update by itself on, installs each change once nothing is working", () => {
   const saved = (releaseChannel) => ({ get: (table, _owner, key) =>
     (table === "settings" && key === "comfort-notify" ? { data: { autoUpdate: "install", releaseChannel } } : undefined) });
   const facts = { busyTasks: 0, updaterPhase: "available", now: new Date() };
   assert.equal(updatePlan(saved("beta"), "local", facts).step, "install", "the control: Beta with the same facts installs");
-  assert.notEqual(updatePlan(saved("dev"), "local", facts).step, "install", "an available Dev build is only offered");
+  assert.equal(updatePlan(saved("dev"), "local", facts).step, "install", "an available Dev build is installed, so fixes are seen live");
+  assert.equal(updatePlan(saved("dev"), "local", { ...facts, busyTasks: 1 }).step, "nothing", "but never while a task is working");
   assert.equal(betaCheckEveryMs, 5 * 60 * 1000);
 });
 

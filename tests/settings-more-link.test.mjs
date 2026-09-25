@@ -31,7 +31,7 @@ async function settings(t, page = "general") {
   errors.length = 0; // what failed before the key was given is the login page's business
   await tab.locator("body.sg-ready").waitFor();
   /* Opened as a person opens it, not through the test helper that also shows every card of the page. */
-  await tab.keyboard.press("Control+Comma");
+  await tab.keyboard.press("ControlOrMeta+Comma");
   await tab.locator("#settings-window").waitFor({ state: "visible" });
   await tab.locator(`.lx-settings-link[data-page="${page}"]`).click();
   await tab.evaluate(() => globalThis.branchSettingsLevel.set("regular"));

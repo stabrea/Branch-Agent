@@ -58,7 +58,7 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
 
 /** Opens Settings › Permissions in a signed-in window. */
 async function openPermissions(page) {
-  await page.keyboard.press("Control+Comma");
+  await page.keyboard.press("ControlOrMeta+Comma");
   await page.locator("#settings-window").waitFor({ state: "visible" });
   await page.evaluate(() => globalThis.branchLayout.go("settings:permissions"));
   await page.locator("#lockdown-card:not([hidden])").waitFor({ state: "attached" });

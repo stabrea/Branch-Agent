@@ -6,6 +6,7 @@ import { detectInjection } from "../content-guard.js";
 import { asLines, ownerTurns, turnsOf } from "./evidence.js";
 import { reflectionSettings } from "./settings.js";
 import { noteAction } from "./skill-notes.js";
+import { lookBackSource } from "../memory-review.js";
 
 /**
  * Looking back over a conversation. It reads only the turns since the last look, together with what
@@ -64,8 +65,13 @@ export function turnsDue(store: Store, owner: string, sessionId: string): boolea
   return ownerTurns(turnsOf(store, sessionId)) - cursor.turns >= reflectionSettings(store, owner).everyTurns;
 }
 
+/**
+ * The facts the look back is shown, and so the only ones it may merge or correct: the owner's own private ones. It
+ * writes words of its own choosing onto a fact it keeps, so a Trunk's or a shared fact could have been given the
+ * owner's words (NAS ea14643, c4840ce).
+ */
 function whatIsKnown(store: Store, owner: string): { memory: string; skills: string; memoryIds: Set<string>; skillIds: Set<string> } {
-  const facts = store.list("memory", owner).slice(0, 60);
+  const facts = store.list("memory", owner).filter((fact) => (fact.data.scope ?? "private") === "private").slice(0, 60);
   const skills = store.skills.list(owner).filter((skill) => skill.activeVersion !== null);
   return {
     memory: facts.map((fact) => `[${fact.id}] ${String(fact.data.text ?? "").replace(/\s+/g, " ").slice(0, 300)}`).join("\n") || "(nothing yet)",
@@ -91,7 +97,7 @@ export async function lookBack(store: Store, input: { owner: string; sessionId: 
   const answer = AnswerSchema.parse(checked.value);
   const batch: Batch = { id: randomUUID(), sessionId, runId: input.runId, trigger: input.trigger,
     fromMessage: cursor.read + 1, toMessage: messages.length, proposalIds: [], createdAt: new Date().toISOString() };
-  const source = `Looked back over messages ${batch.fromMessage}–${batch.toMessage} of a conversation`;
+  const source = `${lookBackSource} ${batch.fromMessage}–${batch.toMessage} of a conversation`;
   batch.proposalIds = stage(store, owner, answer, { source, runId: input.runId, known, newSkills });
   saveBatch(store, owner, batch);
   store.save("settings", owner, cursorKey(sessionId), { read: messages.length, turns: ownerTurns(messages), at: batch.createdAt });

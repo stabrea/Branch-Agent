@@ -199,7 +199,7 @@ export const descriptions = [
   ["#keychain-note", "describe.keychain-note", "A reminder of what the password is for."],
   ["#retention-enabled", "describe.retention", "Offers to delete old conversations. Nothing goes without your yes."],
   ["#retention-days", "describe.retention-days", "Conversations older than this are offered for deletion. 0 ignores age."],
-  ["#retention-mb", "describe.retention-mb", "Once everything together is bigger than this, the oldest are offered. 0 ignores size."],
+  ["#retention-mb", "describe.retention-mb", "Once everything together — the words and the files attached to them — is bigger than this, the oldest are offered. 0 ignores size."],
   ["#retention-export", "describe.retention-export", "Hands you a saved copy before anything is deleted."],
   ["#snapshot-label", "describe.snapshot-label", "A name so you can find this snapshot again."],
   ["#goal-undo-goal", "describe.goal", "Lets a task keep working until a goal you set is met."],

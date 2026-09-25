@@ -68,6 +68,10 @@ export const ROUTES = {
   "/api/artifacts/file": "look",
   "/api/artifacts/page": "task POST",
   "/api/artifacts/save": "task POST",
+  // The file a person attached to a message. A dispatch prefix, and under it the one route that
+  // hands the bytes back — the owner's own, like every other reading of what they keep here.
+  "/api/attachments/": "prefix",
+  "/api/attachments/file": "owner GET",
   "/api/ask-first": "task POST",
   "/api/ask-first/answers": "task POST",
   "/api/ask-first/settings": "owner POST",
@@ -938,10 +942,16 @@ export const ROUTES = {
   "/api/security-check/fix": "owner POST",
   "/api/security-check/run": "task POST",
   "/api/security-check/settings": "owner POST",
+  // A chat's requests to change Branch itself: what people wrote, and who they are. Reading and
+  // answering them is the owner's alone (src/self-development-requests.ts).
+  "/api/self-development/requests": "secret-read",
+  "/api/self-development/requests/:id/approve": "owner POST",
+  "/api/self-development/requests/:id/decline": "owner POST",
   "/api/sessions": "look",
   "/api/sessions/": "prefix",
   "/api/sessions/:id": "look",
   "/api/sessions/:id/context": "look",
+  "/api/sessions/:id/cost": "look", // DG-101: what the conversation probably cost, for the line under the box
   "/api/sessions/:id/discard": "other POST",
   "/api/sessions/:id/duplicate": "other POST",
   "/api/sessions/:id/export": "look",
@@ -1100,6 +1110,11 @@ export const ROUTES = {
   "/api/webhooks/:id/preview": "other POST",
   "/api/webhooks/:id/remove": "owner POST",
   "/api/webhooks/:id/test": "owner POST",
+  // The wiki: pages the owner and the assistant have written together, and what those pages used
+  // to say. All of it is the owner's — a script's key neither reads a page nor writes one.
+  "/api/wiki": "owner GET POST",
+  "/api/wiki/page": "owner GET DELETE",
+  "/api/wiki/history": "owner GET",
   "/api/workflows": "other POST",
   "/api/workflows/:id": "look",
   "/api/workflows/:id/pause": "task POST",

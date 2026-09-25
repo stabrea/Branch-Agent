@@ -84,7 +84,7 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     // desktop and not on a loaded build machine, where this timed out at 32 seconds having done
     // nothing wrong. The wait is widened here rather than anything in the app being made faster.
     await page.waitForFunction(() => !document.getElementById('send').disabled, undefined, { timeout: 120000 });
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.locator('#cmd-input').fill('Conversation history');
     await page.locator('.cmd-item').filter({ hasText: 'Conversation history' }).click();
     await page.locator('#saved-list').getByRole('button', { name: 'Export JSON', exact: true }).first().click();

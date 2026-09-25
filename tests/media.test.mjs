@@ -75,6 +75,64 @@ function toolsFor(app, provider) {
   return media;
 }
 
+
+test("a picture is one of the six files a message may carry, and its bytes are part of the budget", async (t) => {
+  // The message box refuses a file the server would refuse anyway, so nothing long happens for
+  // nothing. A picture went round both of those rules: it never reached the count, and it was
+  // pushed with no `bytes` at all, so four 5 MB pictures added up to nothing. The page would take
+  // ten files and 52 MB and hand them to a server that takes six and 32.
+  const { app, root } = await fixture(t, { provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } } });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+
+  const note = (name) => ({ name, mimeType: "text/plain", buffer: Buffer.from("a note") });
+
+  // A film comes back with stills taken out of it. The page's own request is answered here, so this
+  // does not depend on anything being installed to watch a video with.
+  await page.route("**/api/media/understand", (route) => route.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({ transcript: "", notes: [], pictures: Array.from({ length: 4 },
+      () => ({ mediaType: "image/png", data: onePixelPng.toString("base64") })) }),
+  }));
+  await page.setInputFiles("#composer-media-file", [{ name: "film.mp4", mimeType: "video/mp4", buffer: Buffer.from("not really a film") }]);
+  await page.waitForFunction(() => document.querySelectorAll("#composer-attachments .attachment").length === 5,
+    null, { timeout: 30000 });
+  assert.deepEqual(await page.evaluate(() => globalThis.branchAttachedFiles().map((one) => one.name)), ["film.mp4"],
+    "the film is the only file being sent; its four stills go as pictures for the model");
+
+  // So five more files fit. Counting the stills as files left room for one.
+  await page.setInputFiles("#composer-media-file", [note("1.txt"), note("2.txt"), note("3.txt"), note("4.txt"), note("5.txt")]);
+  await page.waitForFunction(() => globalThis.branchAttachedFiles().length === 6, null, { timeout: 30000 })
+    .catch(() => { throw new Error("a file was refused for room the stills were never spending"); });
+  await page.setInputFiles("#composer-media-file", [note("6.txt")]);
+  await page.waitForFunction(() => document.body.textContent.includes("Up to 6 files"), null, { timeout: 30000 })
+    .catch(() => { throw new Error("the seventh file was not refused"); });
+  await page.unroute("**/api/media/understand");
+
+  // And what they weigh. One 20 MB document leaves 12 MB; three 5 MB pictures do not fit in it.
+  await page.evaluate(() => globalThis.branchAttachmentsClear());
+  await page.setInputFiles("#composer-media-file", [
+    { name: "big.txt", mimeType: "text/plain", buffer: Buffer.alloc(20 * 1024 * 1024, 97) },
+    { name: "a.png", mimeType: "image/png", buffer: Buffer.alloc(5 * 1024 * 1024, 1) },
+    { name: "b.png", mimeType: "image/png", buffer: Buffer.alloc(5 * 1024 * 1024, 2) },
+    { name: "c.png", mimeType: "image/png", buffer: Buffer.alloc(5 * 1024 * 1024, 3) },
+  ]);
+  await page.waitForFunction(() => document.body.textContent.includes("can add up to 32 MB"), null, { timeout: 60000 })
+    .catch(() => { throw new Error("35 MB of files was not refused"); });
+  assert.deepEqual(await page.evaluate(() => globalThis.branchAttachedFiles().map((one) => one.name)),
+    ["big.txt", "a.png", "b.png"], "the two that fit stayed; the one that did not was left off");
+  assert.deepEqual(errors, []);
+});
+
+
 test("a picture is asked for at /images/generations and lands as an artifact", async (t) => {
   const { app, workspace } = await fixture(t);
   const service = await fakeService(t, {
@@ -344,7 +402,11 @@ test("the picture button on the message box makes a chip the next message will c
   await page.setInputFiles("#composer-media-file", { name: "dot.png", mimeType: "image/png", buffer: onePixelPng });
   await page.waitForSelector("#composer-attachments .attachment img");
   assert.equal(await page.locator("#composer-attachments .attachment").count(), 1);
-  assert.deepEqual(await page.evaluate(() => globalThis.branchAttachments().map((p) => p.name)), ["dot.png"]);
+  // A picture now travels once, as a file the message carries; the server derives the model's copy
+  // from it. `branchAttachments()` is only for pictures that are not files of their own, such as a
+  // still taken out of a film (public/media.js).
+  assert.deepEqual(await page.evaluate(() => globalThis.branchAttachedFiles().map((p) => p.name)), ["dot.png"]);
+  assert.deepEqual(await page.evaluate(() => globalThis.branchAttachments()), [], "and not a second time");
   await page.click("#composer-attachments .attachment button");
   assert.equal(await page.locator("#composer-attachments .attachment").count(), 0, "the chip can be taken off again");
   assert.deepEqual(errors, []);

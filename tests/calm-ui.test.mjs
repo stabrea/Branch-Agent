@@ -17,7 +17,7 @@ import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 const HIDDEN_WHEN_CALM = [
   "#lx-pane-tabs", "#lx-clear", "#lx-shield", "#thread-labels", "#connection",
   "#composer-media", "#composer-attach", "#voice-record", "#voice-talk", "#temporary-toggle",
-  "#ask-first-toggle", "#composer-specialist", "#new-session", "#meter-row", "#session-label",
+  "#ask-first-toggle", "#composer-specialist", "#new-session", "#conversation-cost", "#session-label",
   "#rail-find", "#cmd-open", "#context-panel",
   "#keepoak-acorn",
 ];
@@ -125,7 +125,7 @@ test("the calm window is the default: one box, Send, New conversation, Recents, 
 test("conversation history is built only when requested and closes with Escape", async (t) => {
   const f = await fixture(t, { onboarded: true, width: 390, height: 844 });
   assert.equal(await f.page.locator("#saved-conversations").count(), 0);
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").fill("Conversation history");
   await f.page.locator(".cmd-item").filter({ hasText: "Conversation history" }).click();
   const dialog = f.page.getByRole("dialog", { name: "Conversation history" });
@@ -134,7 +134,7 @@ test("conversation history is built only when requested and closes with Escape",
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await f.page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").fill("Conversation history");
   await f.page.locator(".cmd-item").filter({ hasText: "Conversation history" }).click();
   await dialog.waitFor({ state: "visible" });
@@ -654,9 +654,9 @@ test("every menu and popover closes on its own button, on Escape and on a click 
   await f.page.keyboard.press("Escape");
   /* Ctrl+K opens the box and Ctrl+K closes it, and the keyboard goes back where it was. */
   await f.page.locator("#prompt").focus();
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").waitFor({ state: "visible" });
-  await f.page.keyboard.press("Control+k");
+  await f.page.keyboard.press("ControlOrMeta+k");
   await f.page.locator("#cmd-input").waitFor({ state: "hidden" });
   assert.equal(await f.page.evaluate(() => document.activeElement.id), "prompt");
   /* The side panel asked for from More closes from the same row. */
@@ -666,12 +666,11 @@ test("every menu and popover closes on its own button, on Escape and on a click 
     /* The panel opens and closes on the next frame, so wait for it rather than read it once. */
     await f.page.locator("#context-panel").waitFor({ state: round === 0 ? "visible" : "hidden", timeout: 10000 });
   }
-  /* The full window's own: the workspace and project menus, the Lockdown shield, the room meter, labels. */
+  /* The full window's own: the workspace and project menus, the Lockdown shield, labels (DG-101: the room meter and its popover are gone). */
   await showEverything(f.page);
   await everyWayClosed(f.page, "#owner-menu-button", "#owner-menu", "the workspace menu");
   await everyWayClosed(f.page, "#app-switcher", "#app-menu", "the project menu");
   await everyWayClosed(f.page, "#lx-shield", "#lx-lock-pop", "the Lockdown shield");
-  await everyWayClosed(f.page, "#meter-button", "#meter-popover", "the room meter");
   await everyWayClosed(f.page, "#thread-labels", ".label-picker", "the label picker");
   await f.page.locator("#owner-menu-button").click();
   await f.page.locator("#lx-shield").click();

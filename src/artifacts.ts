@@ -32,9 +32,13 @@ const artifactKinds: Record<string, string> = {
   ".txt": "text/plain", ".json": "application/json", ".html": "text/html",
 };
 const mediaTypeOf = (name: string): string => artifactKinds[extname(name).toLowerCase()] ?? "application/octet-stream";
-const safeName = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+/** The longest name a stored file, or its folder, may have. */
+export const maxArtifactName = 64;
+const safeName = new RegExp(`^[a-z0-9][a-z0-9._-]{0,${maxArtifactName - 1}}$`, "i");
 /** Eight megabytes: room for a full-page screenshot, small enough to keep the folder tidy. */
 export const maxArtifactBytes = 8 * 1024 * 1024;
+/** A file refused for its size before it was kept, so the person who sent it can be told the limit. */
+export class ArtifactTooLarge extends Error {}
 
 export class RunArtifacts {
   constructor(readonly root: string) {}

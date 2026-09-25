@@ -3744,6 +3744,24 @@ off unless the owner turns it on, and the owner or repository maintainer decides
 merged. Repeating setup for the same change reuses the isolated copy instead of opening terminals
 or creating more copies.
 
+**Asking for a change to Branch from a chat.** A chat app cannot prove who is typing, so a chat can
+only ask. `/improve <what to change>` files a request that holds the words exactly as they were sent,
+and who sent them, from which app and chat. It is a chat command, so it follows the chat apps'
+commands switch and the commands switch. Filing starts no task, writes no contract and runs no Git.
+At most 20 requests wait at once, and one longer than 4000 characters is refused rather than cut.
+Only the owner answers, in the Branch app:
+- `GET /api/self-development/requests` lists them.
+- `POST /api/self-development/requests/:id/approve` takes the same `name`, `repository`, `base` and
+  `contract` as `branch.prepare_source_change` and prepares the change exactly as that tool does:
+  the contract is written first, then the worktree is made at the contract's commit. It is refused
+  while remote Git is off, and a yes that fails leaves the request waiting, with the reason.
+- `POST /api/self-development/requests/:id/decline` closes the request.
+
+A chat's reply, a pressed button and `/improve approve` never answer a request. Short-lived keys and
+household persons are refused at all three routes, and nothing inside a task (a Trunk's turn, another
+program's tool call) can read, file or answer a request. Asserted in
+`tests/self-development-requests.test.mjs`.
+
 Integration review (mac4/bucket-18): each file goes through the same checks as the assistant's own
 file tools before it is sent: secret-looking names (`.env`, keys), anything `.branchignore` hides,
 links, folders and Branch's own saved work and keys are left out. Names are taken literally (`*` is
@@ -5436,7 +5454,7 @@ work that owns those files.
 The interface file `/collab.js` is served from the same local allowlist as the rest of the
 interface, and its panel sits under Schedules.
 
-## Rendering, looking inside a task, stepping in, the meter, the playground, the phone and languages
+## Rendering, looking inside a task, stepping in, the line under the box, the playground, the phone and languages
 
 **Markdown and code.** `/markdown.js` builds real elements and never HTML strings, so anything the
 model writes is shown, never run: a `<script>` in a reply appears as characters on the page. A
@@ -5465,11 +5483,12 @@ question appears in the same place with **Yes, just now**, **Yes, for this conve
 always** and **No**, each answered through `POST /api/policy/approve`. "Yes, always" is only
 offered for a task you started yourself, and writes a rule into your settings.
 
-**The meter.** Under the message box, a quiet bar shows how much of this conversation's room has
-been used against the model's context window, and roughly what it has cost so far. Clicking it
-opens the numbers: messages, tasks, words in, words out and the cost. A model with no price on
-file is said so in words; it is never shown as costing nothing. On a phone the cost moves into the
-popover so the bar still fits.
+**The line under the box (DG-101).** At its far end, the line under the message box says roughly
+what the whole conversation has cost so far ("About $0.12 so far"), from `GET /api/sessions/:id/cost`.
+It says nothing about money unless every task in the conversation has a price on file; a partial
+sum is never shown as a total. With Show everything on at Advanced or Technical, its first chip,
+"Context used 18%", says how much of the model's room the next request takes (the same measure as
+`/tokens`, from `GET /api/sessions/:id/context`). The per-round chart is in Settings › Data & usage.
 
 **Try things out.** Settings → Developer → Try things out lists every tool. `GET /api/tools/forms`
 returns each tool's description and its JSON schema, and the screen builds the form from that.
@@ -5497,7 +5516,7 @@ and kept in this browser, not in the workspace. Dates and numbers are written wi
 chosen language.
 
 The files `/web-ui.js`, `/web-ui.css`, `/markdown.js`, `/i18n.js`, `/inspector.js`, `/live-run.js`,
-`/token-meter.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
+`/conversation-facts.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
 `/locales/en.json`, `/locales/fr.json` and the app icons are served from the same local allowlist
 as the rest of the interface.
 
@@ -6006,8 +6025,8 @@ not shown a thinned-out one, because what a paid-for connection has left is the 
 seen from another angle. `branch usage` prints the same rows in the same words, and `--json` hands
 back the same shape the screen reads.
 
-Note what this panel is **not**. The meter under the message box measures how much of *this
-conversation's* room has been used against the model's context window. That is a different thing
+Note what this panel is **not**. The "Context used" chip under the message box measures how much of
+*this conversation's* room has been used against the model's context window. That is a different thing
 from a provider's allowance, and the two are deliberately kept apart.
 
 ### The ring under the message box, and saving progress at 95% (redesign phase 1)
@@ -8785,7 +8804,7 @@ rounds are read from `/api/model-savings/rounds?session=<id>`.
 | Keep the cache warm during a pause (R17-050) | Models → Defaults | Claude connections only. After each answered round the same request is repeated for one token every few minutes, up to a number of pings and a spending cap per pause (both required). Each ping is priced at the full input price before it is sent; a model with no price is never pinged. Pings are added to the task's usage and written down as `cache.keep_alive` events |
 | OpenRouter company choice (R17-046) | Models → Connection | Sends OpenRouter's documented `provider` object (sort, order, only, ignore, fallbacks, data collection), and only to connections whose address is `openrouter.ai` |
 | Mixtures of models (R17-051) | Models → Second opinion | Each mixture becomes a connection named `mixture-<name>` in the picker. Its reference connections answer without tools, and the writing connection answers with their answers as material. Usage is the sum of every call; the mixture is priced as its most expensive member so a spending cap is never undercounted |
-| Round-by-round chart (R17-049) | Appearance | Adds a chart to the meter's popover: tokens in and out per round, what the cache served, where the conversation was summarised (a `context.compacting` event marks a summary in progress), and how close the last round was to the next one |
+| Round-by-round chart (R17-049) | Appearance | Adds a chart to Settings › Data & usage: tokens in and out per round, what the cache served, where the conversation was summarised (a `context.compacting` event marks a summary in progress), and how close the last round was to the next one |
 
 Setting names: `planModel` and `sideTier` (planning model and flex for side questions), `easyModel`, `hardModel` and
 `classifierModel` (choose by difficulty), `maxPings` (keep-alive), `allowFallbacks` and `dataCollection` (OpenRouter),

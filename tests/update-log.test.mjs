@@ -167,6 +167,8 @@ test("an install that stops here says it in plain words at once, in the language
   const text = page.locator("#updates-failed-text");
   await text.waitFor({ state: "visible" });
   assert.match(await text.textContent(), /^The update didn't go through\. Branch stayed on .+, and nothing was lost\.$/);
+  // The reason stays on the card, not only in a toast that is gone before it can be read.
+  assert.equal(await page.locator("#updates-failed-why").textContent(), "What stopped it: The safety copy could not be made, so the update was stopped.");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await page.waitForFunction(() => /n'a pas abouti/.test(document.querySelector("#updates-failed-text")?.textContent ?? ""));
   // Checking again starts over: this attempt is put away.

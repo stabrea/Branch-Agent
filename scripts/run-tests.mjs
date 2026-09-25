@@ -139,10 +139,13 @@ export function testProcessStatus(result, files, report = console.error) {
   return 1;
 }
 
-function mergeTimings(target, parts) {
+export function mergeTimings(target, parts) {
   const merged = {};
   for (const part of parts.filter((file) => existsSync(file))) {
-    Object.assign(merged, JSON.parse(readFileSync(part, "utf8")));
+    // A run that was interrupted leaves its timings half written. They are left out, with a note, so the
+    // step still reports the tests' own result instead of failing here.
+    try { Object.assign(merged, JSON.parse(readFileSync(part, "utf8"))); }
+    catch { console.error(`[test-runner] The timings in ${posix(part)} could not be read and were left out.`); }
     rmSync(part);
   }
   writeFileSync(target, `${JSON.stringify(merged, null, 2)}\n`);

@@ -141,7 +141,7 @@ for (const theme of THEMES) {
 
     /* 4. The pieces that only appear when something is opened. */
     await show("chat");
-    await page.keyboard.press("Control+KeyK");
+    await page.keyboard.press("ControlOrMeta+KeyK");
     await page.waitForTimeout(350);
     await shot(page, `palette-${tag}`, width);
     await page.keyboard.press("Escape");

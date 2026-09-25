@@ -45,6 +45,8 @@ const combo = (name, def) => ({ name, kind: "keys", def });
 const CARDS = [
   { id: "keys", card: "keys", home: "settings:general", fields: [
     combo("palette", "Ctrl+K"), combo("newConversation", "Ctrl+N"), combo("appearance", "Ctrl+,"), combo("sidePane", "Ctrl+Shift+K"),
+    combo("sideList", "Ctrl+B"), combo("newTrunk", ""), combo("focusPrompt", ""), combo("stopTask", ""),
+    combo("searchHistory", ""), combo("lookInside", ""),
     sw("vim", false)] },
   { id: "files", card: "files", home: "settings:general", fields: [sw("respectGitignore", true), { name: "extraIgnoreFiles", kind: "lines", def: [] }] },
   { id: "display", card: "display", home: "settings:appearance", fields: [{ name: "statusLine", kind: "status", def: null }, sw("timestamps", false)] },
@@ -79,17 +81,18 @@ function option(value, key) {
   return node;
 }
 
-/** A box that takes the keys pressed in it ("Ctrl+Shift+K"); Backspace empties it. */
+/** A box that takes the keys pressed in it ("Ctrl+Shift+K", shown as "Cmd+Shift+K" on a Mac); Backspace empties it. */
 function keysBox(field, id, value) {
-  const input = Object.assign(document.createElement("input"), { type: "text", value: value ?? "", autocomplete: "off" });
+  const input = Object.assign(document.createElement("input"), { type: "text", value: shownKeys(value ?? ""), autocomplete: "off" });
+  input.dataset.keysBox = ""; // a press here is being set, so the window does not act on it
   input.addEventListener("keydown", (event) => {
     if (event.key === "Tab") return;
     event.preventDefault();
     if ((event.key === "Backspace" || event.key === "Delete") && !event.ctrlKey && !event.altKey) { input.value = ""; return; }
     const written = comboOf(event);
-    if (written) input.value = written;
+    if (written) input.value = shownKeys(written);
   });
-  return { nodes: labelled(id, field.name, input), read: () => input.value.trim(), set: (v) => { input.value = v ?? ""; } };
+  return { nodes: labelled(id, field.name, input), read: () => storedKeys(input.value.trim()), set: (v) => { input.value = shownKeys(v ?? ""); } };
 }
 function statusBox(field, id, value) {
   const box = document.createElement("fieldset");
@@ -283,26 +286,49 @@ function draw() {
 
 /* ---------- R17-S15: shortcuts and vim keys ---------- */
 const keyName = (key) => (key === " " ? "Space" : key.length === 1 ? key.toUpperCase() : key);
+/**
+ * The character a key made names it, as before, unless the character is one no shortcut can be
+ * written with: on a Mac, Option turns B into "∫" and Option+Shift+K into a dead key, so a shortcut
+ * read from the character could never be set or fire. Only then is a letter or digit key named by
+ * where it is. An ordinary character always wins, so the key marked A on a French keyboard is still A
+ * (it sits where Q is on an English one), and a comma is still a comma wherever the layout puts it.
+ */
+function physical(event) {
+  const key = event.key ?? "";
+  const unusable = key === "" || key === "Dead" || key === "Unidentified" || (key.length === 1 && !/^[\x20-\x7e]$/.test(key));
+  if (!unusable) return null;
+  const code = event.code ?? "";
+  return /^Key[A-Z]$/.test(code) ? code.slice(3) : /^Digit[0-9]$/.test(code) ? code.slice(5) : null;
+}
 /** The keys of a key press, written the way the settings store them, or "" for a lone modifier. */
+const onMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+/* Stored keys say "Ctrl" for the main key; a Mac shows it as the Command key it is. */
+const shownKeys = (keys) => (onMac ? keys.replace(/\bCtrl\b/, "Cmd") : keys);
+const storedKeys = (keys) => (onMac ? keys.replace(/\bCmd\b/, "Ctrl") : keys);
 export function comboOf(event) {
   if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return "";
+  // The Windows key belongs to the system; on a Mac, Command is the main key and Control is its own.
+  if (!onMac && event.metaKey) return "";
   const parts = [];
-  if (event.ctrlKey || event.metaKey) parts.push("Ctrl");
+  if (onMac ? event.metaKey : event.ctrlKey) parts.push("Ctrl");
+  if (onMac && event.ctrlKey) parts.push("Control");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
-  const name = keyName(event.key);
+  const name = physical(event) ?? keyName(event.key);
   if (!parts.length && !/^F([1-9]|1[0-2])$/.test(name)) return "";
   return [...parts, name].join("+");
 }
-const defaults = { palette: "Ctrl+K", newConversation: "Ctrl+N", appearance: "Ctrl+,", sidePane: "Ctrl+Shift+K" };
-const bound = (action) => view?.values.keys[action] ?? view?.values.voice[action] ?? defaults[action] ?? "";
+/* The keys each action has always had, read from the cards above so they are written down once. */
+const keyDefaults = Object.fromEntries(CARDS.flatMap((card) => card.fields).filter((field) => field.kind === "keys").map((field) => [field.name, field.def]));
+/** The keys the owner gave an action, or the ones it has always had; "" is none. */
+const bound = (action) => view?.values.keys[action] ?? view?.values.voice[action] ?? keyDefaults[action] ?? "";
 /** True when this key press is the owner's keys for an action. */
 function pressed(event, action) {
   const keys = bound(action);
   return !!keys && comboOf(event).toLowerCase() === keys.toLowerCase();
 }
 /** The keys for an action as the palette shows them ("Ctrl N"), or "" when none. */
-const hint = (action) => bound(action).replaceAll("+", " ");
+const hint = (action) => shownKeys(bound(action)).replaceAll("+", " ");
 
 const vim = { mode: "insert", pending: "" };
 function vimIndicator(box) {
@@ -492,13 +518,18 @@ async function autoUpdate() {
   updateAttempt = true;
   try {
     let status = await desktop.updateStatus();
-    let plan = await api("comfort/update-plan", { updaterPhase: status?.phase });
+    /* Dogfood F1 review: which release the updater means, and the one whose install just failed (the status then
+       carries its outcome), so the plan does not try that release again by itself and says so once. */
+    const about = (now) => ({ updaterPhase: now?.phase, ...(now?.release?.tag ? { updaterTag: now.release.tag } : {}),
+      ...(now?.phase === "error" && now?.outcome && now?.release?.tag ? { failedTag: now.release.tag } : {}) });
+    let plan = await api("comfort/update-plan", about(status));
+    if (plan.failed) globalThis.toast?.(plan.failed);
     if (plan.step === "check") {
       status = await desktop.checkForUpdates();
-      plan = await api("comfort/update-plan", { updaterPhase: status?.phase, checked: true });
+      plan = await api("comfort/update-plan", { ...about(status), checked: true });
     }
     // The same path as the Update button: checksum, a try on a copy of your work, a safety copy.
-    if (plan.step === "install") await desktop.installUpdate();
+    if (plan.step === "install") await desktop.installUpdate(true);
     else if (plan.mode === "check" && status?.phase === "available") globalThis.toast?.(t("comfort.update.ready"));
   } catch { /* the next look tries again */ }
   finally {
@@ -523,7 +554,7 @@ function onTalkKey(event, down) {
     if (event.repeat || talking) return;
   } else {
     const last = bound("pushToTalkKey").split("+").pop().toLowerCase();
-    if (!talking || (keyName(event.key).toLowerCase() !== last && !modifiers.includes(event.key))) return;
+    if (!talking || ((physical(event) ?? keyName(event.key)).toLowerCase() !== last && !modifiers.includes(event.key))) return;
   }
   talking = down;
   button.dispatchEvent(new PointerEvent(down ? "pointerdown" : "pointerup", { bubbles: true }));
@@ -553,7 +584,7 @@ async function afterSignIn(tries = 20) {
 }
 
 const comfort = {
-  refresh, pressed, hint, attention, maxRecordingSeconds, comboOf, vimMotion, refreshStatus, autoUpdate,
+  refresh, pressed, bound, hint, attention, maxRecordingSeconds, comboOf, vimMotion, refreshStatus, autoUpdate,
   /** Plays a sound; replaced in tests so nothing is heard. */
   player: playTone,
   get values() { return view?.values ?? null; },

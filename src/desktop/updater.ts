@@ -8,6 +8,7 @@ import { z } from "zod";
 import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js";
 import { checksumAssetName } from "./release-assets.js";
 import { buildDev, devToolsMissing, realRun, remoteHead, type DevPhase, type Run } from "./dev-build.js";
+import { removeTree } from "./remove-tree.js";
 import { fetchAttestationBundles, isBuildProvenance, verifyAttestationBundle, type AttestationLookup } from "./provenance.js";
 import { primaryRepo, fallbackRepo, isTrustedRepo } from "./repo-pair.js";
 
@@ -286,7 +287,7 @@ export class Updater {
     }
     let held = false;
     try {
-      await rm(this.options.scratchDir, { recursive: true, force: true });
+      await removeTree(this.options.scratchDir);
       await mkdir(this.options.scratchDir, { recursive: true });
       if (this.platform !== "win32") await ensurePrivateDir(this.options.scratchDir);
       let archive = join(this.options.scratchDir, this.options.assetName!), expectedVersion = release.latestVersion;
@@ -314,7 +315,7 @@ export class Updater {
       else this.keptAfter(error instanceof Error ? error.message : String(error), release);
       // mac7/real-update: a download that went wrong is 130 MB or more of nothing; it is not kept.
       await rm(join(this.options.scratchDir, this.options.assetName!), { force: true }).catch(() => undefined);
-      await rm(join(this.options.scratchDir, "unpacked"), { recursive: true, force: true }).catch(() => undefined);
+      await removeTree(join(this.options.scratchDir, "unpacked")).catch(() => undefined);
       throw error;
     } finally { if (!held) this.busy = false; }
   }
@@ -470,7 +471,7 @@ export class Updater {
     // The download goes where a downloaded release would be, and the source (hundreds of megabytes) goes.
     const archive = join(this.options.scratchDir, this.options.assetName!);
     await rename(built.archive, archive);
-    await rm(sourceDir, { recursive: true, force: true });
+    await removeTree(sourceDir);
     return { archive, version: built.version };
   }
   /**

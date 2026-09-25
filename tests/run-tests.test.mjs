@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { loadWeights, onlyGroups, parseFilesFrom, parseShard, shareFiles, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
+import { loadWeights, mergeTimings, onlyGroups, parseFilesFrom, parseShard, shareFiles, shards, testGroups, testProcessStatus } from "../scripts/run-tests.mjs";
 
 test("npm test isolates browser and desktop files while keeping ordinary tests together", () => {
   const listing = {
@@ -166,4 +166,14 @@ test("only the named test groups run, the rest left empty, and a misspelt group 
   assert.equal(onlyGroups(groups, undefined), groups);
   assert.deepEqual(onlyGroups(groups, "shared,desktop"), { shared: ["tests/a.test.mjs"], browser: [], desktop: ["tests/desktop.test.mjs"] });
   assert.throws(() => onlyGroups(groups, "shared,screens"), /Unknown test group "screens"/);
+});
+
+test("timings left half written by an interrupted run are left out, and the others are kept", () => {
+  const folder = mkdtempSync(join(tmpdir(), "branch-timings-"));
+  const target = join(folder, "timings.json");
+  writeFileSync(`${target}.shared`, JSON.stringify({ "tests/a.test.mjs": 1.5 }));
+  writeFileSync(`${target}.browser`, "{\"tests/b.test.mjs\": 2");
+  mergeTimings(target, [`${target}.shared`, `${target}.browser`, `${target}.desktop`]);
+  assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), { "tests/a.test.mjs": 1.5 });
+  assert.equal(existsSync(`${target}.browser`), false, "the unreadable part is still cleared away");
 });

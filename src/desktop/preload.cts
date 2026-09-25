@@ -10,7 +10,8 @@ contextBridge.exposeInMainWorld("branchDesktop", Object.freeze({
   exportBackup: (text: unknown) => ipcRenderer.invoke("branch:export-backup", text),
   updateStatus: () => ipcRenderer.invoke("branch:update-status"),
   checkForUpdates: () => ipcRenderer.invoke("branch:update-check"),
-  installUpdate: () => ipcRenderer.invoke("branch:update-install"),
+  // Dogfood F1: true only when "update by itself" starts it, so turning that off while it builds stops it.
+  installUpdate: (automatic?: unknown) => ipcRenderer.invoke("branch:update-install", automatic === true),
   openExternal: (url: unknown) => ipcRenderer.invoke("branch:open-external", url),
   restartBranch: () => ipcRenderer.invoke("branch:restart"),
   windowLook: (dark: unknown) => ipcRenderer.invoke("branch:window-look", dark),

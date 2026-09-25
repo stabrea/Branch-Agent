@@ -6,6 +6,7 @@ import { redactLeaks } from "../leak-guard.js";
 import { factKindOf } from "../memory-layers.js";
 import { mirrorFolder, noteFor, type MemoryMirror } from "../memory-mirror.js";
 import type { MemoryRecord } from "../memory.js";
+import { tidyByInstructionsSource } from "../memory-review.js";
 import type { Store } from "../store.js";
 import { learningMode, learningSettings, saveLearningSettings } from "./settings.js";
 
@@ -102,7 +103,8 @@ export class MarkdownReadBack {
     const instructions = this.settings(owner).tidyInstructions.trim();
     if (!instructions) throw new Error("Write how you want your notes tidied first.");
     if (!provider) throw new Error("Connect a model first; tidying asks it once.");
-    const facts = (this.store.list("memory", owner) as MemoryRecord[]).slice(0, 200);
+    // Only the owner's own private facts are shown, and so only they can be changed: the look back's rule (NAS d2ca9b8).
+    const facts = (this.store.list("memory", owner) as MemoryRecord[]).filter((record) => (record.data.scope ?? "private") === "private").slice(0, 200);
     if (!facts.length) return { proposed: 0, note: "There are no notes to tidy." };
     const notes = facts.map((record) => `[${record.id}] ${String(record.data.text).replace(/\s+/g, " ").slice(0, 300)}`).join("\n");
     const reply = await provider.complete({ signal, tools: [], maxTokens: 2000, messages: [
@@ -118,7 +120,7 @@ export class MarkdownReadBack {
       const text = redactLeaks(change.text).text.trim();
       if (change.action === "update" && !text) continue;
       this.store.review.propose(owner, { kind: change.action, memoryId: change.id, ...(change.action === "update" ? { text } : {}),
-        source: `Tidying by your instructions: ${redactLeaks(change.why).text}`.slice(0, 500) });
+        source: `${tidyByInstructionsSource} ${redactLeaks(change.why).text}`.slice(0, 500) });
       proposed += 1;
     }
     return { proposed, note: proposed ? "Suggestions are waiting in the Memory screen." : "Nothing needed tidying." };
