@@ -397,8 +397,11 @@ test("object stores, a submodule's too, are looked at one level deep; the rest o
   await symlink(outside, join(folder, ".git", "modules", "sub", "objects", "cd", "deep"), kind);
   await symlink(outside, join(folder, ".git", "modules", "sub", "objects", "top"), kind);
   await symlink(outside, join(folder, ".git", "modules", "sub", "refs", "escape"), kind);
+  // Mac mini's re-check: .github is working tree, not .git, so a store-shaped path there is walked in full.
+  await mkdir(join(folder, ".github", "modules", "x", "objects", "deep"), { recursive: true });
+  await symlink(outside, join(folder, ".github", "modules", "x", "objects", "deep", "escape"), kind);
   const found = [...linksOut(folder).links].map((link) => link.split(" -> ")[0].replaceAll("\\", "/")).sort();
-  assert.deepEqual(found, [".git/modules/sub/objects/top", ".git/modules/sub/refs/escape"]);
+  assert.deepEqual(found, [".git/modules/sub/objects/top", ".git/modules/sub/refs/escape", ".github/modules/x/objects/deep/escape"]);
 });
 
 test("a job that writes next to its folder ends as left its folder, naming what it wrote", async (t) => {
