@@ -120,6 +120,8 @@ export const thisComputerSettings: readonly string[] = [
   // NAS 360099c: a program on this disk and its arguments, which the decision judge starts as they are, and the folder
   // the vector store makes its database in. Both only mean something on this computer.
   "jev-decisions", "vector-store",
+  // NAS f7e95b5: the folder each task's trace is written to, the same class.
+  "trace",
 ];
 /** NAS 23e7382: one row per add-on file on this disk, its fingerprint (src/safety-extras/wasm-add-ons.ts). */
 const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:",
@@ -167,7 +169,10 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   "quiet-jobs", "heartbeat", "brief",
   // NAS 63d028c: automatic problem reports send by themselves to the place the file names (a repository, a chat), and
   // the owner's own prices set when the month's dollar limit trips.
-  "automatic-problem-reports", "pricing"];
+  "automatic-problem-reports", "pricing",
+  // NAS f7e95b5: where the owner's browsing runs (a server's address, with the owner's own token sent to it), the
+  // video part's price, daily count and locker secret, and the words every turn reads as the assistant's identity.
+  "browser-container", "reach-video-settings", "assistant-identity"];
 /** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
 const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:",
   // NAS f30facf: each outside service the assistant may call, by its address.
@@ -299,11 +304,31 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
         rows++;
       }
     }
+    settleRestoredTasks(db, archive);
     settleFlyRestore(db);
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
   dropIndex(db);
   return { tables, rows, held };
+}
+
+/** What a task the backup says was working or cut off shows the owner, with Continue and Stop, after a restore. */
+export const restoredTaskNote = "Restored from a backup. Continue it to carry on, or stop it.";
+/**
+ * Q227 (NAS f7e95b5): a task the file says was working or cut off is offered to the owner, never carried on by itself at
+ * the next start. never-break reads `run.can_continue` as settled, so a date far in the future cannot make it resume
+ * with the file's words; the owner's Continue still does.
+ */
+function settleRestoredTasks(db: DatabaseSync, archive: BackupArchive): void {
+  const now = new Date().toISOString();
+  for (const task of archive.tables.tasks ?? []) {
+    const status = String(task.status ?? "");
+    if (status !== "running" && status !== "interrupted") continue;
+    const id = String(task.id);
+    if (!db.prepare("SELECT 1 FROM tasks WHERE id=?").get(id)) continue;
+    db.prepare("UPDATE tasks SET status='interrupted' WHERE id=?").run(id);
+    db.prepare("INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)").run(id, "run.can_continue", JSON.stringify({ note: restoredTaskNote }), now);
+  }
 }
 
 /**
