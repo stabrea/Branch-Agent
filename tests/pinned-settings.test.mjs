@@ -286,8 +286,9 @@ test("P14 no setting the owner can pin is written straight to the database behin
     // src/never-break/resume.ts: tidies held channel replays, whose ids all begin "channel-replay:".
     ["never-break/resume.ts:DELETE FROM settings WHERE owner=? AND id LIKE 'channel-replay:%'", "channel-replay:<id>"],
     // src/backup.ts: a replacing restore puts the backup's whole settings table in place of this one, as its
-    // `DELETE FROM ${table}` always did; only the sign-ins (signInSettings) stay. The owner chose that restore.
-    ["backup.ts:DELETE FROM settings WHERE id NOT IN (", "every setting but the sign-ins, on a replacing restore"],
+    // `DELETE FROM ${table}` always did; only what stays on this computer (staysOnThisComputer: the sign-ins and
+    // Q168 A's list) stays. The owner chose that restore.
+    ["backup.ts:DELETE FROM settings WHERE id NOT IN (", "every setting but what stays on this computer, on a replacing restore"],
   ]);
   // readdir names a nested file the way the system does, so on Windows it arrives as
   // never-break\resume.ts and matched none of the entries above, which are written with slashes.

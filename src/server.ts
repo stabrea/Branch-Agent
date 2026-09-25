@@ -1661,6 +1661,9 @@ async function api(
       reason: "Everything except the saved secrets was written out as one file", outcome: "saved" });
     return app.store.backup(app.version);
   }
+  // Q168 B: what a restore is waiting to hear about, and the owner's answer; the owner's alone (checked inside).
+  if (path === "/api/restore/held" && request.method === "GET") return app.store.restoreHeld.list();
+  if (path === "/api/restore/held" && request.method === "POST") return app.store.restoreHeld.answer(await readBody(request));
   if (request.method === "POST" && path === "/api/restore") {
     const replaceExisting = new URL(request.url ?? "/", "http://local").searchParams.get("replace") === "1";
     return restoreBackup(app, () => readBody(request, maximumBackupBytes), replaceExisting);

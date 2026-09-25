@@ -142,6 +142,7 @@ const unreadKeys = {
   "src/add-ons/export.ts": "one record per add-on folder",
   "src/add-ons/lists.ts": "one record per add-on list address",
   "src/agent-export.ts": "an assistant file's approval rules, including policy: recorded (runtime guard below)",
+  "src/restore-held.ts": "rows a restore held for the owner's yes, including policy and chat-permissions: recorded",
   "src/autonomy/orders.ts": "standing orders, one record each",
   "src/autonomy/procedures.ts": "procedures, one record each",
   "src/deferred.ts": "deferred work, one record each",
