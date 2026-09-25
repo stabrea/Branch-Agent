@@ -242,6 +242,26 @@ test("a run socket peer that answers pings stays open, and a half-closed peer is
   peer.destroy();
 });
 
+test("a run socket its peer closes cleanly tells its hooks once, and answers the close", async () => {
+  const store = { isOpen: true, events: () => [], run: () => ({ status: "running" }) };
+  const peer = new SilentPeer();
+  let closes = 0;
+  const served = serveRunSocket(store, "run", { headers: { "sec-websocket-key": "abc" } }, peer,
+    { pollMs: 5, liveOpen: () => true, onClose: () => { closes += 1; } });
+  peer.push(maskedFrame(Buffer.from([0x03, 0xe8]), 0x8)); // a close frame saying "normal closure"
+  const finished = await Promise.race([served.then(() => true), wait(2000).then(() => false)]);
+  assert.equal(finished, true, "the socket's loop ends");
+  assert.equal(closes, 1, "whoever holds the socket is told it closed, as when a connection drops");
+  const answers = () => peer.written.filter((chunk) => chunk[0] === 0x88).length;
+  assert.equal(answers(), 1, "and the close is answered with one close frame");
+  peer.push(null); // the peer then hangs up its half, and the connection goes
+  await wait(50);
+  peer.destroy();
+  await wait(20);
+  assert.equal(closes, 1, "once, however the connection then goes");
+  assert.equal(answers(), 1);
+});
+
 test("a yes to the camera, the screen, the microphone or a command is offered for that one call", async (t) => {
   const { evaluatePolicy, PolicySchema } = await import("../dist/policy.js");
   const none = PolicySchema.parse({});

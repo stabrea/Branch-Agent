@@ -92,7 +92,9 @@ export async function serveRunSocket(store: Store, runId: string, request: Incom
     if (pending.length > runSocketBuffer) { shut(); socket.destroy(); return; }
     for (let decoded = readFrame(pending); decoded && open; decoded = readFrame(pending)) {
       pending = pending.subarray(decoded.consumed);
-      if (decoded.opcode === 0x8) { open = false; socket.end(Buffer.from([0x88, 0x00])); }
+      // The browser closing its socket cleanly ends things exactly as a connection that drops does, so
+      // whoever asked for the hooks is told once; then the close is answered with one of Branch's own.
+      if (decoded.opcode === 0x8) { shut(); socket.end(Buffer.from([0x88, 0x00])); }
       else if (decoded.opcode === 0x9) { if (decoded.payload.length <= 125) socket.write(Buffer.concat([Buffer.from([0x8a, decoded.payload.length]), decoded.payload])); }
       // A text or binary frame from the browser: a live conversation's sound, or a line typed while
       // it is talking. Nothing here reads them itself; whoever asked for the hook does.

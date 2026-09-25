@@ -353,15 +353,27 @@ export class LiveConversation {
  * for under a minute instead of until Branch restarts.
  */
 export const liveConnectWaitMs = 45_000;
+/**
+ * How many more waits a task gets while its conversation is still being opened. The service answers
+ * within 15 seconds or is given up on, but looking up its address comes before that and has no limit
+ * of its own, so an opening that never settles still ends its task after these.
+ */
+export const liveOpeningWaits = 2;
 /** Why a live conversation's task ended before it had a conversation, as its history says it. */
 export const liveNeverConnected = "The live conversation never connected";
 export const liveStoppedBeforeConnected = "Stopped before the live conversation connected";
+/** Why no conversation opens, or one is closed as it opens, on a task that has already ended. */
+export const liveAlreadyEnded = "This live conversation has already ended";
+/** What a "start" on such a task is answered with; the page shows it and offers Talk live again. */
+const alreadyEndedWords = `${liveAlreadyEnded}. Press Talk live to start a new one.`;
 
 /** The live conversations open right now, one to a conversation, closed together on Lock. */
 export class LiveConversations {
   private readonly open = new Map<string, LiveConversation>();
   /** Tasks made for a live conversation that has not opened yet, each with the end of its wait. */
   private readonly waiting = new Map<string, NodeJS.Timeout>();
+  /** How many more waits each task has had while its conversation was still being opened. */
+  private readonly openingWaits = new Map<string, number>();
   /** Tasks whose conversation is being opened right now. */
   private readonly starting = new Set<string>();
   /** How long a task waits for its conversation to open (liveConnectWaitMs); read when the wait starts. */
@@ -386,11 +398,19 @@ export class LiveConversations {
   async start(runId: string, sessionId: string, out: LiveOutput): Promise<{ conversation: LiveConversation; plan: LivePlan }> {
     const refused = this.refuse(sessionId); // phase2/rooms
     if (refused) throw new Error(refused);
+    // A task that has already ended (its wait ran out, or it was stopped) gets no conversation: the
+    // socket answers "refused" with these words.
+    if (!this.working(runId)) throw new Error(alreadyEndedWords);
     this.stop(runId);
     const conversation = new LiveConversation(this.deps, runId, sessionId, out);
     this.starting.add(runId);
     try {
       const plan = await conversation.start();
+      // The task ended while the conversation was being opened, so nobody is waiting for it.
+      if (!this.working(runId)) {
+        try { conversation.stop(liveAlreadyEnded); } catch { /* Branch is closing */ }
+        throw new Error(alreadyEndedWords);
+      }
       this.open.set(runId, conversation);
       this.forget(runId); // it opened in time, so its task no longer waits
       return { conversation, plan };
@@ -398,13 +418,21 @@ export class LiveConversations {
       this.starting.delete(runId);
     }
   }
+  /** Whether a live conversation's task is still working, so a conversation may open on it. */
+  private working(runId: string): boolean {
+    return this.deps.store.isOpen && this.deps.store.run(runId)?.status === "running";
+  }
   /**
    * The task a Talk live press made waits for its socket to open the conversation. If none has opened
    * by the end of the wait, the task is stopped with the reason, so a press whose socket never got
-   * through holds no update or quit. A conversation that opens in time is not touched.
+   * through holds no update or quit. A conversation still being opened when the wait ends is waited for
+   * again, at most liveOpeningWaits more times. A conversation that opens in time is not touched.
    */
   expect(runId: string): void {
     this.forget(runId);
+    this.arm(runId);
+  }
+  private arm(runId: string): void {
     const wait = setTimeout(() => this.waited(runId), this.connectWaitMs);
     wait.unref(); // the wait never keeps Branch running by itself
     this.waiting.set(runId, wait);
@@ -421,8 +449,14 @@ export class LiveConversations {
   private waited(runId: string): void {
     this.waiting.delete(runId);
     try {
-      // Still being opened: the service's own time limit settles that, so the task waits once more.
-      if (this.starting.has(runId)) { this.expect(runId); return; }
+      // Still being opened: the service's own time limit usually settles that, so the task waits again,
+      // but only liveOpeningWaits more times. An opening that never settles is then treated as never connected.
+      const waitedWhileOpening = this.openingWaits.get(runId) ?? 0;
+      if (this.starting.has(runId) && waitedWhileOpening < liveOpeningWaits) {
+        this.openingWaits.set(runId, waitedWhileOpening + 1);
+        this.arm(runId);
+        return;
+      }
       if (!this.open.has(runId)) this.endUnopened(runId, liveNeverConnected);
     } catch { /* a wait that ends while Branch is closing must never take Branch down */ }
   }
@@ -430,11 +464,12 @@ export class LiveConversations {
     const wait = this.waiting.get(runId);
     if (wait) clearTimeout(wait);
     this.waiting.delete(runId);
+    this.openingWaits.delete(runId);
   }
   /** Ends a live conversation's task that never had a conversation: stopped, with the reason. */
   private endUnopened(runId: string, reason: string): boolean {
+    if (!this.working(runId)) return false;
     const { store } = this.deps;
-    if (!store.isOpen || store.run(runId)?.status !== "running") return false;
     store.event(runId, "voice.live.ended", { reason, seconds: 0, cost: 0 });
     store.finish(runId, "cancelled", `${reason}.`);
     return true;
