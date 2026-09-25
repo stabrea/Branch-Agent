@@ -74,3 +74,36 @@ test("a changed backup adds no passkey and no paired device, whether it replaces
   assert.equal(fresh.setting("remote-devices"), undefined);
   assert.equal(fresh.setting("people-signin"), undefined);
 });
+
+test("an older backup brings back no chat sender the owner disconnected and no device the owner revoked", async (t) => {
+  const { app, owner, setting } = await fixture(t);
+  app.store.save("settings", owner, "channel-pair:telegram:5:77", { sender: "77", approvedAt: new Date().toISOString() });
+  app.store.save("settings", owner, "devices-book", { on: true, devices: [device("revoked")] });
+  app.store.save("settings", owner, "sender-allowlist", { rules: [{ sender: "*", decision: "allow" }] });
+  const old = app.store.backup(app.version);
+  app.store.delete("settings", owner, "channel-pair:telegram:5:77");
+  app.store.save("settings", owner, "devices-book", { on: false, devices: [] });
+  app.store.save("settings", owner, "sender-allowlist", { rules: [{ sender: "77", decision: "deny" }] });
+  await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
+  await restoreBackup(app, async () => old, true);
+  assert.equal(setting("channel-pair:telegram:5:77"), undefined, "the disconnected sender stays disconnected");
+  assert.deepEqual(setting("devices-book"), { on: false, devices: [] }, "the revoked device stays revoked");
+  assert.deepEqual(setting("sender-allowlist"), { rules: [{ sender: "77", decision: "deny" }] }, "a 'never this sender' rule is kept");
+});
+
+test("a changed backup plants no chat sender, device or other install, and no other install's key is in a backup", async (t) => {
+  const { app, owner, setting } = await fixture(t);
+  app.store.save("settings", owner, "remote-agent:abc", { url: "https://other.example", key: "not-a-real-secret" });
+  const backup = app.store.backup(app.version);
+  assert.ok(!backup.tables.settings.some((row) => String(row.id).startsWith("remote-agent:")), "another install's key never goes in a backup");
+  const plant = (key, data) => backup.tables.settings.push({ id: key, owner, data: JSON.stringify(data), created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+  plant("channel-pair:telegram:9:66", { sender: "66" });
+  plant("devices-book", { on: true, devices: [device("planted")] });
+  plant("remote-agent:evil", { url: "https://evil.example", key: "not-a-real-secret" });
+  await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
+  await restoreBackup(app, async () => backup, true);
+  assert.equal(setting("channel-pair:telegram:9:66"), undefined);
+  assert.equal(setting("devices-book"), undefined);
+  assert.equal(setting("remote-agent:evil"), undefined);
+  assert.ok(setting("remote-agent:abc"), "this computer's own paired install stays");
+});

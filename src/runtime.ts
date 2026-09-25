@@ -31,6 +31,8 @@ import {
   textOnly,
 } from "./contracts.js";
 import type {
+  AttachmentInput,
+  AttachmentRef,
   BudgetOptions,
   Completion,
   ImagePart,
@@ -45,6 +47,7 @@ import type {
 import type { Store } from "./store.js";
 import { blankTarget, type ToolRegistry } from "./registry.js";
 import { RunArtifacts } from "./artifacts.js";
+import { Attachments } from "./attachments.js";
 import type { WebhookNotifier } from "./webhooks.js";
 import type { HookDecision } from "./hooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
@@ -241,6 +244,16 @@ export function picturesNote(images?: ImagePart[]): string {
   const names = images.map((image, at) => image.name || `picture ${at + 1}`);
   return `\n\n[attached ${images.length === 1 ? "picture" : "pictures"}: ${names.join(", ")}]`;
 }
+/**
+ * The words that say a file came with the message. The reference beside it is what can be opened
+ * again; this is only so the conversation reads properly, and so a model that cannot take the file
+ * itself still knows it was there.
+ */
+export function attachmentsNote(attachments?: AttachmentRef[]): string {
+  if (!attachments?.length) return "";
+  const names = attachments.map((one) => `${one.name} (${one.kind})`);
+  return `\n\n[attached ${attachments.length === 1 ? "file" : "files"}: ${names.join(", ")}]`;
+}
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
 const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
 /** Range of stored, non-system messages to summarise, leaving at least `compactionKeep` recent ones and never splitting a tool exchange. */
@@ -282,6 +295,11 @@ export interface RunOptions {
   checks?: CompletionCheck;
   /** Pictures to show the model with this prompt. Refused in plain words by a text-only model. */
   images?: ImagePart[];
+  /**
+   * Files attached to this message. The originals are kept beside the private database and only their
+   * references are written down, so the conversation can say what it was given without the bytes.
+   */
+  attachments?: AttachmentInput[];
   /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
   resumeFrom?: string;
   /**
@@ -376,6 +394,8 @@ export class Runtime {
   toolMeaning: RunToolEmbedder | null = null;
   /** Where screenshots are kept, so a model that can look at pictures can be shown one. */
   artifacts: RunArtifacts | null = null;
+  /** Where a person's attached files are kept; without it, nothing can be attached. */
+  attachments: Attachments | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
   /**
@@ -1025,6 +1045,8 @@ ${run.output.slice(0, 6000)}`;
     const inlet = !parent && !options.resumeFrom ? this.filterText("inlet", options.prompt, [options.model ?? "", this.provider.name]) : null;
     if (inlet?.blocked) throw new Error(inlet.blocked);
     if (inlet?.applied.length) options = { ...options, prompt: inlet.text };
+    // A file the conversation will refuse is refused before the task starts, so nothing is left running (#190).
+    if (options.attachments?.length && this.attachments) this.attachments.check(options.attachments);
     const run = this.prepareRun(options);
     this.joinSpend(run.id, parent?.runId); // R17-S09
     if (inlet?.applied.length) this.store.event(run.id, "filter.applied", { stage: "inlet", filters: inlet.applied });
@@ -1053,7 +1075,20 @@ ${run.output.slice(0, 6000)}`;
         }), trunk);
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
     else {
-      const userMessageId = this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
+      // The files themselves are kept first: a message may only carry a reference to something real.
+      // Where a file lives is decided by the conversation, not by the message that brought it. Only the
+      // first message of a temporary conversation ever says "temporary", so taking the message's word
+      // for it put every follow-up's file in the lasting folder while the conversation went on looking
+      // in the temporary one: on disk, and unreachable.
+      const attached = options.attachments?.length && this.attachments
+        ? await this.attachments.keep(run.sessionId, options.attachments,
+          { temporary: this.store.sessionTemporary(run.sessionId) })
+        : [];
+      const userMessageId = this.store.message(run.sessionId, {
+        role: "user",
+        content: options.prompt + picturesNote(options.images) + attachmentsNote(attached),
+        ...(attached.length ? { attachments: attached } : {}),
+      });
       options.onUserMessageId?.(userMessageId);
     }
     if (!parent) this.store.noteWorking(this.owner, run.sessionId, { goal: options.prompt });
@@ -2669,7 +2704,7 @@ ${run.output.slice(0, 6000)}`;
     // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
     // Branch changing its own settings is always put to the owner (src/settings-kit/tools.ts).
-    const personal = personalHold(tool, args, source) ?? settingsHold(tool) ?? contractHold(tool, args); // Q12: a self-development contract, first or wider
+    const personal = personalHold(tool, args, source) ?? settingsHold(tool, args) ?? contractHold(tool, args); // Q12: a self-development contract, first or wider
     // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
     const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null)
       ?? this.scriptHold(tool, context.runId); // mac7/residuals (4b)

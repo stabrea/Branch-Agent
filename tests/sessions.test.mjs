@@ -25,6 +25,36 @@ function seed(store, owner = "local", content = "Source decision") {
 }
 const point = (view, index = 0) => ({ sessionId: view.sessionId, messageId: view.messages[index].messageId });
 
+
+
+test("a branch gets its own copy of the files, under its own names, and keeps them when the parent's are gone", async (t) => {
+  // A branch used to copy message bodies across verbatim, references and all. The new conversation
+  // has no folder of its own, so every card it showed was one that could not be opened — and had it
+  // shared the parent's names, deleting the parent would have broken the branch as well.
+  const onePixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const bytes = Buffer.from(onePixel, "base64");
+  const { app } = await fixture(t, { name: "branch-attachment-fixture",
+    async complete() { return { content: "Looked at it.", toolCalls: [] }; } });
+  const run = await app.runtime.run({ prompt: "What is in this?",
+    attachments: [{ mediaType: "image/png", name: "chart.png", data: onePixel }] });
+  assert.equal(run.status, "completed", run.output);
+  const asked = app.store.sessionView("local", run.sessionId).messages.find((one) => one.role === "user");
+  const source = asked.attachments[0];
+
+  const branch = app.store.branchSession("local", { sessionId: run.sessionId, messageId: asked.messageId });
+  const carried = app.store.sessionView("local", branch.sessionId).messages
+    .find((one) => one.role === "user").attachments[0];
+  assert.notEqual(carried.id, source.id, "the branch knows the file by a name of its own");
+  assert.equal(carried.name, "chart.png");
+  assert.ok((await app.attachments.read(branch.sessionId, carried.id)).bytes.equals(bytes), "and it opens");
+
+  await app.attachments.forget(run.sessionId);
+  await assert.rejects(app.attachments.read(run.sessionId, source.id), "the parent's own file is gone");
+  assert.ok((await app.attachments.read(branch.sessionId, carried.id)).bytes.equals(bytes),
+    "the branch is not a pointer into the conversation it came off");
+});
+
+
 test("conversation branch preserves exact prefix, tool evidence and original while continuing independently", async (t) => {
   let effects = 0, branchedRequest;
   const provider = { name: "branch-fixture", async complete(request) {

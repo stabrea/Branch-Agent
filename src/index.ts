@@ -68,6 +68,7 @@ import { Moderation } from "./moderation.js";
 import { PrivacyGuard } from "./privacy-guard.js";
 import { OAuthConnections } from "./oauth.js";
 import { RunArtifacts } from "./artifacts.js";
+import { Attachments } from "./attachments.js";
 import { BrowserProfiles } from "./integrations/browser-profiles.js";
 import { ChannelRouter } from "./channels/router.js";
 import { ChannelConnectors, registerChannelTools } from "./channels/connectors.js";
@@ -123,7 +124,8 @@ import { SessionLimiter } from "./session-limits.js";
 import { ConversationRetention } from "./retention.js";
 import { GitRunner, type GitRunOptions } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
-import { offerSelfDevelopment } from "./self-development.js";
+import { offerSelfDevelopment, type SelfDevelopmentDeps } from "./self-development.js";
+import { offerSourceRequests, SourceChangeRequests } from "./self-development-requests.js";
 import { ContractBook, contractGuard, contractPreflight } from "./self-development-contract.js"; // Q12
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
@@ -180,6 +182,7 @@ import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
 // Wave 8: the to-do list, and reports saved in several forms.
 import { Todos, registerTodos } from "./todos.js";
+import { Wiki, registerWiki } from "./wiki.js";
 import { MemoryLearning } from "./memory-learning.js";
 import { ObsidianBridge, registerObsidian } from "./obsidian.js";
 import { RunQueue } from "./run-queue.js";
@@ -335,6 +338,28 @@ export async function createBranch(options: {
   // Screenshots and saved pages, and the saved sign-ins for the browser: both live beside the
   // private database, never in the person's workspace.
   const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
+  /**
+   * Files a person attached to a message. They live beside the private database rather than with what
+   * the assistant made: a run artifact is capped at 8 MB and read back only as a picture or a sound,
+   * and neither suits a video or a document. A conversation's files go when the conversation does.
+   */
+  const attachments = new Attachments(join(dataDir, "attachments"));
+  // A copy of a conversation — a branch, a duplicate, an archive read back — is given its own copy
+  // of every file the original holds. The store is opened before this folder is, so it is handed
+  // over here rather than built with it.
+  store.useFiles(attachments);
+  store.onSessionClosed((sessionId) => {
+    // A listener may not throw and is never awaited, so a delete that fails cannot be retried from
+    // here. It is no longer thrown away in silence either: `forget` writes what happened and says
+    // whether the files really went.
+    void attachments.forget(sessionId);
+    void attachments.forget(sessionId, { temporary: true });
+  });
+  // A stop at the wrong moment must not turn a temporary conversation's files into permanent ones.
+  // The list of what to sweep is read here, before anything else can start, and only those folders are
+  // removed — so even a slow sweep that outlives this line cannot touch a conversation begun later.
+  const sweeping = attachments.sweepTemporary().catch(() => 0);
+  await Promise.race([sweeping, new Promise((resolve) => setTimeout(resolve, 5000).unref())]);
   const browserProfiles = new BrowserProfiles(join(dataDir, "browser-profiles"), lockerKey);
   const registry = new ToolRegistry();
   // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
@@ -497,6 +522,7 @@ export async function createBranch(options: {
     return runtime.pathCheck({ tool: tool ?? "files.list", runId: runId || undefined, source: outside?.source });
   };
   runtime.artifacts = artifacts;
+  runtime.attachments = attachments;
   // mac7/coding-next: "Let Branch run this project's tests?", answered through the ordinary questions.
   codeChanges.testsPermission = (context, folder) => projectTestsVerdict({ store, owner: runtime.owner,
     approvals: runtime.approvals, sessionId: runtime.approvalSessionOf(context),
@@ -590,10 +616,15 @@ export async function createBranch(options: {
   // database — see the comment on `MemoryReview.provider`.
   store.review.provider = memory.backend;
   registerMemory(registry, store, memory.retrieval, memory.backend);
-  offerSelfDevelopment({
+  const selfDevelopment: SelfDevelopmentDeps = {
     workspace, owner: options.owner ?? "local", projects: store.projects, registry, policy: web.policy,
     git: (input, signal) => gitRunner.run(input, signal), contracts: selfContracts, store,
-  });
+  };
+  offerSelfDevelopment(selfDevelopment);
+  // A change to Branch itself asked for from a chat: the chat only files it, and only the owner answers,
+  // in the Branch app; a yes is prepared exactly as the owner's own (src/self-development-requests.ts).
+  const sourceRequests = new SourceChangeRequests(selfDevelopment);
+  offerSourceRequests(runtime, sourceRequests);
   const contractChecks = { store, owner: options.owner ?? "local", workspace, registry, book: selfContracts,
     git: (input: GitRunOptions, signal: AbortSignal) => gitRunner.run(input, signal) };
   registry.beforeTool = contractGuard(contractChecks);
@@ -920,6 +951,9 @@ export async function createBranch(options: {
   // Wave 8: a plain list of what is still to be done — the assistant's plan and the owner's own
   // items in one place, with a due day handed on to the schedules rather than timed here.
   const todos = new Todos(store.sqlite);
+  // Pages with names, and links between them written [[like this]] (src/wiki.ts).
+  const wiki = new Wiki(store.sqlite);
+  registerWiki(registry, wiki, runtime.owner, store);
   registerTodos(registry, todos, runtime.owner);
   // --- mac3/never-break: with the switch on, the assistant may suggest gateway settings (never apply them) ---
   if ((await loadGatewayConfig(dataDir)).config.mode !== "off")
@@ -1307,6 +1341,8 @@ export async function createBranch(options: {
     safetyExtras,
     /** r17-h: going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus, install requests; every part ships off. */
     flowsBoards,
+    /** Requests from a chat to change Branch itself; only the owner answers them (src/self-development-requests.ts). */
+    sourceRequests,
     /** R17-F: learning, deeper (src/learning-more/); every part ships off. */
     learningMore,
     /** mac7/learn: the map and the tour (src/learn/); ships off. */
@@ -1399,6 +1435,8 @@ export async function createBranch(options: {
     /** Assistants elsewhere this one may hand work to. */
     remoteAgents,
     artifacts,
+    /** Files people attached to their messages, kept for as long as the conversation is. */
+    attachments,
     /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
     desktop,
     /** FQ-execution.desktop: the shared Linux desktop the owner may watch or take over. */
@@ -1488,6 +1526,7 @@ export async function createBranch(options: {
     flows,
     /** Wave 8: the things still to be done, written down where the owner can see them. */
     todos,
+    wiki,
     /** Wave 8: notes written into the owner's own notes folder, and the tagged ones read back. */
     obsidian,
     /** Wave 8: watches on one rectangle of the screen, off unless the owner switches them on. */
@@ -1909,6 +1948,7 @@ export * from "./flow-graph.js";
 export * from "./flow-graph-run.js";
 // Wave 8: the to-do list, reports in three forms, and artifacts out of a reply.
 export * from "./todos.js";
+export * from "./wiki.js";
 export * from "./reports.js";
 export * from "./artifact-pages.js";
 export * from "./dashboards.js";

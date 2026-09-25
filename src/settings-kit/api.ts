@@ -3,7 +3,7 @@ import type { Store } from "../store.js";
 import { audit } from "../audit.js";
 import { lockedDown } from "../lockdown.js";
 import { settingsCatalogue, switchPositions, type FieldSpec } from "./catalogue.js";
-import { applyWithPins, changesFor, currentValue, loosens, resetProposals, type Proposal, type Value, type Writer } from "./changes.js";
+import { applyWithPins, changesFor, currentValue, holdable, loosens, resetProposals, type Proposal, type Value, type Writer } from "./changes.js";
 import { pinnedIds, pinId, pins, savePins, type Pin } from "./pins.js"; // mac7/wake-pins
 import { fileMap, lastSave, openFile, saveFile, SlotSchema, undoFile } from "./file-map.js";
 import { perFileBytes } from "../context-files.js"; // phase2/accounts
@@ -164,14 +164,6 @@ function why(deps: SettingsKitDeps, setting: string) {
  */
 const PutBackBody = z.object({ key: z.string().max(80), confirmLoosening: z.boolean().default(false) }).strict();
 
-/** Every value a field can hold (a number's two ends): enough to tell whether one value is its most careful. */
-function holdable(field: FieldSpec): Value[] {
-  const kind = field.kind;
-  if (kind.type === "switch") return [...switchPositions];
-  if (kind.type === "yes-no") return [true, false];
-  if (kind.type === "choice") return [...kind.options];
-  return [kind.min, kind.max];
-}
 function putBack(deps: SettingsKitDeps, input: unknown) {
   if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
   const body = PutBackBody.parse(input);

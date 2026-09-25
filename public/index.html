@@ -313,7 +313,7 @@
             <div id="composer-attachments" class="attachments" hidden></div>
             <!-- FQ-surfaces.playback: the sound or video file just picked, playable right here before it is sent (public/playback.js). -->
             <div id="composer-clips" class="attachments" hidden></div>
-            <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture, a sound or a video file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*,video/*" />
+            <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture, a sound, a video or a document" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*,video/*,.txt,.md,.html,.htm,.csv,.json,.docx,.xlsx,.pptx,.odt,.ods,.epub,.rtf,.pdf" />
             <div>
               <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="M21 16l-5-5-5 5-3-3-5 5" /></svg></button
@@ -351,19 +351,11 @@
           <p class="composer-note"><span id="voice-talk-status" class="meta" hidden></span></p>
           <p class="composer-note"><span id="voice-live-status" class="meta" hidden></span></p>
           <p class="composer-note"><span id="voice-dictate-status" class="meta" hidden></span></p>
-          <!-- Wave 8: the helper line and the room meter share one quiet row under the box. -->
+          <!-- The sample's line under the box: the helper text, the chips (public/composer-grown.js), and at its
+               far end what this conversation has probably cost so far (DG-101, public/conversation-facts.js). -->
           <div class="composer-foot">
             <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
-            <!-- Wave 6: how much room this conversation has used, and what it has cost
-                 (public/token-meter.js). Quiet by default; the numbers open on click. -->
-            <div id="meter-row" class="meter-row" hidden>
-              <button id="meter-button" class="meter-button" type="button" aria-haspopup="true" aria-expanded="false" aria-label="How much room this conversation has left" data-t-label="composer.room">
-                <span class="meter-track"><span id="meter-fill" class="meter-fill"></span></span>
-                <span id="meter-text"></span>
-                <span id="meter-cost"></span>
-              </button>
-              <div id="meter-popover" class="meter-popover" hidden role="dialog" aria-label="This conversation"></div>
-            </div>
+            <span id="conversation-cost" class="conversation-cost" aria-live="polite"></span>
           </div>
           <!-- Redesign phase 1: what the tightest connection has left, and the list behind it
                (public/usage-glance.js). Only the owner's window ever fills it; hidden in Settings › Data & usage. -->
@@ -1424,6 +1416,7 @@
             <!-- Owner item 19: an update that did not go through, and one file that explains it, sent by the owner. -->
             <div id="updates-failed" class="updates-busy" hidden>
               <p id="updates-failed-text" role="status"></p>
+              <p id="updates-failed-why" class="subtle" hidden></p>
               <div class="identity-actions">
                 <button id="updates-failed-fix" type="button" data-t="updates.fix.button">Fix update</button>
                 <button id="updates-failed-log" type="button" class="quiet" data-t="updates.failed.download">Download what happened</button>

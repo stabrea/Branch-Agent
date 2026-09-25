@@ -128,6 +128,9 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("focus", [], "[on|off]", "show only what you asked and the final answers", W, "look"),
   entry("installs", ["install"], "[request npm|pypi <name> [why] | approve n | decline n]", "requests for new packages and tool servers; only the owner answers, and nothing installs itself", ALL, "look", { withArgument: "run" }),
   // ---- end r17-h ----
+  // A change to Branch itself, asked for from a chat app (src/self-development-requests.ts). It only files
+  // a request; the owner's yes or no is given in the Branch app, never with a command.
+  entry("improve", [], "<what to change in Branch>", "ask the owner for a change to Branch itself; only the owner answers, in the Branch app", ["chat"], "run"),
   // mac7/learn: a map of a folder of code or a knowledge base, and a guided walk through it. Building
   // a map reads a whole folder and a tour may ask a model, and every /api/learn route is the owner's,
   // so the command asks the same; /learn on its own only says what the feature is.

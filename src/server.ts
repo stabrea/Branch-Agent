@@ -14,7 +14,8 @@ import { TeamHandoffs, TeamHandoffRefusedError } from "./team-handoff.js";
 import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
-import { RunInputSchema, errorText, type Run } from "./contracts.js";
+import { RunInputSchema, errorText, maximumImagesPerTurn, runBodyLimit, type Run } from "./contracts.js";
+import type { ImagePart } from "./contracts.js";
 import { isRequestShapeError, requestErrorText } from "./request-errors.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity, staleAfterMs, queuedActivity, type RunActivity } from "./activity.js";
@@ -127,6 +128,7 @@ import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/a
 import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
 import { projectsApi, secretsApi } from "./owner-data-api.js";
 import { HttpError, readJsonBody as readBody } from "./server-http.js";
+import { handlesSourceRequestPath, sourceRequestsApi } from "./self-development-requests.js";
 import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
 import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
 import { handlesLearnPath, learnApi, LearnHttpError } from "./learn/api.js"; // mac7/learn
@@ -142,9 +144,10 @@ import {
 import { CommandApiError, commandsApi, handlesCommandsPath } from "./commands/api.js";
 import { tokenReport } from "./commands/tokens.js";
 import { handlesPromptsPath, promptsApi } from "./prompt-library-api.js"; // bucket 12
+import { handlesWikiPath, wikiApi } from "./wiki.js";
 import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
-import { maximumArchiveBytes } from "./session-library.js";
+import { archiveBodyLimit } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
@@ -201,6 +204,7 @@ import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js
 import { writeDiagnosticsBundle } from "./diagnostics.js";
 import { handlesUpdateFailurePath, updateFailureApi } from "./update-failure.js";
 import { handlesUpdateFixPath, updateFixApi } from "./update-fix.js";
+import { attachmentForWindow, rangeWanted, shownInPage } from "./attachments.js";
 import { diagnosticApi, handlesDiagnosticPath, installTypeOf, newRequestId, startDiagnosticLog } from "./diagnostic-api.js"; // mac7/diagnostics
 import { diagnose } from "./diagnostic-log.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -665,7 +669,8 @@ async function staticFile(
     "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
     "/plan-act.js": ["plan-act.js", "text/javascript; charset=utf-8"],
-    "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
+    "/conversation-facts.js": ["conversation-facts.js", "text/javascript; charset=utf-8"],
+    "/follow-newest.js": ["follow-newest.js", "text/javascript; charset=utf-8"],
     "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
     // phase2/everywhere: the window at phone and tablet widths
@@ -1039,6 +1044,13 @@ async function api(
     return miscApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
     });
+  // A change to Branch itself asked for from a chat (src/self-development-requests.ts): reading the requests
+  // and answering them is the owner's alone, in the app window. Short-lived keys and household persons are
+  // refused before this (src/short-lived-keys.ts, src/household-routes.ts), and each answer checks again.
+  if (handlesSourceRequestPath(path)) {
+    app.store.profiles.requireOwner("The list of requests to change Branch itself");
+    return sourceRequestsApi(app.sourceRequests, request.method ?? "GET", path, () => readBody(request));
+  }
   // bucket-18: code editor (A0098)
   if (handlesWorkspaceEditorPath(path))
     return workspaceEditorApi({
@@ -1780,7 +1792,7 @@ async function api(
     return app.store.receipts.verify(body.runId, body.data);
   }
   if (request.method === "POST" && path === "/api/run") {
-    const input = RunInputSchema.parse(await readBody(request));
+    const input = RunInputSchema.parse(await readBody(request, runBodyLimit));
     requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId); // bucket 19
     // Redesign phase 1 (integration review): a new conversation's mode is held to what the picker allows here.
     const modeRefused = input.mode && !input.sessionId ? modeRefusal(app, input.mode) : null;
@@ -1793,7 +1805,9 @@ async function api(
       ...(input.temporary ? { temporary: true } : {}),
       ...(input.checks ? { checks: CompletionCheckSchema.parse(input.checks) } : {}),
       ...(input.dryRun ? { dryRun: true } : {}),
-      ...(input.images?.length ? { images: input.images } : {}),
+      // A picture that was attached is also shown to the model, so the page sends its bytes once.
+      ...picturesFor(input),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       ...(input.plan !== undefined ? { plan: input.plan } : {}),
       ...(input.verify !== undefined ? { verify: input.verify } : {}),
       ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
@@ -1941,8 +1955,8 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
   if (request.method === "POST" && path === "/api/sessions/search")
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
-    return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note|context))?$/.exec(path);
+    return app.store.importSession(owner, await readBody(request, archiveBodyLimit));
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note|context|cost))?$/.exec(path);
   // Wave 8: conversations branched off this one as a tree, and carrying one branch's answer back.
   if (match && match[2] === "tree" && request.method === "GET") return app.sessionTree.tree(owner, match[1]!);
   if (match && match[2] === "merge-note" && request.method === "POST")
@@ -1953,6 +1967,8 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
     return tokenReport(app.runtime, match[1]!, owner);
   }
+  // DG-101: what the whole conversation probably cost, for the line under the message box.
+  if (match && match[2] === "cost" && request.method === "GET") return conversationCost(app, owner, match[1]!);
   if (match && match[2] === "pins") {
     if (request.method === "GET") return { pins: app.store.sessionSummary(owner, match[1]!).pins };
     if (request.method === "POST") {
@@ -2747,6 +2763,31 @@ function fileChanges(app: Branch, runId: string) {
     .map((e) => ({ path: e.data.path, versionId: e.data.versionId, existed: e.data.existed, added: e.data.added, removed: e.data.removed, diff: e.data.diff }));
 }
 /** What one task probably cost: a dollar figure when the model it used has a price on file. */
+/**
+ * DG-101: the whole conversation's probable cost, summed over every one of its tasks (never the recent-task window).
+ * One task with no price on file makes the whole answer unknown, so a partial sum is never shown as a total. The
+ * line asks every few seconds, so a finished task's cost is kept (keyed by the price overrides it was worked out
+ * with) rather than read again from its events each time (Q35).
+ */
+const finishedCosts = new Map<string, { prices: string; amount: number | null }>();
+function conversationCost(app: Branch, owner: string, sessionId: string): { amount: number | null; currency: "USD" } {
+  requireBoundSession(shortLivedKeyMark().sessionId, sessionId);
+  if (!app.store.ownsSession(owner, sessionId)) throw new HttpError(404, "Session not found");
+  const prices = JSON.stringify(pricingSettings(app.store, app.runtime.owner).overrides ?? {});
+  const runs = app.store.sessionRuns(owner, sessionId);
+  let amount = 0;
+  for (const run of runs) {
+    const kept = finishedCosts.get(run.id), fresh = !kept || kept.prices !== prices;
+    const cost = fresh ? runCost(app, run.id).amount : kept.amount;
+    if (fresh && ["completed", "failed", "cancelled", "budget_exceeded"].includes(run.status)) {
+      if (finishedCosts.size > 20000) finishedCosts.clear();
+      finishedCosts.set(run.id, { prices, amount: typeof cost === "number" ? cost : null });
+    }
+    if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) return { amount: null, currency: "USD" };
+    amount += cost;
+  }
+  return { amount: runs.length ? amount : null, currency: "USD" };
+}
 function runCost(app: Branch, runId: string) {
   const usage = app.store.usage(runId);
   const named = app.store.events(runId).filter((e) => e.kind.startsWith("model.") && e.data.model !== undefined);
@@ -3499,6 +3540,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the bucket 12 block ----
+        // ---- the wiki: pages with names, and links between them (src/wiki.ts). The owner check is
+        // inside wikiApi, at the top, so it travels with the operation rather than living only here. ----
+        if (handlesWikiPath(path)) {
+          const answer = await wikiApi(
+            { wiki: app.wiki, owner: app.runtime.owner, profiles: app.store.profiles },
+            request, path, () => readBody(request, 128 * 1024),
+            new URL(request.url ?? "/", "http://local").searchParams,
+          );
+          if (answer === null) throw new HttpError(404, "Endpoint not found");
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the wiki block ----
         // ---- mac4/bucket-20: the Agent Protocol and /api/interop (src/interop/api.ts). ----
         if (handlesInteropPath(path)) {
           app.store.profiles.requireOwner("Working with other agents");
@@ -3992,6 +4046,46 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     response.end(played.bytes);
     return true;
   }
+  // A file a person attached, handed back to their own window (src/attachments.ts). The owner's alone,
+  // checked first so the guard moves with the route; nothing the caller sends is ever used as a path.
+  if (request.method === "GET" && path === "/api/attachments/file") {
+    const wanted = new URL(request.url ?? "/", "http://local").searchParams;
+    // The owner check lives at the top of attachmentForWindow, so it cannot be left behind here.
+    const found = await attachmentForWindow(
+      {
+        profiles: app.store.profiles, attachments: app.attachments,
+        temporaryConversation: (session) => app.store.sessionTemporary(session),
+      },
+      { session: wanted.get("session") ?? "", id: wanted.get("id") ?? "" },
+    ).catch(() => null);
+    if (!found) throw new HttpError(404, "That file is not attached to this conversation");
+    // The type is the one kept with the file, never anything the request said.
+    const inline = shownInPage(found.ref.mediaType);
+    const headers = {
+      "content-type": found.ref.mediaType, "cache-control": "no-store",
+      "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox",
+      "accept-ranges": "bytes",
+      "content-disposition": `${inline ? "inline" : "attachment"}; filename="${found.ref.name.replace(/[^\w. -]/g, "_")}"`,
+    };
+    const part = rangeWanted(request.headers.range, found.size);
+    if (part === "outside") {
+      response.writeHead(416, { ...headers, "content-range": `bytes */${found.size}` });
+      response.end();
+      return true;
+    }
+    // Sent from the file rather than from a copy of all of it: asking for the first kilobyte of a
+    // thirty-megabyte film should not cost thirty megabytes of memory.
+    if (part) {
+      response.writeHead(206, { ...headers, "content-length": String(part.end - part.start + 1),
+        "content-range": `bytes ${part.start}-${part.end}/${found.size}` });
+    } else {
+      response.writeHead(200, { ...headers, "content-length": String(found.size) });
+    }
+    const sending = found.open(part);
+    sending.on("error", () => response.destroy());
+    sending.pipe(response);
+    return true;
+  }
   if (request.method === "POST" && path === "/api/voice/transcribe") {
     const contentType = request.headers["content-type"] ?? "";
     if (!contentType.includes("audio/") && !contentType.includes("application/octet-stream")) {
@@ -4281,7 +4375,31 @@ function commandLook(app: Branch, request: IncomingMessage, path: string, suppli
   return app.sessionTokens.scopeOf(app.runtime.owner, supplied) === "read" ? { method: "GET", executes: false } : null;
 }
 
+/**
+ * The pictures among a message's attachments, in the shape the model is shown. The file itself is
+ * kept whatever happens; this is only so a picture does not have to be uploaded twice.
+ */
+/**
+ * What the model looks at this turn: the pictures the page sent to be looked at — a still out of a
+ * film — together with the pictures among the files the message carries. The two are different
+ * things, so one never hides the other: a message with a film and a photograph shows the model both.
+ */
+function picturesFor(input: { images?: ImagePart[] | undefined; attachments?: { mediaType: string; name: string; data: string }[] | undefined }): { images?: ImagePart[] } {
+  const all = [...(input.images ?? []), ...(picturesAmong(input.attachments).images ?? [])]
+    .slice(0, maximumImagesPerTurn);
+  return all.length ? { images: all } : {};
+}
+function picturesAmong(attachments?: { mediaType: string; name: string; data: string }[]): { images?: ImagePart[] } {
+  const pictures = (attachments ?? [])
+    .filter((one) => ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(one.mediaType))
+    .slice(0, maximumImagesPerTurn)
+    .map((one) => ({ mediaType: one.mediaType as ImagePart["mediaType"], data: one.data, name: one.name }));
+  return pictures.length ? { images: pictures } : {};
+}
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+  // The wiki is what the owner and the assistant have written down together; a script's key may
+  // neither read it nor write a page in it.
+  if (handlesWikiPath(path)) return "A short-lived key cannot read or write the wiki. Do that in the app window.";
   // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
   // neither read files through it nor save over them, so this comes before reading is let through.
   // FQ-collaboration: the video bytes the code editor's own player opens are the same door.
@@ -4298,6 +4416,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot open or read the phone download. Do that in the app window.";
   // mac5/key-sweep: a few reads hand back a secret or everybody's data (src/short-lived-keys.ts).
   // mac7/diagnostics: the activity log and problem reports are the owner's alone, reading included.
+  // A person's attached files are the owner's alone, like everything else kept beside the database.
+  if (path.startsWith("/api/attachments/"))
+    return "A short-lived key cannot open a file somebody attached. Do that in the app window.";
   if (path.startsWith("/api/diagnostics/"))
     return "A short-lived key cannot read the activity log or make a problem report. Do that in the app window.";
   if (handlesUpdateFixPath(path))

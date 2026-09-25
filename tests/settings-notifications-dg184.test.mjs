@@ -42,7 +42,7 @@ async function fixture(t) {
   await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0;
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
-  await page.keyboard.press("Control+Comma");
+  await page.keyboard.press("ControlOrMeta+Comma");
   await page.locator("#settings-window").waitFor({ state: "visible" });
   await page.evaluate(() => globalThis.branchLayout.go("settings:notifications"));
   await page.locator("#heartbeat-second").waitFor({ state: "attached" });

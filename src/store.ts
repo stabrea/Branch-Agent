@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
 import { reconcileTranscript } from "./transcript.js";
 import { SessionHistory } from "./history.js";
-import { SessionBranches } from "./sessions.js";
+import { SessionBranches, type ConversationFiles } from "./sessions.js";
 import { SessionLibrary } from "./session-library.js";
 import { SessionSummaries, type SessionSummary } from "./session-summary.js";
 import { WorkingSessions, type WorkingNote } from "./working-session.js";
@@ -142,8 +142,8 @@ export class Store {
     // The spans table is created up front, so the metrics page can count them from the first launch.
     void this.spans;
     this.history = new SessionHistory(this.db);
-    this.branches = new SessionBranches(this.db);
-    this.library = new SessionLibrary(this.db);
+    this.branches = new SessionBranches(this.db, () => this.files);
+    this.library = new SessionLibrary(this.db, () => this.files);
     this.summaries = new SessionSummaries(this.db);
     this.working = new WorkingSessions(this.db);
     this.recoverInterruptedRuns();
@@ -385,6 +385,11 @@ export class Store {
       .all(owner)
       .map((row) => this.toRun(row));
   }
+  /** Every task in one of this person's conversations, id and status only, without the recent-task window's limit (DG-101). */
+  sessionRuns(owner: string, sessionId: string): { id: string; status: string }[] {
+    return this.db.prepare("SELECT id, status FROM tasks WHERE session_id=? AND owner=? ORDER BY created_at")
+      .all(sessionId, owner).map((row) => ({ id: String(row.id), status: String(row.status) }));
+  }
   /** Running or waiting work that is still the newest task in its conversation. */
   activeRuns(owner: string): Run[] {
     return this.db.prepare(`SELECT current.* FROM tasks current
@@ -490,6 +495,15 @@ export class Store {
    * Called when a conversation is thrown away, so anything held open for it (a program left
    * running, for instance) goes with it. Listeners must not throw and are never awaited.
    */
+  /**
+   * The files conversations hold. A copy of a conversation needs its own copy of them, so branching,
+   * duplicating and importing ask this for it. It is set once, when the app is built, because the
+   * store is opened before the folder the files live in is: a store used without it can still read
+   * and write conversations, and refuses to make a copy of one that holds files rather than make a
+   * copy that cannot open them.
+   */
+  files: ConversationFiles | null = null;
+  useFiles(files: ConversationFiles): void { this.files = files; }
   onSessionClosed(listener: (sessionId: string) => void): () => void {
     this.sessionClosedListeners.add(listener);
     return () => { this.sessionClosedListeners.delete(listener); };

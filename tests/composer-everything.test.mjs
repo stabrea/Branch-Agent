@@ -68,14 +68,14 @@ test("DG-175 the sample's chips under the box show with everything shown at Adva
   await level(page, "regular");
   assert.deepEqual(await chips(), [], "nor has the full window at Regular");
   await level(page, "advanced");
-  assert.deepEqual(await chips(), ["Ask me questions first", "Temporary", "Your assistant"]);
+  assert.deepEqual(await chips(), ["Context used 0%", "Ask me questions first", "Temporary", "Your assistant"], "the sample's four, how full the context is first (DG-101)");
   await page.locator(".lx-foot-chip", { hasText: "Temporary" }).click();
   assert.equal(await page.locator("#temporary-toggle").isChecked(), true, "the chip presses the real choice");
-  assert.deepEqual(await chips(), ["Ask me questions first", "Temporary ✓", "Your assistant"]);
+  assert.deepEqual(await chips(), ["Context used 0%", "Ask me questions first", "Temporary ✓", "Your assistant"]);
   /* Chosen from the + menu instead, the chip follows. */
   await page.locator("#lx-plus").click();
   await page.locator("#lx-plus-menu").getByRole("menuitem", { name: "Ask me questions first", exact: true }).dispatchEvent("click");
-  await page.waitForFunction(() => document.querySelector(".lx-foot-chip")?.getAttribute("aria-pressed") === "true");
+  await page.waitForFunction(() => document.querySelector(".lx-foot-chip[data-target]")?.getAttribute("aria-pressed") === "true");
   assert.deepEqual(errors, []);
 });
 
@@ -85,7 +85,7 @@ test("DG-175 in French the chips are French", async (t) => {
   await level(page, "advanced");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   const words = await page.evaluate(async () => { const { t } = await import("/i18n.js"); return [t("more.askFirst"), t("composer.chip.temporary")]; });
-  await page.waitForFunction((first) => document.querySelector(".lx-foot-chip")?.textContent.trim() === first, words[0]);
+  await page.waitForFunction((first) => document.querySelector(".lx-foot-chip[data-target]")?.textContent.trim() === first, words[0]);
   const seen = await page.evaluate(() => [...document.querySelectorAll(".lx-foot-chip[data-target]")].map((chip) => chip.textContent.trim()));
   assert.deepEqual(seen, words);
   assert.notDeepEqual(words, ["Ask me questions first", "Temporary"]);

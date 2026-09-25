@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ensureFlyTables, flyTables } from "./fly-core/state.js";
 import { dropIndex } from "./fly-core/fast-index.js";
 import { ensureContractTable } from "./self-development-contract.js";
+import { ensureWikiTables, wikiTables } from "./wiki.js";
 
 /**
  * Whole-application backup: every table that holds the person's state, as plain rows, so it can be
@@ -38,12 +39,14 @@ const requiredTables = [
  */
 const appendOnlyTables = ["self_development_contracts"] as const;
 const appendOnly = (table: string): boolean => (appendOnlyTables as readonly string[]).includes(table);
-export const backupTables = [...requiredTables, ...flyTables, ...appendOnlyTables] as const;
+export const backupTables = [...requiredTables, ...flyTables, ...appendOnlyTables, ...wikiTables] as const;
 const RowSchema = z.record(z.string().regex(/^[a-z_]+$/), z.union([z.string(), z.number(), z.null()]));
 const TablesSchema = z.object({
   ...Object.fromEntries(requiredTables.map((table) => [table, z.array(RowSchema)])) as Record<(typeof requiredTables)[number], z.ZodArray<typeof RowSchema>>,
   ...Object.fromEntries(flyTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof flyTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
   ...Object.fromEntries(appendOnlyTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof appendOnlyTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
+  // The wiki's pages and their history (src/wiki.ts). A backup from before the wiki has none.
+  ...Object.fromEntries(wikiTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof wikiTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
 }).strict();
 export const BackupArchiveSchema = z.object({
   format: z.literal("branch-agent-backup"),
@@ -65,9 +68,17 @@ export function parseBackupArchive(input: unknown): BackupArchive {
  * a passkey the owner took away came back with an older backup, and one planted in a changed file let its holder sign in
  * as a person here (Mac mini 6534228). The people's passkeys, whether they may sign in from elsewhere, OIDC sign-ins
  * waiting, which steps a phone must pass, and the paired devices' secret fingerprints.
+ * Also everyone and everything else paired with this computer (NAS review of #186): the devices it lends itself to,
+ * with their keys (`devices-book`), which chat senders may reach the assistant (`sender-allowlist`, each approved
+ * `channel-pair:<chat>:<sender>`), and the other Branch installs it sends work to with their keys (`remote-agent:<id>`).
+ * An older backup must not let a disconnected sender or a revoked device back in, nor a changed one plant them.
  */
-export const signInSettings: readonly string[] = ["people-passkeys", "people-signin", "people-oidc-waiting", "remote-gateway-auth", "remote-devices"];
-const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && signInSettings.includes(String(row.id));
+export const signInSettings: readonly string[] = ["people-passkeys", "people-signin", "people-oidc-waiting", "remote-gateway-auth",
+  "remote-devices", "devices-book", "sender-allowlist"];
+/** Settings kept on this computer by the start of their id: one row per paired chat sender, or per other install. */
+export const signInPrefixes: readonly string[] = ["channel-pair:", "remote-agent:"];
+const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings"
+  && (signInSettings.includes(String(row.id)) || signInPrefixes.some((prefix) => String(row.id).startsWith(prefix)));
 
 /** Reads every backed-up table in insertion order. */
 export function exportBackup(db: DatabaseSync, appVersion: string): BackupArchive {
@@ -86,7 +97,9 @@ export function exportBackup(db: DatabaseSync, appVersion: string): BackupArchiv
 /** Whether this install already holds someone's state; restoring over it is refused. */
 export function hasState(db: DatabaseSync): boolean {
   const count = (table: string) => Number((db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number | bigint }).n);
-  return count("sessions") > 0 || count("memory") > 0 || count("installed_skills") > 0;
+  // NAS review of #194: a Branch holding only wiki pages has work in it too, so a restore does not merge over them.
+  const wiki = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='wiki_pages'").get() ? count("wiki_pages") : 0;
+  return count("sessions") > 0 || count("memory") > 0 || count("installed_skills") > 0 || wiki > 0;
 }
 
 export interface RestoreOptions {
@@ -107,10 +120,12 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
     if (options.replaceExisting)
       for (const table of [...backupTables].reverse())
         if (!appendOnly(table) && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table))
-          if (table === "settings") db.prepare(`DELETE FROM settings WHERE id NOT IN (${signInSettings.map(() => "?").join(",")})`).run(...signInSettings);
+          if (table === "settings") db.prepare(`DELETE FROM settings WHERE id NOT IN (${signInSettings.map(() => "?").join(",")})`
+            + signInPrefixes.map(() => " AND substr(id, 1, ?) <> ?").join("")).run(...signInSettings, ...signInPrefixes.flatMap((prefix) => [prefix.length, prefix]));
           else db.exec(`DELETE FROM ${table}`);
     prepareFlyRestore(db, archive);
     if (archive.tables.self_development_contracts?.length) ensureContractTable(db);
+    if (wikiTables.some((table) => archive.tables[table]?.length)) ensureWikiTables(db);
     for (const table of backupTables) {
       const list = archive.tables[table];
       if (!list?.length) continue;

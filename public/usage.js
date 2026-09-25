@@ -494,9 +494,9 @@ async function render() {
   // Wave 8: every section opens by saying what it is for, in one line.
   view.append(el("p", t("usage.intro"), "section-intro"));
   summaryCards(view);
-  // mac7/usage-bar: what each connection has left, in a card of its own after the usage, and never in the meter
-  // under the message box — that bar is this conversation's room against the model's context window, which is
-  // a different thing entirely and must not be conflated with a provider's allowance.
+  // mac7/usage-bar: what each connection has left, in a card of its own after the usage, and never in the context
+  // chip under the message box (DG-101) — that is this conversation's room against the model's context window,
+  // which is a different thing entirely and must not be conflated with a provider's allowance.
   renderLimits(left);
   renderSaveProgress(save);
   // Batch 19 (wave 7): this month first, because that is the question people actually ask.

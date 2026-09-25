@@ -1,5 +1,6 @@
 /**
- * R17-049: under the meter's numbers, one bar per model round of this conversation: what went in
+ * R17-049: in Settings › Data & usage (DG-101: the meter it sat under is gone), one bar per model round of the
+ * conversation on screen: what went in
  * (the part the service's cache served drawn in its own colour), what came out, and a mark where
  * the conversation was folded into a summary. A line says how close the latest round is to the next
  * fold, and while a fold is being written it says so. Shown only with the Appearance switch on.
@@ -11,7 +12,7 @@ import { t, formatNumber } from "/i18n.js";
 const $ = (id) => document.getElementById(id);
 const svgNs = "http://www.w3.org/2000/svg";
 let on = false;
-/** Kept here because the meter's redraw takes it out of the page for a moment. */
+/** Kept here because the usage view's redraw takes it out of the page for a moment. */
 let chartBox = null;
 
 async function get(path) {
@@ -101,26 +102,33 @@ function paint(box, data) {
 }
 
 function holder() {
-  const popover = $("meter-popover");
-  if (!popover) return null;
+  const view = $("usage");
+  if (!view) return null;
   if (!chartBox) {
-    chartBox = document.createElement("section");
+    chartBox = document.createElement("article");
     chartBox.id = "round-chart";
-    chartBox.className = "round-chart";
+    chartBox.className = "table-card round-chart";
     chartBox.setAttribute("aria-live", "polite");
   }
-  if (!popover.contains(chartBox)) popover.append(chartBox);
+  if (!view.contains(chartBox)) view.append(chartBox);
   return chartBox;
 }
 
+let shownSession = null, generation = 0;
 async function refresh() {
-  const popover = $("meter-popover"), session = $("conversation")?.dataset.sessionId;
+  const view = $("usage"), session = $("conversation")?.dataset.sessionId;
   const box = on ? holder() : chartBox;
   if (!box) return;
-  box.hidden = !on || !popover || popover.hidden || !session;
+  const mine = ++generation;
+  // Another conversation's rounds are never left showing under this one's name.
+  if (shownSession !== session) { box.replaceChildren(); shownSession = session; }
+  // Drawn, and fetched, only while Data & usage is on screen: #usage itself is never marked hidden (NAS f3a163d).
+  box.hidden = !on || !view || !(view.checkVisibility?.() ?? !view.hidden) || !session;
   if (box.hidden) return;
-  try { paint(box, await get(`model-savings/rounds?session=${encodeURIComponent(session)}`)); }
-  catch { /* the chart keeps what it last showed */ }
+  try {
+    const data = await get(`model-savings/rounds?session=${encodeURIComponent(session)}`);
+    if (mine === generation && session === $("conversation")?.dataset.sessionId) paint(box, data);
+  } catch { /* the chart keeps what it last showed */ }
 }
 
 if (typeof document !== "undefined") {
@@ -128,12 +136,12 @@ if (typeof document !== "undefined") {
     on = event.detail?.values?.roundChart?.mode === "on";
     void refresh();
   });
-  const popover = $("meter-popover");
-  if (popover) {
-    new MutationObserver(() => void refresh()).observe(popover, { attributes: true, attributeFilter: ["hidden"] });
-    // The meter redraws its numbers by replacing the popover's contents; the chart goes back at the end.
-    new MutationObserver(() => { if (on && chartBox && !popover.contains(chartBox)) popover.append(chartBox); })
-      .observe(popover, { childList: true });
+  const view = $("usage");
+  if (view) {
+    new MutationObserver(() => void refresh()).observe(view, { attributes: true, attributeFilter: ["hidden"] });
+    // The usage view redraws by emptying itself (public/usage.js); the chart goes back at the end.
+    new MutationObserver(() => { if (on && chartBox && !view.contains(chartBox)) view.append(chartBox); })
+      .observe(view, { childList: true });
   }
   document.addEventListener("branch-language", () => void refresh());
   setInterval(() => { if (on) void refresh(); }, 4000);

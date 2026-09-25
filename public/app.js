@@ -1178,7 +1178,8 @@ async function installNow() {
     showUpdateStatus(await window.branchDesktop.installUpdate());
   } catch (e) {
     window.branchUpdateScreen?.hide(); toast(e.message);
-    failedNow = { version: state.version };
+    // The reason stays on the card: a toast is gone before the owner can read it or tell us.
+    failedNow = { version: state.version, why: e.message };
     failureAsked++; // a look already on its way is now out of date
     await renderUpdates();
   }
@@ -1195,6 +1196,9 @@ function sayFailure(failure) {
   $("updates-failed-text").textContent = failure.toVersion
     ? t("updates.failed.to", { to: failure.toVersion, version: state.version })
     : t("updates.failed.now", { version: state.version });
+  const why = $("updates-failed-why");
+  why.hidden = !failure.why;
+  why.textContent = failure.why ? t("updates.failed.why", { why: failure.why }) : "";
   block.hidden = false;
   $("updates-card").hidden = false;
   // Without the desktop app there is nothing to check or install from here: only the failure shows.
@@ -1559,6 +1563,61 @@ function toolStep(content, calls, source) {
   node.append(body);
   $("conversation").append(node);
 }
+/** How big a kept file is, in words a person reads rather than bytes. */
+const fileSize = (bytes) =>
+  bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+/** The safe kinds shown in the page itself; everything else is offered as a download. */
+const playableHere = new Set([
+  "image/png", "image/jpeg", "image/webp", "image/gif",
+  "audio/wav", "audio/mpeg", "audio/ogg", "audio/webm", "audio/mp4",
+  "video/mp4", "video/webm", "video/ogg",
+]);
+/** Asks for a kept file with the window's own key, and hands back something the page can point at. */
+async function keptFileUrl(ref) {
+  const answer = await fetch(
+    `/api/attachments/file?session=${encodeURIComponent(sessionId)}&id=${encodeURIComponent(ref.id)}`,
+    { headers: { authorization: "Bearer " + (sessionStorage.getItem("branch-token") || "") } });
+  if (!answer.ok) throw new Error("That file could not be opened");
+  return URL.createObjectURL(await answer.blob());
+}
+/**
+ * A card for each file that came with a message: what it is called, how big it is, and one control —
+ * Show it here for a picture, a sound or a film, and Download for everything else. The bytes are
+ * fetched with the window's key, so nothing is readable from an address alone.
+ */
+function attachedFiles(refs) {
+  const row = el("div", undefined, "message-files");
+  for (const ref of refs) {
+    const card = el("div", undefined, "message-file");
+    card.dataset.attachment = ref.id;
+    card.append(el("span", ref.name, "message-file-name"));
+    card.append(el("span", `${ref.kind} · ${fileSize(ref.bytes)}`, "meta"));
+    const shown = el("div", undefined, "message-file-shown");
+    const open = button(playableHere.has(ref.mediaType) ? "Show it here" : "Download", async () => {
+      open.disabled = true;
+      try {
+        const url = await keptFileUrl(ref);
+        if (!playableHere.has(ref.mediaType)) {
+          const save = Object.assign(document.createElement("a"), { href: url, download: ref.name });
+          document.body.append(save);
+          save.click();
+          save.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 30000);
+          return;
+        }
+        const tag = ref.kind === "picture" ? "img" : ref.kind === "sound" ? "audio" : "video";
+        const media = Object.assign(document.createElement(tag), { src: url });
+        if (tag !== "img") media.controls = true;
+        else media.alt = ref.name;
+        shown.replaceChildren(media);
+      } catch (error) { toast(error.message); open.disabled = false; }
+    });
+    open.classList.add("text-button");
+    card.append(open, shown);
+    row.append(card);
+  }
+  return row;
+}
 function message(role, content, source) {
   if (source?.toolCalls?.length) return toolStep(content, source.toolCalls, source);
   const node = el("div", undefined, "message " + role);
@@ -1576,10 +1635,16 @@ function message(role, content, source) {
     globalThis.branchPlaybackRender?.(node, sessionId, source);
   }
   else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
+  /* The files that came with this message, shown whenever the conversation is read — including after
+     it is reopened, which is the whole point of keeping them (src/attachments.ts). The cards are
+     appended on their own: what was said is decided by who said it, and never by whether a file
+     came with it. */
+  if (source?.attachments?.length) node.append(attachedFiles(source.attachments));
   /* Wave 7: every reply gets Read aloud, whether or not it can also be branched from, and it goes
      through the voice service so the free Windows voice works with no key and no internet. */
   if (role === "assistant" && !source?.toolCalls?.length) {
     const controls = el("div", undefined, "message-controls");
+    controls.append(copyButton(content));
     if (source?.messageId)
       controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
     const readBtn = button("Read aloud", () => globalThis.branchSpeak?.(content));
@@ -1588,12 +1653,39 @@ function message(role, content, source) {
     stopBtn.classList.add("text-button");
     controls.append(readBtn, stopBtn);
     node.append(controls);
-  } else if (source?.messageId) {
+  } else {
+    // Dogfood B8: every message can be copied, what was typed as much as what came back.
     const controls = el("div", undefined, "message-controls");
-    controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
+    controls.append(copyButton(content));
+    if (source?.messageId) controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
     node.append(controls);
   }
   $("conversation").append(node);
+}
+/**
+ * Dogfood B8: copies one message as it was written (an answer's markdown, or exactly what was typed). The page's
+ * clipboard is tried first; a window that refuses it (no focus, an older engine) gets the selection's copy instead.
+ */
+function copyButton(content) {
+  const node = button(t("message.copy"), async () => {
+    const text = String(content ?? "");
+    let copied = false;
+    try { await navigator.clipboard.writeText(text); copied = true; }
+    catch {
+      const spare = el("textarea");
+      spare.value = text;
+      spare.setAttribute("readonly", "");
+      spare.style.cssText = "position:fixed;left:-9999px;top:0";
+      document.body.append(spare);
+      spare.select();
+      try { copied = document.execCommand("copy"); } catch { copied = false; }
+      spare.remove();
+    }
+    toast(copied ? t("message.copied") : t("message.copyFailed"));
+  });
+  node.classList.add("text-button", "message-copy");
+  node.dataset.t = "message.copy";
+  return node;
 }
 function conversationButton(label, handler) {
   const node = button(label, async () => {
@@ -2082,6 +2174,8 @@ $("chat-form").addEventListener("submit", async (event) => {
     const startingTemporary = !sessionId && $("temporary-toggle").checked;
     // Pictures put on the composer travel with this one message and are then cleared (wave 5).
     const pictures = globalThis.branchAttachments?.() ?? [];
+    // Wave: the files themselves are kept, so the conversation can hand them back later.
+    const files = globalThis.branchAttachedFiles?.() ?? [];
     /* Redesign phase 1: a conversation begun here starts in the mode its chip shows (public/conversation-mode.js). */
     const startMode = sessionId ? null : globalThis.branchConversationMode?.pending() ?? null;
     const run = await api("run", {
@@ -2090,6 +2184,7 @@ $("chat-form").addEventListener("submit", async (event) => {
       ...(startMode ? { mode: startMode } : {}),
       ...(startingTemporary ? { temporary: true } : {}),
       ...(pictures.length ? { images: pictures } : {}),
+      ...(files.length ? { attachments: files } : {}),
     });
     globalThis.branchAttachmentsClear?.();
     if (!sessionId) currentTemporary = startingTemporary;
@@ -2132,7 +2227,7 @@ $("chat-form").addEventListener("submit", async (event) => {
     globalThis.branchPlaybackSettle?.();
     stopActivity();
     globalThis.branchLiveRun?.stop(sessionId);
-    globalThis.branchTokenMeter?.refresh();
+    globalThis.branchConversationFacts?.refresh();
     setConversationBusy(false);
     if (pendingFollowUps > 0) void awaitFollowUps();
   }
