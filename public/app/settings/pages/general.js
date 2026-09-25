@@ -25,8 +25,8 @@ export function draw() {
   let html = "<h1>General</h1><p class=\"lede\">How Branch starts and behaves on this computer.</p>";
   html += "<div class=\"status\"><span class=\"sdot \"></span><div><b>Branch starts with Windows</b><p>It waits in the tray and keeps scheduled work running when the window is closed.</p></div></div>";
   html += "<div class=\"sec\"><h2>Starting up</h2>";
-  html += "<div class=\"ctl\"><b>Start with Windows</b><input class=\"sw\" type=\"checkbox\" id=\"g-start\" checked aria-label=\"Start with Windows\" data-sw=\"set\"><small>Opens quietly in the tray.</small></div>";
-  html += "<div class=\"ctl\"><b>Keep working when the window closes</b><input class=\"sw\" type=\"checkbox\" id=\"g-tray\" checked aria-label=\"Keep working when the window closes\" data-sw=\"set\"><small>Trunks finish what they started.</small></div>";
+  html += "<div class=\"ctl\"><b>Start with Windows</b><input class=\"sw\" type=\"checkbox\" id=\"g-start\" aria-label=\"Start with Windows\" data-sw=\"set\"><small>Opens quietly in the tray.</small></div>";
+  html += "<div class=\"ctl\"><b>Keep working when the window closes</b><input class=\"sw\" type=\"checkbox\" id=\"g-tray\" aria-label=\"Keep working when the window closes\" data-sw=\"set\"><small>Trunks finish what they started.</small></div>";
   html += "</div>";
 
   html += "<div class=\"sec\"><h2>Projects</h2><div class=\"rows\">";
@@ -46,19 +46,19 @@ export function draw() {
   if (lv >= 1) {
     html += "<div class=\"sec x15-sec\"><h2>The conversation</h2>";
     html += "<div class=\"ctl\"><b>Vim keys in the message box</b><input class=\"sw\" type=\"checkbox\" id=\"f15-vim-keys-in-the-message-box\" aria-label=\"Vim keys in the message box\" data-sw=\"set\"><small>Normal and insert modes, for people who type that way.</small></div>";
-    html += "<div class=\"ctl\"><b>Message times</b><span class=\"right\"><span class=\"seg\" role=\"group\" aria-label=\"Message times\"><button type=\"button\" aria-pressed=\"true\" data-act=\"seg\">On hover</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Always</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Never</button></span></span><small>When a message was sent, and when a task started and ended.</small></div>";
+    html += "<div class=\"ctl\"><b>Message times</b><span class=\"right\"><span class=\"seg\" role=\"group\" aria-label=\"Message times\"><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">On hover</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Always</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Never</button></span></span><small>When a message was sent, and when a task started and ended.</small></div>";
     html += "</div>";
     html += "<div class=\"sec x15-sec\"><h2>Summaries of older turns</h2>";
-    html += "<div class=\"ctl\"><b>Summarise older turns by themselves</b><input class=\"sw\" type=\"checkbox\" id=\"f15-summarise-older-turns-by-themselves\" checked aria-label=\"Summarise older turns by themselves\" data-sw=\"set\"><small>Keeps long conversations fast. The summary card shows what was kept.</small></div>";
-    html += "<div class=\"ctl\"><b>Summarise when it's this full</b><span class=\"right num15\"><input class=\"inp\" value=\"80\" aria-label=\"Summarise when it's this full\"><small>%</small></span><small>Of the model's room for this conversation.</small></div>";
-    html += "<div class=\"ctl\"><b>Always keep the latest</b><span class=\"right num15\"><input class=\"inp\" value=\"20\" aria-label=\"Always keep the latest\"><small>messages</small></span><small>Messages kept word for word.</small></div>";
+    html += "<div class=\"ctl\"><b>Summarise older turns by themselves</b><input class=\"sw\" type=\"checkbox\" id=\"f15-summarise-older-turns-by-themselves\" aria-label=\"Summarise older turns by themselves\" data-sw=\"set\"><small>Keeps long conversations fast. The summary card shows what was kept.</small></div>";
+    html += "<div class=\"ctl\"><b>Summarise when it's this full</b><span class=\"right num15\"><input class=\"inp\" aria-label=\"Summarise when it's this full\"><small>%</small></span><small>Of the model's room for this conversation.</small></div>";
+    html += "<div class=\"ctl\"><b>Always keep the latest</b><span class=\"right num15\"><input class=\"inp\" aria-label=\"Always keep the latest\"><small>messages</small></span><small>Messages kept word for word.</small></div>";
     html += "</div>";
   }
 
   if (lv >= 2) {
     html += "<div class=\"sec x15-sec\"><h2>Summaries, technical</h2>";
-    html += "<div class=\"ctl\"><b>Room to plan for</b><span class=\"right\"><span class=\"seg\" role=\"group\" aria-label=\"Room to plan for\"><button type=\"button\" aria-pressed=\"true\" data-act=\"seg\">Model's own</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">128k</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">200k</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">1M</button></span></span><small>Overrides what the model says it can hold.</small></div>";
-    html += "<div class=\"ctl\"><b>Repair the history before each call</b><input class=\"sw\" type=\"checkbox\" id=\"f15-repair-the-history-before-each-call\" checked aria-label=\"Repair the history before each call\" data-sw=\"set\"><small>Fixes a broken tool call or a half-written answer before the model sees it.</small></div>";
+    html += "<div class=\"ctl\"><b>Room to plan for</b><span class=\"right\"><span class=\"seg\" role=\"group\" aria-label=\"Room to plan for\"><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Model's own</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">128k</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">200k</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">1M</button></span></span><small>Overrides what the model says it can hold.</small></div>";
+    html += "<div class=\"ctl\"><b>Repair the history before each call</b><input class=\"sw\" type=\"checkbox\" id=\"f15-repair-the-history-before-each-call\" aria-label=\"Repair the history before each call\" data-sw=\"set\"><small>Fixes a broken tool call or a half-written answer before the model sees it.</small></div>";
     html += "</div>";
   }
 

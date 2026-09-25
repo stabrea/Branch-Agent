@@ -31,6 +31,9 @@ export async function load() {
   await loadData();
 }
 
+export const live = {
+};
+
 const SVG_CHECK = "<svg class=\"i s\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"></path></svg>";
 const SVG_RESTART = "<svg class=\"i s\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5\"></path></svg>";
 

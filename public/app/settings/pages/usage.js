@@ -3,8 +3,38 @@ import { level } from "../../core/state.js";
 import { E } from "../../core/state.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
+import { api } from "../../core/api.js";
+import { toast } from "../../core/ui.js";
+import { renderNow } from "../../core/dom.js";
 
-const REPORT = `<div class="rep15"><div class="rep-h15"><span><small>Last 30 days</small><b>$0.00</b><em>0 tasks</em></span><span class="seg" role="group" aria-label="Period"><button type="button" aria-pressed="false" data-act="rep15" data-v="7">7 days</button><button type="button" aria-pressed="true" data-act="rep15" data-v="30">30 days</button><button type="button" aria-pressed="false" data-act="rep15" data-v="90">90 days</button></span></div><button class="btn sm" type="button" data-act="repopen15">Open the report</button></div>`;
+let glance = null;
+let suites = null;
+let currentRange = "30d";
+
+async function loadUsageData() {
+  try {
+    const g = await api("usage/glance");
+    glance = g || {};
+  } catch (err) {
+    console.error("Failed to load usage glance:", err);
+    glance = {};
+  }
+  try {
+    const s = await api("evaluation/suites");
+    suites = s || [];
+  } catch (err) {
+    console.error("Failed to load evaluation suites:", err);
+    suites = [];
+  }
+  renderNow();
+}
+
+function buildReportSection() {
+  const cost = glance?.cost || "$0.00";
+  const tasks = glance?.tasks || 0;
+  const rangeText = currentRange === "7d" ? "7 days" : currentRange === "90d" ? "90 days" : "30 days";
+  return `<div class="rep15"><div class="rep-h15"><span><small>Last ${rangeText}</small><b>${cost}</b><em>${tasks} task${tasks !== 1 ? 's' : ''}</em></span><span class="seg" role="group" aria-label="Period"><button type="button" aria-pressed="${currentRange === "7d" ? "true" : "false"}" data-act="rep15" data-v="7d">7 days</button><button type="button" aria-pressed="${currentRange === "30d" ? "true" : "false"}" data-act="rep15" data-v="30d">30 days</button><button type="button" aria-pressed="${currentRange === "90d" ? "true" : "false"}" data-act="rep15" data-v="90d">90 days</button></span></div><button class="btn sm" type="button" data-act="repopen15">Open the report</button></div>`;
+}
 
 const LIMITS_EMPTY = `<div class="sec"><h2>What each connection has left</h2></div>`;
 
@@ -14,9 +44,32 @@ const KEEPING = `<div class="sec"><h2>Keeping things</h2><div class="ctl"><b>Kee
   <div class="acts" data-css="margin-top:8px"><button class="btn" type="button" data-act="eval-run">Run the test</button></div></div>`;
 
 export function draw() {
-  return `<h1>Data &amp; usage</h1><p class="lede">What each connection has left, what Branch spent, what it keeps.</p>` + REPORT + LIMITS_EMPTY + KEEPING;
+  return `<h1>Data &amp; usage</h1><p class="lede">What each connection has left, what Branch spent, what it keeps.</p>` + buildReportSection() + LIMITS_EMPTY + KEEPING;
 }
 
+export function init() {
+  loadUsageData();
+  on("rep15", (el) => {
+    currentRange = el.dataset.v;
+    renderNow();
+  });
+  on("repopen15", () => {
+    api("usage/report", { range: currentRange })
+      .then(() => toast("Opening usage report..."), (e) => toast(e.message));
+  });
+  on("eval-run", () => {
+    api("evaluation/run", {})
+      .then(() => { toast("Running evaluation..."); loadUsageData(); }, (e) => toast(e.message));
+  });
+  markLive(["rep15", "repopen15", "eval-run"]);
+}
 
+export async function load() {
+  await loadUsageData();
+}
 
-markLive([]);
+export const live = { rep15: true, repopen15: true, "eval-run": true };
+
+export function after(col) {
+  // Set up control listeners after rendering
+}

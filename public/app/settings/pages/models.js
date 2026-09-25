@@ -6,39 +6,41 @@ import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { renderNow } from "../../core/dom.js";
 
-let accounts = { accounts: [] };
+let accounts = { pools: [] };
 
 async function loadAccounts() {
   try {
     const data = await api("accounts");
-    accounts = data || { accounts: [] };
+    accounts = data || { pools: [] };
   } catch (err) {
     console.error("Failed to load accounts:", err);
-    accounts = { accounts: [] };
+    accounts = { pools: [] };
   }
   renderNow();
 }
 
 function getAccountsByProvider(provider) {
-  if (!accounts || !accounts.accounts) return [];
-  return accounts.accounts.filter(a => a.provider === provider);
+  if (!accounts || !accounts.pools) return [];
+  const pool = accounts.pools.find(p => p.pool === provider.toLowerCase().replace(' ', ''));
+  return pool?.accounts || [];
 }
 
 function renderAccountGroup(provider, logoColor, logoSvg) {
   const accts = getAccountsByProvider(provider);
   const hasAccounts = accts.length > 0;
+  const poolId = provider.toLowerCase().replace(' ', '');
 
-  let html = `<div class="acct-g"><div class="acct-gh"><span class="logo" data-css="width:30px;height:30px;background:${logoColor}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">${logoSvg}</svg></span><b>${provider}</b><span class="n6">${hasAccounts ? `${accts.length} account${accts.length !== 1 ? 's' : ''}` : 'Not set up'}</span></div>`;
+  let html = `<div class="acct-g"><div class="acct-gh"><span class="logo" data-css="width:30px;height:30px;background:${logoColor}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">${logoSvg}</svg></span><b>${esc(provider)}</b><span class="n6">${hasAccounts ? `${accts.length} account${accts.length !== 1 ? 's' : ''}` : 'Not set up'}</span></div>`;
 
   if (hasAccounts) {
     accts.forEach((acct, i) => {
       const status = i === 0 ? 'ok' : 'idle';
       const statusText = i === 0 ? 'Answers first' : 'Next in line';
-      html += `<div class="acct-r"><span class="grow"><b>${acct.label || `${provider} Account ${i + 1}`}</b><small>${acct.plan || 'Plan'} · used by anyone</small></span><span class="pill ${status}"><i></i>${statusText}</span><button class="icon-btn" type="button" aria-label="More for ${esc(acct.label)}" data-act="acct-menu" data-i="${i}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="18" cy="12" r="1"></circle></svg></button></div>`;
+      html += `<div class="acct-r"><span class="grow"><b>${esc(acct.label || `${provider} Account ${i + 1}`)}</b><small>${esc(acct.pool)} · used by anyone</small></span><span class="pill ${status}"><i></i>${statusText}</span><button class="icon-btn" type="button" aria-label="More for ${esc(acct.label)}" data-act="acct-menu" data-i="${i}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="18" cy="12" r="1"></circle></svg></button></div>`;
     });
-    html += `<button class="add-row" type="button" data-act="addacct" data-v="${provider.toLowerCase().replace(' ', '')}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add another ${provider} account</button>`;
+    html += `<button class="add-row" type="button" data-act="addacct" data-v="${esc(poolId)}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add another ${esc(provider)} account</button>`;
   } else {
-    html += `<button class="add-row" type="button" data-act="addacct" data-v="${provider.toLowerCase().replace(' ', '')}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Sign in to ${provider}</button>`;
+    html += `<button class="add-row" type="button" data-act="addacct" data-v="${esc(poolId)}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Sign in to ${esc(provider)}</button>`;
   }
 
   html += `</div>`;

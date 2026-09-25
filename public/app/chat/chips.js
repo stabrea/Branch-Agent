@@ -12,7 +12,7 @@ import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
 
 const PMODES = [["auto", "Auto", "Branch decides what’s safe and only asks about risky things.", "spark"], ["ask", "Ask first", "Always asks before changing files, running commands or using the internet.", "shield"], ["plan", "Plan first", "Writes a plan and waits for your OK before doing anything.", "plan"], ["full", "Full access", "Does anything on this computer without asking: files, commands, the internet.", "unlock"]];
-const M = { sid: undefined, model: null, mode: null, at: 0 };
+const M = { sid: undefined, model: null, mode: null, at: 0, pending: null };
 
 const presets = () => E.state?.models?.presets ?? [];
 function current() {
@@ -20,12 +20,26 @@ function current() {
   const reasoning = M.model ? M.model.reasoning ?? E.state?.models?.reasoning : E.state?.models?.reasoning;
   return { id: M.model?.preset ?? eff.presetId, name: eff.presetName ?? "", provider: eff.provider ?? "", reasoning };
 }
-const modeNow = () => (M.mode?.locked ? "lock" : M.mode?.mode ?? M.mode?.newConversation ?? "ask");
+/* What the engine will really do here: Lockdown; for a new conversation, the mode picked for it or what new ones start
+   on; for a conversation started from outside, Ask first whatever was picked; else its own pick, or the owner's policy. */
+function modeNow() {
+  if (M.mode?.locked) return "lock";
+  if (!S.chat) return M.pending ?? M.mode?.newConversation ?? "ask";
+  if (M.mode?.outside) return "ask";
+  return M.mode?.mode ?? "follow";
+}
+/* The mode a new conversation's first message carries (POST /api/run mode), so it starts exactly as the chip says. */
+export function startMode() {
+  const mode = !S.chat && !M.mode?.locked ? M.pending ?? M.mode?.newConversation ?? null : null;
+  M.pending = null;
+  return mode ? { mode } : {};
+}
 
 export function chips() {
   const m = current(), mode = modeNow(), p = PMODES.find(([id]) => id === mode);
   const model = `<button type="button" class="chip-c" data-act="modelmenu2" data-tip="Model and how long it thinks">${logo(m.provider, m.name, 18)}<span class="lbl">${esc(m.name)}${m.reasoning ? " · " + esc(String(m.reasoning).toLowerCase()) : ""}</span>${ic("down", "s")}</button>`;
-  const modeChip = `<button type="button" class="chip-c ${mode === "full" ? "full" : ""} ${mode === "lock" ? "lockd" : ""}" data-act="modemenu2" data-tip="How much it may do in this conversation (Shift+Tab)">${ic(mode === "lock" ? "lock" : p?.[3] ?? "shield")}<span class="lbl">${mode === "lock" ? "Lockdown" : esc(p?.[1] ?? "")}</span>${ic("down", "s")}</button>`;
+  const label = mode === "lock" ? "Lockdown" : mode === "follow" ? M.mode?.following?.label ?? "" : p?.[1] ?? "";
+  const modeChip = `<button type="button" class="chip-c ${mode === "full" ? "full" : ""} ${mode === "lock" ? "lockd" : ""}" data-act="modemenu2" data-tip="How much it may do in this conversation (Shift+Tab)">${ic(mode === "lock" ? "lock" : p?.[3] ?? "shield")}<span class="lbl">${esc(label)}</span>${ic("down", "s")}</button>`;
   return model + modeChip;
 }
 
@@ -91,8 +105,9 @@ async function saveModel(change) {
 
 async function setMode(v) {
   try {
+    // Before a conversation exists the pick is for the one about to start; it goes with its first message.
     if (S.chat) await api("conversation-mode", { sessionId: S.chat, mode: v });
-    else await api("conversation-mode/settings", { newConversation: v });
+    else M.pending = v;
     M.sid = undefined;
     closePop();
     await loadChips();
