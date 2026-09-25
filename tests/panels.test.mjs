@@ -198,7 +198,8 @@ async function newWindow(t, { width = 1440, height = 950 } = {}) {
     await page.locator(`.list [data-act="chat"][data-id="${seeded.session}"]`).click();
     await page.locator("#conversation .b").first().waitFor({ timeout: 30000 });
   };
-  return { app, page, errors, conversation, seeded };
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  return { app, page, errors, conversation, seeded, call };
 }
 const paneOpen = (page) => page.evaluate(() => !document.getElementById("pane").hidden);
 const paneShown = (page) => page.evaluate(() => document.body.classList.contains("lx-aside"));
@@ -298,20 +299,25 @@ test.skip("the side list and side panel can be dragged, the width is kept, doubl
   assert.deepEqual(f.errors, []);
 });
 
-test.skip("the conversation uses the width on a wide screen, and Comfortable brings the old column back", async (t) => {
-  // Redesign: window fixture timeout when spawning browser. Re-test after browser environment stabilization
-  const f = await windowFixture(t, { width: 1600, height: 950 });
+test("the conversation uses the width on a wide screen, and Comfortable brings the old column back", async (t) => {
+  // Redesign: the prototype's widths — Wide (the default) is clamp(860px, 52vw, 1180px), Comfortable is 720px — read from the
+  // owner's saved preference (POST /api/preferences) and applied on the next draw.
+  const f = await newWindow(t, { width: 1600, height: 950 });
   await f.conversation();
-  const width = () => f.page.evaluate(() => document.getElementById("chat").getBoundingClientRect().width);
-  const dock = () => f.page.evaluate(() => document.getElementById("chat-form").getBoundingClientRect().width);
-  assert.ok(await width() > 1000, `wide by default (${await width()})`);
-  assert.ok(await dock() > 1000, "the message box grows with it");
-  await f.look({ conversationWidth: "comfortable" });
-  await f.page.waitForFunction(() => document.documentElement.dataset.convw === "comfortable");
-  assert.ok(await width() <= 760);
+  const width = () => f.page.evaluate(() => document.getElementById("conversation").getBoundingClientRect().width);
+  const dock = () => f.page.evaluate(() => document.getElementById("composer").getBoundingClientRect().width);
+  assert.ok(await width() > 800, `wide by default (${await width()})`);
+  assert.ok(await dock() > 800, "the message box grows with it");
+  const state = await f.call("/api/state");
+  await f.call("/api/preferences", { ...state.preferences, conversationWidth: "comfortable" });
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await f.conversation();
+  await f.page.waitForFunction(() => document.getElementById("conversation").getBoundingClientRect().width <= 760);
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
   assert.deepEqual(f.errors, []);
 });
+
 
 test.skip("See-through never goes past readable, and stays solid when things are kept still", async (t) => {
   // Redesign: see-through transparency control is not in the new window yet (Coming soon)
@@ -457,48 +463,44 @@ test.skip("right-click › Hide this is off until switched on, then hides with U
   assert.deepEqual(f.errors, []);
 });
 
-test.skip("footer, title bar and message box never clip at 1440, 1024 and 390, open or closed, and the box keeps its size", async (t) => {
-  // Redesign: window fixture timeout when spawning browser. New selectors: #statusbar, .titlebar, #composer. Re-test after browser stabilization
-  const f = await windowFixture(t);
+test("footer, title bar and message box never clip at 1440, 1024 and 390, open or closed, and the box keeps its size", async (t) => {
+  // Redesign: the new window's status bar (#statusbar), title bar (.titlebar) and message box (#composer); the side panel
+  // opens and closes with Ctrl+Shift+K.
+  const f = await newWindow(t);
   await f.conversation();
   for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
     await f.page.setViewportSize({ width, height });
     for (const open of [false, true]) {
-      const shown = await f.page.evaluate(() => document.getElementById("pane").style.display !== "none");
-      if (shown !== open) {
-        // Redesign: toggle pane with Ctrl+Shift+K or button click
-        await f.page.keyboard.press("ControlOrMeta+Shift+k");
-        await f.page.waitForTimeout(250);
-      }
+      if ((await paneOpen(f.page)) !== open) { await f.page.locator("#prompt").focus(); await f.page.keyboard.press("ControlOrMeta+Shift+k"); }
       await f.page.waitForTimeout(250);
       const report = await f.page.evaluate(() => {
-        const clipped = (node) => node && node.checkVisibility && node.checkVisibility() && (node.scrollWidth - node.clientWidth > 1);
+        const clipped = (node) => node && node.checkVisibility() && node.scrollWidth - node.clientWidth > 1;
         const box = document.getElementById("composer").getBoundingClientRect();
-        // Redesign: check new selectors for clipping
-        const over = [...document.querySelectorAll("#statusbar, .titlebar, #composer")].filter(clipped).map((n) => n.className || n.id);
+        const over = [...document.querySelectorAll("#statusbar, .titlebar, #composer")].filter(clipped).map((n) => n.id || n.className);
         const pane = document.getElementById("pane");
-        const paneRect = pane && pane.style.display !== "none" ? pane.getBoundingClientRect() : null;
-        const covers = Boolean(paneRect && paneRect.left < box.right && paneRect.right > box.left && paneRect.top < box.bottom && paneRect.bottom > box.top);
-        return { over, page: document.documentElement.scrollWidth - document.documentElement.clientWidth, prompt: box.height, promptW: box.width, covers };
+        const p = !pane.hidden && pane.checkVisibility() ? pane.getBoundingClientRect() : null;
+        const covers = Boolean(p && p.width && p.left < box.right && p.right > box.left && p.top < box.bottom && p.bottom > box.top);
+        return { over, page: document.documentElement.scrollWidth - document.documentElement.clientWidth, h: box.height, w: box.width, covers };
       });
-      assert.equal(report.covers, false, `${width} ${open ? "open" : "closed"}: the panel covers the text box`);
-      assert.deepEqual(report.over, [], `${width} ${open ? "open" : "closed"}: ${report.over}`);
+      // Below 1100 px the design floats the panel over the right edge as a sheet (as the prototype does), so it may overlap.
+      if (width > 1100) assert.equal(report.covers, false, `${width} ${open ? "open" : "closed"}: the panel covers the message box`);
+      assert.deepEqual(report.over, [], `${width} ${open ? "open" : "closed"}: clipped ${report.over}`);
       assert.equal(report.page, 0, `${width}: the page scrolls sideways`);
-      assert.ok(report.prompt >= 30 && report.promptW >= 120, `${width}: the text box collapsed (${report.prompt}x${report.promptW})`);
+      assert.ok(report.h >= 30 && report.w >= 120, `${width}: the message box collapsed (${report.h}x${report.w})`);
     }
   }
-  /* Redesign: answering in the pane does not change message box height. */
   await f.page.setViewportSize({ width: 1440, height: 950 });
   const before = await f.page.evaluate(() => document.getElementById("composer").getBoundingClientRect().height);
   await f.page.locator("#prompt").fill("yes, go ahead");
   await f.page.keyboard.press("Enter");
-  await f.page.waitForFunction(() => document.querySelectorAll("#conversation .message").length >= 4, null, { timeout: 15000 });
+  await f.page.locator("#conversation").getByText("Here is a short answer.").last().waitFor({ timeout: 30000 });
   await f.page.waitForTimeout(600);
   const after = await f.page.evaluate(() => document.getElementById("composer").getBoundingClientRect().height);
   assert.ok(Math.abs(after - before) <= 2, `the box changed size after answering (${before} → ${after})`);
   assert.equal(await f.page.locator("#prompt").isVisible(), true);
   assert.deepEqual(f.errors, []);
 });
+
 
 test.skip("on a phone the one switch is there and opens the floating panel with its tabs; hiding the switch hides it", async (t) => {
   // Redesign: phone layout (390px responsive design) is not in the new window yet (Coming soon)
