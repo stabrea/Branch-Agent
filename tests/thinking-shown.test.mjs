@@ -1,6 +1,7 @@
 /**
- * Dogfood B1 ("no thought process shown while it works"): the thinking a model writes reaches the live row as
- * `model.thinking` events while "show reasoning" is on (its default), a little at a time, and never when it is off.
+ * Dogfood B1 ("no thought process shown while it works"): while "show reasoning" is on (its default), the newest part
+ * of what a task's model is thinking is on the task's live activity (`thinkingOf`, GET /api/activity), from memory only.
+ * It is never written to the record, and it goes when the model call ends; with it off, nothing is shown.
  * A scripted model that thinks before it answers; nothing reaches a provider.
  */
 import test from "node:test";
@@ -14,30 +15,33 @@ import { saveKnobs } from "../dist/knobs/settings.js";
 
 async function thinker(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-thinking-shown-"));
+  const seen = [];
+  let app;
   const provider = { name: "scripted", async complete(request) {
     request.onReasoningDelta?.("Looking at what was asked. ");
     request.onReasoningDelta?.("The answer is short.");
+    const running = app.store.runs(app.runtime.owner).find((run) => run.status === "running");
+    seen.push(running ? app.runtime.thinkingOf(running.id) : "no running task");
     request.onTextDelta?.("Done.");
     return { content: "Done.", toolCalls: [] };
   } };
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   t.after(async () => { await app.close(); await discardTemp(root); });
-  return app;
+  return { app, seen };
 }
-const thinking = (app, run) => app.store.events(run.id).filter((event) => event.kind === "model.thinking");
 
-test("with show reasoning on, the thinking reaches the live row while it is written", async (t) => {
-  const app = await thinker(t);
+test("with show reasoning on, the thinking is on the live task while the model thinks, and never in the record", async (t) => {
+  const { app, seen } = await thinker(t);
   const run = await app.runtime.run({ prompt: "hi", onTextDelta: () => {} });
-  const shown = thinking(app, run);
-  assert.equal(shown.length, 1, "once a second at most: the second piece came within the same second");
-  assert.match(shown[0].data.text, /Looking at what was asked/);
+  assert.match(seen[0] ?? "", /Looking at what was asked\. The answer is short\./, "shown while the model thinks");
+  assert.equal(app.runtime.thinkingOf(run.id), undefined, "gone once the model call ends");
+  assert.equal(JSON.stringify(app.store.events(run.id)).includes("Looking at what was asked"), false, "never in the record");
   assert.equal(run.output, "Done.", "the thinking never becomes the answer");
 });
 
 test("with show reasoning off, it is only heard, as before", async (t) => {
-  const app = await thinker(t);
+  const { app, seen } = await thinker(t);
   saveKnobs(app.store, app.runtime.owner, "reasoning", { showReasoning: false });
-  const run = await app.runtime.run({ prompt: "hi", onTextDelta: () => {} });
-  assert.deepEqual(thinking(app, run), []);
+  await app.runtime.run({ prompt: "hi", onTextDelta: () => {} });
+  assert.equal(seen[0], undefined);
 });

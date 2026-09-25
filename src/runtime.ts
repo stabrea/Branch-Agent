@@ -2490,6 +2490,7 @@ ${run.output.slice(0, 6000)}`;
               // integrate/empty-completion: only within the reply's room and a bounded window.
               onReasoningDelta: this.thinkingShown(run, thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
                 forMs: this.reliability.modelStallMs * thinkingStallWindows })) }), this.firstReplyWait(run, preset, firstCapMs))
+            .finally(() => this.thinkingNow.delete(run.id))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -2545,21 +2546,26 @@ ${run.output.slice(0, 6000)}`;
         message: "Waiting for the model on this computer to start. It may be loading into memory." }) } };
   }
   /**
-   * Dogfood B1 ("no thought process shown while it works"): with "show reasoning" on (its default), the thinking a
-   * model writes is shown on the live row as it comes: the newest part of it, at most once a second and at most 60
-   * times in one model call, so a long think never floods the record. With it off, it is only heard, as before.
+   * Dogfood B1 ("no thought process shown while it works"): with "show reasoning" on (its default), the newest part of
+   * what a task's model is thinking is held here, in memory only, for the live row (`thinkingOf`). It is never written
+   * to the record, the conversation or the disk (integrate/empty-completion), and it goes when the model call ends.
+   * With it off, the thinking is only heard, as before.
    */
+  private readonly thinkingNow = new Map<string, string>();
   private thinkingShown(run: Run, heard: (text: string) => void): (text: string) => void {
+    this.thinkingNow.delete(run.id);
     if (!knobs.showsReasoning(this.store, this.owner)) return heard;
-    let text = "", last = 0, shown = 0;
+    let text = "";
     return (delta) => {
       heard(delta);
       text = (text + delta).slice(-600);
-      const now = Date.now();
-      if (shown >= 60 || now - last < 1000) return;
-      last = now; shown += 1;
-      this.store.event(run.id, "model.thinking", { text: this.hideSecrets(text.trim().slice(-300)) });
+      this.thinkingNow.set(run.id, text);
     };
+  }
+  /** Dogfood B1: what the task's model is thinking right now (the newest 300 characters, secrets hidden), or nothing. */
+  thinkingOf(runId: string): string | undefined {
+    const text = this.thinkingNow.get(runId)?.trim();
+    return text ? this.hideSecrets(text.slice(-300)) : undefined;
   }
   /** R17-S12: with "show reasoning" off, no caller (task, side question, debate turn) gets the thinking. */
   private shownThinking(completion: Completion): Completion {
