@@ -30,8 +30,9 @@ const keys = [...thisComputerSettings, "devices-book", "remote-agent:helper"];
 
 test("the list is what Q168 A names, and devices-book stays too (named once, with the #186 fix's sign-ins)", () => {
   assert.deepEqual([...thisComputerSettings].sort(), ["comfort-update-failed", "folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode",
-    "keychain-entries", "listen-address", "lockdown", "os-sandbox", "reach-machine-name", "reach-relay-seen", "reach-relay-settings", "reach-remote-trunks-keys",
-    "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup", "safety-emergency-stop", "secret-commands"]);
+    "keychain-entries", "listen-address", "lockdown", "media-programs", "os-sandbox", "reach-machine-name", "reach-relay-seen", "reach-relay-settings",
+    "reach-remote-trunks-keys", "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup", "safety-emergency-stop", "secret-commands",
+    "speech-engines", "voice"]);
   assert.equal(staysOnThisComputer("devices-book"), true);
   assert.equal(thisComputerSettings.includes("devices-book"), false, "one list names it, not two");
 });
@@ -113,7 +114,9 @@ test("an emergency stop pressed here stays pressed through a replacing restore; 
 // it has already taken) are about this computer: never in a backup, never planted, and kept by a replace.
 test("where this computer listens, its name, and its place at a relay stay on it (NAS 2db8099)", async (t) => {
   const { app, owner, setting } = await fixture(t);
-  const here = ["listen-address", "reach-machine-name", "reach-relay-settings", "reach-relay-seen", "lockdown", "safety-wasm-add-on:tidy"];
+  const here = ["listen-address", "reach-machine-name", "reach-relay-settings", "reach-relay-seen", "lockdown", "safety-wasm-add-on:tidy",
+    // NAS dfb2136: a program and its arguments, as a changed file would plant them.
+    "speech-engines", "voice", "media-programs"];
   for (const key of here) app.store.save("settings", owner, key, { mine: key });
   const archive = app.store.backup(app.version);
   for (const key of here) assert.ok(!archive.tables.settings.some((row) => row.id === key), `${key} is not in the backup`);

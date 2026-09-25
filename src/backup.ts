@@ -6,6 +6,7 @@ import { dropIndex } from "./fly-core/fast-index.js";
 import { ensureContractTable } from "./self-development-contract.js";
 import { reachKey, reachParts } from "./reach/settings.js";
 import { safetyKey, safetyParts } from "./safety-extras/settings.js";
+import { settingsCatalogue } from "./settings-kit/catalogue.js";
 
 /**
  * Whole-application backup: every table that holds the person's state, as plain rows, so it can be
@@ -102,6 +103,9 @@ export const thisComputerSettings: readonly string[] = [
   // NAS 23e7382: Lockdown, like the stop. Its `before` holds this computer's own values, which "Lockdown off" writes
   // back as they are, so a file's copy would put held rows in place with nobody asked, or release a pressed Lockdown.
   "lockdown",
+  // NAS dfb2136: the rows that name a program on this disk and its arguments, which Branch runs as they are: the
+  // speech engines, the voice's local speech program, and where ffmpeg and yt-dlp live.
+  "speech-engines", "voice", "media-programs",
 ];
 /** NAS 23e7382: one row per add-on file on this disk, its fingerprint (src/safety-extras/wasm-add-ons.ts). */
 const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:"];
@@ -137,7 +141,17 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   "reach-platform-settings"];
 /** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
 const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:"];
-export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start));
+/**
+ * NAS dfb2136: naming the ids by hand kept missing some, so every setting the catalogue itself marks as taking a
+ * protection away or reaching further (a field whose guard is not "plain") is held too, unless it stays here. Read at
+ * first use, because the catalogue imports much of the app.
+ */
+let guardedByCatalogue: ReadonlySet<string> | null = null;
+const catalogueGuards = (id: string): boolean =>
+  (guardedByCatalogue ??= new Set(settingsCatalogue.filter((spec) => spec.fields.some((field) => field.guard !== "plain")).map((spec) => spec.key)))
+    .has(id);
+export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start))
+  || (!staysOnThisComputer(id) && catalogueGuards(id));
 /** A settings row from a backup, waiting for the owner's yes: its owner, its id and its data as the file had it. */
 export interface HeldRow { owner: string; id: string; data: string }
 const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && staysOnThisComputer(String(row.id));

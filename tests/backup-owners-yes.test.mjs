@@ -17,6 +17,7 @@ import { settingsHistory } from "../dist/settings-kit/history.js";
 import { heldForTheOwner, staysOnThisComputer } from "../dist/backup.js";
 import { reachKey, reachParts } from "../dist/reach/settings.js";
 import { safetyKey, safetyParts } from "../dist/safety-extras/settings.js";
+import { settingsCatalogue } from "../dist/settings-kit/catalogue.js";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-backup-yes-"));
@@ -194,4 +195,28 @@ test("the guards and what reaches further wait for the owner's yes; the two safe
     assert.ok(!groups(answer.held).includes(id), `${id} is not in the file, so nothing waits`);
     assert.deepEqual(setting(id), { mine: id }, `${id}: a file that leaves it out does not switch it off`);
   }
+});
+
+// NAS dfb2136: guard fields the hand-made lists missed (goal-undo's snapshots, wake-word's sureness, comfort-files'
+// respectGitignore) and reach switches (execution-metrics, asks-*, skill-installs…) went into place with nobody
+// asked. Every setting the catalogue marks as not plain, that does not stay here, now waits, read from the catalogue.
+test("every setting the catalogue marks as a guard or as reaching further waits for the owner's yes (NAS dfb2136)", async (t) => {
+  const marked = settingsCatalogue.filter((spec) => spec.fields.some((field) => field.guard !== "plain")).map((spec) => spec.key)
+    .filter((id) => !staysOnThisComputer(id));
+  for (const id of ["goal-undo", "wake-word", "comfort-files", "execution-metrics", "asks-nodes", "skill-installs"])
+    assert.ok(marked.includes(id) && heldForTheOwner(id), `${id} is held`);
+  const { app, owner, setting } = await fixture(t);
+  for (const id of marked) app.store.save("settings", owner, id, { mine: id });
+  const archive = app.store.backup(app.version);
+  const now = new Date().toISOString();
+  archive.tables.settings = archive.tables.settings.filter((row) => !marked.includes(row.id));
+  const [leftOut, ...inFile] = marked;
+  for (const id of inFile) archive.tables.settings.push({ id, owner, data: JSON.stringify({ planted: id }), created_at: now, updated_at: now });
+  await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
+  const answer = await restoreBackup(app, async () => archive, true);
+  for (const id of inFile) {
+    assert.ok(groups(answer.held).includes(id), `${id} waits for the owner`);
+    assert.deepEqual(setting(id), { mine: id }, `${id}: this computer's own stays`);
+  }
+  assert.deepEqual(setting(leftOut), { mine: leftOut }, `${leftOut}: left out of the file, it is kept`);
 });
