@@ -13,6 +13,7 @@
  * (`requireOwner(` or `.isOwner()`) without being decided here, in GUARDS or NOT_TOOL_GUARDS.
  */
 import test from "node:test";
+import { z } from "zod";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,7 +25,19 @@ import { VaultAutofill, registerVaultAutofill } from "../dist/vault-autofill.js"
 const ownersOnly = /belongs to the owner|Only the owner's own work|only the owner/i;
 
 /** Each guard, where it lives, the tool that meets it, and what switches that tool on. */
+/** Remote Git on, so the self-development tools are offered (src/self-development.ts). */
+const remoteGitOn = (app) => {
+  if (!app.registry.names().includes("git.push"))
+    app.registry.register({ name: "git.push", permission: "git.remote", description: "test double", parameters: z.object({}).passthrough(), execute: async () => ({}) });
+};
+/** An unrelated repository: past the owner check it is refused at once, before any Git runs. */
+const notBranch = { name: "guard-probe", repository: "https://github.com/alice/unrelated.git", base: "main",
+  contract: { allowedPaths: ["src/ui/**"], permissions: ["files.write"], expectedTests: ["npm test"], definitionOfDone: "done",
+    sideEffects: [], rollbackPlan: "revert" } };
 const GUARDS = [
+  // Q187: preparing or widening a change to Branch's own source is the owner's own work.
+  { file: "src/self-development.ts", tool: "branch.prepare_source_change", args: notBranch, setup: remoteGitOn },
+  { file: "src/self-development.ts", tool: "branch.widen_source_contract", args: { name: "guard-probe", reason: "probe", changes: { allowedPaths: ["docs/**"] } }, setup: remoteGitOn },
   // All six settings tools enter ownerHere before reading or planning a change.
   { file: "src/settings-kit/tools.ts", tool: "settings.find", args: { request: "turn on the learning" } },
   { file: "src/settings-kit/tools.ts", tool: "settings.list", args: {} },

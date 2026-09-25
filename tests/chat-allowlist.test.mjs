@@ -492,3 +492,8 @@ test("a line for one chat app does nothing on another app with the same sender i
   assert.match(chat.sent.at(-1), /Branch app window/, "another app's line approved this one's question");
   assert.equal(app.store.run(lastRun(app).id).status, "needs_input");
 });
+
+test("Q187: preparing a change to Branch's own source is never handed to a chat, whatever a line says", () => {
+  assert.equal(grantableToChat("git.remote"), false);
+  assert.ok(neverFromChat.includes("git.remote"));
+});
