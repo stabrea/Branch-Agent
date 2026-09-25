@@ -2,7 +2,7 @@
 
 import { esc, renderNow } from "../core/dom.js";
 import { S, E } from "../core/state.js";
-import { ic, av, toast } from "../core/ui.js";
+import { ic, av, toast, openDlg } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
@@ -45,7 +45,7 @@ export function draw() {
 
   if (tab === "trunks") {
     html += `<div class="rows"><div class="acts" data-css="margin:6px 0 4px"><button class="btn pri" type="button" data-act="new-trunk">${ic('plus', 's')}A new Trunk</button>
-      <button class="btn" type="button" data-act="toast" data-msg="Rooms: pick two or more Trunks and give the room a name.">${ic('people', 's')}A new room</button></div>`;
+      <button class="btn" type="button" data-act="grp-new">${ic('people', 's')}A new room</button></div>`;
     if (trunks.length) {
       html += trunks.map(t => {
         const avClass = t.paused ? " waiting" : "";
@@ -160,7 +160,7 @@ export async function after() {
 }
 
 export function init() {
-  markLive(["ptab", "t9-kind", "t9-sel", "new-trunk", "edit", "pausetrunk", "tool-add"]);
+  markLive(["ptab", "t9-kind", "t9-sel", "new-trunk", "edit", "pausetrunk", "tool-add", "grp-new", "grp-make"]);
 
   on("ptab", (el) => {
     const place = el.dataset.place;
@@ -195,5 +195,46 @@ export function init() {
     } catch (err) {
       toast(err.message);
     }
+  });
+
+  on("grp-new", () => openGroupDialog());
+
+  on("grp-make", async (el) => {
+    const roomName = document.querySelector("#grp-name")?.value?.trim();
+    if (!roomName) {
+      toast("Room needs a name.");
+      return;
+    }
+    const trunks = Array.from(document.querySelectorAll('input[data-act="grp-pick"]:checked')).map(el => el.dataset.id);
+    if (trunks.length < 2) {
+      toast("Pick at least two Trunks for a room.");
+      return;
+    }
+    try {
+      await api("trunks/rooms", { name: roomName, trunks }, "POST");
+      const dlg = document.querySelector(".dlg");
+      dlg?.remove?.();
+      renderNow();
+      toast(`Room "${roomName}" is made.`);
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+}
+
+function openGroupDialog() {
+  const trunks = E.trunks || [];
+  const html = `<div style="display:grid;gap:12px">
+    <label><input type="text" id="grp-name" placeholder="Room name" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box"></label>
+    <div style="display:grid;gap:8px">
+      ${trunks.map(t => `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-act="grp-pick" data-id="${esc(t.id)}"> ${esc(t.name)}</label>`).join('')}
+    </div>
+    <small style="color:#666">Pick at least two Trunks. Other people can be added later.</small>
+  </div>`;
+
+  openDlg({
+    title: "New room",
+    body: html,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="grp-make">Make room</button>`
   });
 }

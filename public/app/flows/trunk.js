@@ -150,15 +150,34 @@ export function init() {
   });
   on("st-colour", (el) => {
     const color = el.dataset.v;
-    // Update preview color
+    if (editingTrunk && E.trunks) {
+      const trunk = E.trunks.find(t => t.id === editingTrunk);
+      if (trunk) {
+        trunk.chosenColour = color;
+      }
+    }
+    renderNow();
   });
   on("st-shape", (el) => {
-    const shape = SHAPES[parseInt(el.dataset.v)] || SHAPES[0];
-    // Update preview shape
+    const shapeIndex = parseInt(el.dataset.v);
+    const shape = SHAPES[shapeIndex] || SHAPES[0];
+    if (editingTrunk && E.trunks) {
+      const trunk = E.trunks.find(t => t.id === editingTrunk);
+      if (trunk && trunk.look) {
+        trunk.look.shape = shape;
+      }
+    }
+    renderNow();
   });
   on("st-anim", (el) => {
     const anim = el.dataset.v;
-    // Save animation
+    if (editingTrunk && E.trunks) {
+      const trunk = E.trunks.find(t => t.id === editingTrunk);
+      if (trunk && trunk.look) {
+        trunk.look.motion = anim;
+      }
+    }
+    renderNow();
   });
   on("st-shuffle", () => {
     // Randomize face/color/shape - window-only state
