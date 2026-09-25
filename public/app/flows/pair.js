@@ -12,15 +12,15 @@ export function init() {
 }
 
 function pairPhone() {
-  const html = `<div style="text-align:center;padding:16px">
-    <canvas class="qr" width="148" height="148" style="border:1px solid var(--line);display:block;margin:0 auto 16px;background:white;border-radius:8px" aria-label="QR code for pairing"></canvas>
-    <ol style="text-align:left;margin:16px 0;padding:0 16px;list-style-position:inside">
+  const html = `<div data-css="text-align:center;padding:16px">
+    <canvas class="qr" width="148" height="148" data-css="border:1px solid var(--line);display:block;margin:0 auto 16px;background:white;border-radius:8px" aria-label="QR code for pairing"></canvas>
+    <ol data-css="text-align:left;margin:16px 0;padding:0 16px;list-style-position:inside">
       <li>Open the Branch app on your phone.</li>
       <li>Tap <b>Pair with a computer</b>.</li>
       <li>Point the camera at this code.</li>
       <li>Check that both screens show the same code.</li>
     </ol>
-    <p style="color:var(--ink-3);font-size:13px;margin-top:16px">The code works once and expires in 5 minutes.</p>
+    <p data-css="color:var(--ink-3);font-size:13px;margin-top:16px">The code works once and expires in 5 minutes.</p>
   </div>`;
 
   openDlg({

@@ -42,13 +42,13 @@ function drawTour() {
   const el = card.sel ? document.querySelector(card.sel) : null;
   const rect = el?.getBoundingClientRect();
 
-  const html = `<div class="tour-layer" role="dialog" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:2000">
-    <div class="tour-card" style="position:absolute;background:var(--raise);border-radius:12px;padding:16px;max-width:400px;box-shadow:0 10px 40px rgba(0,0,0,0.3)">
-      <div style="margin-bottom:16px">
-        <h3 style="margin:0 0 8px;font-size:16px;font-weight:600">${esc(card.title)}</h3>
-        <p style="margin:0;color:var(--ink-2);font-size:14px">${esc(card.text)}</p>
+  const html = `<div class="tour-layer" role="dialog" data-css="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:2000">
+    <div class="tour-card" data-css="position:absolute;background:var(--raise);border-radius:12px;padding:16px;max-width:400px;box-shadow:0 10px 40px rgba(0,0,0,0.3)">
+      <div data-css="margin-bottom:16px">
+        <h3 data-css="margin:0 0 8px;font-size:16px;font-weight:600">${esc(card.title)}</h3>
+        <p data-css="margin:0;color:var(--ink-2);font-size:14px">${esc(card.text)}</p>
       </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
+      <div data-css="display:flex;gap:8px;justify-content:flex-end">
         ${S.tourI > 0 ? '<button class="btn ghost" type="button" data-act="tour-back">Back</button>' : ''}
         ${S.tourI < TOUR.length - 1 ? '<button class="btn pri" type="button" data-act="tour-next">Next</button>' : '<button class="btn pri" type="button" data-act="tour-end">Done</button>'}
       </div>

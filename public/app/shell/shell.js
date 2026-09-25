@@ -14,7 +14,7 @@ const PLACES = [["overview", "home", "Overview"], ["inbox", "inbox", "Inbox"], [
 let query = "";
 
 const sessionId = (s) => s.sessionId ?? s.id;
-const sessionTitle = (s) => s.title || s.name || s.preview || "New conversation";
+const sessionTitle = (s) => s.title || s.opening || "New conversation";
 const when = (t) => {
   if (!t) return "";
   const d = new Date(t);
@@ -32,8 +32,8 @@ function row(s) {
   const trunk = E.trunks.find((t) => t.id === s.trunkId || t.id === s.trunk?.id);
   return `<button class="row" type="button" data-act="chat" data-id="${esc(id)}" aria-current="${S.chat === id}">
     <span class="avw">${av(trunk ?? { kind: "main" }, 40)}</span>
-    <b><span class="ellip14">${esc(sessionTitle(s))}</span></b><time>${esc(when(s.updatedAt ?? s.lastAt ?? s.createdAt))}</time>
-    <p>${esc(s.preview ?? s.lastMessage ?? "")}</p></button>`;
+    <b><span class="ellip14">${esc(sessionTitle(s))}</span></b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
+    <p>${esc(s.lastMessage ?? "")}</p></button>`;
 }
 
 function list() {
@@ -49,7 +49,8 @@ function list() {
 
 function side() {
   const n = waitingCount();
-  const person = E.state?.identity?.ownerName || E.state?.identity?.name || "";
+  const active = E.profiles?.profiles?.find((p) => p.id === E.profiles.active);
+  const person = active?.name || E.profiles?.roleLabels?.owner?.label || "";
   return `<div class="resizer" data-resize="side"><i class="grip9"></i></div>
     <button class="machine" type="button" data-act="machines" data-tip="Which computer you’re talking to"><span class="mico">${ic("monitor", "s")}</span><span class="mach14"><b>This computer</b><i class="dot"></i></span>${ic("chev", "s")}</button>
     <div class="side-top"><label class="sq9">${ic("search", "s")}<input id="side-q" type="search" placeholder="Search" value="${esc(query)}" autocomplete="off" aria-label="Search chats, Trunks, messages and past sessions"><kbd>Ctrl K</kbd></label><button class="icon-btn" type="button" aria-label="New conversation, Trunk, room or automation" data-act="newmenu">${ic("plus")}</button></div>
@@ -68,7 +69,7 @@ function titleActions() {
 
 function status() {
   const version = E.state?.version ?? "";
-  const model = E.state?.activeModel?.label || E.state?.activeModel?.name || E.state?.provider || "";
+  const model = modelLabel();
   return `<button class="sb" type="button" data-act="machines"><span class="dot"></span>Connected · this computer</button>
     <button class="sb" type="button" data-act="gwpop" data-tip="The gateway keeps Branch running in the background"><span class="dot off"></span>Gateway</button>
     <span class="tb-grow"></span>
@@ -76,12 +77,18 @@ function status() {
     ${version ? `<button class="sb hide-sm" type="button" data-act="updmenu" data-tip="Version and updates">${esc(version)}</button>` : ""}`;
 }
 
+export const modelLabel = () => { const m = E.state?.activeModel; return m ? [m.presetName || m.model, m.reasoning].filter(Boolean).join(" · ") : ""; };
+
 export function drawShell() {
   const app = document.getElementById("app");
   const merged = WIDE.matches && S.view === "chat";
+  app.dataset.surface = /Mac/.test(navigator.platform) ? "mac" : "desktop";
+  app.classList.toggle("mac", app.dataset.surface === "mac");
   app.classList.toggle("places-shut14", S.placesShut);
+  app.classList.toggle("merged14", merged);
   const header = app.querySelector(".titlebar");
   header.classList.toggle("merged14", merged);
+  header.style.setProperty("--side-w", getComputedStyle($("#body")).getPropertyValue("--side-w") || "292px");
   const slot = header.querySelector(".tb-head14") ?? header.querySelector(".tb-grow").insertAdjacentElement("afterend", Object.assign(document.createElement("div"), { className: "tb-head14" }));
   paint(slot, merged ? chatHead() : "");
   paint($("#tbActions"), titleActions());

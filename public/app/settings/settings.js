@@ -58,7 +58,7 @@ export function draw() {
         .map(([id, l]) => `<button class="nav" type="button" data-act="setpage" data-v="${id}" aria-current="${S.setPage === id}">${esc(l)}</button>`)
         .join("")}`
     )
-    .join("") || '<p class="hint" style="padding:0 10px">No page matches.</p>';
+    .join("") || '<p class="hint" data-css="padding:0 10px">No page matches.</p>';
 
   const page = PAGES[S.setPage];
   const pageContent = page?.draw?.() || `<div class="set-col"><h1>Settings</h1></div>`;
@@ -68,7 +68,7 @@ export function draw() {
       <button class="set-back" type="button" data-act="view" data-v="chat">${ic("back", "s")}Back to Branch</button>
       <label class="set-search">${ic("search", "s")}<input id="set-q" placeholder="Search settings" value="${esc(searchText)}" aria-label="Search settings"></label>
       ${nav}
-      <div class="set-level" data-note="level" style="display:grid;gap:6px">
+      <div class="set-level" data-note="level" data-css="display:grid;gap:6px">
         <span>How much to show</span>
         <span class="seg" role="group" aria-label="How much to show">
           ${[["regular", "Regular"], ["advanced", "Advanced"], ["technical", "Technical"]]

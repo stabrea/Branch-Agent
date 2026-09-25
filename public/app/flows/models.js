@@ -13,12 +13,12 @@ export function init() {
 }
 
 async function installModel(modelId) {
-  const html = `<div style="padding:16px">
-    <p style="color:var(--ink-2);margin-bottom:16px">Installing local model...</p>
-    <div style="background:var(--fill);border-radius:8px;height:6px;overflow:hidden;margin-bottom:8px">
-      <div id="lm-bar" style="background:var(--accent);height:100%;width:0%;transition:width 0.3s"></div>
+  const html = `<div data-css="padding:16px">
+    <p data-css="color:var(--ink-2);margin-bottom:16px">Installing local model...</p>
+    <div data-css="background:var(--fill);border-radius:8px;height:6px;overflow:hidden;margin-bottom:8px">
+      <div id="lm-bar" data-css="background:var(--accent);height:100%;width:0%;transition:width 0.3s"></div>
     </div>
-    <p style="font-size:13px;color:var(--ink-3)" id="lm-status">0%</p>
+    <p data-css="font-size:13px;color:var(--ink-3)" id="lm-status">0%</p>
   </div>`;
 
   openDlg({

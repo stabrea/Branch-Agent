@@ -39,29 +39,29 @@ function drawAddAcct() {
   let body = "";
 
   if (d.step === 1) {
-    body = `<p style="margin:0 0 10px">Which service is the new account with? You can have several accounts with each one.</p>
+    body = `<p data-css="margin:0 0 10px">Which service is the new account with? You can have several accounts with each one.</p>
       <div class="provs">${Object.entries(providers || {})
         .map(([k, x]) => `<button class="prov" type="button" data-act="aa-prov" data-v="${k}">
-          <span class="logo" style="font-size:24px">${x.icon || "🔑"}</span>
+          <span class="logo" data-css="font-size:24px">${x.icon || "🔑"}</span>
           <b>${esc(x.name)}</b>
           <small>${x.shape || ""}</small>
         </button>`).join("")}
       </div>`;
   } else if (d.step === 2) {
     body = `<p>Paste the key from ${esc(p.signUp || p.name)}. It goes straight into your password manager; Branch shows only the last four characters after this.</p>
-      <label class="fld" style="margin-top:10px"><span>Key</span>
+      <label class="fld" data-css="margin-top:10px"><span>Key</span>
       <input class="inp" id="aa-key" type="password" autocomplete="off" placeholder="sk-or-…" aria-label="Key">
       </label>`;
   } else if (d.step === 3) {
     const trunkList = E.trunks || [];
-    body = `<div style="display:flex;gap:10px;margin-bottom:10px">
+    body = `<div data-css="display:flex;gap:10px;margin-bottom:10px">
       <span class="pill ok"><i></i>Connected</span>
     </div>
     <label class="fld"><span>Call it</span>
     <input class="inp" id="aa-name" maxlength="40" aria-label="Account name">
     </label>
     <div class="fld"><span>Which Trunks use it</span>
-    <span class="acts" style="gap:6px">${
+    <span class="acts" data-css="gap:6px">${
       trunkList.map(t => `<button class="chip6" type="button" data-act="aa-tr" data-v="${esc(t.id)}" aria-pressed="${d.trunks.includes(t.id)}">${esc(t.name || t.id)}</button>`).join("")
     }</span></div>
     <div class="fld"><span>Where it goes in the order</span>
@@ -70,8 +70,8 @@ function drawAddAcct() {
     </div>`;
   }
 
-  const dots = `<div class="wiz-dots" style="display:flex;gap:6px;margin-bottom:16px">${
-    [1, 2, 3].map(i => `<i style="width:6px;height:6px;border-radius:50%;background:${i <= d.step ? "var(--accent)" : "var(--line)"};display:inline-block"></i>`).join("")
+  const dots = `<div class="wiz-dots" data-css="display:flex;gap:6px;margin-bottom:16px">${
+    [1, 2, 3].map(i => `<i data-css="width:6px;height:6px;border-radius:50%;background:${i <= d.step ? "var(--accent)" : "var(--line)"};display:inline-block"></i>`).join("")
   }</div>`;
 
   const foot = d.step === 1 

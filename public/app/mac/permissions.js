@@ -32,21 +32,21 @@ export function permissionsSection() {
   const perms = isMac ? PERMS_MAC : PERMS_PC;
 
   return `<div>
-    <h3 style="margin-top:0">This ${isMac ? "Mac" : "PC"}</h3>
-    <p style="color:var(--ink-2);font-size:13px;margin-bottom:16px">
+    <h3 data-css="margin-top:0">This ${isMac ? "Mac" : "PC"}</h3>
+    <p data-css="color:var(--ink-2);font-size:13px;margin-bottom:16px">
       ${isMac
         ? "macOS keeps these in System Settings › Privacy & Security; Branch asks for each one the first time a Trunk needs it."
         : "Windows asks for very little. Seeing the screen and using the mouse need nothing here; Branch still asks you before it takes over."
       }
     </p>
-    <div style="display:flex;flex-direction:column;gap:8px">${
-      perms.map(p => `<div style="display:flex;align-items:center;gap:12px;padding:8px;border-radius:8px;background:var(--fill)">
-        <span style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:var(--raise)">⚙️</span>
-        <div style="flex:1">
-          <div style="font-weight:500">${esc(p.name)}</div>
-          <div style="font-size:13px;color:var(--ink-2)">${esc(p.desc)}</div>
+    <div data-css="display:flex;flex-direction:column;gap:8px">${
+      perms.map(p => `<div data-css="display:flex;align-items:center;gap:12px;padding:8px;border-radius:8px;background:var(--fill)">
+        <span data-css="width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:var(--raise)">⚙️</span>
+        <div data-css="flex:1">
+          <div data-css="font-weight:500">${esc(p.name)}</div>
+          <div data-css="font-size:13px;color:var(--ink-2)">${esc(p.desc)}</div>
         </div>
-        <span class="pill" style="background:var(--ink-3);color:var(--bg);padding:4px 8px;border-radius:999px;font-size:12px;white-space:nowrap">Not yet</span>
+        <span class="pill" data-css="background:var(--ink-3);color:var(--bg);padding:4px 8px;border-radius:999px;font-size:12px;white-space:nowrap">Not yet</span>
       </div>`).join("")
     }</div>
   </div>`;

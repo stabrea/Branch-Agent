@@ -18,7 +18,7 @@ export function draw() {
         </div>
       </div>
     </div>
-    <div class="acts" style="margin-top:14px"><button class="btn pri" type="button" data-act="toast" data-msg="Sign in on the provider's site.">Add an account</button></div>`;
+    <div class="acts" data-css="margin-top:14px"><button class="btn pri" type="button" data-act="toast" data-msg="Sign in on the provider's site.">Add an account</button></div>`;
 }
 
 export function init() {}

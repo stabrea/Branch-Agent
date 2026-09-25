@@ -29,7 +29,7 @@ async function drawChatWizard() {
   if (!ch) return;
 
   const body = `<p>Set up {{service}}. Follow the steps to create a bot and link it to Branch.</p>
-    <ol style="margin:16px 0;padding-left:20px">
+    <ol data-css="margin:16px 0;padding-left:20px">
       <li>Create the bot on the service's website</li>
       <li>Paste the token or code</li>
       <li>Check that the connection works</li>

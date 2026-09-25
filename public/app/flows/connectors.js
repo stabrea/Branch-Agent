@@ -23,12 +23,12 @@ async function openConnectorCatalog() {
 }
 
 function drawConnectorCatalog() {
-  const html = `<div style="padding:16px">
-    <p style="margin-bottom:16px">52 ready to connect. Search or browse by category.</p>
-    <div style="margin-bottom:16px">
-      <input type="text" id="mcp-q" placeholder="Search connectors" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px" aria-label="Search connectors">
+  const html = `<div data-css="padding:16px">
+    <p data-css="margin-bottom:16px">52 ready to connect. Search or browse by category.</p>
+    <div data-css="margin-bottom:16px">
+      <input type="text" id="mcp-q" placeholder="Search connectors" data-css="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px" aria-label="Search connectors">
     </div>
-    <div style="margin-bottom:16px;display:flex;gap:4px;flex-wrap:wrap">
+    <div data-css="margin-bottom:16px;display:flex;gap:4px;flex-wrap:wrap">
       <button class="chip6" type="button" data-act="mcp-cat" data-v="all" aria-pressed="${(S.mcp?.cat || "all") === "all"}">All</button>
       <button class="chip6" type="button" data-act="mcp-cat" data-v="work" aria-pressed="${S.mcp?.cat === "work"}">Work</button>
       <button class="chip6" type="button" data-act="mcp-cat" data-v="mail" aria-pressed="${S.mcp?.cat === "mail"}">Mail</button>
@@ -36,7 +36,7 @@ function drawConnectorCatalog() {
       <button class="chip6" type="button" data-act="mcp-cat" data-v="chat" aria-pressed="${S.mcp?.cat === "chat"}">Chat</button>
       <button class="chip6" type="button" data-act="mcp-cat" data-v="dev" aria-pressed="${S.mcp?.cat === "dev"}">Developer</button>
     </div>
-    <div id="mcp-list" style="display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
+    <div id="mcp-list" data-css="display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
     </div>
   </div>`;
 
