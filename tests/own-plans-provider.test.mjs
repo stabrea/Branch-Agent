@@ -122,3 +122,22 @@ test("a program is at its plan limit only by its own words, never by a task's te
   assert.notEqual(await stopped({ stdout: "Updated src/rate limit.ts: the usage limit check now counts retries.\nAll 3 tests pass." }), "ProgramLimitError");
   assert.notEqual(await stopped({ stdout: `${JSON.stringify({ type: "item.completed", item: { type: "command_execution", aggregated_output: "HTTP 429 Too Many Requests" } })}\n${JSON.stringify({ type: "turn.failed", error: { message: "stream disconnected" } })}` }), "ProgramLimitError");
 });
+
+// Q248 (NAS c6feb33): a plan removed while the pick is answering is never tried after it.
+test("a plan removed during a call is never moved to", async () => {
+  const saved = pool();
+  const asked = [];
+  const plan = (id) => ({ name: id, async complete() {
+    asked.push(id);
+    if (id === "one") { saved.accounts = saved.accounts.filter((account) => account.id !== "two"); throw new ProviderHttpError(429, 60_000, "rate_limit_exceeded"); }
+    return { content: `from ${id}`, toolCalls: [] };
+  } });
+  const provider = new AccountPoolProvider(plan("original"), {
+    owner: "local", pool: "chatgpt", model: "gpt-6-sol", settings: () => structuredClone(saved), states: new Map(), cursor: { value: 0 },
+    providerFor: async (id) => plan(id), capReached: () => false, record: () => {}, personIsNotOwner: () => false,
+    sessionChoice: () => null, rememberChoice: () => {}, now: () => Date.parse(at),
+  });
+  const answer = await provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal });
+  assert.equal(answer.content, "from three");
+  assert.deepEqual(asked, ["one", "three"], "the removed plan was skipped");
+});

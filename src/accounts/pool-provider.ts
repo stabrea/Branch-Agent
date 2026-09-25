@@ -187,7 +187,9 @@ export class AccountPoolProvider {
     // meanwhile. What they saved last is read again before the work moves on and before the pick is replaced.
     const saved = (): Pool => this.hooks.settings() ?? pool;
     const keepPick = (): boolean => !!picked && !(ownPlansOn(saved()) && this.why(picked) !== null);
-    const mayMoveTo = (account: Account): boolean => saved().autoSwitch && this.mayShare(saved(), usable, sticky).some((one) => one.id === account.id);
+    // Q248 (NAS c6feb33): nor to a plan removed or switched off meanwhile, whose folder still holds its sign-in.
+    const mayMoveTo = (account: Account): boolean => saved().autoSwitch && this.mayShare(saved(), usable, sticky).some((one) => one.id === account.id)
+      && saved().accounts.some((one) => one.id === account.id && !one.disabled);
     const first = ready.findIndex((account) => account.id === sticky);
     if (first > 0) ready.unshift(...ready.splice(first, 1));
     let refused: unknown = null;
