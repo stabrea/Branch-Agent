@@ -271,6 +271,22 @@ test("a carry-on refused as it starts leaves the task waiting and writes down wh
   assert.equal(f.runsIn(first.sessionId).length, 1, "nothing ran");
 });
 
+// Q213 (NAS 6a6e954): the owner's inlet filter stopping the carry-on's words is a refusal as it starts too.
+test("a carry-on the owner's inlet filter stops leaves the task waiting and says still-waiting", async (t) => {
+  const f = await fixture(t);
+  t.after(() => discardTemp(f.root));
+  const first = await f.app.runtime.run({ prompt: "write i.txt" });
+  const asked = f.app.runtime.approvals.questionFor(first.sessionId);
+  const filter = f.app.runtime.filterText;
+  f.app.runtime.filterText = (stage, text, models) => stage === "inlet" ? { text, blocked: "An inlet filter stopped this message.", applied: [] } : filter(stage, text, models);
+  const said = await f.call("policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true });
+  assert.equal(said.status, 200);
+  assert.equal(said.body.task, "still-waiting");
+  assert.ok(await settled(() => f.app.store.events(first.id).some((event) => event.kind === "run.carry_on_refused")), "why is written down");
+  assert.match(String(f.app.store.events(first.id).find((event) => event.kind === "run.carry_on_refused").data.reason), /inlet filter/);
+  assert.equal(f.runsIn(first.sessionId).length, 1, "nothing ran");
+});
+
 // NAS 3fd7700: a heartbeat's note ("Heartbeat: Shall I empty notes.txt…?") is written into the conversation with no
 // task behind it, so the newest-task guard let an older card's yes carry on, and "Yes, go ahead." answered the note.
 test("a yes carries nothing on after words were written into the conversation with no task behind them (a heartbeat's note)", async (t) => {
