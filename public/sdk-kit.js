@@ -69,7 +69,8 @@ function drawKit(view) {
   if (!$("sdk-kit-mode").dataset.edited) $("sdk-kit-mode").value = view.settings.mode;
   $("sdk-kit-clients").replaceChildren(...Object.entries(view.packages).map(([language, entry]) =>
     el("li", {}, el("strong", { textContent: t(`sdk-kit.language.${language}`) }), " ", el("code", { textContent: entry.folder }))));
-  $("sdk-kit-tools").textContent = t("sdk-kit.tools", { tools: view.tools.join(", ") });
+  // Dogfood E2 part 2: the three tools in words, not their ids (sdk.routes, sdk.route, sdk.starter).
+  $("sdk-kit-tools").textContent = t("sdk-kit.tools");
 }
 
 /* ---------- flows as files ---------- */

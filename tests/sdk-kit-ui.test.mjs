@@ -44,7 +44,9 @@ test("Building on Branch sits in Settings → Advanced, starts off, and saves it
   await page.locator("#sdk-kit-clients li").first().waitFor();
   assert.equal(await page.locator("#sdk-kit-mode").inputValue(), "off");
   assert.equal(await page.locator("#sdk-kit-clients li").count(), 4, "one line per language");
-  assert.match(await page.locator("#sdk-kit-tools").innerText(), /sdk\.routes/);
+  // Dogfood E2 part 2: the tools are named in words, never by their ids.
+  assert.match(await page.locator("#sdk-kit-tools").innerText(), /the web routes Branch offers/);
+  assert.doesNotMatch(await page.locator("#sdk-kit-tools").innerText(), /sdk\./);
 
   await page.locator("#sdk-kit-mode").selectOption("when-needed");
   await card.getByRole("button", { name: "Save this choice" }).click();

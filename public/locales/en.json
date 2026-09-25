@@ -4324,7 +4324,7 @@
   "sdk-kit.language.react": "React hooks",
   "sdk-kit.language.typescript": "JavaScript and TypeScript client",
   "sdk-kit.saved": "Saved.",
-  "sdk-kit.tools": "Tools you can share with other AI tools under Connections: {tools}",
+  "sdk-kit.tools": "Three tools you can share with other AI tools under Connections: the web routes Branch offers, one route in full with example calls, and a small starter program.",
   "security.check.add-ons.malware-check-off": "Packages are looked up in the malware list before they start",
   "security.check.add-ons.package-unreadable": "Every downloaded server can be looked up",
   "security.check.add-ons.plugin-broad": "Plugins you switched on ask only for what they need",

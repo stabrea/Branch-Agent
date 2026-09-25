@@ -4325,7 +4325,7 @@
   "sdk-kit.language.react": "Hooks React",
   "sdk-kit.language.typescript": "Client JavaScript et TypeScript",
   "sdk-kit.saved": "Enregistré.",
-  "sdk-kit.tools": "Outils que vous pouvez partager avec d’autres outils d’IA dans Connexions : {tools}",
+  "sdk-kit.tools": "Trois outils à partager avec d'autres outils d'IA sous Connexions : les routes web que Branch propose, une route en détail avec des exemples d'appel, et un petit programme de départ.",
   "security.check.add-ons.malware-check-off": "Les paquets sont cherchés dans la liste des logiciels malveillants avant de démarrer",
   "security.check.add-ons.package-unreadable": "Chaque serveur téléchargé peut être vérifié",
   "security.check.add-ons.plugin-broad": "Les extensions activées ne demandent que ce dont elles ont besoin",
