@@ -109,7 +109,7 @@ async function saveHeartbeat(change, switchOn) {
 }
 
 export function init() {
-  markLive(["ptab", "hb-every", "hb-hours", "hb-rm", "sched-run", "teach-start", "prompt-use", "prompt-new", "bmove15", "flow", "idea15", "ideas15"]);
+  markLive(["ptab", "hb-every", "hb-hours", "hb-rm", "sched-run", "teach-start", "prompt-new", "bmove15", "flow", "idea15", "ideas15"]);
   on("sched-run", async (el) => { try { await api(`schedules/${encodeURIComponent(el.dataset.id)}/trigger`, {}); await refresh(); renderNow(); } catch (error) { toast(error.message); } });
   on("hb-every", (el) => (el.dataset.v === "off" ? saveHeartbeat(null, "off") : saveHeartbeat({ everyMinutes: +el.dataset.v }, "on")));
   on("hb-hours", (el) => (el.dataset.v === "always" ? saveHeartbeat({ activeHours: null }) : null));
@@ -119,18 +119,6 @@ export function init() {
       await api("settings-kit/apply", { plan: { source: "set", key: "run-recording", field: "mode", value: "when-needed" } });
     } catch (error) {
       toast(error.message);
-    }
-  });
-  on("prompt-use", async (el) => {
-    const promptId = el.dataset.v;
-    if (!prompts || !prompts.list) {
-      toast("Prompts not loaded");
-      return;
-    }
-    const prompt = prompts.list.find(p => p.id === promptId);
-    if (prompt) {
-      // Inject into draft - for now just toast
-      toast(`Using prompt: ${prompt.name}`);
     }
   });
   on("prompt-new", async (el) => {
