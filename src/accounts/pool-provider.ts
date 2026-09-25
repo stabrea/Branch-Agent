@@ -191,6 +191,7 @@ export class AccountPoolProvider {
     const first = ready.findIndex((account) => account.id === sticky);
     if (first > 0) ready.unshift(...ready.splice(first, 1));
     let refused: unknown = null;
+    let lastLimited: Account | undefined;
     for (const [at, account] of ready.entries()) {
       if (at > 0 && !mayMoveTo(account)) continue;
       try {
@@ -199,7 +200,7 @@ export class AccountPoolProvider {
         return completion;
       } catch (error) {
         if (request.signal.aborted) throw error;
-        if (isLimit(error)) { this.markLimited(account, error, call); continue; }
+        if (isLimit(error)) { this.markLimited(account, error, call); lastLimited = account; continue; }
         // NAS's review: with own plans on, a plan whose sign-in is refused (expired, signed out) rests and the next of
         // the owner's own plans is tried, rather than every call failing on it until the limited default resets.
         const failure = ownPlansOn(saved()) ? failureFor(error, this.hooks.now()) : null;
@@ -213,7 +214,8 @@ export class AccountPoolProvider {
     if (refused && !ready.some((account) => this.state(account.id).limitedUntil > this.hooks.now())) throw refused;
     const fallback = allowed.find((account) => account.id === sticky) ?? allowed[0]!;
     // NAS c6feb33 (nit): sharing switched off during the call says what single() says: the account and when it resets.
-    if (!saved().autoSwitch) throw this.limitError(saved(), usable, fallback);
+    // NAS 5606f75: named after the plan that hit its limit, not the pick or the list's first.
+    if (!saved().autoSwitch) throw this.limitError(saved(), usable, lastLimited ?? fallback);
     throw this.limitError(saved(), usable, fallback, "Every account this connection may share work between has reached its plan limit.");
   }
 

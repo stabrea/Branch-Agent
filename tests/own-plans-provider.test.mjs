@@ -96,6 +96,10 @@ test("a program counts as signed out only by its own words, never by a task's te
   assert.equal(await stopped({ stdout: JSON.stringify({ type: "result", is_error: true, result: "Invalid API key · Please run /login" }) }), "ProgramSignInError");
   assert.equal(await stopped({ stdout: `${JSON.stringify({ type: "thread.started" })}
 ${JSON.stringify({ type: "error", message: "Not logged in. Please run /login" })}` }), "ProgramSignInError");
+  // Codex's turn.failed comes last, after however many events (NAS 5606f75); it is read.
+  const events = Array.from({ length: 450 }, (_, n) => JSON.stringify({ type: "item.completed", n })).join(String.fromCharCode(10));
+  const failed = JSON.stringify({ type: "turn.failed", error: { message: "Not logged in. Please run /login" } });
+  assert.equal(await stopped({ stdout: events + String.fromCharCode(10) + failed }), "ProgramSignInError");
   assert.equal(await stopped({ stdout: "Invalid API key · Please run /login" }), "ProgramSignInError", "a one-line plain answer about itself");
   assert.notEqual(await stopped({ stdout: JSON.stringify({ result: "git push said: Authentication failed for origin" }) }), "ProgramSignInError");
   assert.notEqual(await stopped({ stdout: '{"type":"item","text":"You are not logged into any GitHub hosts. Run gh auth login"}' }), "ProgramSignInError");

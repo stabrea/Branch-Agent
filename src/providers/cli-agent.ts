@@ -169,7 +169,8 @@ const signInWords = /not logged in\b|please run \/login|(?:log|sign) ?in again|i
  */
 function programErrors(stdout: string): string[] {
   const said: string[] = [];
-  for (const line of stdout.split("\n").slice(0, 400)) {
+  // NAS 5606f75: the last lines, where Codex puts `turn.failed`, however long the run was.
+  for (const line of stdout.split("\n").slice(-400)) {
     let value: unknown;
     try { value = JSON.parse(line.trim()); } catch { continue; }
     if (!value || typeof value !== "object") continue;
@@ -180,10 +181,12 @@ function programErrors(stdout: string): string[] {
   }
   return said;
 }
+/** Whether a program prints JSON (Claude Code's --output-format json, Codex's --json); only then are its JSON errors read. */
+const printsJson = (row: CliAgentRow): boolean => row.args.some((arg) => arg === "--json" || arg === "json");
 /** What a program said about itself when it stopped: its error stream, its own reported errors, and a short plain line. */
-const selfWords = (outcome: { stdout: string; stderr: string }): string => {
+const selfWords = (outcome: { stdout: string; stderr: string }, json: boolean): string => {
   const out = outcome.stdout.trim();
-  return [outcome.stderr, ...programErrors(out), out.length < 300 && !/^[[{]/.test(out) && !out.includes("\n") ? out : ""].join("\n");
+  return [outcome.stderr, ...(json ? programErrors(out) : []), out.length < 300 && !/^[[{]/.test(out) && !out.includes("\n") ? out : ""].join("\n");
 };
 // ---- end mac6/accounts ----
 
@@ -246,9 +249,9 @@ export class CliAgentProvider implements Provider {
     // mac6/accounts: only when an account folder is in use, so a single sign-in behaves as before.
     // Q247 (NAS c6feb33): the program's own words about its plan, never a task's text or a tool's output that mentions a
     // "rate limit"; Codex's own usage limit arrives as an error event, which selfWords reads.
-    if (outcome.code !== 0 && (this.home || this.detectLimits) && limitWords.test(selfWords(outcome)))
+    if (outcome.code !== 0 && (this.home || this.detectLimits) && limitWords.test(selfWords(outcome, printsJson(this.row))))
       throw new ProgramLimitError(`${this.row.name} says this account has reached its plan limit.`);
-    if (outcome.code !== 0 && this.home && signInWords.test(selfWords(outcome)))
+    if (outcome.code !== 0 && this.home && signInWords.test(selfWords(outcome, printsJson(this.row))))
       throw new ProgramSignInError(`${this.row.name} says this account needs signing in again.`);
     if (outcome.code !== 0)
       throw new Error(`${this.row.name} stopped with an error and said nothing Branch can pass on. Run it yourself to see why.`);
