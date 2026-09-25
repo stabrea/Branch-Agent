@@ -38,7 +38,15 @@ function renderTools() {
   const box = $("mcp-tools");
   $("mcp-choose").hidden = !sharing.enabled;
   const rows = JSON.stringify([sharing.exposedTools, sharing.tools]);
-  if (rows === drawn && box.childElementCount === sharing.tools.length) return;
+  if (rows === drawn && box.childElementCount === sharing.tools.length) {
+    // NAS 11bf954: a refused or dropped save leaves a box as the owner clicked it, so each box is put back to what
+    // is really shared. Setting the property writes nothing to the page, so it stays quiet.
+    sharing.tools.forEach((tool, index) => {
+      const input = box.children[index]?.querySelector("input");
+      if (input) input.checked = sharing.exposedTools.includes(tool.name);
+    });
+    return;
+  }
   drawn = rows;
   box.replaceChildren();
   for (const tool of sharing.tools) {
