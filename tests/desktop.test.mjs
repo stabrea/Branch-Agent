@@ -194,7 +194,10 @@ test(
         await page.locator("html").getAttribute("data-theme"),
         "daylight",
       );
-      await page.getByRole("link", { name: "Branch Agent home" }).click({ timeout: 30000 });
+      // Q244: on a Windows runner this click has waited past the test's six minutes. Playwright's usual checks wait
+      // for the link to be painted and still, which a restarted window on a runner may never report; the click
+      // itself is what this step is about, so it is sent as is, and the reconnect after it says whether it worked.
+      await page.getByRole("link", { name: "Branch Agent home" }).click({ timeout: 30000, force: true });
       console.log("Desktop restart: home clicked");
       await connected(page);
       console.log("Desktop restart: home again");
