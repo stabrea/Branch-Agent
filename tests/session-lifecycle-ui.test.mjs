@@ -86,9 +86,26 @@ async function exportFile(f) {
   return path;
 }
 
-// Redesign: replaced by the new window (the saved-conversations dialog with "Load more conversations", "Export JSON" and
-// importing a conversation file are not in the design; the prototype exports a conversation as Markdown to Library ›
-// Documents from the conversation's More menu, data-act="chatmenu", and has no import).
+/* Redesign: a conversation is exported from its own More menu (data-act="chatmenu" › "Export conversation",
+   data-act="export-conv", live at 4460a085), which saves the engine's JSON archive of it. */
+test("saved conversations export as a JSON file (the new window)", async (t) => {
+  const f = await fixture(t);
+  await openConversation(f.page, f.sourceId);
+  await f.page.locator('[data-act="chatmenu"]').first().click();
+  const download = f.page.waitForEvent("download");
+  await f.page.locator('#app > .pop [data-act="export-conv"]').click();
+  const file = await download, path = join(f.root, 'conversation.json');
+  await file.saveAs(path);
+  assert.match(file.suggestedFilename(), /\.json$/);
+  const archive = JSON.parse(await readFile(path, 'utf8'));
+  assert.equal(archive.format, 'branch-agent-conversation');
+  assert.deepEqual(archive.messages, f.app.store.messages(f.sourceId));
+  assert.equal(JSON.stringify(f.app.store.sessionView('local', f.sourceId)), f.original, 'exporting changes nothing');
+  assert.deepEqual(f.errors, []);
+});
+
+// Redesign: replaced by the new window (the saved-conversations dialog with its search and "Load more conversations", and
+// importing a conversation file, are not in the design; exporting is ported above).
 test.skip('saved conversations search, paginate, export/import a JSON file, and resume after reload', async (t) => {
   const f = await fixture(t);
   for (let index = 0; index < 21; index++) seed(f.app, `Other saved conversation ${index}`);
