@@ -43,8 +43,8 @@ function effortLevels(model: string): ReasoningEffort[] {
   // xAI documents only "low" and "high" for grok-3-mini's reasoning_effort.
   if (/^grok-3-mini/.test(name)) return ["low", "high"];
   // Integration review: o1-mini, o1-preview and the gpt-5 chat models refuse reasoning_effort.
-  if (/^(o1-(mini|preview)|gpt-5(\.\d+)?-chat)/.test(name)) return [];
-  if (/^(o[1-9]|gpt-5|gpt-oss|codex)/.test(name)) return all;
+  if (/^(o1-(mini|preview)|gpt-[5-9](\.\d+)?-chat)/.test(name)) return [];
+  if (/^(o[1-9]|gpt-[5-9]|gpt-oss|codex)/.test(name)) return all;
   // Gemini's OpenAI-shaped address maps reasoning_effort onto its thinking for 2.5 and later.
   if (/^gemini-(2\.5|[3-9])/.test(name)) return all;
   return [];

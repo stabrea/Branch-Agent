@@ -95,10 +95,11 @@ test("device sign-in stores tokens, registers ChatGPT presets and completes a to
   assert.equal(stored.protected, false);
   assert.ok(!JSON.stringify(stored).includes("refresh_1"), "tokens are not stored in clear text");
   const ids = [...app.runtime.models.presets.keys()].filter((id) => id.startsWith("chatgpt-"));
-  assert.deepEqual(ids, ["chatgpt-gpt-5.6-sol", "chatgpt-gpt-5.6-terra", "chatgpt-gpt-5.6-luna", "chatgpt-gpt-5.5"]);
+  assert.deepEqual(ids, ["chatgpt-gpt-6-sol", "chatgpt-gpt-6-luna", "chatgpt-gpt-5.6-sol", "chatgpt-gpt-5.6-terra", "chatgpt-gpt-5.6-luna", "chatgpt-gpt-5.5"]);
   const settings = app.runtime.models.settings("local");
-  assert.equal(settings.activePreset, "chatgpt-gpt-5.6-sol", "ChatGPT replaces the demonstration as default");
-  assert.deepEqual(settings.fallbackOrder, ["chatgpt-gpt-5.6-terra", "chatgpt-gpt-5.6-luna", "chatgpt-gpt-5.5"]);
+  assert.equal(settings.activePreset, "chatgpt-gpt-6-sol", "ChatGPT replaces the demonstration as default, with GPT-6 Sol");
+  assert.deepEqual(settings.fallbackOrder, ["chatgpt-gpt-6-luna", "chatgpt-gpt-5.6-sol", "chatgpt-gpt-5.6-terra", "chatgpt-gpt-5.6-luna", "chatgpt-gpt-5.5"]);
+  assert.ok(![...app.runtime.models.presets.keys()].some((id) => id.includes("astra")), "the costliest model is never offered or fallen back to");
   useFakeBackend(app, auth, base);
   const run = await app.runtime.run({ prompt: "save a greeting" });
   assert.equal(run.status, "completed");
@@ -110,10 +111,10 @@ test("device sign-in stores tokens, registers ChatGPT presets and completes a to
   assert.equal(calls[0].headers.originator, "branch-agent");
   assert.match(calls[0].headers["user-agent"], /^BranchAgent\//);
   const body = JSON.parse(calls[0].body);
-  assert.equal(body.model, "gpt-5.6-sol");
+  assert.equal(body.model, "gpt-6-sol");
   assert.equal(body.stream, true);
   assert.equal(body.store, false);
-  assert.deepEqual(body.reasoning, { effort: "low" });
+  assert.deepEqual(body.reasoning, { effort: "medium" }, "GPT-6 Sol thinks at medium");
   assert.match(body.instructions, /Branch Agent/);
   assert.equal(body.input[0].role, "user");
   const second = JSON.parse(calls[1].body);
@@ -167,7 +168,7 @@ test("HTTP API exposes sign-in status, starts the device flow and signs out", as
   assert.equal(status.signedIn, true);
   assert.equal(status.email, "person@example.com");
   assert.ok(!JSON.stringify(status).includes("refresh_1"));
-  assert.equal((await call("state")).data.models.presets.length, 5);
+  assert.equal((await call("state")).data.models.presets.length, 7, "the demonstration and the six ChatGPT models");
   const out = await call("chatgpt/logout", {});
   assert.equal(out.data.signedIn, false);
   assert.equal((await call("state")).data.models.presets.length, 1);
