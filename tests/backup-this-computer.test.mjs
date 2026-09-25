@@ -32,7 +32,7 @@ test("the list is what Q168 A names, and devices-book stays too (named once, wit
   assert.deepEqual([...thisComputerSettings].sort(), ["comfort-update-failed", "folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode",
     "keychain-entries", "listen-address", "lockdown", "media-programs", "os-sandbox", "reach-machine-name", "reach-relay-seen", "reach-relay-settings",
     "reach-remote-trunks-keys", "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup", "safety-emergency-stop", "secret-commands",
-    "speech-engines", "voice"]);
+    "speech-engines", "voice", "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends"].sort());
   assert.equal(staysOnThisComputer("devices-book"), true);
   assert.equal(thisComputerSettings.includes("devices-book"), false, "one list names it, not two");
 });
@@ -116,7 +116,9 @@ test("where this computer listens, its name, and its place at a relay stay on it
   const { app, owner, setting } = await fixture(t);
   const here = ["listen-address", "reach-machine-name", "reach-relay-settings", "reach-relay-seen", "lockdown", "safety-wasm-add-on:tidy",
     // NAS dfb2136: a program and its arguments, as a changed file would plant them.
-    "speech-engines", "voice", "media-programs"];
+    "speech-engines", "voice", "media-programs",
+    // NAS f30facf: programs run by a read, after a patch or by name, the container image, and a hook's own state.
+    "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends", "hook:nightly"];
   for (const key of here) app.store.save("settings", owner, key, { mine: key });
   const archive = app.store.backup(app.version);
   for (const key of here) assert.ok(!archive.tables.settings.some((row) => row.id === key), `${key} is not in the backup`);

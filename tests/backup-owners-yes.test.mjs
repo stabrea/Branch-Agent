@@ -220,3 +220,21 @@ test("every setting the catalogue marks as a guard or as reaching further waits 
   }
   assert.deepEqual(setting(leftOut), { mine: leftOut }, `${leftOut}: left out of the file, it is kept`);
 });
+
+// NAS f30facf: where the owner's words and records are sent waits for the owner's yes too.
+test("the trace export, the memory service and each outside service wait for the owner's yes (NAS f30facf)", async (t) => {
+  const sent = ["trace_export", "memory-provider", "openapi-service:weather"];
+  for (const id of sent) assert.equal(heldForTheOwner(id) && !staysOnThisComputer(id), true, `${id} is held`);
+  const { app, owner, setting } = await fixture(t);
+  for (const id of sent) app.store.save("settings", owner, id, { mine: id });
+  const archive = app.store.backup(app.version);
+  const now = new Date().toISOString();
+  archive.tables.settings = archive.tables.settings.filter((row) => !sent.includes(row.id));
+  for (const id of sent) archive.tables.settings.push({ id, owner, data: JSON.stringify({ endpoint: "https://elsewhere.example" }), created_at: now, updated_at: now });
+  await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
+  const answer = await restoreBackup(app, async () => archive, true);
+  for (const id of sent) {
+    assert.ok(groups(answer.held).includes(id), `${id} waits`);
+    assert.deepEqual(setting(id), { mine: id }, `${id}: this computer's own stays`);
+  }
+});

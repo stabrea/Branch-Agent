@@ -106,9 +106,14 @@ export const thisComputerSettings: readonly string[] = [
   // NAS dfb2136: the rows that name a program on this disk and its arguments, which Branch runs as they are: the
   // speech engines, the voice's local speech program, and where ffmpeg and yt-dlp live.
   "speech-engines", "voice", "media-programs",
+  // NAS f30facf: the same class, run with no approval by a read (language servers, debug adapters), after a patch (the
+  // project check), or by name (background programs), and the container image code runs in.
+  "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends",
 ];
 /** NAS 23e7382: one row per add-on file on this disk, its fingerprint (src/safety-extras/wasm-add-ons.ts). */
-const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:"];
+const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:",
+  // NAS f30facf: whether each hook configured on this computer is on, and how it last failed.
+  "hook:"];
 /** The restore's own list of rows waiting for the owner's yes (src/restore-held.ts): about this computer, so it stays too. */
 export const restoreHeldKey = "restore-held";
 /**
@@ -138,9 +143,13 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   "desktop-control", "approval_reviewer", "loop_guard", "security-check", ...safetyParts.map(safetyKey), ...reachParts.map(reachKey),
   "reach-relay-chats", "reach-usb-rules", "reach-agent-git-sources",
   // NAS 23e7382: which chat accounts count as the owner for `/platform`, read before the sender list is.
-  "reach-platform-settings"];
+  "reach-platform-settings",
+  // NAS f30facf: where the owner's words and records are sent: the trace export's endpoint and the memory service.
+  "trace_export", "memory-provider"];
 /** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
-const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:"];
+const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:",
+  // NAS f30facf: each outside service the assistant may call, by its address.
+  "openapi-service:"];
 /**
  * NAS dfb2136: naming the ids by hand kept missing some, so every setting the catalogue itself marks as taking a
  * protection away or reaching further (a field whose guard is not "plain") is held too, unless it stays here. Read at
