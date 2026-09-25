@@ -1865,6 +1865,8 @@ function renderConversation(value, status) {
   let answering = null;
   for (const source of value.messages) {
     if (!["user", "assistant"].includes(source.role)) continue;
+    // Q206: Branch's own nudges to the model (after an empty reply, or a failed check) are not the owner's words.
+    if (source.from === "branch") continue;
     if (source.role === "user") {
       const asked = delegationIn(source.content);
       answering = asked.specialist;

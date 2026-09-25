@@ -1605,7 +1605,7 @@ ${run.output.slice(0, 6000)}`;
       if (!completion.toolCalls.length && !completion.content.trim() && (thought || usedTools) && emptyReplies < 2) {
         emptyReplies++;
         this.store.event(run.id, "model.empty_reply", { round: round + 1, nudge: emptyReplies });
-        this.add(run, messages, ids, { role: "user", content: thought ? emptyReplyNudge : silentAfterToolsNudge });
+        this.add(run, messages, ids, { role: "user", from: "branch", content: thought ? emptyReplyNudge : silentAfterToolsNudge });
         continue;
       }
       if (completion.toolCalls.length) usedTools = true;
@@ -2037,7 +2037,7 @@ ${run.output.slice(0, 6000)}`;
     if (!problem) { this.store.event(run.id, "run.check_passed", { attempts: failures + 1 }); return true; }
     this.store.event(run.id, "run.check_failed", { reason: problem, attempt: failures + 1, maxRetries: checks.maxRetries });
     if (failures >= checks.maxRetries) throw new CheckError(`The answer did not pass its check: ${problem}`);
-    const nudge: Message = { role: "user", content: `Your answer did not pass its check: ${problem}. Fix that and answer again.` };
+    const nudge: Message = { role: "user", from: "branch", content: `Your answer did not pass its check: ${problem}. Fix that and answer again.` };
     messages.push(nudge); ids.push(null); this.store.message(run.sessionId, nudge);
     return false;
   }
