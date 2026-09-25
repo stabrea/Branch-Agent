@@ -1524,8 +1524,12 @@ async function api(
       // Q222: by the task, so a question with no fingerprint never takes another task's question with it.
       app.runtime.approvals.dropFor(run.sessionId, run.id);
       // Q229 (NAS d157ab3): a plan waiting for the owner's yes, or stopped at a check-back, goes with its task, so a
-      // later "ok" in the conversation never starts a plan the owner stopped.
-      if (app.runtime.orchestration.plan(run.sessionId)?.runId === run.id) app.runtime.orchestration.clearPlan(run.sessionId);
+      // later "ok" in the conversation never starts a plan the owner stopped. Q233 (NAS 7e82712): a plan carried on past
+      // a check-back runs under a later task than the one that made it, so that task's own steps say it is the plan's.
+      const plan = app.runtime.orchestration.plan(run.sessionId);
+      if (plan && (plan.runId === run.id
+        || (plan.waitingOnOwner && app.store.events(run.id).some((event) => event.kind.startsWith("plan.step.")))))
+        app.runtime.orchestration.clearPlan(run.sessionId);
       app.store.finish(run.id, "cancelled", run.output);
       return { cancelled: true };
     }

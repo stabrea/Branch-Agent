@@ -180,3 +180,31 @@ test("F8 follow-up 2: stopping a task that waits on its plan stops the plan, and
   const later = await app.runtime.run({ prompt: "ok, thanks", sessionId: run.sessionId });
   assert.equal(app.store.events(later.id).filter((event) => event.kind.startsWith("plan.")).length, 0, "an ok starts no plan");
 });
+
+// Q233 (NAS 7e82712): a plan carried on past its first check-back runs under a later task. Stopping that task where it
+// waits at a second check-back stops the plan too; stopping an unrelated waiting task in the conversation leaves it.
+test("F8 follow-up 3: stopping the task that carries a plan at a later check-back stops the plan; another task's stop does not", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-lost-questions-"));
+  t.after(() => discardTemp(root));
+  const app = await open(root);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); });
+  const stop = (id) => fetch(`${server.url}/api/runs/${id}/cancel`, { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: "{}" }).then((r) => r.json());
+  const made = app.store.createRun(app.runtime.owner, "plan my move");
+  app.store.finish(made.id, "completed", "Planned.");
+  // Agreed, and carried on by a later task that now waits at a check-back.
+  app.runtime.orchestration.savePlan({ runId: made.id, sessionId: made.sessionId, prompt: "plan my move",
+    steps: [{ title: "Pack", changes: true }, { title: "Label", changes: true }], current: 1, approved: true,
+    createdAt: new Date().toISOString(), decision: "approved", clearedThrough: 0, waitingOnOwner: true });
+  const carrying = app.store.createRun(app.runtime.owner, "ok", made.sessionId);
+  app.store.event(carrying.id, "plan.step.started", { at: 1, title: "Label" });
+  app.store.finish(carrying.id, "needs_input", "Step 1 is done. Shall I carry on?");
+  const other = app.store.createRun(app.runtime.owner, "which week?", made.sessionId);
+  app.store.event(other.id, "user.ask", { question: "Which week?" });
+  app.store.finish(other.id, "needs_input", "Which week?");
+  assert.deepEqual(await stop(other.id), { cancelled: true });
+  assert.ok(app.runtime.orchestration.plan(made.sessionId), "an unrelated task's stop leaves the plan");
+  assert.deepEqual(await stop(carrying.id), { cancelled: true });
+  assert.equal(app.runtime.orchestration.plan(made.sessionId), undefined, "the carrying task's stop takes the plan with it");
+});
