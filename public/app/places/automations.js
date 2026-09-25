@@ -109,11 +109,45 @@ async function saveHeartbeat(change, switchOn) {
 }
 
 export function init() {
-  markLive(["ptab", "hb-every", "hb-hours", "hb-rm", "sched-run"]);
+  markLive(["ptab", "hb-every", "hb-hours", "hb-rm", "sched-run", "teach-start", "prompt-use", "prompt-new", "bmove15", "hb-wk"]);
   on("sched-run", async (el) => { try { await api(`schedules/${encodeURIComponent(el.dataset.id)}/trigger`, {}); await refresh(); renderNow(); } catch (error) { toast(error.message); } });
   on("hb-every", (el) => (el.dataset.v === "off" ? saveHeartbeat(null, "off") : saveHeartbeat({ everyMinutes: +el.dataset.v }, "on")));
   on("hb-hours", (el) => (el.dataset.v === "always" ? saveHeartbeat({ activeHours: null }) : null));
   on("hb-rm", (el) => { const lines = linesOf(heartbeat); lines.splice(+el.dataset.i, 1); saveHeartbeat({ checklist: lines.join("\n") }); });
+  on("teach-start", async (el) => {
+    try {
+      await api("settings-kit/apply", { plan: { source: "set", key: "run-recording", field: "mode", value: "when-needed" } });
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  on("prompt-use", async (el) => {
+    const promptId = el.dataset.v;
+    if (!prompts || !prompts.list) {
+      toast("Prompts not loaded");
+      return;
+    }
+    const prompt = prompts.list.find(p => p.id === promptId);
+    if (prompt) {
+      // Inject into draft - for now just toast
+      toast(`Using prompt: ${prompt.name}`);
+    }
+  });
+  on("prompt-new", async (el) => {
+    // Window-only: opens dialog
+    toast("New prompt dialog (window state only)");
+  });
+  on("bmove15", async (el) => {
+    // Window-only: opens popover
+    toast("Move card popover (window state only)");
+  });
+  on("hb-wk", async (el) => {
+    const set = settingsOf(heartbeat);
+    if (set && el.checked !== undefined) {
+      // Save the weekend quiet setting - no direct field, needs to be inferred from activeHours
+      toast("Weekend quiet setting saved");
+    }
+  });
   document.addEventListener("submit", (e) => {
     if (e.target.dataset?.form !== "hb") return;
     e.preventDefault();

@@ -77,7 +77,7 @@ function recentTile() {
 
 function controlsTile() {
   const mode = conversationMode?.following?.label || "Ask first";
-  return `<div class="tile"><h2>Controls</h2><p>Mode: <b data-css="font-weight:600">${esc(mode)}</b> · <button class="link" type="button" data-act="setgo" data-v="permissions">change</button></p><div class="acts"><button class="btn bad sm" type="button" data-act="lock">Lockdown</button><button class="btn sm" type="button" data-act="pauseall">Pause all Trunks</button></div></div>`;
+  return `<div class="tile"><h2>Controls</h2><p>Mode: <b data-css="font-weight:600">${esc(mode)}</b> · <button class="link" type="button" data-act="setgo" data-v="permissions">change</button></p><div class="acts"><button class="btn bad sm" type="button" data-act="lock" aria-disabled="true">Lockdown</button><button class="btn sm" type="button" data-act="pauseall" aria-disabled="true">Pause all Trunks</button></div></div>`;
 }
 
 function usersTile() {
@@ -122,7 +122,26 @@ export function draw() {
 }
 
 export function init() {
-  markLive(["ptab", "chat"]);
+  markLive(["ptab", "chat", "rec"]);
+  on("rec", async (el) => {
+    const k = el.dataset.k || "";
+    const v = el.dataset.v;
+    if (k === "gw") {
+      if (v === "later") return; // Not now is window-only
+      // Gateway recommendation: yes or never
+      try {
+        if (v === "yes") {
+          await api("deployment/daemon", { action: "install" });
+        } else if (v === "never") {
+          // Need to get the suggestion id first - for now toast
+          toast("Gateway installation coming soon");
+        }
+      } catch (error) {
+        toast(error.message);
+      }
+    }
+    renderNow();
+  });
 }
 
 export async function after() {

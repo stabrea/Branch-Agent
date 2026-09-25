@@ -83,9 +83,35 @@ export async function after() {
 }
 
 export function init() {
-  markLive(["ptab", "chat", "tmsg"]);
+  markLive(["ptab", "chat", "tmsg", "ask"]);
   on("tmsg", async (el) => {
     try { await api(`trunks/messages/${encodeURIComponent(el.dataset.id)}/${el.dataset.v === "answer" ? "answer" : "decline"}`, {}); } catch (error) { toast(error.message); }
+    await refresh().catch(() => {});
+    renderNow();
+  });
+  on("ask", async (el) => {
+    const sessionId = el.dataset.sid;
+    const fingerprint = el.dataset.fp;
+    if (!sessionId || fingerprint === undefined) return; // Must have exact ids
+    try {
+      await api("policy/approve", { sessionId, fingerprint, decision: "allow", remember: "never", carryOn: true });
+    } catch (error) {
+      toast(error.message);
+    }
+    await refresh().catch(() => {});
+    renderNow();
+  });
+  on("allowall", async (el) => {
+    // Check that all asks have exact sessionId and fingerprint
+    const allExact = asks.every(q => q.sessionId && q.fingerprint !== undefined);
+    if (!allExact) return; // Grey it if any row is missing exact ids
+    try {
+      for (const q of asks) {
+        await api("policy/approve", { sessionId: q.sessionId, fingerprint: q.fingerprint, decision: "allow", remember: "never", carryOn: true });
+      }
+    } catch (error) {
+      toast(error.message);
+    }
     await refresh().catch(() => {});
     renderNow();
   });
