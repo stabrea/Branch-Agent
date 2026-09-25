@@ -1,6 +1,7 @@
 /* The smaller pieces around the window, 1:1 with the prototype's: the gateway popover in the status bar (GET/POST
-   /api/never-break), the keyboard shortcuts list (only the keys this window answers to), and the conversation menu, whose
-   export writes the engine's own copy of the conversation (GET /api/sessions/<id>/export) to a file. */
+   /api/never-break), the keyboard shortcuts list, and the conversation menu, whose export writes the engine's own copy
+   of the conversation (GET /api/sessions/<id>/export) to a file. The shortcuts the engine keeps (its "keys" card,
+   shell/keys.js) are set by pressing the keys (#179); the fixed ones are only the keys this window answers to. */
 
 import { esc, renderNow } from "../core/dom.js";
 import { openPop, closePop, openDlg, mi, toast, ic } from "../core/ui.js";
@@ -10,6 +11,9 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { chatMenuTop } from "../chat/beside.js";
 import { trunkMenu, trunkMenuEnd } from "../flows/trunk.js";
+import { binding, defaultOf, pressed, comboOf, kbd, spoken, saveKey } from "./keys.js";
+import { initMachines } from "./machines.js";
+import { initFileView } from "./fileview.js";
 
 const MODES = [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]];
 const SAID = { off: "Off. When you close Branch, your Trunks stop, and Telegram and automations go quiet until you open it again.", "when-needed": "Starts by itself when a chat app, your phone or an automation needs Branch, and rests otherwise.", on: "On. Telegram, your phone and automations keep working when the window is closed." };
@@ -33,10 +37,46 @@ async function setGateway(v) {
   if (anchor) openPop(anchor, gatewayPop(), { right: true, force: true });
 }
 
-const KEYS = [["Find anything", "Ctrl K"], ["New conversation", "Ctrl N"], ["Settings", "Ctrl ,"], ["Show or hide the list", "Ctrl B"], ["Show or hide the side panel", "Ctrl Shift K"], ["New line in a message", "Shift Enter"], ["This list", "?"], ["Close anything", "Esc"]];
+/* ---------- keyboard shortcuts ---------- */
+/* The engine's changeable shortcuts this window answers to, by the engine's names, with the prototype's words. */
+const KEYS = [["palette", "Find anything"], ["newConversation", "New conversation"], ["appearance", "Settings"], ["sideList", "Show or hide the list"], ["sidePane", "Show or hide the side panel"]];
+const FIXED = [["Focus mode", "Ctrl+."], ["New line in a message", "Shift+Enter"], ["This list", "?"], ["Close anything", "Esc"]];
+let listening = null;
+const nameOf = (action) => KEYS.find(([a]) => a === action)?.[1] ?? "";
+
+function keyRow([action, words]) {
+  const now = binding(action), was = defaultOf(action);
+  const set = `<button type="button" class="k-set15 ${listening === action ? "listen15" : ""}" data-act="key15" data-v="${action}" aria-label="${esc(words)}: ${esc(spoken(now))}. Change">${listening === action ? "<em>Press the keys…</em>" : kbd(now, esc)}</button>`;
+  const back = now !== was ? `<button type="button" class="icon-btn" aria-label="Put back ${esc(spoken(was))}" data-act="keyreset15" data-v="${action}">${ic("x", "s")}</button>` : "<span></span>";
+  return `<div class="k-row15"><span>${esc(words)}</span>${set}${back}</div>`;
+}
 function showShortcuts() {
   closePop();
-  openDlg({ title: "Keyboard shortcuts", body: `<div class="shortcuts">${KEYS.map(([a, b]) => `<span>${a}</span><span>${b.split(" ").map((x) => `<kbd>${x}</kbd>`).join(" ")}</span>`).join("")}</div>` });
+  openDlg({ title: "Keyboard shortcuts", body: `<p class="hint" data-css="margin:0 0 10px">Click a shortcut, then press the keys you want.</p><div class="keys15">${KEYS.map(keyRow).join("")}</div><div class="shortcuts" data-css="margin-top:14px">${FIXED.map(([a, b]) => `<span>${a}</span><span>${kbd(b, esc)}</span>`).join("")}</div>` });
+  document.querySelector(".listen15")?.focus();
+}
+/* The next keys pressed while a shortcut listens become its keys, kept by the engine. Ctrl or Alt is needed so typing
+   never sets one off; keys another shortcut here already has are refused, as the prototype does. */
+async function takeKeys(e) {
+  if (!listening || !document.querySelector(".scrim .keys15")) return;
+  if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const action = listening, combo = comboOf(e);
+  listening = null;
+  if (e.key === "Escape") { showShortcuts(); return; }
+  if (!/^(Ctrl|Control|Alt)\+/.test(combo)) { showShortcuts(); toast("Use Ctrl or Alt with it, so typing never sets it off."); return; }
+  const clash = KEYS.find(([a]) => a !== action && spoken(binding(a)).toLowerCase() === spoken(combo).toLowerCase());
+  if (clash) { showShortcuts(); toast(`${spoken(combo)} already does “${clash[1]}”.`); return; }
+  try {
+    await saveKey(action, combo);
+    showShortcuts();
+    toast(`${nameOf(action)}: ${spoken(binding(action))}.`);
+  } catch (error) { showShortcuts(); toast(error.message); }
+}
+async function putBack(action) {
+  try { await saveKey(action, defaultOf(action)); } catch (error) { toast(error.message); }
+  showShortcuts();
 }
 
 /* A Trunk's or a room's own conversation gets its items from flows/trunk.js; pinning any other conversation stays greyed. */
@@ -56,29 +96,22 @@ async function exportConversation() {
   } catch (error) { toast(error.message); }
 }
 
-/* Which computer you are talking to: this one, and the other computers and phones the engine knows (GET /api/devices).
-   Talking to another one, renaming and adding stay greyed until the window can. */
-async function openMachines(el) {
-  const known = (await api("devices").catch(() => null))?.devices ?? [];
-  const row = (act, v, name, status, on, dot) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${on}" data-act="${act}" data-v="${esc(v)}"><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(name)}</span><span class="mi-s"><span class="dot ${dot}"></span> ${esc(status)}</span></span></button>`;
-  const rows = row("machine-here", "here", "This computer", "Connected", true, "") + known.map((d) => row("machine", d.id, d.name ?? d.id, d.connected ? "Connected" : "Offline", false, d.connected ? "" : "off")).join("");
-  openPop(el, `<div class="ph">Talk to the assistant on…</div>${rows}<hr>${mi("addcomp", "plus", "Add a computer or phone…")}`);
-}
-
 const typing = (e) => e.target.closest?.("input, textarea, select, [contenteditable]");
 
 export function initExtras() {
-  markLive(["gwpop", "gwpop-mode", "shortcuts", "chatmenu", "export-conv", "machines", "machine-here"]);
-  on("machines", (el) => openMachines(el));
-  on("machine-here", () => closePop());
+  markLive(["gwpop", "gwpop-mode", "shortcuts", "chatmenu", "export-conv", "key15", "keyreset15"]);
+  initMachines();
+  initFileView();
   on("gwpop", (el) => openGateway(el));
   on("gwpop-mode", (el) => setGateway(el.dataset.v));
   on("shortcuts", () => showShortcuts());
+  on("key15", (el) => { listening = el.dataset.v; showShortcuts(); });
+  on("keyreset15", (el) => putBack(el.dataset.v));
   on("chatmenu", (el) => (S.chat ? openPop(el, chatMenu(), { right: true }) : null));
   on("export-conv", () => exportConversation());
+  document.addEventListener("keydown", takeKeys, true);
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === ",") { e.preventDefault(); S.view = "settings"; closePop(); renderNow(); }
+    if (pressed(e, "appearance")) { e.preventDefault(); S.view = "settings"; closePop(); renderNow(); }
     else if (e.key === "?" && !typing(e) && !e.ctrlKey && !e.metaKey) { e.preventDefault(); showShortcuts(); }
   });
 }
-

@@ -12,6 +12,7 @@ import { markLive, greyOut } from "../core/features.js";
 import { sendingPrompt } from "./chat.js";
 import { initStage } from "./stage.js";
 import { terminalBody, loadWork } from "./terminal.js";
+import { pressed } from "../shell/keys.js";
 
 const TABS = [["activity", "Activity"], ["plan", "Plan"], ["files", "Files"], ["memory", "Memory"], ["browser", "Browser"], ["terminal", "Terminal"]];
 const REAL = new Set(["activity", "plan", "files", "memory", "terminal"]);
@@ -104,6 +105,6 @@ export function initPane() {
   });
   on("ptabp", (el) => { S.pane = el.dataset.p; drawPane(); });
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); S.pane = S.pane ? null : "activity"; drawPane(); }
+    if (pressed(e, "sidePane")) { e.preventDefault(); S.pane = S.pane ? null : "activity"; drawPane(); }
   });
 }

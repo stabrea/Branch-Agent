@@ -18,6 +18,9 @@ import { initThemes } from "./themes.js";
 import { loadDelight, drawBackground, drawPet, petHTML, pat, D } from "./scene.js";
 import { initPalette } from "./palette.js";
 import { ACT, working, readActivity } from "./activity.js";
+import { K, loadKeys, pressed, binding, spoken } from "./keys.js";
+import { M, machineName, loadMachineName } from "./machines.js";
+import { chatOwner, pinChat, renameDlg } from "../flows/trunk.js";
 
 const WIDE = matchMedia("(min-width: 761px)");
 const PLACES = [["overview", "home", "Overview"], ["inbox", "inbox", "Inbox"], ["automations", "clock", "Automations"],
@@ -77,11 +80,14 @@ async function toggleProjects() {
   renderNow();
 }
 
+/* A row is pinned when the engine keeps its Trunk or room pinned (POST /api/trunks/<id>, /api/trunks/rooms/<id>). */
+const pinnedRow = (s) => !!(s.pinned || chatOwner(sessionId(s))?.pinned);
+
 function list() {
   if (SQ.q.trim()) return `<nav class="list searching9" aria-label="Conversations">${searchHTML()}</nav>`;
   const rows = E.sessions;
-  const pinned = rows.filter((s) => s.pinned);
-  const recent = rows.filter((s) => !s.pinned);
+  const pinned = rows.filter(pinnedRow);
+  const recent = rows.filter((s) => !pinnedRow(s));
   return `<nav class="list" aria-label="Conversations">
     ${hidden("projects") ? "" : `<button class="lh lh-btn" type="button" data-act="projtoggle" aria-expanded="${!!S.projOpen}" data-hide="projects">${ic(S.projOpen ? "down" : "chev", "s")}Projects</button>${S.projOpen ? projectRows() : ""}`}
     ${pinned.length ? `<div class="lh">Pinned</div>${pinned.map(row).join("")}` : ""}
@@ -93,8 +99,8 @@ function side() {
   const active = E.profiles?.profiles?.find((p) => p.id === E.profiles.active);
   const person = active?.name || E.profiles?.roleLabels?.owner?.label || "";
   return `<div class="resizer" data-resize="side"><i class="grip9"></i></div>
-    <button class="machine" type="button" data-act="machines" data-tip="Which computer you’re talking to"><span class="mico">${ic("monitor", "s")}</span><span class="mach14"><b>This computer</b><i class="dot"></i></span>${ic("chev", "s")}</button>
-    <div class="side-top"><label class="sq9">${ic("search", "s")}<input id="side-q" type="search" placeholder="Search" value="${esc(SQ.q)}" autocomplete="off" aria-label="Search chats, Trunks, messages and past sessions">${SQ.q ? `<button type="button" class="sq-x" data-act="sq-clear" aria-label="Clear the search">${ic("x", "s")}</button>` : "<kbd>Ctrl K</kbd>"}</label><button class="icon-btn" type="button" aria-label="New conversation, Trunk, room or automation" data-act="newmenu">${ic("plus")}</button></div>
+    <button class="machine" type="button" data-act="machines" data-tip="Which computer you’re talking to"><span class="mico">${ic("monitor", "s")}</span><span class="mach14"><b>${esc(machineName() || "This computer")}</b><i class="dot"></i></span>${ic("chev", "s")}</button>
+    <div class="side-top"><label class="sq9">${ic("search", "s")}<input id="side-q" type="search" placeholder="Search" value="${esc(SQ.q)}" autocomplete="off" aria-label="Search chats, Trunks, messages and past sessions">${SQ.q ? `<button type="button" class="sq-x" data-act="sq-clear" aria-label="Clear the search">${ic("x", "s")}</button>` : binding("palette") ? `<kbd>${esc(spoken(binding("palette")))}</kbd>` : ""}</label><button class="icon-btn" type="button" aria-label="New conversation, Trunk, room or automation" data-act="newmenu">${ic("plus")}</button></div>
     <button class="lh lh-btn places-h14" type="button" data-act="places14" aria-expanded="${!S.placesShut}">${ic("chev", "s")}Places</button>
     <div class="side-nav nav7">${PLACES.map(([v, i, l]) => `<button class="nav" type="button" data-act="view" data-v="${v}" aria-current="${S.view === v}">${ic(i)}${l}${v === "inbox" && n ? `<span class="cnt">${n}</span>` : ""}</button>`).join("")}</div>
     ${list()}
@@ -103,16 +109,16 @@ function side() {
 }
 
 function titleActions() {
-  const theme = document.documentElement.dataset.theme === "dark" ? "sun" : "moon";
+  const theme = document.documentElement.dataset.theme === "dark" ? "sun" : "moon", keys = esc(binding("sideList"));
   return `${hidden("notes") ? "" : `<button class="tb-btn" type="button" data-act="guide" aria-haspopup="menu" data-hide="notes">${ic("bulb", "s")}Guide</button>`}
     <button class="tb-btn" type="button" aria-label="Switch light or dark" data-act="theme-flip">${ic(theme, "s")}</button>
-    <button class="tb-btn" type="button" aria-label="Hide the list (Ctrl+B)" data-act="side-toggle" aria-pressed="${!document.getElementById("app").classList.contains("side-hidden")}" data-tip="Hide the list · Ctrl+B">${ic("sidebar", "s")}</button>`;
+    <button class="tb-btn" type="button" aria-label="Hide the list${keys ? ` (${keys})` : ""}" data-act="side-toggle" aria-pressed="${!document.getElementById("app").classList.contains("side-hidden")}" data-tip="Hide the list${keys ? ` · ${keys}` : ""}">${ic("sidebar", "s")}</button>`;
 }
 
 function status() {
   const version = E.state?.version ?? "";
   const model = modelLabel();
-  return `<button class="sb" type="button" data-act="machines"><span class="dot ${link.up ? "" : "off"}"></span>${link.up ? "Connected" : "Not connected"} · this computer</button>
+  return `<button class="sb" type="button" data-act="machines"><span class="dot ${link.up ? "" : "off"}"></span>${link.up ? "Connected" : "Not connected"} · ${esc(machineName() || "this computer")}</button>
     ${hidden("gateway") ? "" : '<button class="sb" type="button" data-act="gwpop" data-hide="gateway" data-tip="The gateway keeps Branch running in the background"><span class="dot off"></span>Gateway</button>'}
     ${statusItems()}
     <button class="sb tasks10" type="button" data-act="tasks10" data-tip="What is running in the background"><i class="${working() ? "lit10" : ""}"></i>${working()} running</button>
@@ -128,6 +134,8 @@ export function drawShell() {
   const app = document.getElementById("app");
   loadLook();
   if (!D.asked && E.loaded) loadDelight().then(() => renderNow());
+  if (!K.asked && E.loaded) loadKeys().then(() => renderNow(), (error) => toast(error.message));
+  if (!M.asked && E.loaded) loadMachineName().then(() => renderNow(), (error) => toast(error.message));
   readActivity();
   app.classList.toggle("no-status", hidden("statusbar"));
   $("#statusbar").dataset.hide = "statusbar";
@@ -162,10 +170,10 @@ export function initShell() {
   initThemes();
   initPalette();
   initPerson();
-  markLive(["chat", "newconv", "newmenu", "places14", "themeset", "theme-flip", "side-toggle", "guide", "focus", "new-with"]);
+  markLive(["chat", "newconv", "newmenu", "places14", "themeset", "theme-flip", "side-toggle", "guide", "focus", "new-with", "pin-id", "rename-id"]);
   on("chat", (el) => { closePop(); openConversation(el.dataset.id); });
   on("newconv", () => { closePop(); startConversation(); });
-  on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", "<kbd>Ctrl N</kbd>") + mi("new-trunk", "plus", "New Trunk") + mi("new-room", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"')));
+  on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", binding("newConversation") ? `<kbd>${esc(spoken(binding("newConversation")))}</kbd>` : "") + mi("new-trunk", "plus", "New Trunk") + mi("new-room", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"')));
   on("places14", () => { S.placesShut = !S.placesShut; save(); renderNow(); });
   on("themeset", (el) => setTheme(el.dataset.v === "system" ? null : el.dataset.v));
   on("theme-flip", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
@@ -174,10 +182,12 @@ export function initShell() {
   on("focus", () => toggleFocus());
   on("new-with", (el) => newWith(el.dataset.id));
   document.addEventListener("input", (e) => { if (e.target.id === "side-q") { if (!SQ.q.trim()) SQ.f = "all"; SQ.q = e.target.value; searchInside(SQ.q); const pos = e.target.selectionStart; renderNow(); const box = $("#side-q"); box?.focus(); box?.setSelectionRange(pos, pos); } });
+  on("pin-id", (el) => pinChat(el.dataset.id));
+  on("rename-id", (el) => renameDlg(el.dataset.id));
   document.addEventListener("keydown", (e) => {
     const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
-    if (mod && key === "n") { e.preventDefault(); startConversation(); }
-    if (mod && key === "b") { e.preventDefault(); document.getElementById("app").classList.toggle("side-hidden"); }
+    if (pressed(e, "newConversation")) { e.preventDefault(); startConversation(); }
+    if (pressed(e, "sideList")) { e.preventDefault(); document.getElementById("app").classList.toggle("side-hidden"); }
     if (mod && key === ".") { e.preventDefault(); toggleFocus(); }
   });
   document.addEventListener("contextmenu", (e) => rowMenu(e) || hideMenu(e));
@@ -187,13 +197,15 @@ export function initShell() {
 /* Focus mode: the list and the status bar step aside until it is left (the button, or Ctrl+. again). */
 function toggleFocus() { document.getElementById("app").classList.toggle("focus"); }
 
-/* A row's own menu (right-click), 1:1 with the prototype's: a conversation a Trunk answers offers a new one with it. */
+/* A row's own menu (right-click), 1:1 with the prototype's: a conversation a Trunk answers offers a new one with it.
+   Pin and Rename change the Trunk or room whose own conversation the row is (flows/trunk.js); the engine keeps no pin
+   or name for any other conversation, so there they stay greyed. */
 function rowMenu(e) {
   const row = e.target.closest?.("#side .row[data-id]");
   if (!row) return false;
   e.preventDefault();
-  const id = esc(row.dataset.id), s = E.sessions.find((x) => sessionId(x) === row.dataset.id), t = s && trunkFor(s);
-  const base = mi("chat", "chat", "Open", "", `data-id="${id}"`) + mi("pin-id", "pin", s?.pinned ? "Unpin" : "Pin to top", "", `data-id="${id}"`) + mi("rename-id", "edit", "Rename", "", `data-id="${id}"`);
+  const id = esc(row.dataset.id), s = E.sessions.find((x) => sessionId(x) === row.dataset.id), t = s && trunkFor(s), own = chatOwner(row.dataset.id);
+  const base = mi("chat", "chat", "Open", "", `data-id="${id}"`) + mi(own ? "pin-id" : "pin-id-off", "pin", own?.pinned ? "Unpin" : "Pin to top", "", `data-id="${id}"`) + mi(own ? "rename-id" : "rename-id-off", "edit", "Rename", "", `data-id="${id}"`);
   const tid = esc(t?.id ?? "");
   const trunk = t ? mi("new-with", "plus", `New conversation with ${esc(t.name)}`, "", `data-id="${tid}"`) + mi("pausetrunk", "pause", "Pause", "", `data-id="${tid}"`) + mi("edit", "sliders", "Edit Trunk…", "", `data-id="${tid}"`) + "<hr>" + mi("remove", "trash", "Remove…", "", `data-id="${tid}"`) : "";
   openPop(row, base + trunk, { force: true });
@@ -234,7 +246,7 @@ function ownerMenu() {
   const current = document.documentElement.dataset.theme || "system", earned = D.earned;
   return `<div class="ph">Who is using Branch</div><div data-css="display:flex;gap:8px;padding:4px 10px 8px;flex-wrap:wrap">${people()}<button type="button" data-act="invite" data-css="display:grid;justify-items:center;gap:3px;font-size:11.5px;padding:4px"><span class="me" data-css="background:var(--fill);color:var(--ink-2)">+</span>Add</button></div><hr>
     <div class="row-in"><span>Look</span><span class="seg">${[["light", "Light"], ["dark", "Dark"], ["system", "Auto"]].map(([v, l]) => `<button type="button" data-act="themeset" data-v="${v}" aria-pressed="${current === v}">${l}</button>`).join("")}</span></div><hr>
-    ${mi("view", "gear", "Settings", "<kbd>Ctrl ,</kbd>", 'data-v="settings"')}${mi("setgo", "medal", "Achievements", earned == null ? "" : esc(String(earned)), 'data-v="achievements"')}${mi("shortcuts", "keyboard", "Keyboard shortcuts", "<kbd>?</kbd>")}${mi("help", "bulb", "Guide: why each thing is here")}${mi("firstrun", "spark", "Replay the first run")}${mi("about", "info", "About Branch")}<hr>${mi("lockscreen", "lock", "Lock Branch")}`;
+    ${mi("view", "gear", "Settings", binding("appearance") ? `<kbd>${esc(spoken(binding("appearance")))}</kbd>` : "", 'data-v="settings"')}${mi("setgo", "medal", "Achievements", earned == null ? "" : esc(String(earned)), 'data-v="achievements"')}${mi("shortcuts", "keyboard", "Keyboard shortcuts", "<kbd>?</kbd>")}${mi("help", "bulb", "Guide: why each thing is here")}${mi("firstrun", "spark", "Replay the first run")}${mi("about", "info", "About Branch")}<hr>${mi("lockscreen", "lock", "Lock Branch")}`;
 }
 /* About Branch: the engine's version, and which kind of computer this is, from the browser. */
 function about() {
