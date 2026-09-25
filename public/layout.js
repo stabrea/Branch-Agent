@@ -11,6 +11,7 @@
 import { api, displayView, openConversation, ownerAtWindow, titles } from "/app.js";
 import { openPalette } from "/shell.js";
 import { t } from "/i18n.js";
+import { editing, sameCard } from "/same-card.js";
 import { changeAppearance, currentAppearance } from "/appearance.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
 import { DEFAULT_THEME, solid, surfaceOf, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
@@ -949,7 +950,11 @@ function moveCollab() {
     const node = panel.querySelector(`:scope > [data-part="${part}"]`);
     const host = $(slot);
     if (!node || !host) continue;
-    host.querySelector(`:scope > [data-part="${part}"]`)?.remove();
+    const was = host.querySelector(`:scope > [data-part="${part}"]`);
+    // Q207: a part drawn the same as the one already home is dropped, so an unchanged page stays quiet. One the owner
+    // is typing in stays too, until they leave the field (the refresh after that draws it again).
+    if (sameCard(was, node) || editing(was)) { node.remove(); continue; }
+    was?.remove();
     host.append(node);
   }
 }
@@ -1366,6 +1371,7 @@ function watchWork() {
   if (plan) new MutationObserver(sync).observe(plan, { attributes: true, attributeFilter: ["hidden"], childList: true, subtree: true });
   new MutationObserver(sync).observe($("lx-inbox-badge"), { attributes: true, attributeFilter: ["hidden"] });
   setInterval(() => { if (!document.hidden) void drawInbox(); }, 8000);
+  document.addEventListener("branch-runs-changed", () => void drawInbox()); // dogfood B10: a task seen starting or ending
 }
 
 /* ---------- keyboard and the buttons that used to open the long Settings page ---------- */

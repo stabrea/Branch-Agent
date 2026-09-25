@@ -20,7 +20,7 @@ const PATHS = {
   check: "M5 12l5 5 9-10",
 };
 /** The owner's setting, said as the mode it amounts to, for a conversation that follows it. */
-const PRESET_AS_MODE = { off: "full", "ask-before-changes": "ask", workspace: "auto" };
+const PRESET_AS_MODE = { off: "full", careful: "ask", "ask-before-changes": "ask", workspace: "auto" };
 const ORDER = ["auto", "ask", "plan", "full"];
 let state = null;
 /* A new conversation's choice before it is sent: undefined until picked, null for "follow my setting". */

@@ -854,3 +854,5 @@ new MutationObserver(() => {
 document.addEventListener("branch-run-finished", () => void loadRail());
 /* ...and a task that has just started puts its conversation there at once, marked as working (public/live-run.js). */
 document.addEventListener("branch-run-started", () => void loadRail());
+/* ...and so does one started or ended anywhere else, seen on the window's regular refresh (dogfood B10, public/app.js). */
+document.addEventListener("branch-runs-changed", () => void loadRail());

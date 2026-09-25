@@ -411,13 +411,17 @@ function authorize(
     throw new HttpError(403, "Origin rejected");
   if (request.headers["sec-fetch-site"] === "cross-site")
     throw new HttpError(403, "Cross-site request rejected");
-  const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
+  // A bare "Bearer" (the header's trailing space is trimmed on the way) carries no key at all.
+  const supplied = request.headers.authorization?.replace(/^Bearer(?: |$)/, "") ?? "";
   const correct =
     supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
   const from = requestSource(request.socket?.remoteAddress, request.headers);
   // The right key is checked first and clears the count at once, so the owner's own app can never
   // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
   if (correct) { limits?.limiter.succeed(from); return; }
+  // Dogfood E7: no key is no guess. The window asks for its data before it is signed in; counting those
+  // made this computer wait (429) for its own scripts' keys and wrote a false "wrong tries" line.
+  if (!supplied) throw new HttpError(401, "Local session token required");
   const waiting = limits?.limiter.refusal(from, "key");
   if (waiting) throw new HttpError(429, waiting);
   const refusal = supplied && scoped ? scoped(supplied) : "Local session token required";
@@ -488,6 +492,7 @@ async function staticFile(
     // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
     "/heartbeat.js": ["heartbeat.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
+    "/same-card.js": ["same-card.js", "text/javascript; charset=utf-8"],
     "/mcp-workbench.js": ["mcp-workbench.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
@@ -624,6 +629,7 @@ async function staticFile(
     "/settings-describe.js": ["settings-describe.js", "text/javascript; charset=utf-8"],
     "/settings-descriptions.js": ["settings-descriptions.js", "text/javascript; charset=utf-8"],
     "/first-run-next.js": ["first-run-next.js", "text/javascript; charset=utf-8"],
+    "/onboarding.js": ["onboarding.js", "text/javascript; charset=utf-8"],
     // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
     // mac3/security-check: the security self-check card.
@@ -1884,6 +1890,7 @@ async function api(
       ...(input.plan !== undefined ? { plan: input.plan } : {}),
       ...(input.verify !== undefined ? { verify: input.verify } : {}),
       ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
+      ...(input.reasoning && !input.sessionId ? { conversationReasoning: input.reasoning } : {}),
       onUserMessageId: (id) => { userMessageId = id; },
     });
     return userMessageId !== undefined ? { ...run, userMessageId } : run;

@@ -5,6 +5,7 @@
  * services, groups people, and shares a conversation for reading or for joining in.
  */
 import { t } from "/i18n.js";
+import { drawnFrom, swapCard } from "/same-card.js";
 
 const el = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -259,9 +260,8 @@ export async function drawPeopleAdmin() {
   let state, sessions = [];
   try { state = await api("people/settings"); } catch { return; }
   try { sessions = (await api("sessions?limit=50")).sessions ?? []; } catch { /* no conversations to offer */ }
-  const open = document.getElementById("people-signin-admin");
-  const next = buildCard(state, sessions);
-  if (open) open.replaceWith(next); else document.body.append(next);
+  // Q207: a card drawn from the same settings and conversations, looking the same, stays put.
+  swapCard(document.getElementById("people-signin-admin"), drawnFrom(buildCard(state, sessions), [state, sessions]));
 }
 
 if (typeof document !== "undefined") {

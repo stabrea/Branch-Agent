@@ -2,6 +2,7 @@
 // hours, and the people who share this computer. app.js imports this and hands over the current
 // state plus its own small helpers, so nothing here depends on globals.
 import { t } from "./i18n.js"; // relative, so a test can import this file too; the same /i18n.js in the page
+import { drawnFrom } from "./same-card.js";
 
 /** Builds the panel shown under Schedules. `helpers` supplies el, api, toast and refresh. */
 export function showCollab(state, given) {
@@ -10,13 +11,13 @@ export function showCollab(state, given) {
   const panel = helpers.el("div", undefined, "collab-panel");
   /* Each part is named, so the window can show it where it belongs (public/layout.js). */
   const parts = [
-    ["labels", labelsSection(collab.labels ?? [], helpers)],
-    ["workflows", workflowsSection(collab.workflows ?? [], helpers)],
-    ["queue", queueSection(collab.queue ?? { waiting: [], settings: { atOnce: 3 } }, helpers)],
-    ["days-off", daysOffSection(collab.calendar ?? { settings: {}, countries: [] }, helpers)],
-    ["shares", sharesSection(collab.shares ?? [], helpers)],
-    ["people", peopleSection(collab.profile ?? { all: [], active: null, isOwner: true }, helpers)],
-  ];
+    ["labels", labelsSection, collab.labels ?? []],
+    ["workflows", workflowsSection, collab.workflows ?? []],
+    ["queue", queueSection, collab.queue ?? { waiting: [], settings: { atOnce: 3 } }],
+    ["days-off", daysOffSection, collab.calendar ?? { settings: {}, countries: [] }],
+    ["shares", sharesSection, collab.shares ?? []],
+    ["people", peopleSection, collab.profile ?? { all: [], active: null, isOwner: true }],
+  ].map(([name, draw, data]) => [name, drawnFrom(draw(data, helpers), data)]); // Q207: what each part was drawn from
   for (const [name, node] of parts) {
     node.dataset.part = name;
     panel.appendChild(node);

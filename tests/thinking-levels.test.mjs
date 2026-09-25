@@ -141,6 +141,18 @@ test("K4 a conversation's list follows its own model, and a per-model level offe
   assert.deepEqual(errors, []);
 });
 
+test("dogfood B17: before a first message the chip names the level a new conversation starts at (NAS d660ff8)", async (t) => {
+  const { page, errors, app } = await fixture(t);
+  // Settings › Models › Thinking is "high" in the fixture; the model's own level is none.
+  app.runtime.models.configure(app.runtime.owner, { activePreset: "think-claude" });
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.waitForFunction(() => /^claude-sonnet-4-5/.test(document.getElementById("lx-model-chip")?.innerText.trim() ?? ""));
+  assert.equal((await page.locator("#lx-model-chip").innerText()).trim(), "claude-sonnet-4-5 · Thorough",
+    "the workspace's Thinking, which the first reply will use, not the model's own (none)");
+  assert.deepEqual(errors, []);
+});
+
 test("K5 dogfood B9: the model chip carries the thinking level, chosen from its menu, and the long row is not drawn", async (t) => {
   const { page, errors, server } = await fixture(t);
   const call = (path, body) => fetch(new URL(path, server.url), { method: body ? "POST" : "GET",
@@ -157,7 +169,9 @@ test("K5 dogfood B9: the model chip carries the thinking level, chosen from its 
   await page.evaluate(() => globalThis.branchRefreshSessionModel());
   await page.waitForFunction(() => document.querySelectorAll("#session-reasoning option").length === 4);
   assert.equal(await page.locator("#model-controls").isVisible(), false, "the row of labelled selects is not drawn");
-  assert.doesNotMatch(await page.locator("#lx-model-chip").innerText(), /·/, "at the workspace's own level the chip names only the model");
+  // Dogfood B17 (the owner): the chip names the level even when it is the default, here the workspace's Thorough.
+  assert.equal((await page.locator("#lx-model-chip").innerText()).trim(), "claude-sonnet-4-5 · Thorough",
+    "at the workspace's own level the chip names that level too");
   const balanced = await page.locator('#session-reasoning option[value="medium"]').innerText();
   await page.locator("#lx-model-chip").click();
   const menu = page.locator("#lx-model-menu");
@@ -170,5 +184,10 @@ test("K5 dogfood B9: the model chip carries the thinking level, chosen from its 
   await page.waitForFunction(() => /· Balanced$/.test(document.getElementById("lx-model-chip")?.innerText.trim() ?? ""));
   assert.equal((await page.locator("#lx-model-chip").innerText()).trim(), "claude-sonnet-4-5 · Balanced",
     "the chip says the model and the short word for how hard it thinks (NAS 62efb38)");
+  // A model that takes no level is never named with one, whatever the default is.
+  await call(`/api/sessions/${sessionId}/model`, { preset: "think-local", reasoning: null });
+  await page.evaluate(() => globalThis.branchRefreshSessionModel());
+  await page.waitForFunction(() => /^llama3\.1:8b/.test(document.getElementById("lx-model-chip")?.innerText.trim() ?? ""));
+  assert.equal((await page.locator("#lx-model-chip").innerText()).trim(), "llama3.1:8b", "no level for a model that takes none");
   assert.deepEqual(errors, []);
 });
