@@ -12,7 +12,7 @@ import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { askerOf, runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
 import { personalHold } from "./personal/guard.js"; // R17-C integration review
-import { settingsHold, settingsPreview } from "./settings-kit/tools.js";
+import { settingsChangeReason, settingsHold, settingsPreview } from "./settings-kit/tools.js";
 import { conversationCarrier, outsideSourceOf, type OutsideSource } from "./outside-origin.js"; // mac7/outside-resume
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
@@ -185,6 +185,8 @@ export interface PolicyCheck {
   needsCode?: boolean;
   /** FQ-execution.browser: a yes to this is once-only and cannot be remembered as a standing rule. */
   onceOnly?: boolean;
+  /** Dogfood E2: the label already says, in words, each change the call makes (Q50), so the question leaves out the target. */
+  worded?: boolean;
 }
 /** What the approval gate decided: what to hand back instead of running, and how to hold the program. */
 interface GateOutcome {
@@ -2808,12 +2810,14 @@ ${run.output.slice(0, 6000)}`;
     const answered = decision === "ask" && !hold?.onceOnly
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact || unkeyed) : undefined;
     // Q50: a change to Branch's own settings is asked about with its exact before and after.
-    const preview = settingsPreview(this.store, tool, args, context, this.registry);
+    const previewed = settingsPreview(this.store, tool, args, context, this.registry);
+    const preview = previewed?.text ?? null, worded = !!previewed?.named;
     const shown = preview ? `${label}: ${preview}` : label;
+    const why = worded && hold?.reason === settingsChangeReason ? null : hold?.reason;
     const noted = extra.note ? `${shown} — ${extra.note}` : shown; // mac7/r17-g
-    return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
+    return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : why ? `${noted}. ${why}` : noted, target, readOnly,
       remember: hold?.onceOnly ? "never" : extra.exact || this.registry.noStandingTarget(tool, target) ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
-      sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}), ...(hold?.onceOnly ? { onceOnly: true } : {}) };
+      sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}), ...(hold?.onceOnly ? { onceOnly: true } : {}), ...(worded ? { worded: true } : {}) };
   }
   /**
    * mac7/walk-rules: what a tool that walks a folder may list or read, entry by entry (src/walk-rules.ts):
@@ -3004,7 +3008,7 @@ ${run.output.slice(0, 6000)}`;
     const fingerprint = argumentFingerprint(call.arguments);
     // Wave mac3 (tool-safety): a second model may look at a risky or unknown call first; it can only
     // make the answer stricter, or confirm that a tool which does not say only reads (src/approval-reviewer.ts).
-    const { decision: ruled, label, target, readOnly, remember, sandbox, backend, paths, reason } =
+    const { decision: ruled, label, target, readOnly, remember, sandbox, backend, paths, reason, worded } =
       await reviewCall(this, this.checkPolicy(call.name, args, context, fingerprint), { call: shown, args, context, fingerprint });
     const held = { sandbox, backend, paths };
     if (context.dryRun && !readOnly) {
@@ -3032,7 +3036,7 @@ ${run.output.slice(0, 6000)}`;
     }
     const source: RunSource = this.sourceOf(context); // mac7/outside-resume
     const asked = verdict?.reason ? `${label} — ${verdict.reason}` : label;
-    return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox,
+    return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox, worded,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
       bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint, files: this.cardFiles(call.name, args, context) }, call.id);
@@ -3091,7 +3095,7 @@ ${run.output.slice(0, 6000)}`;
   private askApproval(
     context: ToolContext,
     about: {
-      tool: string; label: string; target: string; source: RunSource; remember: PolicyRemember;
+      tool: string; label: string; target: string; source: RunSource; remember: PolicyRemember; worded?: boolean | undefined;
       /** How tightly the rule wants the program held, so the card can say it before the yes. */
       sandbox?: SandboxChoice | null;
       /** The exact request the person is shown, and the fingerprint their yes is bound to. */
@@ -3107,7 +3111,10 @@ ${run.output.slice(0, 6000)}`;
     // A saved password or key can end up inside a command the assistant wants to run. The question
     // is shown on screen and kept in memory, so take the secrets back out here, once, for everyone.
     const label = this.hideSecrets(about.label), target = this.hideSecrets(about.target);
-    const question = about.question ? this.hideSecrets(about.question) : approvalQuestion(label, target);
+    // Dogfood E2: a change to Branch's own settings that the label already says in words (Q50) leaves out the same
+    // change written as setting ids ("workspace-editor.mode → on"). Mac mini's review: only when the words named it,
+    // so an undo, or a setting that does not exist, still says what it is about.
+    const question = about.question ? this.hideSecrets(about.question) : approvalQuestion(label, about.worded ? "" : target);
     const sessionId = this.sessionOf(context);
     // A conversation can genuinely stop on more than one thing at once, so the question joins the
     // list rather than taking the place of whatever was already there. Only when the list is full
