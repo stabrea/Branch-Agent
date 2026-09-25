@@ -1,7 +1,8 @@
 // Verifies the shell and sidebar controls made live on claude/rw3-shell, against a running engine: each control is
 // clicked in the real window and the change is read back from the engine's own GET route (or, for the background file
 // the engine never sees, from the window's own storage). Page errors are recorded and must be zero.
-// Prepare a throwaway engine first (it makes Trunks, a room and a node, and changes settings):
+// Prepare a throwaway engine first: it makes Trunks, a room and a node, switches on the command catalog and
+// session-commands (so /bg runs), and changes shortcuts, names and background settings:
 //   BRANCH_DATA_DIR=<fresh dir> BRANCH_WORKSPACE=<fresh dir> node design/redesign/tools/seed-shell.mjs
 //   BRANCH_DATA_DIR=<same> BRANCH_WORKSPACE=<same> BRANCH_PORT=<port> node dist/cli.js start
 // Run: PORT=<port> TOKEN=<session token> node design/redesign/tools/verify-shell3.cjs
@@ -181,6 +182,32 @@ async function keys(page) {
   await page.keyboard.press("Escape");
 }
 
+/* The side panel's key lives in chat/pane.js, which reads the same bindings. */
+async function paneKey(page, fx) {
+  await page.click(`#side .row[data-id="${fx.seeded.sessionId}"]`);
+  await page.waitForTimeout(500);
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press("?");
+  await page.click('.dlg [data-act="key15"][data-v="sidePane"]');
+  await page.keyboard.press("Control+Alt+J");
+  const saved = await until(async () => (await api("comfort")).values.keys.sidePane === "Ctrl+Alt+J");
+  await page.click('.dlg [data-act="dlg-close"]');
+  const open = () => page.evaluate(() => !document.getElementById("pane")?.hidden);
+  const before = await open();
+  await page.keyboard.press("Control+Shift+K");
+  await page.waitForTimeout(300);
+  const oldKey = (await open()) !== before;
+  await page.keyboard.press("Control+Alt+J");
+  await page.waitForTimeout(300);
+  const newKey = (await open()) !== before;
+  await page.keyboard.press("Control+Alt+J");
+  await page.keyboard.press("?");
+  await page.click('.dlg [data-act="keyreset15"][data-v="sidePane"]');
+  const back = await until(async () => (await api("comfort")).values.keys.sidePane === "Ctrl+Shift+K");
+  await page.click('.dlg [data-act="dlg-close"]');
+  check("key15 (side panel)", !!saved && !oldKey && newKey && !!back, "GET /api/comfort sidePane is Ctrl+Alt+J; Ctrl+Shift+K no longer toggles the side panel, Ctrl+Alt+J does; put back to Ctrl+Shift+K");
+}
+
 async function ownBackground(page) {
   await page.click('#side [data-act="view"][data-v="settings"]');
   await page.click('[data-act="setpage"][data-v="appearance"]');
@@ -223,6 +250,7 @@ async function ownBackground(page) {
     await pinRename(page, fx, stamp);
     await machines(page, fx, stamp);
     await keys(page);
+    await paneKey(page, fx);
     await ownBackground(page);
   } catch (error) {
     check("script", false, error.message.split("\n")[0]);
