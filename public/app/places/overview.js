@@ -21,7 +21,7 @@ function nowTile() {
   const waiting = (E.state.trunkWaiting?.length || 0) + (E.state.attention?.length || 0);
   let html = `<div class="tile"><h2>Now</h2>`;
   if (!running.length) html += `<p>Nothing is running right now.</p>`;
-  else running.slice(0, 3).forEach(r => html += `<div class="row" data-act="chat" data-id="${esc(r.sessionId || "")}"><span class="avw">${av({}, 34)}</span><div class="inf"><b>${esc(r.prompt?.split("\n")[0]?.slice(0, 40) || "Task")}</b></div></div>`);
+  else running.slice(0, 3).forEach(r => html += `<div class="row" data-act="chat" data-id="${esc(r.sessionId || "")}"><span class="avw">${av({}, 34)}</span><div class="inf"><b>${esc(r.prompt?.split("\n")[0]?.slice(0, 40) ?? "")}</b></div></div>`);
   html += `<div class="acts">${waiting ? `<button class="btn pri sm" type="button" data-act="view" data-v="inbox">Answer ${waiting} waiting</button>` : `<span class="pill done"><i></i>Nothing waiting</span>`}</div></div>`;
   return html;
 }
@@ -47,7 +47,7 @@ function spendTile() {
   priced.forEach(r => {
     const cost = r.cost.amount;
     total += cost;
-    const firstLine = r.prompt?.split("\n")[0]?.slice(0, 30) || "Task";
+    const firstLine = r.prompt?.split("\n")[0]?.slice(0, 30) ?? "";
     byTrunk[firstLine] = (byTrunk[firstLine] || 0) + cost;
   });
   const sorted = Object.entries(byTrunk).sort((a, b) => b[1] - a[1]).slice(0, 3);
@@ -69,14 +69,14 @@ function recentTile() {
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-    html += `<div data-css="display:flex;align-items:center;gap:8px;font-size:13px">${av({}, 20)}<span data-css="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.prompt?.split("\n")[0]?.slice(0, 50) || "Task")}</span><span data-css="font:12px var(--mono);color:var(--ink-3)">${durationStr}</span></div>`;
+    html += `<div data-css="display:flex;align-items:center;gap:8px;font-size:13px">${av({}, 20)}<span data-css="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.prompt?.split("\n")[0]?.slice(0, 50) ?? "")}</span><span data-css="font:12px var(--mono);color:var(--ink-3)">${durationStr}</span></div>`;
   });
   html += `<div class="acts"><button class="btn sm" type="button" data-act="ptab" data-place="inbox" data-v="history">All history</button></div></div>`;
   return html;
 }
 
 function controlsTile() {
-  const mode = conversationMode?.following?.label || "Ask first";
+  const mode = conversationMode?.following?.label ?? "";
   return `<div class="tile"><h2>Controls</h2><p>Mode: <b data-css="font-weight:600">${esc(mode)}</b> · <button class="link" type="button" data-act="setgo" data-v="permissions">change</button></p><div class="acts"><button class="btn bad sm" type="button" data-act="lock">Lockdown</button><button class="btn sm" type="button" data-act="pauseall">Pause all Trunks</button></div></div>`;
 }
 
@@ -86,16 +86,17 @@ function usersTile() {
 }
 
 function milestonesTile() {
-  if (!achievements || !achievements.length) return "";
-  const shown = achievements.slice(0, 3);
-  const count = shown.filter(a => a.earned).length;
-  const total = achievements.length;
+  /* GET /api/delight/achievements: the ones earned first, then the next ones it names, four in all. */
+  const list = (achievements?.list ?? []).filter((a) => a.name && a.name !== "???");
+  const shown = [...list.filter((a) => a.got), ...list.filter((a) => !a.got)].slice(0, 4);
+  if (!shown.length) return "";
+  const count = shown.filter((a) => a.got).length;
   let html = `<div class="tile"><h2>Milestones</h2><div class="badges">`;
-  shown.forEach(a => {
-    const cls = a.earned ? "" : "locked";
-    html += `<span class="badge ${cls}" title="${esc(a.title || "")}"><span class="bi">${ic("star", "s")}</span>${esc(a.title?.slice(0, 20) || "")}</span>`;
+  shown.forEach((a) => {
+    const tip = a.got ?? (typeof a.now === "number" ? `${a.now} of ${a.goal}` : "");
+    html += `<span class="badge ${a.got ? "" : "locked"}" title="${esc(tip)}"><span class="bi">${ic(a.got ? "star" : "lock", "s")}</span>${esc(a.name)}</span>`;
   });
-  html += `</div><p>${count} of ${total}. Just for fun.</p></div>`;
+  html += `</div><p>${count} of ${shown.length}. Just for fun.</p></div>`;
   return html;
 }
 

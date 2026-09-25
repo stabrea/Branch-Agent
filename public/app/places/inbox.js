@@ -1,17 +1,27 @@
 /* Inbox: approvals, finished tasks, history - matches reference place-inbox-*.html.
    "Needs you" lists two kinds of request, each answered only by its own route: a task waiting on a yes (GET /api/policy;
    Allow names it by session and fingerprint, the chat’s exact-match "ask"), and a message one Trunk wants to send
-   another (state.trunkWaiting; POST /api/trunks/messages/<id>/answer or /decline). */
+   another (state.trunkWaiting; POST /api/trunks/messages/<id>/answer or /decline).
+   Above every tab: each task Branch closed on that can be continued (state.attention with canContinue), picked up with
+   POST /api/runs/<id>/resume or left with POST /api/runs/<id>/cancel. At the bottom of "Needs you": each request to change
+   Branch itself (GET /api/self-development/requests); its review shows the request, and answering it stays greyed.
+   History's "Verify" walks the activity chain (POST /api/safety-extras/activity/verify) and shows what the engine found. */
 
-import { esc, renderNow } from "../core/dom.js";
-import { S, E, refresh } from "../core/state.js";
-import { ic, av, toast } from "../core/ui.js";
+import { $, esc, renderNow } from "../core/dom.js";
+import { S, E, refresh, level } from "../core/state.js";
+import { ic, av, toast, openDlg, dialog } from "../core/ui.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { openConversation } from "../chat/chat.js";
 
 let asks = [];
+let changeRequests = [];
+let chain = null;
 const trunkName = (id) => (Array.isArray(E.trunks) ? E.trunks : []).find((t) => t.id === id || t.name === id)?.name ?? id ?? "";
+const firstLine = (text) => String(text ?? "").split("\n")[0].slice(0, 60);
+const runById = (id) => (E.state.runs ?? []).find((r) => r.id === id);
+const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
 
 function askRow(q) {
   return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(q.question || q.label || "")}</b><small>${esc([trunkName(q.trunk), q.question ? q.label : q.target].filter(Boolean).join(" · "))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(q.sessionId)}">Open</button><button class="btn pri sm" type="button" data-act="ask" data-v="allow" data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}">Allow</button></div>`;
@@ -20,6 +30,19 @@ function messageRow(m) {
   return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(m.message)}</b><small>${esc(trunkName(m.from))} → ${esc(trunkName(m.to))}</small></span><button class="btn ghost sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="decline">Don’t</button><button class="btn pri sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="answer">Allow</button></div>`;
 }
 
+/* A task Branch closed on, from the engine's attention list; its name is the task's own first line. */
+function cutCard(a) {
+  const trunk = a.who ? (Array.isArray(E.trunks) ? E.trunks : []).find((t) => t.name === a.who) : null;
+  const name = firstLine(runById(a.runId)?.prompt) || a.question;
+  return `<div class="cut15" role="status">${trunk ? av(trunk, 30) : av({ kind: "main" }, 30)}<span class="grow"><b>Pick up what the update cut off</b><small>${esc(name)}</small></span><button class="btn ghost sm" type="button" data-act="cutno15" data-id="${esc(a.runId)}">Leave it</button><button class="btn pri sm" type="button" data-act="cutgo15" data-id="${esc(a.runId)}" data-sid="${esc(a.sessionId)}">Pick it up</button></div>`;
+}
+const cutCards = () => (E.state.attention ?? []).filter((a) => a.canContinue).map(cutCard).join("");
+
+function selfCard(r) {
+  return `<div class="self15"><span class="ico-tile">${ic("branch", "s")}</span><span class="grow"><b>Branch wants to improve itself</b><small>${esc(firstLine(r.text))} · waiting for you</small></span><button class="btn sm" type="button" data-act="selfrev15" data-id="${esc(r.id)}">Review</button></div>`;
+}
+const waitingChanges = () => changeRequests.filter((r) => r.status === "waiting");
+
 function needsTab() {
   const count = asks.length + E.state.trunkWaiting.length;
   let html = `<div class="rows">`;
@@ -27,29 +50,26 @@ function needsTab() {
   html += asks.map(askRow).join("");
   html += E.state.trunkWaiting.map(messageRow).join("");
   html += `</div>`;
-  return html;
+  return html + waitingChanges().map(selfCard).join("");
 }
 
 function finishedTab() {
-  const finished = E.state.runs?.filter(r => r.status === "completed") || [];
-  let html = `<div class="rows">`;
-  html += finished.slice(0, 20).map(r => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(r.prompt?.split("\n")[0]?.slice(0, 50) || "Task")}</b><small>${esc(r.sessionId || "")}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(r.sessionId || "")}">Open</button></div>`).join("");
-  html += `</div>`;
-  return html;
+  const finished = E.state.runs?.filter((r) => r.status === "completed") || [];
+  const rows = finished.slice(0, 20).map((r) => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(firstLine(r.output))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(r.sessionId || "")}">Open</button></div>`);
+  return `<div class="rows">${rows.join("")}</div>`;
 }
 
+function duration(r) {
+  const secs = r.updatedAt && r.createdAt ? Math.round((new Date(r.updatedAt).getTime() - new Date(r.createdAt).getTime()) / 1000) : 0;
+  return secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
+}
 function historyTab() {
-  const history = E.state.runs || [];
-  let html = `<div class="rows"><div class="nl"><input class="inp" id="histq" placeholder="Search what ran" value="" aria-label="Search history"><button type="button" class="rec15" data-act="verify15" data-tip="Every entry is linked to the one before it, so a removed or rewritten entry shows."><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l7 2.8v5.2c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6.3z"></path><path d="M8.8 12.2l2.2 2.2 4.2-4.4"></path></svg><span>Record intact</span><u>Verify</u></button></div>`;
-  html += history.slice(0, 50).map(r => {
-    const duration = r.updatedAt && r.createdAt ? Math.round((new Date(r.updatedAt).getTime() - new Date(r.createdAt).getTime()) / 1000) : 0;
-    const mins = Math.floor(duration / 60);
-    const secs = duration % 60;
-    const durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-    return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(r.prompt?.split("\n")[0]?.slice(0, 50) || "Task")}</b><small>${esc(r.sessionId || "")}</small></span><span class="meta">${durationStr} · ${esc(typeof r.cost?.amount === "number" ? "$" + r.cost.amount.toFixed(2) : r.cost?.display ?? "")}</span><button class="btn ghost sm" type="button" data-act="toast" data-msg="Plays the task back step by step.">Watch again</button></div>`;
-  }).join("");
-  html += `</div>`;
-  return html;
+  const verify = `<button type="button" class="rec15" data-act="verify15" data-tip="Every entry is linked to the one before it, so a removed or rewritten entry shows.">${ic("shield15", "s")}<span>${chain?.ok ? "Record intact" : ""}</span><u>Verify</u></button>`;
+  const rows = (E.state.runs || []).slice(0, 50).map((r) => {
+    const cost = typeof r.cost?.amount === "number" ? "$" + r.cost.amount.toFixed(2) : r.cost?.display ?? "";
+    return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(when(r.createdAt))}</small></span><span class="meta">${[duration(r), cost].filter(Boolean).map(esc).join(" · ")}</span><button class="btn ghost sm" type="button" data-act="toast" data-msg="Plays the task back step by step.">Watch again</button></div>`;
+  });
+  return `<div class="rows"><div class="nl"><input class="inp" id="histq" placeholder="Search what ran" value="" aria-label="Search history">${verify}</div>${rows.join("")}</div>`;
 }
 
 export function draw() {
@@ -63,30 +83,82 @@ export function draw() {
     <h1>Inbox</h1><p class="lede">Everything a Trunk is waiting on you for, what finished, and a record of what ran.</p>
     <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === "needs" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="needs">Needs you<span class="n">${count}</span></button><button class="tab" role="tab" type="button" aria-selected="${tab === "finished" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="finished">Finished</button><button class="tab" role="tab" type="button" aria-selected="${tab === "history" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="history">History</button></div>`;
 
-  if (tab === "needs") {
-    html += needsTab();
-  } else if (tab === "finished") {
-    html += finishedTab();
-  } else if (tab === "history") {
-    html += historyTab();
-  }
+  html += cutCards();
+  if (tab === "needs") html += needsTab();
+  else if (tab === "finished") html += finishedTab();
+  else if (tab === "history") html += historyTab();
 
   html += `</div></div></main>`;
   return html;
 }
 
-/* After a draw: re-read the tasks waiting on a yes, and draw again only if the list changed. */
+/* A refusal while re-reading is said once, not on every redraw, and the list it was for is drawn empty. */
+const said = new Set();
+function sayOnce(error) {
+  if (!said.has(error.message)) { said.add(error.message); toast(error.message); }
+  return {};
+}
+
+/* After a draw: re-read what the tab shows from the engine, and draw again only if it changed. */
 export async function after() {
-  const fresh = (await api("policy").catch(() => ({}))).waiting ?? [];
+  const tab = S.tabs.inbox || "needs";
+  let changed = false;
+  const fresh = (await api("policy").catch(sayOnce)).waiting ?? [];
   const key = (list) => list.map((q) => q.sessionId + q.fingerprint).join();
-  if (key(fresh) !== key(asks)) { asks = fresh; renderNow(); }
+  if (key(fresh) !== key(asks)) { asks = fresh; changed = true; }
+  if (tab === "needs") {
+    const requests = (await api("self-development/requests").catch(sayOnce)).requests ?? [];
+    if (JSON.stringify(requests) !== JSON.stringify(changeRequests)) { changeRequests = requests; changed = true; }
+  }
+  if (tab === "history" && !chain) {
+    try { chain = (await api("safety-extras/activity/verify", {})).check; changed = true; } catch (error) { toast(error.message); chain = { ok: false }; }
+  }
+  if (changed) renderNow();
+}
+
+/* Checking the record: the engine walks the whole chain and answers whether it is unbroken, and where not. */
+async function verifyRecord() {
+  openDlg({ title: "Checking the record", body: `<div class="ver15"><div class="ver-ring15"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="27"/><circle class="ver-arc15" cx="32" cy="32" r="27" pathLength="100"/></svg>${ic("shield15")}</div><b id="ver-t15"></b><p class="hint" id="ver-s15">Each entry carries a fingerprint of the one before it.</p></div>`, foot: '<button class="btn" type="button" data-act="dlg-close">Close</button>' });
+  let check;
+  try { check = (await api("safety-extras/activity/verify", {})).check; } catch (error) { toast(error.message); return; }
+  chain = check;
+  const box = dialog()?.querySelector(".ver15");
+  if (!box) return renderNow();
+  box.classList.toggle("ok15", check.ok);
+  $("#ver-t15").textContent = check.ok ? "Record intact" : check.reason;
+  $("#ver-s15").innerHTML = `${check.ok ? esc(check.reason) : ""}${level() >= 2 ? `<br><code>chain head ${esc(String(check.tip).slice(0, 4))}…${esc(String(check.tip).slice(-4))} · sha-256</code>` : ""}`;
+  renderNow();
+}
+
+/* The request as it was sent, who sent it and from which app; answering it needs the owner's contract terms and stays greyed. */
+function reviewChange(id) {
+  const r = changeRequests.find((x) => x.id === id);
+  if (!r) return;
+  const stages = [["Approve the edits"], ["Publish a draft pull request"]].map(([t], i) => `<li class="${i === 0 ? "now" : ""}"><em>${i + 1}</em>${t}</li>`).join("");
+  openDlg({ title: "A change to Branch’s own code", wide: true,
+    body: `<p data-css="margin:0 0 10px">${esc(r.text)}</p><p class="hint">${esc([r.from?.senderName, r.from?.channel, when(r.at)].filter(Boolean).join(" · "))}</p>${r.problem ? `<p class="hint">${esc(r.problem)}</p>` : ""}<ol class="stages15">${stages}</ol>`,
+    foot: `<button class="btn ghost" type="button" data-act="selfdo15" data-v="gone" data-id="${esc(r.id)}">Decline</button><button class="btn pri" type="button" data-act="selfdo15" data-v="editing" data-id="${esc(r.id)}">Approve the edits</button>` });
 }
 
 export function init() {
-  markLive(["ptab", "chat", "tmsg"]);
+  markLive(["ptab", "chat", "tmsg", "cutgo15", "cutno15", "verify15", "selfrev15"]);
   on("tmsg", async (el) => {
     try { await api(`trunks/messages/${encodeURIComponent(el.dataset.id)}/${el.dataset.v === "answer" ? "answer" : "decline"}`, {}); } catch (error) { toast(error.message); }
-    await refresh().catch(() => {});
+    await refresh().catch((error) => toast(error.message));
     renderNow();
   });
+  /* Continues the task from its saved transcript in its own conversation; the engine answers once it has run. */
+  on("cutgo15", (el) => {
+    const run = api(`runs/${encodeURIComponent(el.dataset.id)}/resume`, {});
+    openConversation(el.dataset.sid);
+    run.catch((error) => toast(error.message)).finally(() => refresh().catch((error) => toast(error.message)));
+  });
+  /* Leaving it ends the task, so the card does not come back. */
+  on("cutno15", async (el) => {
+    try { await api(`runs/${encodeURIComponent(el.dataset.id)}/cancel`, {}); } catch (error) { toast(error.message); }
+    await refresh().catch((error) => toast(error.message));
+    renderNow();
+  });
+  on("verify15", () => verifyRecord());
+  on("selfrev15", (el) => reviewChange(el.dataset.id));
 }

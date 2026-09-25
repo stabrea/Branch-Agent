@@ -10,6 +10,7 @@ import { head as chatHead, openConversation, startConversation } from "../chat/c
 import { statusItems } from "../chat/messages.js";
 import { initExtras } from "./extras.js";
 import { initUsage } from "./usage.js";
+import { initCelebrate } from "./celebrate.js";
 import { api, link } from "../core/api.js";
 import { SQ, searchHTML, askEngine, initSearch } from "./search.js";
 import { loadLook, applyLook, savePrefs } from "./look.js";
@@ -152,6 +153,7 @@ export function initShell() {
   document.addEventListener("keydown", (e) => { if (e.target.id === "side-q" && e.key === "Escape") { SQ.q = ""; e.target.blur(); renderNow(); } });
   initExtras();
   initUsage();
+  initCelebrate();
   initSearch();
   initThemes();
   initPalette();

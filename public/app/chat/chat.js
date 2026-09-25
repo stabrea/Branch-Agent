@@ -18,6 +18,8 @@ import { dockRow, initBg } from "./bg.js";
 import { mediaRows, initMedia } from "./media.js";
 import { besideWrap, rosterButton, initBeside } from "./beside.js";
 import { msgActs, pinnedClass, pinsBar, queueRow, loadExtras, initMessages } from "./messages.js";
+import { rememberCards, initRemember } from "./remember.js";
+import { goalStrip, loadGoal, initGoal } from "./goal.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -67,7 +69,7 @@ function thread() {
   const asks = C.waiting.filter((q) => q.sessionId === C.sessionId).map(askCard);
   const think = C.sending && C.thinking ? `<div class="think">${ic("spark", "s")}<span>${esc(C.thinking)}</span></div>` : "";
   const typing = C.sending ? `<div class="b"><div class="gut">${av({ kind: "main" }, 28)}</div><div>${think || '<span class="typing" aria-label="Typing"><i></i><i></i><i></i></span>'}</div></div>` : "";
-  return rows.join("") + asks.join("") + typing;
+  return rows.join("") + rememberCards(C.sessionId) + asks.join("") + typing;
 }
 
 function composer() {
@@ -86,7 +88,7 @@ export const sendingPrompt = () => (C.sending && !C.sessionId ? C.prompt : null)
 
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
-  return `${narrowHead}${findBar()}${pinsBar()}${besideWrap(`<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
+  return `${narrowHead}${findBar()}${pinsBar()}${besideWrap(`<div class="scroll" id="scroll">${goalStrip(C.sessionId)}<div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
 }
 export function after(main) {
   /* Newest at the bottom stays in view only while the reader is at the bottom; someone reading back keeps their place. */
@@ -99,6 +101,7 @@ export function after(main) {
   }
   applyFind();
   loadChips();
+  loadGoal(C.sessionId);
 }
 
 export async function openConversation(id) {
@@ -248,6 +251,8 @@ export function init() {
   initMedia();
   initBeside();
   initMessages({ state: () => C, sendText: (words) => send(words), reopen: openConversation });
+  initRemember();
+  initGoal();
   onRender(drawPane);
   markLive(["ask", "send", "side", "stop-run"]);
   on("stop-run", () => stopRun());
