@@ -157,6 +157,9 @@ export interface AccountHome { name: string; path: string }
 /** The program said it has reached its plan's limit. */
 export class ProgramLimitError extends Error { override name = "ProgramLimitError"; }
 const limitWords = /usage limit|rate limit|limit reached|quota exceeded|exceeded your (?:current )?quota|too many requests/i;
+/** The program said the account folder's sign-in is gone or refused (NAS's own-plans review): the owner signs in again. */
+export class ProgramSignInError extends Error { override name = "ProgramSignInError"; }
+const signInWords = /not logged in|please run \/login|log ?in again|sign ?in again|invalid api key|oauth token (?:has )?expired|authentication (?:failed|error)/i;
 // ---- end mac6/accounts ----
 
 export const runCliAgent: SpawnAgent = (row, prompt, signal, limits, home) =>
@@ -218,6 +221,8 @@ export class CliAgentProvider implements Provider {
     // mac6/accounts: only when an account folder is in use, so a single sign-in behaves as before.
     if (outcome.code !== 0 && (this.home || this.detectLimits) && limitWords.test(`${outcome.stderr}\n${outcome.stdout.slice(0, 4000)}`))
       throw new ProgramLimitError(`${this.row.name} says this account has reached its plan limit.`);
+    if (outcome.code !== 0 && this.home && signInWords.test(`${outcome.stderr}\n${outcome.stdout.slice(0, 4000)}`))
+      throw new ProgramSignInError(`${this.row.name} says this account needs signing in again.`);
     if (outcome.code !== 0)
       throw new Error(`${this.row.name} stopped with an error and said nothing Branch can pass on. Run it yourself to see why.`);
     const content = answerFrom(this.row, outcome.stdout);

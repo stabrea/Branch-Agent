@@ -130,7 +130,7 @@ test("U3 a sign-in list says once why sharing stopped, and an account can be mar
   const saved = accountsServiceFor(app.runtime.models).settings();
   assert.equal(saved.pools[0].accounts.find((account) => account.id === "abcd1234").keptSeparate, true);
   assert.deepEqual(saved.poolingNotices, [], "the notice is read once");
-  assert.match(await pool.innerText(), /It never moves between your own plans/, "the words beside the tick box say the rule");
+  assert.match(await pool.innerText(), /It moves between your own plans only if you also tick the switch below/, "the words beside the tick box say the rule");
   assert.equal(await pool.getByLabel(/Kept separate/).count(), 2, "every sign-in has the box");
   assert.deepEqual(errors, []);
 });

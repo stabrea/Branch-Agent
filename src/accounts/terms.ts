@@ -55,7 +55,7 @@ export function accountTerms(kind: AccountKind, pool: string): AccountTerms & { 
     : pool === "cli-copilot" ? [github] : [openai];
   return {
     key: termsKeys[kind],
-    text: "Each sign-in is one person's own account and is never shared with others on this computer. When an account reaches its plan limit Branch stops and asks you. Branch never switches between your own plans of one service by itself: providers treat that as abuse and may suspend the accounts. Only an account you mark kept separate (someone else's, or work's) may share work with yours.",
+    text: "Each sign-in is one person's own account and is never shared with others on this computer. When an account reaches its plan limit Branch stops and asks you. Branch moves between your own plans of one service only if you turn on that switch under sharing: providers may treat it as getting round their limits and suspend the accounts. An account you mark kept separate (someone else's, or work's) may share work with yours while sharing is on.",
     links,
   };
 }

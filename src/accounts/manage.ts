@@ -155,8 +155,12 @@ export function updatePool(service: AccountsService, input: unknown) {
   const settings = service.settings();
   const pool = poolOf(settings, asked.pool, kindOf(service, asked.pool), new Date(service.now()));
   if (asked.strategy) pool.strategy = asked.strategy;
+  // NAS's own-plans review: every refusal comes before anything is changed or written to the record.
+  if ((asked.autoSwitch !== undefined || asked.ownPlans !== undefined) && pool.kind === "api-key")
+    throw new Error("API keys always move to the next key; this choice is for sign-in accounts.");
+  if (asked.ownPlans && !(asked.autoSwitch ?? pool.autoSwitch))
+    throw new Error("Turn on sharing work between accounts first; moving between your own plans is part of it.");
   if (asked.autoSwitch !== undefined) {
-    if (pool.kind === "api-key") throw new Error("API keys always move to the next key; this choice is for sign-in accounts.");
     pool.autoSwitch = asked.autoSwitch;
     // NAS 204: the own-plans switch lives under sharing; turning sharing off turns it off too, so turning sharing on
     // again never brings back moving between the owner's own plans without its own tick.
@@ -164,8 +168,6 @@ export function updatePool(service: AccountsService, input: unknown) {
     note(service, pool.pool, "Sharing work between sign-in accounts was changed (see the terms line on the card)", asked.autoSwitch ? "on" : "off");
   }
   if (asked.ownPlans !== undefined) {
-    if (pool.kind === "api-key") throw new Error("API keys always move to the next key; this choice is for sign-in accounts.");
-    if (asked.ownPlans && !pool.autoSwitch) throw new Error("Turn on sharing work between accounts first; moving between your own plans is part of it.");
     pool.ownPlans = asked.ownPlans;
     note(service, pool.pool, "Moving work between the owner's own plans was changed (see the warning beside the switch)", asked.ownPlans ? "on" : "off");
   }

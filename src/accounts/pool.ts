@@ -50,6 +50,8 @@ export function httpFailure(error: unknown): ProviderHttpError | null {
  * service that is down fails the same way for every key, so moving on would not help).
  */
 export function failureFor(error: unknown, now: number): Failure | null {
+  // NAS's own-plans review: a program signed out of its account folder is refused, like a service's 401.
+  if (error instanceof Error && error.name === "ProgramSignInError") return { scope: "account", untilMs: now + restMs.refused, reason: "refused" };
   const failure = httpFailure(error);
   if (!failure) return null;
   const wait = failure.retryAfterMs;

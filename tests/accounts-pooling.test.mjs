@@ -523,3 +523,48 @@ test("P18 with own plans on, a picked plan at its limit is replaced by the plan 
   service.statesOf(POOL).get(second).limitedUntil = 0; // Second's limit resets
   assert.equal((await app.runtime.run({ prompt: "later", sessionId: session })).output, "from primary", "it stays on the plan that answered");
 });
+
+// NAS's review of e82be57b (MAJOR, test gap): the pooling rule clears own plans, for a list it stops and for one saved
+// with sharing already off (a crafted record, or a backup from e7424969).
+test("P19 bringing a list up to the rule turns own plans off with sharing", () => {
+  const base = (pools) => AccountsSettingsSchema.parse({ mode: "on", pools, poolingRule: 0 });
+  const two = [acct("primary"), acct("bbbbbbbb")];
+  const stopped = applyPoolingRule(base([{ pool: POOL, kind: "cli", accounts: two, autoSwitch: true, ownPlans: true }])).settings.pools[0];
+  assert.equal(stopped.autoSwitch, false);
+  assert.equal(stopped.ownPlans, false, "a list the rule stops keeps no own-plans switch");
+  const crafted = applyPoolingRule(base([{ pool: POOL, kind: "cli", accounts: two, autoSwitch: false, ownPlans: true }])).settings.pools[0];
+  assert.equal(crafted.ownPlans, false, "a list saved with sharing off and own plans on is brought back to off");
+});
+
+// NAS's review of e82be57b (LOW, older): the record said "sharing off" for a change that was then refused.
+test("P20 a refused own-plans change writes nothing, not even the sharing half, to the record", async (t) => {
+  const fx = await fixture(t);
+  const { app, service, owner } = fx;
+  program(fx, {});
+  setMode(service, { mode: "on" });
+  await addAccount(service, { pool: POOL, label: "Second" });
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  const before = app.store.audit.list(owner, { limit: 50 }).length;
+  assert.throws(() => updatePool(service, { pool: POOL, autoSwitch: false, ownPlans: true }), /Turn on sharing work between accounts first/);
+  assert.equal(app.store.audit.list(owner, { limit: 50 }).length, before, "nothing was recorded");
+  assert.equal((await viewAll(service)).pools.find((pool) => pool.pool === POOL).autoSwitch, true, "and sharing is still on");
+});
+
+// NAS's review of e82be57b (LOW, p197): a program signed out of its account folder is a refused sign-in too.
+test("P21 with own plans on, a plan whose program is signed out rests and the next plan answers", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner, service } = fx;
+  const outcomes = {};
+  program(fx, outcomes);
+  setMode(service, { mode: "on" });
+  const second = (await addAccount(service, { pool: POOL, label: "Second" })).accounts.at(-1).id;
+  const third = (await addAccount(service, { pool: POOL, label: "Third" })).accounts.at(-1).id;
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  updatePool(service, { pool: POOL, ownPlans: true });
+  outcomes.primary = limited;
+  outcomes[second] = { code: 1, stdout: "", stderr: "Not logged in · Please run /login" };
+  const session = app.store.createSession(owner);
+  assert.equal((await app.runtime.run({ prompt: "hello", sessionId: session })).output, `from ${third}`);
+  assert.equal((await app.runtime.run({ prompt: "again" })).output, `from ${third}`, "a new call skips the resting plan too");
+  assert.ok(service.statesOf(POOL).get(second).restUntil > 0, "the signed-out plan rests");
+});

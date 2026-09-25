@@ -56,7 +56,7 @@
   "accounts.switch.on": "On",
   "accounts.switch.when-needed": "When needed",
   "accounts.terms.api-key": "Add only keys you are entitled to use. When a key is refused or rate limited, Branch waits as long as the service asks before using that key again and tries your next key. Opening extra accounts only to get past a service's limits is against OpenAI's, Google's and other providers' terms.",
-  "accounts.terms.sign-in": "Each sign-in is one person's own account and is never shared with others on this computer. When an account reaches its plan limit Branch stops and asks you. Branch never switches between your own plans of one service by itself: providers treat that as abuse and may suspend the accounts. Only an account you mark kept separate (someone else's, or work's) may share work with yours.",
+  "accounts.terms.sign-in": "Each sign-in is one person's own account and is never shared with others on this computer. When an account reaches its plan limit Branch stops and asks you. Branch moves between your own plans of one service only if you turn on that switch under sharing: providers may treat it as getting round their limits and suspend the accounts. An account you mark kept separate (someone else's, or work's) may share work with yours while sharing is on.",
   "accounts.usage.cost": "This month: {count} calls, {tokens} tokens, about {cost}.",
   "accounts.usage.left": "About {share}% of the plan window left.",
   "accounts.usage.plain": "This month: {count} calls, {tokens} tokens.",
