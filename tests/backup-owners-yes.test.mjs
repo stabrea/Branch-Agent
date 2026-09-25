@@ -180,11 +180,18 @@ test("the guards and what reaches further wait for the owner's yes; the two safe
   const archive = app.store.backup(app.version);
   const now = new Date().toISOString();
   archive.tables.settings = archive.tables.settings.filter((row) => !guardsAndReach.includes(row.id));
-  for (const id of guardsAndReach) archive.tables.settings.push({ id, owner, data: JSON.stringify({ mode: "off", planted: id }), created_at: now, updated_at: now });
+  // NAS a1ce7a8 lead (e): a replace deleted every row it neither held nor kept, so a file that left a guard out
+  // switched the owner's guard off with nobody asked. The first two are left out of the file entirely.
+  const [leftOut, alsoLeftOut, ...inFile] = guardsAndReach;
+  for (const id of inFile) archive.tables.settings.push({ id, owner, data: JSON.stringify({ mode: "off", planted: id }), created_at: now, updated_at: now });
   await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
   const answer = await restoreBackup(app, async () => archive, true);
-  for (const id of guardsAndReach) {
+  for (const id of inFile) {
     assert.ok(groups(answer.held).includes(id), `${id} waits for the owner`);
     assert.deepEqual(setting(id), { mine: id }, `${id}: this computer's own stays until the owner answers`);
+  }
+  for (const id of [leftOut, alsoLeftOut]) {
+    assert.ok(!groups(answer.held).includes(id), `${id} is not in the file, so nothing waits`);
+    assert.deepEqual(setting(id), { mine: id }, `${id}: a file that leaves it out does not switch it off`);
   }
 });
