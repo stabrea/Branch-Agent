@@ -183,6 +183,7 @@ const paneShown = (page) => page.evaluate(() => document.body.classList.contains
 
 test.skip("one switch opens the side panel in the calm window, its tabs are inside it, and Terminal shows the command", async (t) => {
   // Redesign: side panel pane.js structure is different (data-act="pane" button, data-act="ptabp" tabs, #pane). Terminal/Browser tabs are greyed. Re-point when panel tab structure is finalized.
+});
 
 test.skip("More offers Browser and Terminal, and a household window offers neither", async (t) => {
   // Redesign: the "More" menu button (#lx-more) is not in the new window yet (Coming soon)
