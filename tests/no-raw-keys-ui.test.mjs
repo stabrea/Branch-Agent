@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { showEverything } from "./places.mjs";
+import { openPlace, showEverything } from "./places.mjs";
 
 const keys = new Set(Object.keys(JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"))));
 
@@ -55,4 +55,25 @@ test("B14 no visible word in the window is a raw locale key, and the Talk button
   assert.equal(await talk.textContent(), "Parler", "drawn again in the new language");
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
   assert.equal(await talk.textContent(), "Talk");
+});
+
+// NAS 703fb96: the line under Talk was English only, and the wake word's and dictation's status lines kept the old
+// language after a switch. Each is written again in the new language, and nothing the owner typed is touched.
+test("B14 the voice status lines follow the language: under Talk, the wake word and dictation", async (t) => {
+  const page = await openApp(t);
+  await openPlace(page, "settings:voice");
+  await page.locator("#wake-word-form").waitFor({ state: "visible" });
+  await page.waitForFunction(() => document.getElementById("wake-word-listening")?.textContent.trim()
+    && document.getElementById("dictation-open")?.textContent.trim(), null, { timeout: 30000 });
+  const lines = () => page.evaluate(() => ["wake-word-listening", "dictation-open"].map((id) => document.getElementById(id).textContent));
+  const english = await lines();
+  await page.locator("#wake-word-word").fill("branchy");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  assert.equal(await page.locator("#voice-talk-status").textContent(), "Maintenez le bouton Parler et parlez", "under Talk, in French");
+  const french = await lines();
+  french.forEach((line, index) => assert.ok(line.trim() && line !== english[index], `written again in French: ${line}`));
+  assert.equal(await page.locator("#wake-word-word").inputValue(), "branchy", "what the owner typed is left alone");
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
+  assert.equal(await page.locator("#voice-talk-status").textContent(), "Hold the Talk button and speak");
+  assert.deepEqual(await lines(), english, "and back in English");
 });
