@@ -31,7 +31,9 @@ async function fixture(t, viewport) {
   return { app, page, errors };
 }
 
-test("the card is under Customize, Chat apps, starts off, and saves one line", async (t) => {
+// Redesign: replaced by the new window (the card "what chats may also do", with its per-person list and the yes-in-the-
+// chat box, is not in the design; Chat apps in the design is the setup wizard and "Who may message it").
+test.skip("the card is under Customize, Chat apps, starts off, and saves one line", async (t) => {
   const { app, page, errors } = await fixture(t, { width: 1280, height: 900 });
   await openPlace(page, "settings:channels");
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
@@ -55,7 +57,9 @@ test("the card is under Customize, Chat apps, starts off, and saves one line", a
   assert.deepEqual(errors, []);
 });
 
-test("mac7/chat-approvals: the box for saying yes from the chat starts clear, says what it costs, and saves", async (t) => {
+// Redesign: replaced by the new window (the card "what chats may also do", with its per-person list and the yes-in-the-
+// chat box, is not in the design; Chat apps in the design is the setup wizard and "Who may message it").
+test.skip("mac7/chat-approvals: the box for saying yes from the chat starts clear, says what it costs, and saves", async (t) => {
   const { app, page, errors } = await fixture(t, { width: 1280, height: 900 });
   await openPlace(page, "settings:channels");
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
@@ -87,7 +91,9 @@ test("mac7/chat-approvals: the box for saying yes from the chat starts clear, sa
   assert.deepEqual(errors, []);
 });
 
-test("the card fits a 400-pixel window and reads in French", async (t) => {
+// Redesign: replaced by the new window (the card "what chats may also do", with its per-person list and the yes-in-the-
+// chat box, is not in the design; Chat apps in the design is the setup wizard and "Who may message it").
+test.skip("the card fits a 400-pixel window and reads in French", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 900 });
   await openPlace(page, "settings:channels");
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show

@@ -32,7 +32,9 @@ async function fixture(t, viewport) {
   return { app, page, errors };
 }
 
-test("the chat-app card is under Customize, Chat apps, starts off, and saves a change", async (t) => {
+// Redesign: replaced by the new window (the chat-app card, "Pass later messages to the task" and "Save chat settings",
+// is not in the design; Chat apps in the design is the setup wizard and "Who may message it", design doc 6.x).
+test.skip("the chat-app card is under Customize, Chat apps, starts off, and saves a change", async (t) => {
   const { app, page, errors } = await fixture(t, { width: 1280, height: 900 });
   await openPlace(page, "settings:channels");
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
@@ -48,7 +50,9 @@ test("the chat-app card is under Customize, Chat apps, starts off, and saves a c
   assert.deepEqual(errors, []);
 });
 
-test("the chat-app card fits a 400-pixel window without sideways scrolling", async (t) => {
+// Redesign: replaced by the new window (the chat-app card, "Pass later messages to the task" and "Save chat settings",
+// is not in the design; Chat apps in the design is the setup wizard and "Who may message it", design doc 6.x).
+test.skip("the chat-app card fits a 400-pixel window without sideways scrolling", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 900 });
   await openPlace(page, "settings:channels");
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical")); // DG-194: its Advanced and Technical rows are on show
