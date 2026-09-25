@@ -1,9 +1,10 @@
 /* Settings › advanced: bind real engine data and wire controls. */
 import { esc } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
-import { api } from "../../core/api.js";
+import { token } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
+import { toast, openDlg } from "../../core/ui.js";
 
 export function draw() {
   const lv = level();
@@ -14,11 +15,11 @@ export function draw() {
   // Service diagnostics
   html += "<div class=\"tile\" data-css=\"margin-top:12px\"><div class=\"th\"><b>Branch service</b><span class=\"pill done ml\"><i></i>Running</span></div>";
   html += "<dl class=\"kv\" data-css=\"background:none;padding:0\">";
-  html += "<dt>Version</dt><dd>" + esc(s.version ?? "") + "</dd>";
-  html += "<dt>Address</dt><dd>" + esc(s.address ?? "") + "</dd>";
-  html += "<dt>Process</dt><dd>" + esc(s.pid ?? "") + "</dd>";
+  html += [["Version", s.version], ["Address", location.host]].filter(([, v]) => v).map(([k, v]) => "<dt>" + k + "</dt><dd>" + esc(v) + "</dd>").join("");
   html += "</dl>";
-  html += "<div class=\"acts\"><button class=\"btn sm\" type=\"button\" data-act=\"toast\" data-msg=\"Branch service restarted.\">Restart</button><button class=\"btn ghost sm\" type=\"button\" data-act=\"toast\" data-msg=\"Logs open in a new window.\">Open logs</button></div>";
+  /* Restart relaunches through the desktop app's bridge only (the engine's own route refuses on Windows and outside a
+     supervisor), so it stays greyed here. Open logs shows what the engine wrote down (GET /api/logs) in a new window. */
+  html += "<div class=\"acts\"><button class=\"btn sm\" type=\"button\" data-act=\"restart16\">Restart</button><button class=\"btn ghost sm\" type=\"button\" data-act=\"adv-logs\">Open logs</button></div>";
   html += "</div>";
 
   // Seeing more section
@@ -82,9 +83,25 @@ export function draw() {
   return html;
 }
 
-export function init() {
-  markLive([]);
+/* GET /api/logs answers lines of JSON (what the owner's tasks wrote down, keys and passwords taken out), not one JSON
+   document, so it is read as text and shown as it is. */
+async function openLogs() {
+  try {
+    const key = token.get();
+    const response = await fetch("/api/logs", { cache: "no-store", headers: key ? { authorization: "Bearer " + key } : {} });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || String(response.status));
+    const text = await response.text();
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    /* The desktop app refuses new windows (src/desktop/main.ts), so there the same lines open in a dialog instead. */
+    if (window.open(url, "_blank")) toast("Logs open in a new window.");
+    else openDlg({ title: "Open logs", wide: true, body: `<pre class="code6" data-css="white-space:pre-wrap;margin:0;max-height:60vh;overflow:auto">${esc(text)}</pre>`, foot: '<button class="btn" type="button" data-act="dlg-close">Close</button>' });
+  } catch (error) { toast(error.message); }
 }
 
-export const live = {
-};
+export function init() {
+  on("adv-logs", () => openLogs());
+  markLive(["adv-logs"]);
+}
+
+export const live = { "adv-logs": true };

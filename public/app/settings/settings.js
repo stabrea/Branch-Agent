@@ -114,6 +114,16 @@ export function init() {
     renderNow();
   });
 
+  /* The status bar's update menu: close it and open Settings › Updates & about (navigation only). The menu is drawn
+     by the shell (shell/usage.js), which marks the item live when it draws it. */
+  on("updmenu-go", () => {
+    closePop();
+    S.view = "settings";
+    S.setPage = "updates";
+    open(S.setPage);
+    renderNow();
+  });
+
   on("setlevel", (el) => {
     S.level = el.dataset.v;
     renderNow();
