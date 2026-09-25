@@ -1366,6 +1366,7 @@ function watchWork() {
   if (plan) new MutationObserver(sync).observe(plan, { attributes: true, attributeFilter: ["hidden"], childList: true, subtree: true });
   new MutationObserver(sync).observe($("lx-inbox-badge"), { attributes: true, attributeFilter: ["hidden"] });
   setInterval(() => { if (!document.hidden) void drawInbox(); }, 8000);
+  document.addEventListener("branch-runs-changed", () => void drawInbox()); // dogfood B10: a task seen starting or ending
 }
 
 /* ---------- keyboard and the buttons that used to open the long Settings page ---------- */

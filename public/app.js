@@ -574,9 +574,15 @@ function renderSchedules() {
     "Keep a reminder or task for later.",
   );
 }
+/* Dogfood B10: the tasks as last seen, so one started or ended outside this window (a terminal, another program, a
+   schedule) reaches Recents and Inbox on the next refresh rather than after a reload. */
+let seenRuns = null;
 async function refresh() {
   const lookSince = appearanceChanges();
   state = await api("state");
+  const runsNow = (state.runs ?? []).map((run) => `${run.id}:${run.status}`).join(",");
+  if (seenRuns !== null && runsNow !== seenRuns) document.dispatchEvent(new CustomEvent("branch-runs-changed"));
+  seenRuns = runsNow;
   noteProfile(state.collab?.profile); // household-followups
   $("login").hidden = true;
   $("workspace").hidden = false;
