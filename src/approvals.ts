@@ -265,6 +265,13 @@ export class ApprovalGate {
    * which is every older caller, and is why they all still work. Without one and with several
    * waiting it is the oldest, because that is the one that has been kept waiting longest.
    */
+  /** Q222: takes every question one task left waiting, by the task, so a question with no fingerprint never takes another's place. */
+  dropFor(sessionId: string, runId: string): void {
+    const forSession = this.pending.get(sessionId);
+    if (!forSession) return;
+    const kept = forSession.filter((entry) => entry.runId !== runId);
+    if (kept.length) this.pending.set(sessionId, kept); else this.pending.delete(sessionId);
+  }
   resolve(sessionId: string, fingerprint?: string): PendingApproval | undefined {
     const forSession = this.pending.get(sessionId);
     if (!forSession?.length) return undefined;

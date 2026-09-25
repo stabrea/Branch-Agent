@@ -1518,8 +1518,11 @@ async function api(
       if (app.runtime.cancel(run.id)) return { cancelled: true };
       // Dogfood F8: a task waiting for an answer, or cut off by a restart, is stopped too, and its question goes with it.
       if (run.status !== "needs_input" && run.status !== "interrupted") return { cancelled: false };
-      for (const question of app.runtime.approvals.waiting(run.sessionId))
-        if (question.runId === run.id) app.runtime.approvals.resolve(run.sessionId, question.fingerprint);
+      // Q221 (NAS 39e8973): a short-lived key stops a waiting task only when it started it, as it answers one.
+      const keyRefusal = keyAnswerRefusal(app.store, run.id);
+      if (keyRefusal) throw new HttpError(401, keyRefusal);
+      // Q222: by the task, so a question with no fingerprint never takes another task's question with it.
+      app.runtime.approvals.dropFor(run.sessionId, run.id);
       app.store.finish(run.id, "cancelled", run.output);
       return { cancelled: true };
     }
@@ -3992,7 +3995,11 @@ function settleLostQuestions(app: Branch): void {
     if (asked?.kind !== "policy.ask" || app.runtime.approvals.waiting(run.sessionId).some((question) => question.runId === run.id)) continue;
     app.store.finish(run.id, "interrupted", run.output);
     // The call it asked about never ran, so carrying on repeats it without a check first (src/runtime.ts resumeNote).
-    if (typeof asked.data.id === "string") app.store.event(run.id, "run.call_not_run", { id: asked.data.id });
+    // Q223: only when the question was about that call's own tool. The network wall asks about a site after its
+    // command has already run, under the command's id, and that command did run.
+    const call = typeof asked.data.id === "string"
+      ? app.store.events(run.id).find((event) => event.kind === "tool.started" && event.data.id === asked.data.id) : undefined;
+    if (call && call.data.name === asked.data.name) app.store.event(run.id, "run.call_not_run", { id: asked.data.id });
     app.store.event(run.id, "run.can_continue", { note: lostQuestionNote });
   }
 }

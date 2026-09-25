@@ -118,3 +118,42 @@ test("F8 in the window, the row of a task a restart cut off offers Continue and 
   assert.equal(app.store.run(gated.id).status, "cancelled");
   assert.deepEqual(errors, []);
 });
+
+// Q221-Q223 (NAS 39e8973): stopping a waiting task through a key it did not start is refused, as answering it is;
+// stopping one task drops only its own questions, even when another has no fingerprint; and a question a wall asked
+// under a command's id after the command ran does not mark that command as never run.
+test("F8 follow-up: a key stops only its own waiting task, a stop drops only that task's questions, and a wall's question leaves its command as run", async (t) => {
+  const { root, gated } = await before(t);
+  // Before the restart: a command that ran, then the network wall asking about a site under the same call id.
+  const first = await open(root);
+  const walled = first.store.createRun(first.runtime.owner, "fetch the page");
+  first.store.event(walled.id, "tool.started", { name: "shell.run", id: "c-wall" });
+  first.store.event(walled.id, "policy.ask", { name: "network.site", id: "c-wall", target: "example.com" });
+  first.store.finish(walled.id, "needs_input", "May it reach example.com?");
+  await first.close();
+  const app = await open(root);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); });
+  const notRun = (id) => app.store.events(id).filter((event) => event.kind === "run.call_not_run").map((event) => event.data.id);
+  assert.equal(app.store.run(walled.id).status, "interrupted", "the wall's lost question is cut off too");
+  assert.deepEqual(notRun(walled.id), [], "but the command it ran is not marked as never run");
+  assert.equal(notRun(gated.id).length, 1, "control: the gate's own call still is");
+  const stop = (id, key = server.token) => fetch(`${server.url}/api/runs/${id}/cancel`, { method: "POST",
+    headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: "{}" }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  // Two questions in one conversation: one with a fingerprint, one without (as the wall's and the tests' are).
+  const live = await app.runtime.run({ prompt: "write b.txt" });
+  const [withPrint] = app.runtime.approvals.waiting(live.sessionId);
+  assert.ok(withPrint.fingerprint, "control: the write's question has a fingerprint");
+  const other = app.store.createRun(app.runtime.owner, "reach a site", live.sessionId);
+  app.store.finish(other.id, "needs_input", "May it reach example.com?");
+  app.runtime.approvals.ask({ runId: other.id, sessionId: live.sessionId, tool: "network.site", target: "example.com", label: "Reach example.com",
+    question: "May it reach example.com?", source: "owner", remember: "never", askedAt: new Date().toISOString() });
+  assert.equal(app.runtime.approvals.waiting(live.sessionId).length, 2);
+  // A run key that did not start the task is refused, as its answer would be.
+  const key = app.sessionTokens.create(app.runtime.owner, { name: "script", scope: "run", minutes: 5 }).token;
+  const refused = await stop(other.id, key);
+  assert.equal(refused.status, 401, JSON.stringify(refused.body));
+  assert.equal(app.store.run(other.id).status, "needs_input", "the key stopped nothing");
+  assert.deepEqual((await stop(other.id)).body, { cancelled: true }, "the owner stops it");
+  assert.deepEqual(app.runtime.approvals.waiting(live.sessionId).map((question) => question.runId), [live.id], "only its own question went");
+});
