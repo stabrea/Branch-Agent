@@ -36,7 +36,7 @@ async function open(root) {
 /** A task stopped on an approval question, and one stopped on a question the owner's next message answers. */
 async function before(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-lost-questions-"));
-  t.after(() => discardTemp(root));
+  // Deleted by each test after its own app is closed: Windows cannot delete an open database (EBUSY).
   const first = await open(root);
   const gated = await first.runtime.run({ prompt: "write a.txt" });
   assert.equal(gated.status, "needs_input", "control: the write stopped on the owner's question");
@@ -51,7 +51,7 @@ test("F8 after a real restart, a task whose approval question was lost is cut of
   const { root, gated, asked } = await before(t);
   const app = await open(root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
-  t.after(async () => { await server.close(); await app.close(); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const run = app.store.run(gated.id);
   assert.equal(run.status, "interrupted", "no longer a question nobody can answer");
   assert.equal(app.store.events(gated.id).filter((event) => event.kind === "run.can_continue").at(-1)?.data.note, lostQuestionNote);
@@ -81,7 +81,7 @@ test("F8 a waiting task can be stopped, and its question goes with it; a start t
   await terminal.close();
   const app = await open(root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
-  t.after(async () => { await server.close(); await app.close(); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const stop = (id) => fetch(`${server.url}/api/runs/${id}/cancel`, { method: "POST",
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: "{}" }).then((r) => r.json());
   assert.deepEqual(await stop(gated.id), { cancelled: true }, "a task a restart cut off is stopped");
@@ -102,7 +102,7 @@ test("F8 in the window, the row of a task a restart cut off offers Continue and 
   const app = await open(root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
   const browser = await chromium.launch({ headless: true });
-  t.after(async () => { await browser.close(); await server.close(); await app.close(); });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -133,7 +133,7 @@ test("F8 follow-up: a key stops only its own waiting task, a stop drops only tha
   await first.close();
   const app = await open(root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
-  t.after(async () => { await server.close(); await app.close(); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const notRun = (id) => app.store.events(id).filter((event) => event.kind === "run.call_not_run").map((event) => event.data.id);
   assert.equal(app.store.run(walled.id).status, "interrupted", "the wall's lost question is cut off too");
   assert.deepEqual(notRun(walled.id), [], "but the command it ran is not marked as never run");
@@ -162,10 +162,10 @@ test("F8 follow-up: a key stops only its own waiting task, a stop drops only tha
 // that conversation is an ordinary message and never starts the plan they stopped.
 test("F8 follow-up 2: stopping a task that waits on its plan stops the plan, and a later ok starts nothing", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-lost-questions-"));
-  t.after(() => discardTemp(root));
+  // Deleted after the app closes (see below).
   const app = await open(root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
-  t.after(async () => { await server.close(); await app.close(); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   // What the conductor leaves when a plan waits for the owner (src/orchestration.ts start()).
   const run = app.store.createRun(app.runtime.owner, "plan my move");
   app.runtime.orchestration.savePlan({ runId: run.id, sessionId: run.sessionId, prompt: "plan my move",
