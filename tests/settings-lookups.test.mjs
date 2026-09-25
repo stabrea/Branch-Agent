@@ -4,7 +4,8 @@
  *
  *   - settings.find reads the plain words people use for a setting (src/settings-kit/phrases.ts) as well as its
  *     name, label and window words. Updating by itself is the owner's own card, so it is named with where it is,
- *     in one step. Words that fit no setting are never answered with a question that has nothing to choose from.
+ *     in one step, and so is the window's look (dark mode, the text size). Words that fit no setting are never
+ *     answered with a question that has nothing to choose from.
  *   - A request about Branch's own settings starts with settings.find and settings.change in reach, so no
  *     tools.search comes first. An unrelated request does not get them, and Plan still refuses the change.
  *   - settings.list: a search gives the few rows that fit, best first, without fields that only repeat the obvious.
@@ -13,11 +14,12 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch } from "../dist/index.js";
 import { readComfort } from "../dist/comfort/settings.js";
+import { preferences } from "../dist/preferences.js";
 import * as settingsKit from "../dist/settings-kit/tools.js";
 import { discardTemp } from "./temp-dir.mjs";
 
@@ -80,6 +82,56 @@ test("B20: \"turn on automatic updates\" names the owner's own card in one step,
   assert.equal(channel.setting, "Update channel");
   const notify = readComfort(app.store, app.runtime.owner, "notify");
   assert.deepEqual([notify.autoUpdate, notify.releaseChannel], ["off", "stable"], "finding it changes nothing");
+});
+
+/**
+ * The window's look is the owner's own, on the Appearance page: each request names its control there, in the words the
+ * window shows (public/locales/en.json), with its choices. Nothing is planned and nothing changes, and the request
+ * starts with the settings tools in reach.
+ */
+async function namesTheAppearanceCard(t, control, requests) {
+  const { app, find, context } = await fixture(t);
+  const shown = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
+  const { name, choices } = control(shown);
+  const place = [shown["settings.title"], shown["settings.page.appearance"], shown["settingsGrown.bucket.appearance.theme"], name].join(", ");
+  for (const request of requests) {
+    const found = await find({ request });
+    assert.equal(found.status, "elsewhere", `${request}: ${JSON.stringify(found)}`);
+    assert.equal(found.setting, name, request);
+    assert.equal(found.where, "settings:appearance", `${request}: the Appearance page`);
+    assert.equal(found.planned, false);
+    assert.equal(found.question, undefined, `${request}: nothing to choose from, so no question`);
+    assert.ok(found.note.includes(`changed only by the owner, in ${place} (${choices}).`), `${request}: ${found.note}`);
+  }
+  assert.deepEqual(settingsKit.settingsPreload(app.store, context(), requests[0], app.registry.names()).map((one) => one.name),
+    ["settings.find", "settings.change"], `${requests[0]}: the settings tools are in reach from the first round`);
+  const look = preferences(app.store, app.runtime.owner);
+  assert.deepEqual([look.appearance, look.followSystem, look.textSize], ["forest", false, "medium"], "finding it changes nothing");
+}
+
+test("dark mode names Day or night on the Appearance card in one step, in the window's own words, with nothing planned", async (t) => {
+  await namesTheAppearanceCard(t, (shown) => ({ name: shown["look.dayOrNight"],
+    choices: `${shown["look.mode.follow"]}, ${shown["look.moonlight"]} or ${shown["look.daylight"]}` }),
+  ["turn on dark mode", "dark mode", "switch to light mode", "use a dark theme", "night mode", "change the theme", "appearance"]);
+});
+
+test("bigger text names Text size on the Appearance card in one step, in the window's own words, with nothing planned", async (t) => {
+  await namesTheAppearanceCard(t, (shown) => ({ name: shown["appearance.textSize"],
+    choices: `${shown["appearance.textSize.small"]}, ${shown["appearance.textSize.medium"]} or ${shown["appearance.textSize.large"]}` }),
+  ["make the text bigger", "bigger text", "make the text smaller", "text size", "increase the font size"]);
+});
+
+test("the words for the window's look take nothing from the settings Branch can change", async (t) => {
+  const { find } = await fixture(t);
+  const wake = await find({ request: "turn the wake word on" });
+  assert.equal(wake.status, "ready", JSON.stringify(wake));
+  assert.equal(wake.setting, "wake-word.mode");
+  assert.equal(wake.useTool, "settings.loosen");
+  const updates = await find({ request: "turn on automatic updates" });
+  assert.deepEqual([updates.status, updates.setting, updates.where], ["elsewhere", "Updating by itself", "settings:about"]);
+  const unknown = await find({ request: "blue elephants" });
+  assert.equal(unknown.status, "none", JSON.stringify(unknown));
+  assert.match(unknown.note, /No setting Branch can change matches "blue elephants"/);
 });
 
 test("B20: a phrase people use picks its setting, a phrase that fits two asks one question, and near words name their settings", async (t) => {

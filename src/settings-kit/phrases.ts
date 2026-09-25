@@ -10,6 +10,11 @@
  * the window (src/comfort/api.ts), and no conversation, preset or file sets them
  * (src/settings-kit/catalogue.ts, neverTouched). Should one of them join the catalogue, the same
  * phrases find it there, and settings.find plans it like any other setting.
+ *
+ * The window's look is the owner's own as well: Day or night and Text size, in Settings, Appearance,
+ * Theme and lettering (public/layout.js, public/appearance.js). Both are saved with the window's
+ * preferences (src/preferences.ts), which the catalogue does not hold, so no settings tool changes
+ * them. Their names and choices are the words the window shows (public/locales/en.json).
  */
 export interface SettingPhrase {
   /** Whole phrases, as people say them; "updates" reads as "update". */
@@ -28,6 +33,14 @@ export const settingPhrases: readonly SettingPhrase[] = [
   { says: ["update channel", "release channel", "beta channel", "dev channel", "stable channel", "beta build", "dev build"],
     setting: "comfort-notify.releaseChannel",
     owners: { name: "Update channel", where: "settings:about", place: "Settings, Updates & about, Update channel", choices: "stable, beta or dev" } },
+  { says: ["dark mode", "light mode", "night mode", "dark theme", "light theme", "theme", "appearance"],
+    setting: "preferences.appearance",
+    owners: { name: "Day or night", where: "settings:appearance", place: "Settings, Appearance, Theme and lettering, Day or night",
+      choices: "Follow this computer, Moonlight or Daylight" } },
+  { says: ["text size", "font size", "bigger text", "text bigger", "larger text", "text larger", "smaller text", "text smaller"],
+    setting: "preferences.textSize",
+    owners: { name: "Text size", where: "settings:appearance", place: "Settings, Appearance, Theme and lettering, Text size",
+      choices: "Small, Medium or Large" } },
   { says: ["computer use", "control my computer", "control the computer", "mouse and keyboard"], setting: "desktop-control.mode" },
   { says: ["telemetry"], setting: "asks-analytics.mode" },
   { says: ["telemetry"], setting: "execution-metrics.mode" },
