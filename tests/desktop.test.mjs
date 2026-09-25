@@ -79,6 +79,15 @@ async function settled(page, label) {
   console.log(`Desktop ${label}: still working after a minute; closing anyway`);
 }
 
+/**
+ * Closes the app, but never waits on it for more than half a minute: a close that does not come back is ended, so a
+ * stuck app fails this test in minutes instead of holding the whole shard until the job's hour runs out (Q244).
+ */
+async function closeWithin(app, child, label) {
+  const closed = await Promise.race([app.close().then(() => true, () => true), new Promise((resolve) => setTimeout(() => resolve(false), 30000))]);
+  if (!closed && child.exitCode === null) { console.log(`Desktop ${label}: close did not come back in 30 s; ending it`); child.kill(); }
+}
+
 async function verifyNetworkBoundary(electron, page) {
   let hits = 0;
   const outside = createServer((_request, response) => {
@@ -167,7 +176,7 @@ test(
       console.log(`Desktop screenshot: ${join(home, "desktop.png")}`);
       await settled(page, "first run");
     } finally {
-      await electron.close();
+      await closeWithin(electron, child, "first app");
       console.log("Desktop: first app closed");
     }
     assert.equal(child.exitCode, 0);
@@ -185,12 +194,13 @@ test(
         await page.locator("html").getAttribute("data-theme"),
         "daylight",
       );
-      await page.getByRole("link", { name: "Branch Agent home" }).click();
+      await page.getByRole("link", { name: "Branch Agent home" }).click({ timeout: 30000 });
+      console.log("Desktop restart: home clicked");
       await connected(page);
       console.log("Desktop restart: home again");
       await settled(page, "restart");
     } finally {
-      await restarted.close();
+      await closeWithin(restarted, restartedChild, "restart");
       console.log("Desktop restart: closed");
     }
   },
