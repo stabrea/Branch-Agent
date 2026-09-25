@@ -111,6 +111,7 @@ async function seedLive() {
   const drop = await post("action", { tool: "memory.put", args: { text: "Likes loud music", source: "verify" } });
   await post("memory/settings", { review: false, requireApproval: false, consolidateDaily: false });
   await post("delight/settings", { achievements: { on: true } });
+  await post("action", { tool: "procedures.propose", args: { name: "Find last month's invoices", preconditions: [], steps: [{ tool: "memory.search", args: { query: "invoice" }, expected: {} }, { tool: "files.list", args: { path: "." }, expected: {} }] } });
   await post("prompts/settings", { mode: "on" });
   await post("prompts", { title: "Weekly review", body: "Tell me what got done this week.", group: "Planning", command: "weekly" });
   return { card, keep: keep.proposalId, drop: drop.proposalId };
@@ -148,6 +149,14 @@ async function ideas(page) {
   const saved = (await get("prompts")).prompts;
   const rows = await page.locator('[data-act="prompt-use"]').count();
   check("saved prompts: one row per prompt the engine keeps (GET /api/prompts)", rows === Math.min(3, saved.length) && rows > 0, String(rows));
+  const recipe = (await get("state")).procedures.find((p) => p.data?.definition?.name === "Find last month's invoices");
+  const row = page.locator(`[data-act="flow"][data-id="${recipe.id}"]`);
+  check("procedures: the row shows the recipe's own name and status", (await row.textContent()).includes("Find last month's invoices") && (await row.textContent()).includes(recipe.data.status));
+  await row.locator("b").click();
+  await page.waitForSelector(".dlg .flow-row", { timeout: 5000 });
+  const steps = await page.locator(".dlg .flow-row input").evaluateAll((els) => els.map((e) => e.value));
+  check("procedures (flow): the row opens the recipe with its real steps", steps.length === 2 && steps[0].startsWith("memory.search") && steps[1].startsWith("files.list"), steps.join(" | "));
+  await act(page, "dlg-close");
 }
 
 async function tidy(page) {
