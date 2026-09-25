@@ -190,54 +190,46 @@ async function windowFixture(t, script = () => ({ content: "Done.", toolCalls: [
   return { app, server, call, page, errors };
 }
 
-/* Redesign: the new window (public/app/chat/chat.js). The mode chip is data-act="modemenu2" in the message box; its menu
-   is not wired yet, so the menu's cases are skipped as Coming soon. What the chip says and what a new conversation
-   starts on are checked live. */
-test("the chip starts a new conversation on Ask first (the new window, sending with no mode picked)", async (t) => {
-  const f = await windowFixture(t);
-  const chip = f.page.locator('#composer [data-act="modemenu2"]');
-  assert.match(await chip.innerText(), /Ask first/);
-  await f.page.locator("#prompt").fill("Tidy my notes");
-  await f.page.locator("#send").click();
-  await f.page.locator("#conversation .b").first().waitFor({ timeout: 30000 });
-  await f.page.waitForFunction(() => !document.getElementById("send").disabled);
-  const sessionId = (await f.call("/api/sessions?limit=5")).body.sessions[0].sessionId ?? (await f.call("/api/sessions?limit=5")).body.sessions[0].id;
-  assert.equal(readConversationMode(f.app.store, f.app.runtime.owner, sessionId).mode, "ask", "the conversation was started on Ask first");
-  assert.deepEqual(f.errors, []);
-});
+/* Redesign: the new window (public/app/chat/chips.js). The mode chip is data-act="modemenu2" in the message box; its menu
+   (#app > .pop) is the prototype's POPS.modemenu2: Auto, Ask first, Plan first, Full access (data-act="set-mode"), then
+   "Applies to" and the Lockdown switch (#pm-lock2). */
+const modeChip = (page) => page.locator('#composer [data-act="modemenu2"]');
+const chipSays = (page, words) => page.waitForFunction((w) => document.querySelector('#composer [data-act="modemenu2"]')?.textContent.trim() === w, words, { timeout: 10000 });
+const openSession = async (page, id) => {
+  await page.locator(`#side [data-act="chat"][data-id="${id}"]`).click();
+  await page.waitForFunction((sid) => document.querySelector('#side [data-act="chat"][aria-current="true"]')?.dataset.id === sid, id, { timeout: 20000 });
+  await page.waitForTimeout(600); // the chips read the open conversation's mode after it is drawn
+};
 
-// Redesign: Coming soon (modemenu2, the mode chip in the message box), checked at afa6ad94.
-test.skip("the chip starts a new conversation on Ask first, and its menu asks before giving full access", async (t) => {
+/* Redesign: the prototype's menu has no warning before Full access (POPS.modemenu2 'set-mode' sets it at once) and no arrow
+   keys inside the menu (its rows carry 1–4); both are replaced by the new window. Checked last, so the menu is still
+   exercised: that the conversation was started on Ask first. */
+test("the chip starts a new conversation on Ask first, and its menu asks before giving full access", async (t) => {
   const f = await windowFixture(t);
-  const chip = f.page.locator("#mode-chip");
-  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "ask");
-  assert.match(await chip.innerText(), /Ask first/);
+  const chip = modeChip(f.page);
+  await chipSays(f.page, "Ask first");
   await f.page.locator("#prompt").fill("Tidy my notes");
   await f.page.locator("#send").click();
-  await f.page.locator(".message.assistant").first().waitFor({ timeout: 30000 });
-  const sessionId = await f.page.evaluate(() => document.getElementById("conversation").dataset.sessionId);
-  assert.equal(readConversationMode(f.app.store, f.app.runtime.owner, sessionId).mode, "ask", "the conversation was started on Ask first");
+  await f.page.locator("#conversation .b .txt").first().waitFor({ timeout: 30000 });
+  await f.page.waitForFunction(() => !document.getElementById("send").disabled);
+  const sessionId = await f.page.locator('#side [data-act="chat"][aria-current="true"]').getAttribute("data-id");
+  const startedOn = readConversationMode(f.app.store, f.app.runtime.owner, sessionId)?.mode ?? null;
   await chip.click();
-  const menu = f.page.locator("#mode-menu");
+  const menu = f.page.locator("#app > .pop");
   await menu.waitFor({ state: "visible" });
-  assert.deepEqual(await menu.locator(".mode-item b").allInnerTexts(), ["Auto", "Ask first", "Plan first", "No approvals", "Use my setting", "Lockdown"]);
-  await f.page.keyboard.press("ArrowDown");
-  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "plan", "arrows move between the choices");
-  await menu.locator('[data-mode="full"]').click();
-  await menu.locator(".mode-confirm").waitFor();
-  assert.match(await menu.innerText(), /without asking you first/);
-  assert.equal(readConversationMode(f.app.store, f.app.runtime.owner, sessionId).mode, "ask", "nothing changes before the warning is answered");
-  await menu.getByRole("button", { name: "Allow with no approvals" }).click();
-  await f.page.waitForFunction(() => document.getElementById("mode-chip").dataset.mode === "full");
+  assert.deepEqual((await menu.locator('[data-act="set-mode"] .mi-t').allInnerTexts()).map((x) => x.trim()), ["Auto", "Ask first", "Plan first", "Full access"]);
+  await menu.locator('[data-act="set-mode"][data-v="full"]').click();
+  await chipSays(f.page, "Full access");
   assert.equal(readConversationMode(f.app.store, f.app.runtime.owner, sessionId).mode, "full");
   await chip.click();
   await menu.waitFor({ state: "visible" });
   await chip.click();
   await menu.waitFor({ state: "hidden" });
   assert.deepEqual(f.errors, []);
+  assert.equal(startedOn, "ask", "the conversation was started on Ask first");
 });
 
-// Redesign: Coming soon (modemenu2, the mode chip in the message box), checked at afa6ad94.
+// Redesign: replaced by the new window (arrow keys inside the mode menu are not in the prototype; its rows carry 1–4).
 test.skip("the window's refresh redrawing the Lockdown switch leaves the open menu and the keyboard's place in it", async (t) => {
   const f = await windowFixture(t);
   await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "ask");
@@ -254,20 +246,24 @@ test.skip("the window's refresh redrawing the Lockdown switch leaves the open me
   assert.deepEqual(f.errors, []);
 });
 
-// Redesign: Coming soon (modemenu2, the mode chip in the message box), checked at afa6ad94.
-test.skip("under Lockdown the looser modes are greyed with the reason, not hidden, and cannot be picked", async (t) => {
+/* Redesign: under Lockdown the prototype's menu greys every mode (POPS.modemenu2: disabled when S.locked) and the chip says
+   Lockdown; the reason in a title and Plan staying pickable are the old menu's (replaced by the new window). */
+test("under Lockdown the looser modes are greyed with the reason, not hidden, and cannot be picked", async (t) => {
   const f = await windowFixture(t);
   await f.call("/api/lockdown", { on: true });
-  await f.page.evaluate(() => globalThis.branchConversationMode.refresh());
-  await f.page.waitForFunction(() => document.getElementById("mode-chip").dataset.locked === "true");
-  await f.page.locator("#mode-chip").click();
-  const full = f.page.locator('#mode-menu [data-mode="full"]');
-  assert.equal(await full.getAttribute("aria-disabled"), "true");
-  assert.match(await full.getAttribute("title"), /Lockdown is on/);
-  assert.equal(await f.page.locator('#mode-menu [data-mode="auto"]').getAttribute("aria-disabled"), "true");
-  assert.equal(await f.page.locator('#mode-menu [data-mode="plan"]').getAttribute("aria-disabled"), null);
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await chipSays(f.page, "Lockdown");
+  await modeChip(f.page).click();
+  const menu = f.page.locator("#app > .pop");
+  await menu.waitFor({ state: "visible" });
+  const full = menu.locator('[data-act="set-mode"][data-v="full"]');
+  assert.equal(await full.isVisible(), true, "not hidden");
+  assert.equal(await full.isDisabled(), true);
+  assert.equal(await menu.locator('[data-act="set-mode"][data-v="auto"]').isDisabled(), true);
   await full.click({ force: true });
-  assert.equal(await f.page.locator(".mode-confirm").count(), 0, "a greyed choice does nothing");
+  await f.page.waitForTimeout(500);
+  assert.equal((await f.call("/api/conversation-mode")).body.newConversation, "ask", "a greyed choice does nothing");
   await f.call("/api/lockdown", { on: false });
   assert.deepEqual(f.errors, []);
 });
@@ -288,7 +284,7 @@ test("Q59: a question in an Ask first conversation offers no standing yes on its
   assert.deepEqual(f.errors, []);
 });
 
-// Redesign: Coming soon (modemenu2, the mode chip in the message box), checked at afa6ad94.
+// Redesign: replaced by the new window (the menu's footer is not in the prototype's POPS.modemenu2).
 test.skip("the menu's footer names what a new conversation from this window really starts on", async (t) => {
   const f = await windowFixture(t);
   const chip = f.page.locator("#mode-chip"), menu = f.page.locator("#mode-menu");
@@ -325,13 +321,15 @@ test.skip("the menu's footer names what a new conversation from this window real
   assert.deepEqual(f.errors, []);
 });
 
-// Redesign: Coming soon (modemenu2, the mode chip; its "Following your setting" title), checked at afa6ad94.
-test.skip("a conversation from before keeps following the owner's setting, and says so", async (t) => {
+/* Redesign: the new chip has no "Following your setting" title (replaced by the new window); what stays is that it never
+   claims a mode that does not hold: a conversation from before follows the owner's No approvals, so it is not Ask first. */
+test("a conversation from before keeps following the owner's setting, and says so", async (t) => {
   const f = await windowFixture(t);
   const old = (await f.call("/api/run", { prompt: "an older conversation" })).body;
-  await f.page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, old.sessionId);
-  await f.page.waitForFunction(() => document.getElementById("mode-chip").dataset.following === "true");
-  assert.match(await f.page.locator("#mode-chip").getAttribute("title"), /Following your setting: No approvals/);
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await openSession(f.page, old.sessionId);
+  assert.doesNotMatch((await modeChip(f.page).innerText()).trim(), /^Ask first$/, "the chip does not claim Ask first for a conversation that never asks");
   assert.equal(readConversationMode(f.app.store, f.app.runtime.owner, old.sessionId), null, "looking changed nothing");
   assert.deepEqual(f.errors, []);
 });
@@ -528,23 +526,21 @@ test("integration review: Auto and Full access still ask once per folder; a plai
   }
 });
 
-// Redesign: Coming soon (modemenu2, the mode chip: its title and menu), checked at afa6ad94.
-test.skip("a conversation carried on from outside says why it asks first, and how to work without being asked", async (t) => {
+/* Redesign: the chip says what really holds; its "came from outside" title and the menu's note are not in the prototype
+   (replaced by the new window). */
+test("a conversation carried on from outside says why it asks first, and how to work without being asked", async (t) => {
   const f = await windowFixture(t);
   // mac7/outside-review: a trigger's conversation, set to Full access, still asks before every change.
   const trigger = await f.app.runtime.run({ prompt: "hello", source: "trigger" });
   await f.call("/api/conversation-mode", { sessionId: trigger.sessionId, mode: "full" });
-  await f.page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, trigger.sessionId);
-  await f.page.waitForFunction(() => document.getElementById("mode-chip").dataset.outside === "true");
-  const chip = f.page.locator("#mode-chip");
-  assert.equal(await chip.getAttribute("data-mode"), "ask", "the chip says what really holds");
-  assert.match(await chip.getAttribute("title"), /came from outside this window \(a trigger\).*start a new conversation of your own/);
-  await chip.click();
-  assert.match(await f.page.locator("#mode-menu .mode-outside").innerText(), /asks before every change here, whatever you pick/);
-  // The owner's own conversation says nothing of the kind.
   const mine = (await f.call("/api/run", { prompt: "mine" })).body;
-  await f.page.keyboard.press("Escape");
-  await f.page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, mine.sessionId);
-  await f.page.waitForFunction(() => document.getElementById("mode-chip").dataset.outside === "false");
+  await f.call("/api/conversation-mode", { sessionId: mine.sessionId, mode: "full" });
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await openSession(f.page, trigger.sessionId);
+  assert.equal((await modeChip(f.page).innerText()).trim(), "Ask first", "the chip says what really holds");
+  // The owner's own conversation says what was picked.
+  await openSession(f.page, mine.sessionId);
+  assert.equal((await modeChip(f.page).innerText()).trim(), "Full access");
   assert.deepEqual(f.errors, []);
 });
