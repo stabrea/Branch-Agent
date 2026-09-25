@@ -211,8 +211,9 @@ test("moving from the workspace preset to Ask before changes is less careful too
   const { app, owner, as, policy, move } = await fixture(t);
   savePolicy(app.store, owner, { preset: "workspace" });
   assert.equal(move("ask-before-changes").changes[0].loosens, true);
+  // Q235: the whole-app Careful preset no longer makes this move; from the workspace default it loosens nothing.
   const careful = changesFor(app.store, owner, presets.find((preset) => preset.id === "careful").sets, app.registry).changes;
-  assert.equal(careful.find((change) => change.id === "policy.preset")?.loosens, true, "the whole-app Careful preset marks it too");
+  assert.ok(!careful.some((change) => change.loosens), "applying Careful from the workspace preset makes nothing less careful");
   // In the train with dogfood A1: the catalogue sees this move as possibly looser, so its one question is asked every
   // time (settingsHold once-only), and that yes is what lets settings.change make it. The question says what loosens.
   const input = presetChange("ask-before-changes");

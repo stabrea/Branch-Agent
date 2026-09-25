@@ -80,13 +80,13 @@ test("a preset shows each change first, and only the ticked ones are made, throu
   assert.ok(changes.every((change) => !change.loosens), "being careful never loosens anything from a fresh install");
   applyChanges(store, owner, changes, { accept: ["policy.preset", "loop_guard.mode"], confirmLoosening: false, why: "test" });
   const policy = readPolicy(store, owner);
-  assert.equal(policy.preset, "ask-before-changes");
+  assert.equal(policy.preset, "workspace", "Q235: Careful keeps the workspace approvals, which ask about web lookups");
   assert.ok(policy.rules.length > 0, "the preset's rules were worked out the way the card does it");
   assert.equal(loopGuardMode(store, owner), "on");
   assert.equal(folderTrustMode(store, owner), "off", "an unticked line was not written");
-  // Moving from careful to hands-off loosens the approval preset, and says so.
+  // Q235: Hands-off uses the same approvals, so moving from Careful to it leaves the approval preset as it is.
   const handsOff = changesFor(store, owner, presets.find((preset) => preset.id === "hands-off").sets, tools).changes;
-  assert.equal(handsOff.find((change) => change.id === "policy.preset")?.loosens, true);
+  assert.equal(handsOff.find((change) => change.id === "policy.preset"), undefined);
 });
 
 test("a switch that keeps an older yes/no has both kept in step", async (t) => {
