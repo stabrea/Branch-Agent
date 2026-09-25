@@ -938,6 +938,11 @@ function settleAsked(app: Branch, asked: { runId: string; sessionId: string; sou
     // NAS 166fbe3: only the conversation's newest task carries on. A newer one there may have stopped on its own
     // question (`user.ask` takes the owner's next message as the answer), and "Yes, go ahead." would answer it.
     if (app.store.newestIn(run.owner, run.sessionId)?.id !== run.id) return "still-waiting";
+    // NAS 3fd7700: nor after words written there with no task behind them (a heartbeat's note, a Trunk routine's
+    // report): the carry-on's model reads the conversation, so "Yes, go ahead." would answer them. A task with no
+    // record of where it stopped (asked before this was kept) is left for the owner too.
+    const stopped = app.store.events(run.id).filter((event) => event.kind === "run.stopped_to_ask").at(-1)?.data.lastMessageId;
+    if (typeof stopped !== "number" || app.store.lastMessageId(run.sessionId) !== stopped) return "still-waiting";
     // The conversation busy with another task: the carry-on is not started, and this task keeps waiting (the one-time
     // yes is still there for the owner's next message), rather than being marked done with its work undone.
     // A carry-on refused as it starts (the monthly budget, the owner's inlet filter, a closing app) leaves the task waiting

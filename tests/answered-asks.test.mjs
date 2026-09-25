@@ -267,3 +267,19 @@ test("a carry-on refused as it starts leaves the task waiting and writes down wh
   assert.equal(f.app.store.run(first.id).status, "needs_input", "the task still waits, not marked done");
   assert.equal(f.runsIn(first.sessionId).length, 1, "nothing ran");
 });
+
+// NAS 3fd7700: a heartbeat's note ("Heartbeat: Shall I empty notes.txt…?") is written into the conversation with no
+// task behind it, so the newest-task guard let an older card's yes carry on, and "Yes, go ahead." answered the note.
+test("a yes carries nothing on after words were written into the conversation with no task behind them (a heartbeat's note)", async (t) => {
+  const f = await fixture(t);
+  t.after(() => discardTemp(f.root));
+  const first = await f.app.runtime.run({ prompt: "write h2.txt" });
+  const asked = f.app.runtime.approvals.questionFor(first.sessionId);
+  f.app.store.message(first.sessionId, { role: "assistant", content: "Heartbeat: Shall I empty notes.txt to clear the stale cache?" });
+  assert.equal(f.app.store.newestIn(f.app.runtime.owner, first.sessionId).id, first.id, "control: still the newest task");
+  const said = await f.call("policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true });
+  assert.equal(said.body.task, "still-waiting");
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(f.runsIn(first.sessionId).length, 1, "nothing carried on");
+  assert.equal(f.app.store.run(first.id).status, "needs_input", "the task still waits for the owner");
+});
