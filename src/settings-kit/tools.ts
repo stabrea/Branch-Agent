@@ -149,8 +149,12 @@ function compact(one: Row): Listed {
  */
 function searched(rows: Row[], words: readonly string[]): Row[] {
   if (!words.length) return rows;
-  const texts = new Map(rows.map((one) => [one, `${one.setting} ${one.name} ${one.label} ${one.where}`.toLowerCase()]));
-  const holds = (one: Row, word: string): boolean => texts.get(one)!.includes(word);
+  // A word is held where a word starts, never inside one: "round" is not in "around" or "background". A key's
+  // camelCase parts count as words too, so "rounds" still finds maxModelRounds, and the key as written still finds itself.
+  const text = (one: Row): string => `${one.setting} ${one.name} ${one.label} ${one.where}`;
+  const texts = new Map(rows.map((one) => [one, `${text(one)} ${text(one).replace(/([a-z0-9])([A-Z])/g, "$1 $2")}`.toLowerCase()]));
+  const starts = new Map(words.map((word) => [word, new RegExp(`(?:^|[^\\p{L}\\p{N}])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "u")]));
+  const holds = (one: Row, word: string): boolean => starts.get(word)!.test(texts.get(one)!);
   const telling = new Set(words.filter((word) => {
     const count = rows.filter((one) => holds(one, word)).length;
     return count > 0 && count <= rows.length / 4;

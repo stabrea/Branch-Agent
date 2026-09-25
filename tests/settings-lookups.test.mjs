@@ -256,6 +256,15 @@ test("A5: a settings.list search gives the best few rows first, each without the
   assert.match(updates.note, /"Updating by itself" is changed only by the owner/, "a search for the owner's own card says where it is");
 });
 
+test("A5: a settings.list search holds a word where a word starts, never inside one, and a key's camelCase parts are words", async (t) => {
+  const { list } = await fixture(t);
+  const rounds = (await list({ search: "rounds", limit: 80 })).shown.map((row) => row.setting);
+  for (const inside of ["os-sandbox.mode", "os-sandbox.network", "reach-background-screen.mode"])
+    assert.equal(rounds.includes(inside), false, `"round" is only inside "around" or "background" for ${inside}`);
+  const timeout = (await list({ search: "timeout" })).shown.map((row) => row.setting);
+  assert.ok(timeout.includes("comfort-mcp.startupTimeoutSeconds"), "the word is held only in the key's startupTimeoutSeconds");
+});
+
 test("B20: the opening catalog has settings.find and settings.change for a settings request, and not for an unrelated one", async (t) => {
   const model = b20Model();
   const { app, context } = await fixture(t, model.provider);
