@@ -16,7 +16,8 @@ const Q = { files: [], temporary: false };
 function menu() {
   return mi("attach", "clip", "Attach files") + mi("add-folder", "folder", "Add a folder") + mi("shot", "camera", "Take a screenshot") + "<hr>"
     + mi("insert", "at", "Mention a Trunk", "<kbd>@</kbd>", 'data-v="@"') + mi("insert", "slash", "Use a skill", "<kbd>/</kbd>", 'data-v="/"') + "<hr>"
-    + `<div class="row-in"><span>${ic("ghost", "s")} Temporary conversation</span><input class="sw" type="checkbox" id="pm-temp" data-sw="temp" ${Q.temporary ? "checked" : ""} ${S.chat ? "disabled" : ""} aria-label="Temporary conversation"></div><div class="row-in"><span>${ic("help", "s")} Ask me questions first</span><input class="sw" type="checkbox" id="pm-ask" data-sw="askqs" aria-label="Ask me questions first"></div><div class="row-in"><span>Thinking</span><span class="seg">${["Quick", "Normal", "Deep"].map((t) => `<button type="button" data-act="think" data-v="${t}" aria-pressed="false">${t}</button>`).join("")}</span></div>`;
+    + `<div class="row-in"><span>${ic("ghost", "s")} Temporary conversation</span><input class="sw" type="checkbox" id="pm-temp" data-sw="temp" ${Q.temporary ? "checked" : ""} ${S.chat ? "disabled" : ""} aria-label="Temporary conversation"></div><div class="row-in"><span>${ic("help", "s")} Ask me questions first</span><input class="sw" type="checkbox" id="pm-ask" data-sw="askqs" aria-label="Ask me questions first"></div><div class="row-in"><span>Thinking</span><span class="seg">${["Quick", "Normal", "Deep"].map((t) => `<button type="button" data-act="think" data-v="${t}" aria-pressed="false">${t}</button>`).join("")}</span></div>`
+    + "<hr>" + mi("prompts-fill", "star", "Saved prompts", "<kbd>/</kbd>"); // handled in messages.js
 }
 
 /* The files waiting to go with the next message, in the design's file chip; clicking one takes it off. */

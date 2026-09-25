@@ -17,6 +17,7 @@ import { initDictate } from "./dictate.js";
 import { dockRow, initBg } from "./bg.js";
 import { mediaRows, initMedia } from "./media.js";
 import { besideWrap, rosterButton, initBeside } from "./beside.js";
+import { msgActs, pinnedClass, pinsBar, queueRow, loadExtras, initMessages } from "./messages.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -34,9 +35,10 @@ export function head() {
     <button class="icon-btn" type="button" aria-label="More for this conversation" data-act="chatmenu">${ic("more")}</button></div>`;
 }
 
-function user(m) { return `<div class="u">${esc(m.content)}</div>${mediaRows(m)}`; }
+const mid = (m) => (m.messageId ? ` data-i15="${esc(m.messageId)}"` : "");
+function user(m) { return `<div class="u${pinnedClass(m)}"${mid(m)}>${esc(m.content)}${msgActs(m)}</div>${mediaRows(m)}`; }
 function bot(m, first) {
-  return `<div class="b"><div class="gut">${first ? av({ kind: "main" }, 28) : ""}</div><div><div class="txt">${text(m.content)}</div></div></div>`;
+  return `<div class="b${pinnedClass(m)}"${mid(m)}><div class="gut">${first ? av({ kind: "main" }, 28) : ""}</div><div><div class="txt">${text(m.content)}</div></div>${msgActs(m)}</div>`;
 }
 
 /* The approval card, 1:1 with the prototype's: the action's verb (allow once), "Always allow for …" (a standing rule,
@@ -70,7 +72,7 @@ function thread() {
 
 function composer() {
   const draft = S.drafts[C.sessionId ?? "new"] ?? "";
-  return `<div class="dock"><div id="attached">${attached()}</div>${dockRow()}<form class="composer" id="composer" data-form="composer">
+  return `<div class="dock"><div id="attached">${attached()}</div>${queueRow()}${dockRow()}<form class="composer" id="composer" data-form="composer">
     <button class="c-btn" type="button" aria-label="Attach, mention a Trunk, skills, Temporary" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="Tools: connectors, skills, plugins and command-line tools" data-tip="Tools" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
     <textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch">${esc(draft)}</textarea>
     ${chips()}
@@ -83,7 +85,7 @@ export const sendingPrompt = () => (C.sending && !C.sessionId ? C.prompt : null)
 
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
-  return `${narrowHead}${findBar()}${besideWrap(`<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
+  return `${narrowHead}${findBar()}${pinsBar()}${besideWrap(`<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
 }
 export function after(main) {
   /* Newest at the bottom stays in view only while the reader is at the bottom; someone reading back keeps their place. */
@@ -106,6 +108,7 @@ export async function openConversation(id) {
   renderNow();
   try { C.messages = (await api("sessions/" + id)).messages ?? []; } catch (error) { toast(error.message); }
   await loadWaiting();
+  await loadExtras(id);
   renderNow();
 }
 export function startConversation() {
@@ -113,6 +116,7 @@ export function startConversation() {
   C.sessionId = null;
   S.chat = null;
   C.messages = [];
+  loadExtras(null);
   renderNow();
   $("#prompt")?.focus();
 }
@@ -150,9 +154,10 @@ async function command(line) {
   return true;
 }
 
-async function send() {
+/* Sends what is in the box, or `words` when given (an earlier message edited and sent again). */
+async function send(words) {
   const box = $("#prompt");
-  const prompt = (box?.value ?? "").trim();
+  const prompt = (words ?? box?.value ?? "").trim();
   if (!prompt || C.sending) return;
   if (prompt.startsWith("/") && (await command(prompt))) return;
   C.messages.push({ role: "user", content: prompt });
@@ -174,6 +179,7 @@ async function send() {
     C.sending = false;
     watchThinking(false);
     await refresh().catch(() => {});
+    await loadExtras(C.sessionId);
     renderNow();
     $("#prompt")?.focus();
   }
@@ -225,6 +231,7 @@ export function init() {
   initBg();
   initMedia();
   initBeside();
+  initMessages({ state: () => C, sendText: (words) => send(words), reopen: openConversation });
   onRender(drawPane);
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
