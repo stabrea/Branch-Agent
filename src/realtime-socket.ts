@@ -69,6 +69,8 @@ export function socketOutput(reply: RunSocketWriter): LiveOutput {
  */
 export function liveHooks(live: LiveConversations, runId: string, sessionId: string): RunSocketHooks {
   let conversation: LiveConversation | undefined;
+  /** Whether the window's socket has gone, however it went. */
+  let closed = false;
   const handle = (payload: Buffer, binary: boolean, reply: RunSocketWriter): void => {
     if (binary) { conversation?.audio(new Uint8Array(payload)); return; }
     const command = parseCommand(payload);
@@ -84,6 +86,8 @@ export function liveHooks(live: LiveConversations, runId: string, sessionId: str
   const begin = async (reply: RunSocketWriter): Promise<void> => {
     try {
       const started = await live.start(runId, sessionId, socketOutput(reply));
+      // The window went while the conversation was being opened, so nobody is there to hear it.
+      if (closed) { live.stop(runId, "The window closed"); return; }
       conversation = started.conversation;
       reply.text(JSON.stringify({ kind: "voice.live.ready", data: { service: started.plan.service, reason: started.plan.reason } }));
     } catch (error) {
@@ -95,6 +99,9 @@ export function liveHooks(live: LiveConversations, runId: string, sessionId: str
   return {
     onClientFrame: handle,
     liveOpen: () => conversation?.open === true,
-    onClose: () => { if (conversation) { live.stop(runId, "The window closed"); conversation = undefined; } },
+    onClose: () => {
+      closed = true;
+      if (conversation) { live.stop(runId, "The window closed"); conversation = undefined; }
+    },
   };
 }
