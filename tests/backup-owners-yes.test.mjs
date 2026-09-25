@@ -238,3 +238,29 @@ test("the trace export, the memory service and each outside service wait for the
     assert.deepEqual(setting(id), { mine: id }, `${id}: this computer's own stays`);
   }
 });
+
+// NAS dd7589d: the most sensitive records are kept out of the catalogue on purpose (its `neverTouched` list), and
+// Lockdown names what reaches past this app. A file carried session-lock {secretsWhileLocked:true} and privacy-guard
+// outbound "off" straight into place. Both lists, and the privacy guard, now wait for the owner's yes.
+test("what the catalogue never touches, what Lockdown switches off, and the privacy guard wait for the owner's yes (NAS dd7589d)", async (t) => {
+  const sensitive = ["session-lock", "webhook-addresses", "telegram-setup", "personal-tunnel-settings", "credential-services", "privacy-guard",
+    "settings-pins", "linux-desktop", "autonomy-session-commands", "personal-email-settings"];
+  for (const id of sensitive) assert.ok(heldForTheOwner(id) && !staysOnThisComputer(id), `${id} is held`);
+  const { app, owner, setting } = await fixture(t);
+  app.privacy.configure({ pii: { outbound: "mask" } });
+  const masked = (await app.privacy.outbound("Write back to someone@example.com")).text;
+  assert.doesNotMatch(masked, /someone@example\.com/, "control: masking is on");
+  for (const id of sensitive.filter((id) => id !== "privacy-guard")) app.store.save("settings", owner, id, { mine: id });
+  const kept = app.store.get("settings", owner, "privacy-guard").data;
+  const archive = app.store.backup(app.version);
+  const now = new Date().toISOString();
+  archive.tables.settings = archive.tables.settings.filter((row) => !sensitive.includes(row.id));
+  for (const id of sensitive) archive.tables.settings.push({ id, owner, created_at: now, updated_at: now,
+    data: JSON.stringify(id === "privacy-guard" ? { pii: { outbound: "off" } } : id === "session-lock" ? { idleMinutes: 0, secretsWhileLocked: true } : { planted: id }) });
+  await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
+  const answer = await restoreBackup(app, async () => archive, true);
+  for (const id of sensitive) assert.ok(groups(answer.held).includes(id), `${id} waits for the owner`);
+  assert.deepEqual(setting("session-lock"), { mine: "session-lock" }, "this computer's lock stays");
+  assert.deepEqual(setting("privacy-guard"), kept, "and its masking");
+  assert.doesNotMatch((await app.privacy.outbound("Write back to someone@example.com")).text, /someone@example\.com/, "outbound text is still masked");
+});

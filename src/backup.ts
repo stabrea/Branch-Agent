@@ -6,7 +6,8 @@ import { dropIndex } from "./fly-core/fast-index.js";
 import { ensureContractTable } from "./self-development-contract.js";
 import { reachKey, reachParts } from "./reach/settings.js";
 import { safetyKey, safetyParts } from "./safety-extras/settings.js";
-import { settingsCatalogue } from "./settings-kit/catalogue.js";
+import { neverTouched, settingsCatalogue } from "./settings-kit/catalogue.js";
+import { coveredSettings } from "./lockdown.js";
 
 /**
  * Whole-application backup: every table that holds the person's state, as plain rows, so it can be
@@ -109,11 +110,18 @@ export const thisComputerSettings: readonly string[] = [
   // NAS f30facf: the same class, run with no approval by a read (language servers, debug adapters), after a patch (the
   // project check), or by name (background programs), and the container image code runs in.
   "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends",
+  // NAS dd7589d: running code names its Python program in full, the same class. And the records Branch writes about
+  // its own state here, which the catalogue never touches either: the switch migration and which chat service is
+  // being turned away (a file must never say a service is fine while it is refused).
+  "code-run", "feature-switches-migration", "webhook-waits",
 ];
 /** NAS 23e7382: one row per add-on file on this disk, its fingerprint (src/safety-extras/wasm-add-ons.ts). */
 const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:",
   // NAS f30facf: whether each hook configured on this computer is on, and how it last failed.
-  "hook:"];
+  "hook:",
+  // NAS dd7589d: Branch's own records here: work put off, a move-in under way, and each flow run's limit and origin
+  // (a file must never loosen a limit a task set, or say who started a run).
+  "deferred:", "move-in:", "flow-run-limit:", "flow-run-source:"];
 /** The restore's own list of rows waiting for the owner's yes (src/restore-held.ts): about this computer, so it stays too. */
 export const restoreHeldKey = "restore-held";
 /**
@@ -159,8 +167,15 @@ let guardedByCatalogue: ReadonlySet<string> | null = null;
 const catalogueGuards = (id: string): boolean =>
   (guardedByCatalogue ??= new Set(settingsCatalogue.filter((spec) => spec.fields.some((field) => field.guard !== "plain")).map((spec) => spec.key)))
     .has(id);
+/**
+ * NAS dd7589d: the most sensitive records are kept out of the catalogue on purpose and named in its `neverTouched`
+ * list ("the one a crafted file meets first"), and Lockdown names what reaches past this app. A restore meets both
+ * lists too, and the privacy guard, whose masking a file could otherwise switch off.
+ */
+const codeOwnedLists = (id: string): boolean =>
+  id === "privacy-guard" || neverTouched.some((pattern) => pattern.test(id)) || coveredSettings.some((pattern) => pattern.test(id));
 export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start))
-  || (!staysOnThisComputer(id) && catalogueGuards(id));
+  || (!staysOnThisComputer(id) && (catalogueGuards(id) || codeOwnedLists(id)));
 /** A settings row from a backup, waiting for the owner's yes: its owner, its id and its data as the file had it. */
 export interface HeldRow { owner: string; id: string; data: string }
 const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && staysOnThisComputer(String(row.id));

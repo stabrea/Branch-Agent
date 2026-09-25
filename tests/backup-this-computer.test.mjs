@@ -32,7 +32,7 @@ test("the list is what Q168 A names, and devices-book stays too (named once, wit
   assert.deepEqual([...thisComputerSettings].sort(), ["comfort-update-failed", "folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode",
     "keychain-entries", "listen-address", "lockdown", "media-programs", "os-sandbox", "reach-machine-name", "reach-relay-seen", "reach-relay-settings",
     "reach-remote-trunks-keys", "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup", "safety-emergency-stop", "secret-commands",
-    "speech-engines", "voice", "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends"].sort());
+    "speech-engines", "voice", "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends", "code-run", "feature-switches-migration", "webhook-waits"].sort());
   assert.equal(staysOnThisComputer("devices-book"), true);
   assert.equal(thisComputerSettings.includes("devices-book"), false, "one list names it, not two");
 });
@@ -63,7 +63,8 @@ test("a changed backup plants none of them, and replacing keeps this computer's 
   // Into a fresh Branch.
   const fresh = await fixture(t);
   await restoreBackup(fresh.app, async () => changed, false);
-  for (const key of [...keys, "remote-agent:planted"]) assert.equal(fresh.setting(key), undefined, `${key} is not planted in a fresh Branch`);
+  // A fresh Branch writes some of these itself (the switch migration); what matters is that none holds the file's value.
+  for (const key of [...keys, "remote-agent:planted"]) assert.ok(!fresh.setting(key)?.planted, `${key} is not planted in a fresh Branch`);
 });
 
 test("a changed backup cannot make a copy Branch never made share a trusted folder's decision (folder-trust-copies)", async (t) => {
@@ -118,7 +119,9 @@ test("where this computer listens, its name, and its place at a relay stay on it
     // NAS dfb2136: a program and its arguments, as a changed file would plant them.
     "speech-engines", "voice", "media-programs",
     // NAS f30facf: programs run by a read, after a patch or by name, the container image, and a hook's own state.
-    "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends", "hook:nightly"];
+    "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends", "hook:nightly",
+    // NAS dd7589d: code-run's program, and Branch's own records of its state here.
+    "code-run", "feature-switches-migration", "webhook-waits", "deferred:x", "move-in:y", "flow-run-limit:z", "flow-run-source:z"];
   for (const key of here) app.store.save("settings", owner, key, { mine: key });
   const archive = app.store.backup(app.version);
   for (const key of here) assert.ok(!archive.tables.settings.some((row) => row.id === key), `${key} is not in the backup`);
