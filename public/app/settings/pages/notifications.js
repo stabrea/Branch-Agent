@@ -1,20 +1,19 @@
-import { esc } from "../../core/dom.js";
-import { ctl, statusBox } from "../parts.js";
+/* Settings › notifications: markup generated 1:1 from the prototype (design/redesign/tools/convert-settings.py).
+   Bind real engine data and wire controls in place; never add text that is not here. */
+import { level } from "../../core/state.js";
+
+const MARKUP = {
+  regular: `<h1>Notifications</h1><p class="lede">When Branch may interrupt you.</p><div class="status"><span class="sdot "></span><div><b>Quiet hours are 10 PM to 7 AM</b><p>Approvals still wait in the Inbox; nothing pings you in that window.</p></div></div>
+    <div class="sec"><h2>Tell me when…</h2><div class="ctl"><b>A Trunk needs a yes</b><input class="sw" type="checkbox" id="n-need" checked="" aria-label="A Trunk needs a yes" data-sw="set"><small>Shows on this computer and your phone.</small></div><div class="ctl"><b>A long task finishes</b><input class="sw" type="checkbox" id="n-done" checked="" aria-label="A long task finishes" data-sw="set"><small>Only tasks over two minutes.</small></div><div class="ctl"><b>Play a sound</b><input class="sw" type="checkbox" id="n-sound" aria-label="Play a sound" data-sw="set"><small>A short soft chime.</small></div></div>
+    <div class="sec"><h2>Quiet</h2><div class="ctl"><b>Days off</b><span class="right"><span class="seg" role="group" aria-label="Days off"><button type="button" aria-pressed="false" data-act="seg">Sat</button><button type="button" aria-pressed="true" data-act="seg">Sun</button><button type="button" aria-pressed="false" data-act="seg">None</button></span></span><small>No notifications at all on these days.</small></div></div>`,
+  advanced: `<h1>Notifications</h1><p class="lede">When Branch may interrupt you.</p><div class="status"><span class="sdot "></span><div><b>Quiet hours are 10 PM to 7 AM</b><p>Approvals still wait in the Inbox; nothing pings you in that window.</p></div></div>
+    <div class="sec"><h2>Tell me when…</h2><div class="ctl"><b>A Trunk needs a yes</b><input class="sw" type="checkbox" id="n-need" checked="" aria-label="A Trunk needs a yes" data-sw="set"><small>Shows on this computer and your phone.</small></div><div class="ctl"><b>A long task finishes</b><input class="sw" type="checkbox" id="n-done" checked="" aria-label="A long task finishes" data-sw="set"><small>Only tasks over two minutes.</small></div><div class="ctl"><b>Play a sound</b><input class="sw" type="checkbox" id="n-sound" aria-label="Play a sound" data-sw="set"><small>A short soft chime.</small></div></div>
+    <div class="sec"><h2>Quiet</h2><div class="ctl"><b>Days off</b><span class="right"><span class="seg" role="group" aria-label="Days off"><button type="button" aria-pressed="false" data-act="seg">Sat</button><button type="button" aria-pressed="true" data-act="seg">Sun</button><button type="button" aria-pressed="false" data-act="seg">None</button></span></span><small>No notifications at all on these days.</small></div></div>`,
+  technical: `<h1>Notifications</h1><p class="lede">When Branch may interrupt you.</p><div class="status"><span class="sdot "></span><div><b>Quiet hours are 10 PM to 7 AM</b><p>Approvals still wait in the Inbox; nothing pings you in that window.</p></div></div>
+    <div class="sec"><h2>Tell me when…</h2><div class="ctl"><b>A Trunk needs a yes</b><input class="sw" type="checkbox" id="n-need" checked="" aria-label="A Trunk needs a yes" data-sw="set"><small>Shows on this computer and your phone.</small></div><div class="ctl"><b>A long task finishes</b><input class="sw" type="checkbox" id="n-done" checked="" aria-label="A long task finishes" data-sw="set"><small>Only tasks over two minutes.</small></div><div class="ctl"><b>Play a sound</b><input class="sw" type="checkbox" id="n-sound" aria-label="Play a sound" data-sw="set"><small>A short soft chime.</small></div></div>
+    <div class="sec"><h2>Quiet</h2><div class="ctl"><b>Days off</b><span class="right"><span class="seg" role="group" aria-label="Days off"><button type="button" aria-pressed="false" data-act="seg">Sat</button><button type="button" aria-pressed="true" data-act="seg">Sun</button><button type="button" aria-pressed="false" data-act="seg">None</button></span></span><small>No notifications at all on these days.</small></div></div>`,
+};
 
 export function draw() {
-  return `<h1>Notifications</h1>
-    <p class="lede">When Branch may interrupt you.</p>
-    ${statusBox("Quiet hours are 10 PM to 7 AM", "Approvals still wait in the Inbox; nothing pings you in that window.")}
-    <div class="sec"><h2>Tell me when…</h2>
-      ${ctl("n-need", "A Trunk needs a yes", "Shows on this computer and your phone.", true)}
-      ${ctl("n-done", "A long task finishes", "Only tasks over two minutes.", true)}
-      ${ctl("n-sound", "Play a sound", "A short soft chime.", false)}
-    </div>
-    <div class="sec"><h2>Quiet</h2>
-      <div class="ctl"><b>Days off</b><span class="right"><span class="seg" role="group" aria-label="Days off">${["Sat", "Sun", "None"]
-        .map(d => `<button type="button" aria-pressed="${d === "Sun"}">${esc(d)}</button>`)
-        .join("")}</span></span><small>No notifications at all on these days.</small></div>
-    </div>`;
+  return MARKUP[["regular", "advanced", "technical"][level()]];
 }
-
-export function init() {}
