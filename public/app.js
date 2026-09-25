@@ -942,8 +942,6 @@ function chooseDoor(door) {
   for (const id of ["door-chatgpt", "door-key", "door-local", "door-demo"]) $(id).classList.toggle("selected", id === "door-" + door);
   $("first-run-done").hidden = true;
   $("first-run-test").hidden = door === "demo";
-  // Mac mini's E1 review: the demo skips the two questions after this one, so its card does not count to three.
-  for (const count of document.querySelectorAll("#first-run > .onboarding-count")) count.hidden = door === "demo";
 }
 $("door-chatgpt").addEventListener("click", async () => {
   chooseDoor("chatgpt");

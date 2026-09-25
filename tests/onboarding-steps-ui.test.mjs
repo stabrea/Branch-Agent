@@ -71,11 +71,3 @@ test("both questions can be skipped, and nothing is changed", async (t) => {
   assert.equal(readPolicy(app.store, app.runtime.owner).preset, before);
   assert.equal(onboardingDone(app), true);
 });
-
-test("the demo door skips the two questions, so its card does not count to three (Mac mini's E1 review)", async (t) => {
-  const { page } = await openFresh(t);
-  const count = page.locator("#first-run > .onboarding-count");
-  assert.equal(await count.isVisible(), true);
-  await page.locator("#door-demo").click();
-  assert.equal(await count.isVisible(), false);
-});
