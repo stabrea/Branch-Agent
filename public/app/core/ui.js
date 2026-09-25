@@ -87,15 +87,17 @@ export function openDlg({ title, body, foot = "", wide = false }) {
 
 /* ---------- toasts ---------- */
 let toastTimer;
-export function toast(message) {
+/* With `undo`, the toast carries an Undo button (data-act="undo", handled in chat/messages.js) that calls it. */
+export function toast(message, undo) {
   document.querySelector(".toast")?.remove();
   const el = document.createElement("div");
   el.className = "toast";
   el.setAttribute("role", "status");
-  el.innerHTML = `<span>${esc(message)}</span>`;
+  el.innerHTML = `<span>${esc(message)}</span>${undo ? '<button type="button" data-act="undo">Undo</button>' : ""}`;
+  toast.undo = undo ?? null;
   app().appendChild(el);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.remove(), 2600);
+  toastTimer = setTimeout(() => el.remove(), undo ? 5000 : 2600);
 }
 
 /* ---------- tooltips (data-tip, or an icon button's label) ---------- */

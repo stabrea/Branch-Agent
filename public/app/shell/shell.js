@@ -7,6 +7,7 @@ import { on } from "../core/actions.js";
 import { ic, av, mi, openPop, closePop, toast } from "../core/ui.js";
 import { greyOut, markLive } from "../core/features.js";
 import { head as chatHead, openConversation, startConversation } from "../chat/chat.js";
+import { statusItems } from "../chat/messages.js";
 import { initExtras } from "./extras.js";
 import { initUsage } from "./usage.js";
 import { api, link } from "../core/api.js";
@@ -54,10 +55,12 @@ function searchInside(q) {
 
 /* The engine's projects (GET /api/projects), read when the fold is opened. A project's own page is not in this window yet. */
 let projects = [];
-const projectRows = () => projects.map((pr) => `<button class="nav" type="button" data-act="project" data-v="${esc(pr.id)}">${ic("folder", "s")}${esc(pr.name)}</button>`).join("");
+const projectRows = () => projects.map((pr) => `<button class="nav" type="button" data-act="project" data-v="${esc(pr.id)}" aria-current="${S.activeProject === pr.id}">${ic("folder", "s")}${esc(pr.name)}</button>`).join("");
 async function toggleProjects() {
   S.projOpen = !S.projOpen;
-  if (S.projOpen) projects = (await api("projects").catch(() => null))?.all ?? projects;
+  const got = S.projOpen ? await api("projects").catch(() => null) : null;
+  projects = got?.all ?? projects;
+  S.activeProject = got?.active?.id ?? S.activeProject; // chosen in chat/messages.js (POST /api/projects/active)
   renderNow();
 }
 
@@ -97,6 +100,7 @@ function status() {
   const model = modelLabel();
   return `<button class="sb" type="button" data-act="machines"><span class="dot ${link.up ? "" : "off"}"></span>${link.up ? "Connected" : "Not connected"} · this computer</button>
     <button class="sb" type="button" data-act="gwpop" data-tip="The gateway keeps Branch running in the background"><span class="dot off"></span>Gateway</button>
+    ${statusItems()}
     <span class="tb-grow"></span>
     ${model ? `<button class="sb usage" type="button" data-act="usagepop" data-tip="What each connection has left: 5-hour, daily and weekly limits"><span class="hide-sm">${esc(model)}</span></button>` : ""}
     ${version ? `<button class="sb hide-sm" type="button" data-act="updmenu" data-tip="Version and updates">${esc(version)}</button>` : ""}`;
