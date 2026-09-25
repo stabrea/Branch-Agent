@@ -175,7 +175,7 @@ import { People } from "./people/index.js";
 import { peopleEnabled } from "./people/settings.js";
 import { interopMode } from "./interop/settings.js";
 import { requireBoundSession } from "./people/access.js";
-import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
+import { keyAnswerRefusal, keyStopRefusal, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
@@ -1515,12 +1515,12 @@ async function api(
     if (!run || run.owner !== app.store.profiles.scope())
       throw new HttpError(404, "Run not found");
     if (request.method === "POST" && match[2] === "cancel") {
+      // Q221, Q226 (NAS 39e8973, 9ec0d3a): a short-lived key stops only a task it started, working or waiting, as it answers one.
+      const keyRefusal = keyStopRefusal(app.store, run.id);
+      if (keyRefusal) throw new HttpError(401, keyRefusal);
       if (app.runtime.cancel(run.id)) return { cancelled: true };
       // Dogfood F8: a task waiting for an answer, or cut off by a restart, is stopped too, and its question goes with it.
       if (run.status !== "needs_input" && run.status !== "interrupted") return { cancelled: false };
-      // Q221 (NAS 39e8973): a short-lived key stops a waiting task only when it started it, as it answers one.
-      const keyRefusal = keyAnswerRefusal(app.store, run.id);
-      if (keyRefusal) throw new HttpError(401, keyRefusal);
       // Q222: by the task, so a question with no fingerprint never takes another task's question with it.
       app.runtime.approvals.dropFor(run.sessionId, run.id);
       app.store.finish(run.id, "cancelled", run.output);
