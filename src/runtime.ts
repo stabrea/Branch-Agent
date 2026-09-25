@@ -123,7 +123,7 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 // --- R17-S-B: the owner's knobs, read fresh at each marked hook (src/knobs/apply.ts) ---
 import * as knobs from "./knobs/apply.js";
 import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
-import { produced, producedNothing, thinkingTokens } from "./empty-answer.js"; // mac7/empty-completion
+import { produced, producedNothing, silentAfterWork, thinkingTokens } from "./empty-answer.js"; // mac7/empty-completion
 import { isOutOfRoomThinking } from "./provider-stream.js"; // mac7/coding-gap
 // --- end R17-S-B ---
 // --- R17-E: models, cheaper and smarter (src/model-savings/hook.ts) ---
@@ -1260,11 +1260,17 @@ ${run.output.slice(0, 6000)}`;
     // run — an owner's task, a delegated child and a manual tool action all settle here — so the
     // check cannot be walked around, and it judges only what the task itself recorded.
     this.replyCeilings.delete(run.id);
-    const nothing = producedNothing(status, output, produced(this.store.events(run.id)));
+    const done = produced(this.store.events(run.id));
+    const nothing = producedNothing(status, output, done);
     if (nothing) {
       this.store.event(run.id, "run.produced_nothing", { reason: nothing });
       status = "failed";
       output = nothing;
+    }
+    const silent = silentAfterWork(status, output, done);
+    if (silent) {
+      this.store.event(run.id, "run.silent_after_work", { reason: silent });
+      output = silent;
     }
     try {
       await this.registry.finishRun(context);

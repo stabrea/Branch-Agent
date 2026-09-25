@@ -76,6 +76,20 @@ export function producedNothing(status: RunStatus, output: string, what: Produce
 }
 
 /**
+ * Dogfood A7 (NAS 22148d1): a task that did its work with tools and then never wrote an answer, even when asked
+ * twice, left the owner with only its step rows. It did the work, so it is not a failure; it ends with words that
+ * say so, and the steps above hold what it did.
+ */
+export function silentAfterWork(status: RunStatus, output: string, what: Produced): string | null {
+  if (status !== "completed" || String(output ?? "").trim()) return null;
+  if (what.toolResults === 0 && what.filesChanged === 0) return null;
+  const steps = what.toolResults === 1 ? "one step" : `${what.toolResults} steps`;
+  const files = what.filesChanged === 0 ? "" : what.filesChanged === 1 ? " and changed one file" : ` and changed ${what.filesChanged} files`;
+  return `I finished after ${steps}${files}, but the model wrote no answer, even when asked. The steps above show `
+    + `what was done; ask me to sum it up if you need more.`;
+}
+
+/**
  * integrate/empty-completion: the tokens a reply's thinking is charged as when the provider did not
  * say. The text is never kept, only its length, so it is estimated the way every other output is.
  */

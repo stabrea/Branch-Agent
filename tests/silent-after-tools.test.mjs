@@ -48,10 +48,14 @@ test("a reply with words after a tool is the answer, with no extra round", async
   assert.equal(nudges(app, run).length, 0);
 });
 
-test("a model that stays empty after a tool is asked twice at most", async (t) => {
+test("a model that stays empty after a tool is asked twice at most, and the task still ends with words", async (t) => {
   const { app } = await scripted(t, [listing, empty]);
   const run = await app.runtime.run({ prompt: "list the folder" });
   assert.equal(nudges(app, run).length, 2, "the empty reply is asked about twice, no more");
+  // NAS 22148d1: the work was done, so it is not a failure, but the owner is never left with no words at all.
+  assert.equal(run.status, "completed");
+  assert.match(run.output, /^I finished after one step, but the model wrote no answer, even when asked\./);
+  assert.equal(app.runtime.store.events(run.id).filter((event) => event.kind === "run.silent_after_work").length, 1);
 });
 
 test("the extra round counts against the round limit, and the limit still ends in words", async (t) => {
