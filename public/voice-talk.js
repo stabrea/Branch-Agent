@@ -175,6 +175,9 @@ function wireTalk() {
   button.addEventListener("keydown", (event) => { if (event.key === " " || event.key === "Enter") void press(); });
   button.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") release(); });
   show("idle");
+  // Dogfood B14: this runs before the words have loaded, so the button read "voice.talkStart". It is drawn
+  // again once they arrive, and whenever the language changes.
+  document.addEventListener("branch-language", () => show(state));
 }
 
 /* ---------- the Voice settings screen ---------- */
