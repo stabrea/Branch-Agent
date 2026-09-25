@@ -1,15 +1,17 @@
 /* Settings › Appearance, 1:1 with the prototype's page, from the engine: light or dark and the reading choices from the
    preferences (POST /api/preferences replaces the whole record, so shell/look.js lays each change over it), the theme
    from GET /api/look (the gallery and the colour editor are shell/themes.js), the background and the pet from the
-   engine's delight switches (shell/scene.js). The painted scene, its season and where the pet walks are this window's. */
+   engine's delight switches (shell/scene.js). The painted scene, its season and where the pet walks are this window's.
+   Your own background's file stays in this window's storage (shell/ownbg.js); the engine keeps how it fits. */
 
 import { E, S, refresh } from "../../core/state.js";
 import { esc, renderNow } from "../../core/dom.js";
 import { on } from "../../core/actions.js";
-import { ic, toast } from "../../core/ui.js";
+import { ic, toast, openDlg, closeDlg } from "../../core/ui.js";
 import { L, lookOf, lookEF, wornId, effMode, more, swatch, looks, savePrefs } from "../../shell/look.js";
 import { ACCENTS } from "../../shell/themes.js";
-import { D, W, SCENES, loadDelight, saveDelight, saveWindow, showsBackground, drawBackground } from "../../shell/scene.js";
+import { D, W, SCENES, loadDelight, saveDelight, saveWindow, showsBackground, bgChoice, drawBackground } from "../../shell/scene.js";
+import { OWN, LIMITS, kindOf, keep, forget } from "../../shell/ownbg.js";
 
 const pressed = (on) => `aria-pressed="${!!on}"`;
 const segAct = (title, sub, opts, cur, act) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l, a]) => `<button type="button" ${pressed(v === cur)} data-act="${a ?? act}" data-v="${v}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
@@ -39,12 +41,22 @@ function agentsSection() {
   return `<div class="sec"><h2>Agents</h2><div class="ctl"><b>Show the agent beside the conversation</b><input class="sw" type="checkbox" id="ag-show" aria-label="Show the agent beside the conversation" data-sw="set"><small>It acts out what the Trunk is doing: thinking, searching, reading, working, waiting for you, celebrating, resting.</small></div>${segAct("Size", "Small keeps it out of the way.", [["s", "Small"], ["m", "Medium"], ["l", "Large"]], "", "ag-size")}</div>`;
 }
 
+/* Your own file: choosing one, or the one kept with its fit, Remove and a file to replace it (prototype pass 6). */
+const KINDS = { picture: "Picture", animation: "Animation", video: "Video", "3d": "3D model" };
+function ownRows() {
+  const s = OWN.saved, file = (id, label) => `<input type="file" id="${id}" data-sw="bgfile" accept="image/*,video/*" aria-label="${label}">`;
+  if (!s) return `<div class="ctl"><b>Choose a file</b><span class="right">${file("bg-file6", "Choose a background file")}</span><small>A picture or animation up to ${LIMITS.picture} MB, a video up to ${LIMITS.video} MB. Kept in this window only, never sent anywhere.</small></div>`;
+  const fits = [["fill", "Fill"], ["fit", "Fit"], ...(s.kind === "video" ? [] : [["tile", "Tile"]])];
+  return `<div class="ctl"><b>${esc(s.name)}</b><span class="right"><button class="btn sm" type="button" data-act="bg-remove">Remove</button></span><small>${KINDS[s.kind] ?? ""} · ${(s.size / 1048576).toFixed(1)} MB</small></div>
+    ${s.kind !== "3d" ? segAct("Fit", "Tile is for pictures and animations.", fits, D.settings?.background?.fit ?? "fill", "bgfit") : ""}<div class="ctl"><b>Another file</b><span class="right">${file("bg-file6", "Choose another background file")}</span><small>Replaces this one.</small></div>`;
+}
+
 function backgroundSection() {
-  const on = showsBackground(), scrim = D.settings?.background?.scrim ?? 60;
-  const kinds = [["none", "None"], ["painted", "Painted grove"], ["grove", "The grove", "bgset-grove"], ["oak3d", "The oak in 3D", "bgset-oak3d"], ["rings", "Growth rings", "bgset-rings"], ["own", "Your own", "bgset-own"]];
-  const scenes = SCENES.map(([v, n, f]) => `<button type="button" class="scene-c12" data-act="scene-set" data-v="${v}" ${pressed(on && W.scene === v)}>${f ? `<span class="sc-img12" data-css="background-image:url('${f}')"></span>` : `<span class="sc-img12 sc-auto12">${["spring", "autumn", "winter", "night"].map((k) => `<i data-css="background-image:url('/art/grove-${k}.webp')"></i>`).join("")}</span>`}<b>${esc(n)}</b></button>`).join("");
-  const season = on ? segAct("Season", "Spring greens, autumn copper, winter snow; the forest at night in dark mode.", [["auto", "By the date"], ["spring", "Spring"], ["autumn", "Autumn"], ["winter", "Winter"]], W.season, "season") : "";
-  return `<div class="sec"><h2>Background</h2>${segAct("Behind the glass", "The grove and the oak wear the theme’s colours. A scrim in the theme’s own colour keeps text readable.", kinds, on ? "painted" : "none", "bgset")}${season}<div class="fld"><span>Painted scenes</span><div class="scenes12">${scenes}</div></div>
+  const on = showsBackground(), choice = bgChoice(), scrim = D.settings?.background?.scrim ?? 60;
+  const kinds = [["none", "None"], ["painted", "Painted grove"], ["grove", "The grove", "bgset-grove"], ["oak3d", "The oak in 3D", "bgset-oak3d"], ["rings", "Growth rings", "bgset-rings"], ["own", "Your own"]];
+  const scenes = SCENES.map(([v, n, f]) => `<button type="button" class="scene-c12" data-act="scene-set" data-v="${v}" ${pressed(choice === "painted" && W.scene === v)}>${f ? `<span class="sc-img12" data-css="background-image:url('${f}')"></span>` : `<span class="sc-img12 sc-auto12">${["spring", "autumn", "winter", "night"].map((k) => `<i data-css="background-image:url('/art/grove-${k}.webp')"></i>`).join("")}</span>`}<b>${esc(n)}</b></button>`).join("");
+  const season = choice === "painted" ? segAct("Season", "Spring greens, autumn copper, winter snow; the forest at night in dark mode.", [["auto", "By the date"], ["spring", "Spring"], ["autumn", "Autumn"], ["winter", "Winter"]], W.season, "season") : "";
+  return `<div class="sec"><h2>Background</h2>${segAct("Behind the glass", "The grove and the oak wear the theme’s colours. A scrim in the theme’s own colour keeps text readable.", kinds, choice, "bgset")}${season}${choice === "own" ? ownRows() : ""}<div class="fld"><span>Painted scenes</span><div class="scenes12">${scenes}</div></div>
     <div class="ctl"><b>How much the theme covers it</b><span class="right"><input class="range" type="range" id="scrim6" min="20" max="90" step="5" value="${scrim}" aria-label="How much the theme covers the background" disabled><span data-css="font:12px var(--mono);color:var(--ink-3);width:34px">${scrim}%</span></span><small>More keeps text calmer; less shows more of the background.</small></div>
     <div class="ctl"><b>See-through panels</b><span class="right"><input class="range" type="range" id="see" min="0" max="60" step="5" value="${prefs().seeThrough ?? 30}" aria-label="See-through panels" disabled><span data-css="font:12px var(--mono);color:var(--ink-3);width:34px">${prefs().seeThrough ?? 30}%</span></span><small>Panels blur what's behind them.</small></div>
     <div class="ctl"><b>Preview</b><span class="right"><button class="btn sm" type="button" data-act="bg-peek" ${on ? "" : "disabled"}>${ic("eye", "s")}See it clearly</button></span><small>Clear the view: see the background. Click anywhere or press Escape to come back.</small></div></div>`;
@@ -85,11 +97,44 @@ async function savePrefsAndDraw(change) {
 }
 async function setBackground(on) { await saveDelight({ background: { on } }); drawBackground(); renderNow(); }
 
+/* A chosen file is checked against the prototype's kinds and limits, kept, and shown behind the glass. */
+async function pickOwn(file) {
+  const kind = await kindOf(file);
+  if (!kind) { toast("That kind of file can’t go behind the glass."); return; }
+  if (file.size > LIMITS[kind] * 1048576) { toast(`That file is ${(file.size / 1048576).toFixed(1)} MB. Keep it under ${LIMITS[kind]} MB for a ${kind}.`); return; }
+  try { await keep(file, kind); } catch (error) { toast(error.message); return; }
+  W.bg = "own";
+  saveWindow();
+  if (!D.settings?.background?.on) await saveDelight({ background: { on: true } });
+  drawBackground();
+  renderNow();
+  toast("Kept on this computer. It is never sent anywhere.");
+}
+function removeDlg() {
+  if (!OWN.saved) return;
+  openDlg({ title: "Remove your background?", body: `<p data-css="margin:0">${esc(OWN.saved.name)} is thrown away from this window’s storage. Switching the background off would keep it for next time.</p>`,
+    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Keep it</button><button class="btn bad" type="button" data-act="bg-remove-yes">Remove</button>' });
+}
+async function removeOwn() {
+  try { await forget(); } catch (error) { toast(error.message); return; }
+  W.bg = "painted";
+  saveWindow();
+  await saveDelight({ background: { on: false } });
+  closeDlg();
+  drawBackground();
+  renderNow();
+  toast("Removed. Nothing is kept.");
+}
+async function setFit(fit) { await saveDelight({ background: { fit } }); drawBackground(); renderNow(); }
+
 export function init() {
   // "themeset" belongs to the shell, which applies the look and saves it to the engine; the theme controls are shell/themes.js.
   on("widthset", (el) => savePrefsAndDraw({ conversationWidth: el.dataset.v }));
   on("size", (el) => savePrefsAndDraw({ textSize: el.dataset.v }));
-  on("bgset", (el) => { if (el.dataset.v === "painted") { W.bg = "painted"; saveWindow(); } setBackground(el.dataset.v !== "none"); });
+  on("bgset", (el) => { if (el.dataset.v === "painted" || el.dataset.v === "own") { W.bg = el.dataset.v; saveWindow(); } setBackground(el.dataset.v !== "none"); });
+  on("bgfit", (el) => setFit(el.dataset.v));
+  on("bg-remove", () => removeDlg());
+  on("bg-remove-yes", () => removeOwn());
   on("scene-set", (el) => { W.scene = el.dataset.v; W.bg = "painted"; saveWindow(); if (!D.settings?.background?.on) setBackground(true); else { drawBackground(); renderNow(); } });
   on("season", (el) => { W.season = el.dataset.v; saveWindow(); drawBackground(); renderNow(); });
   on("bg-peek", () => document.getElementById("app").classList.add("peek"));
@@ -97,6 +142,7 @@ export function init() {
   on("petwhere15", (el) => { W.petWhere = el.dataset.v; saveWindow(); renderNow(); });
   document.addEventListener("change", (e) => {
     const t = e.target;
+    if (t.id === "bg-file6") { if (t.files?.[0]) pickOwn(t.files[0]); return; }
     const row = HIDES.find(([id]) => id === t.id);
     if (!row) return;
     const k = row[1], hidden = (prefs().hidden ?? []).filter((x) => x !== k);
@@ -122,6 +168,10 @@ export const live = {
   "season": true,
   "bg-peek": true,
   "petwhere15": true,
+  "bgfit": true,
+  "bg-remove": true,
+  "bg-remove-yes": true,
+  "sw:bg-file6": true,
   "sw:h-usage": true,
   "sw:h-gateway": true,
   "sw:h-pet": true,
