@@ -61,8 +61,9 @@ export const PolicyRuleSchema = z
      */
     paths: z.array(z.string().trim().min(1).max(200)).max(8).optional(),
     /**
-     * Redesign ("Always allow for <Trunk>"): the one Trunk this rule is for. It covers only work that Trunk is doing;
-     * left out, the rule covers every Trunk and the owner's own conversations, as every rule written before this does.
+     * Redesign ("Always allow for <Trunk>"): the one Trunk this yes is for. An allow with it covers only work that Trunk
+     * is doing; a refusal or an "ask first" with it still holds for everyone. Left out, the rule covers every Trunk and
+     * the owner's own conversations, as every rule written before this does.
      */
     trunk: z.string().min(1).max(100).optional(),
   })
@@ -279,7 +280,9 @@ export interface PolicyRequest {
 export interface PolicyOutcome { decision: PolicyDecision; rule: PolicyRule | null }
 /** Whether one rule covers this call: the tool, what it would touch, and the thing it is about. */
 function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
-  if (rule.trunk !== undefined && rule.trunk !== request.trunk) return false;
+  // Mac mini's review of #285: a Trunk only ever narrows a yes. A refusal or an "ask first" that names a Trunk holds for
+  // everyone, so a path that judges a call without knowing its Trunk can never skip one.
+  if (rule.trunk !== undefined && rule.decision === "allow" && rule.trunk !== request.trunk) return false;
   if (rule.applies === "changes" && request.readOnly) return false;
   if (rule.applies === "reads" && !request.readOnly) return false;
   if (!globMatches(rule.tool, request.tool)) return false;

@@ -59,3 +59,23 @@ test("a yes named for a Trunk other than the one that asked is refused and keeps
   assert.equal(readPolicy(app.store, app.runtime.owner).rules.length, before, "no rule was written");
   assert.ok(asked(app, run.runId), "the question still waits");
 });
+
+test("an always that does not name the Trunk (an older client) is still kept for the Trunk that asked", async (t) => {
+  const { app, ada, bo } = await twoTrunks(t);
+  const first = await app.trunks.say(ada.id, "write the note");
+  const question = asked(app, first.runId);
+  app.runtime.approve(question.sessionId, "allow", "always", question.fingerprint);
+  const kept = readPolicy(app.store, app.runtime.owner).rules.find((rule) => rule.decision === "allow" && rule.tool === "files.write");
+  assert.equal(kept?.trunk, ada.id, "kept for Ada, not for everyone");
+  const bos = await app.trunks.say(bo.id, "write the note");
+  assert.equal(asked(app, bos.runId)?.trunk, bo.id, "Bo is still asked");
+});
+
+test("a refusal or an ask-first that names a Trunk holds for everyone; only a yes is narrowed to a Trunk", () => {
+  const request = { tool: "files.write", target: "note.txt", readOnly: false };
+  for (const decision of ["deny", "ask"]) {
+    const policy = { preset: "custom", rules: [{ tool: "files.write", match: "*", applies: "any", decision, remember: "always", trunk: "ada" }] };
+    for (const trunk of ["ada", "bo", undefined])
+      assert.equal(evaluatePolicy(policy, { ...request, trunk }).decision, decision, `${decision} for ${trunk ?? "no Trunk"}`);
+  }
+});

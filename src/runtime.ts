@@ -3208,7 +3208,10 @@ ${run.output.slice(0, 6000)}`;
     if (waiting.tool === projectTestsTool && decision === "allow" && remember === "never")
       this.approvals.grantOnce(sessionId, waiting.tool, waiting.target);
     // Q215: with the rules full, an "always" that nothing less careful could make room for holds for this conversation only, and says so.
-    const scoped = remember === "always" && forTrunk !== undefined ? { trunk: forTrunk } : {};
+    // Mac mini's review of #285: a standing yes to a Trunk's question is kept for that Trunk even when the answer did not
+    // name it (an older client), so it is never wider than the card said. A standing no is kept for everyone.
+    const keptFor = forTrunk ?? waiting.trunk;
+    const scoped = remember === "always" && decision === "allow" && keptFor !== undefined ? { trunk: keptFor } : {};
     const kept = remember === "always" ? keepPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always", ...scoped }).kept : true;
     if (!kept) remember = "session";
     audit(this.store, this.owner, {
