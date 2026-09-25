@@ -9,6 +9,7 @@ import { listenTips, closePop, closeDlg } from "./core/ui.js";
 import { greyOut } from "./core/features.js";
 import { VIEWS } from "./views.js";
 import { drawShell, initShell } from "./shell/shell.js";
+import { showSignIn } from "./shell/signin.js";
 
 function drawMain() {
   const main = $("#main");
@@ -31,7 +32,16 @@ async function boot() {
   onRender(drawShell);
   onRender(drawMain);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closePop(); closeDlg(); } });
-  try { await refresh(); } catch (error) { E.error = error; render(); return; }
+  await connect();
+}
+
+/* First load; a browser without a valid session token is asked for one (the engine's words say why it refused). */
+async function connect(refusal = "") {
+  try { await refresh(); }
+  catch (error) {
+    if (error.status === 401) { showSignIn(() => connect(true), refusal ? error.message : ""); return; }
+    E.error = error; render(); return;
+  }
   stream(["run", "approval", "message", "trunk"], () => refresh().catch(() => {}));
 }
 

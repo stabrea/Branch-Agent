@@ -25,6 +25,7 @@ export const E = {
   trunks: [],
   sessions: [],
   conversation: null,
+  profiles: null,
   loaded: false,
 };
 
@@ -40,11 +41,13 @@ export function save() {
 
 /* The engine's picture of things: state, the Trunks and the conversation list. */
 export async function refresh() {
-  const [state, trunks, sessions] = await Promise.all([
+  const [state, trunks, sessions, profiles] = await Promise.all([
     api("state"),
     api("trunks").catch(() => null),
     api("sessions?limit=50").catch(() => null),
+    api("profiles").catch(() => null),
   ]);
+  E.profiles = profiles;
   E.state = state;
   E.trunks = trunks?.trunks ?? (Array.isArray(trunks) ? trunks : []);
   E.sessions = sessions?.sessions ?? [];
