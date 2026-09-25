@@ -113,6 +113,14 @@ test("Q187: a helper whose own context says owner, but whose task came from a ch
   await assert.rejects(registry.execute("branch.widen_source_contract", { name: "x", reason: "wider", changes: { allowedPaths: ["docs/**"] } },
     { source: "owner", runId: "chat", owner: "local", permissions: new Set(["git.remote"]), signal: AbortSignal.timeout(1000), budget: { step: () => undefined, charge: () => undefined } }),
     /Only the owner in the Branch app/, "widening a contract from a chat's task");
+  // NAS 9993ab7: a Trunk's turn records the owner's source, so its context is what tells it apart.
+  const trunkCall = (name, args, extra) => registry.execute(name, args, { source: "owner", runId: "mine", owner: "local", permissions: new Set(["git.remote"]),
+    signal: AbortSignal.timeout(1000), budget: { step: () => undefined, charge: () => undefined }, ...extra });
+  for (const extra of [{ trunk: "helper" }, { trunkKeys: { copyFromOwner: false, accounts: {} } }]) {
+    await assert.rejects(trunkCall("branch.prepare_source_change", input, extra), /Only the owner in the Branch app/, `a Trunk's turn (${Object.keys(extra)[0]})`);
+    await assert.rejects(trunkCall("branch.widen_source_contract", { name: "x", reason: "wider", changes: { allowedPaths: ["docs/**"] } }, extra),
+      /Only the owner in the Branch app/, `widening from a Trunk's turn (${Object.keys(extra)[0]})`);
+  }
   owner = false;
   await assert.rejects(call("mine"), /Only the owner in the Branch app/, "a window switched to a household profile");
   owner = true;

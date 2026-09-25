@@ -163,7 +163,9 @@ function ownerOnly(context: ToolContext, store: Store): void {
   const origin = context.runId ? runOrigin(store, context.runId) : null;
   // A household person's task records source "owner" too, so it is told apart by whose it is (NAS c7bbf84), and
   // the window must be on the owner's profile, as `ownerWorkOnly` and `Runtime.ownersOwnTask` ask.
-  if (startedWithShortLivedKey() || (context.source && context.source !== "owner") || !store.profiles.isOwner()
+  // NAS 9993ab7: a Trunk's turn records the owner's source too, so it is refused by its context, as remove-branch,
+  // the one-button install and the password book already do.
+  if (startedWithShortLivedKey() || (context.source && context.source !== "owner") || !store.profiles.isOwner() || context.trunk || context.trunkKeys
     || (origin && (origin.source !== "owner" || origin.shortLivedKey || origin.keyIds.length > 0 || origin.personProfileId || origin.lentTo)))
     throw new Error("Only the owner in the Branch app can prepare Branch Agent source changes.");
 }
