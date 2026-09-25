@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, readdir, writeFile, access, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, writeFile, access, symlink, chmod, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -43,7 +43,8 @@ function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, fai
     const line = [file, ...plain].join(" ");
     if (line.startsWith("git init") || options.cwd === join(where.scratchDir, "dev-history")) {
       history.push(line);
-      if (!line.startsWith("git init")) walled.push(args.includes("protocol.allow=never") && args.includes("core.hooksPath=/dev/null"));
+      if (!line.startsWith("git init")) walled.push(args.includes("protocol.allow=never") && args.includes("core.hooksPath=/dev/null")
+        && args.includes("http.followRedirects=initial") && options.env?.GIT_ALLOW_PROTOCOL === "https");
       if (standing === "unreadable" && !line.startsWith("git init")) throw new Error(`${line} did not finish.`);
       // A new history folder knows no change until it is fetched.
       if (line.startsWith("git fetch")) inHistory.add(args.at(-1));
@@ -155,6 +156,27 @@ test("F5 a link where the history folder goes is never followed, and the answer 
   const status = await updater(where, tools).check();
   assert.equal(status.phase, "available", "unknown: the build's own step decides, as before");
   assert.equal(tools.history.filter((line) => !line.startsWith("git init")).length, 0, "no git ran through the link");
+  assert.deepEqual(await readdir(elsewhere), [], "and nothing was written where it pointed");
+});
+
+// Q211 (NAS 67718a5): on macOS and Linux the check makes the updater's folder private before it keeps history there,
+// and a folder that is not safe (a link) leaves the answer unknown with no git run at all.
+test("F5 on macOS and Linux the check keeps its history only in a private folder", { skip: process.platform === "win32" }, async (t) => {
+  const where = await folders(t);
+  await mkdir(where.scratchDir, { recursive: true });
+  await chmod(where.scratchDir, 0o777);
+  const tools = fakeTools(where, { standing: "ahead" });
+  const status = await updater(where, tools, { platform: process.platform }).check();
+  assert.equal(status.phase, "current", status.message);
+  assert.equal((await stat(where.scratchDir)).mode & 0o777, 0o700, "the folder is closed to everyone else first");
+  const linked = await folders(t);
+  const elsewhere = join(linked.root, "elsewhere");
+  await mkdir(elsewhere, { recursive: true });
+  await symlink(elsewhere, linked.scratchDir, "dir");
+  const through = fakeTools(linked, { standing: "ahead" });
+  const unsafe = await updater(linked, through, { platform: process.platform }).check();
+  assert.equal(unsafe.phase, "available", "unknown: the build's own step decides");
+  assert.deepEqual(through.history, [], "no git ran in a folder that is not safe");
   assert.deepEqual(await readdir(elsewhere), [], "and nothing was written where it pointed");
 });
 
