@@ -500,3 +500,26 @@ test("P17 with own plans on, a conversation on the kept-separate account moves t
   const moved = await app.runtime.run({ prompt: "hello", sessionId: onWork });
   assert.equal(moved.output, "from primary", "the work account's limit moves it on to the owner's own plan");
 });
+
+// NAS review of e3b9bd67: pins pool-provider.ts `!(pool.ownPlans && pickLimited)`. With own plans on, a conversation's
+// pick found at its limit is replaced by the plan that answered, so the conversation stays there once the limit resets.
+test("P18 with own plans on, a picked plan at its limit is replaced by the plan that answered, and the conversation stays there (NAS 204)", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner, service } = fx;
+  const outcomes = {};
+  program(fx, outcomes);
+  setMode(service, { mode: "on" });
+  const second = (await addAccount(service, { pool: POOL, label: "Second" })).accounts.at(-1).id;
+  await addAccount(service, { pool: POOL, label: "Third" });
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  updatePool(service, { pool: POOL, ownPlans: true });
+  const session = app.store.createSession(owner);
+  saveSessionChoice(app.store, owner, session, POOL, second);
+  outcomes[second] = limited;
+  assert.equal((await app.runtime.run({ prompt: "hello", sessionId: session })).output, "from primary", "Second reaches its limit: the default answers");
+  assert.equal((await app.runtime.run({ prompt: "more", sessionId: session })).output, "from primary");
+  assert.equal(sessionChoice(app.store, owner, session)[POOL], "primary", "the plan that answered is now the conversation's pick");
+  delete outcomes[second];
+  service.statesOf(POOL).get(second).limitedUntil = 0; // Second's limit resets
+  assert.equal((await app.runtime.run({ prompt: "later", sessionId: session })).output, "from primary", "it stays on the plan that answered");
+});
