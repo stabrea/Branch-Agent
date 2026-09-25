@@ -3,8 +3,8 @@
    the one answering the open conversation, or, from anywhere else, the one picked from the list. A new conversation opens
    with the "watching and learning" bar: the engine learns only from a task the owner did, never from a Trunk's own turn,
    so the job is done there rather than in the Trunk's conversation. "I'm done, save it" asks the engine to keep the
-   task finished since watching began as a workflow given to that Trunk; the engine picks that task and never an older
-   one, and until one has finished the button waits. */
+   task done in that conversation since watching began (its newest finished one, named by id, never an older one) as a
+   workflow given to that Trunk; until one has finished the button waits. */
 
 import { esc, renderNow } from "../core/dom.js";
 import { S, E } from "../core/state.js";
@@ -22,7 +22,9 @@ function trunkOf(sid) {
   const s = E.sessions.find((x) => (x.sessionId ?? x.id) === sid);
   return E.trunks.find((t) => t.chatSessionId === sid || t.id === s?.trunkId || t.id === s?.trunk?.id) ?? null;
 }
-const finishedSince = () => (E.state?.runs ?? []).some((r) => r.sessionId === T.sid && r.status === "completed" && String(r.createdAt) >= T.since);
+/* The task done while it watched: this conversation's newest finished task started since watching began. */
+const finishedSince = () => (E.state?.runs ?? []).filter((r) => r.sessionId === T.sid && r.status === "completed" && String(r.createdAt) >= T.since)
+  .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] ?? null;
 
 /* Drawn over the conversation opened for the lesson; a new conversation's bar follows it once its first message gives it an id. */
 export function teachBar(sessionId) {
@@ -46,8 +48,9 @@ async function start(el) {
 }
 
 async function stop() {
-  if (!T) return;
-  try { await api(`trunks/${encodeURIComponent(T.trunkId)}/teach`, {}); } catch (error) { toast(error.message); return; }
+  const run = T ? finishedSince() : null;
+  if (!run) return;
+  try { await api(`trunks/${encodeURIComponent(T.trunkId)}/teach`, { runId: run.id }); } catch (error) { toast(error.message); return; }
   T = null;
   renderNow();
 }

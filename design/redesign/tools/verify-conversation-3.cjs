@@ -117,19 +117,23 @@ async function verifyCheckpoint(page, editorWas) {
 }
 
 /* ---------- self-apply / self-no: a change to Branch itself ---------- */
-function propose(config, ok) {
-  writeFileSync(join(DATA_DIR, "gateway.proposed.json"), JSON.stringify({ config, why: `verify ${stamp}`, proposedAt: new Date().toISOString(),
+/* The suggestion as the gateway.propose tool would write it, and a conversation holding the call that made it. */
+function propose(config, delta, ok) {
+  writeFileSync(join(DATA_DIR, "gateway.proposed.json"), JSON.stringify({ config, why: `verify ${stamp} ${delta}`, proposedAt: new Date().toISOString(),
     check: { ok, detail: ok ? "started cleanly" : "the throwaway engine did not answer" } }));
+}
+function proposalChat(holdSeconds, delta) {
+  return importChat([
+    { role: "user", content: `restart slower ${stamp} ${delta}` },
+    { role: "assistant", content: "", toolCalls: [{ id: "g1", name: "gateway.propose", arguments: JSON.stringify({ change: { holdSeconds }, why: `verify ${stamp} ${delta}` }) }] },
+    { role: "tool", toolCallId: "g1", content: JSON.stringify({ ok: true, result: { waitingForOwner: true } }) },
+    { role: "assistant", content: `suggested ${stamp} ${delta}` },
+  ]);
 }
 async function verifySelf(page) {
   const view = await api("never-break");
-  const sid = await importChat([
-    { role: "user", content: `restart slower ${stamp}` },
-    { role: "assistant", content: "", toolCalls: [{ id: "g1", name: "gateway.propose", arguments: JSON.stringify({ change: { holdSeconds: view.config.holdSeconds + 7 }, why: "verify" }) }] },
-    { role: "tool", toolCallId: "g1", content: JSON.stringify({ ok: true, result: { waitingForOwner: true } }) },
-    { role: "assistant", content: `suggested ${stamp}` },
-  ]);
-  propose({ ...view.config, holdSeconds: view.config.holdSeconds + 7 }, true);
+  const sid = await proposalChat(view.config.holdSeconds + 7, 7);
+  propose({ ...view.config, holdSeconds: view.config.holdSeconds + 7 }, 7, true);
   await page.reload(); await page.waitForSelector("#side .side-nav");
   await openChat(page, sid);
   const card = page.locator("#conversation .self10");
@@ -143,17 +147,22 @@ async function verifySelf(page) {
   check("self-apply says the engine's own words", toast.includes("next time Branch starts"));
   check("self card gone once nothing waits", await until(async () => (await card.count()) === 0));
 
-  propose({ ...view.config, holdSeconds: view.config.holdSeconds + 9 }, true);
+  const second = await proposalChat(view.config.holdSeconds + 9, 9);
+  propose({ ...view.config, holdSeconds: view.config.holdSeconds + 9 }, 9, true);
   await page.reload(); await page.waitForSelector("#side .side-nav");
   await openChat(page, sid);
+  await pause(800);
+  check("an older suggestion's conversation does not claim the newer one", (await card.count()) === 0);
+  await openChat(page, second);
   await card.waitFor({ timeout: 10000 });
   await card.locator('[data-act="self-no"]').click();
   const discarded = await until(async () => { const v = await api("never-break"); return v.proposal === null && v.config.holdSeconds === view.config.holdSeconds + 7 && v; });
   check("self-no discards the change and changes nothing", !!discarded, "GET never-break proposal null, holdSeconds unchanged");
 
-  propose({ ...view.config, holdSeconds: view.config.holdSeconds + 11 }, false);
+  const third = await proposalChat(view.config.holdSeconds + 11, 11);
+  propose({ ...view.config, holdSeconds: view.config.holdSeconds + 11 }, 11, false);
   await page.reload(); await page.waitForSelector("#side .side-nav");
-  await openChat(page, sid);
+  await openChat(page, third);
   await card.waitFor({ timeout: 10000 });
   check("a change that did not start cleanly offers no Apply and says why", (await card.locator('[data-act="self-apply"]').count()) === 0 && (await card.innerText()).includes("did not answer"));
   await card.locator('[data-act="self-no"]').click();
@@ -202,7 +211,9 @@ async function verifyTeach(page, trunk) {
   await bar.locator('[data-act="teach-stop"]').click();
   const taught = await until(async () => { const t = (await api(`trunks/${trunk.id}`)); return t.trunk.taught.length === 1 && t.watching === null && t; });
   const flows = (await api("workflows")).workflows.length;
+  const lesson = (await api("state")).runs.find((r) => r.prompt === `teach task ${stamp}` && r.status === "completed");
   check("teach-stop gives the Trunk the task as a workflow", !!taught && flows === before + 1, `GET trunks/{id} taught ${taught && taught.trunk.taught.map((x) => x.name).join(", ")}; GET workflows ${before} -> ${flows}`);
+  check("teach-stop names the task done in that conversation", !!taught && !!lesson && taught.trunk.taught[0].runId === lesson.id, `taught runId ${taught && taught.trunk.taught[0].runId}`);
   check("the bar is gone once saved", await until(async () => (await page.locator(".bar.teach").count()) === 0));
 }
 

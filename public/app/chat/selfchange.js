@@ -14,6 +14,18 @@ import { markLive } from "../core/features.js";
 const G = { view: null, asked: null };
 const proposing = (m) => (m.toolCalls ?? []).some((call) => call.name === "gateway.propose");
 
+/* The waiting suggestion is this call's own only if it carries the same reason and every setting the call asked for;
+   the engine keeps one suggestion and not which conversation made it, so an older call never claims a newer one. */
+function madeBy(m, p) {
+  return (m.toolCalls ?? []).some((call) => {
+    if (call.name !== "gateway.propose") return false;
+    let args;
+    try { args = JSON.parse(call.arguments || "{}"); } catch { return false; } // arguments that are not JSON asked for nothing
+    const change = args?.change && typeof args.change === "object" ? args.change : {};
+    return String(args?.why ?? "").trim() === p.why && Object.keys(change).every((k) => change[k] === p.config[k]);
+  });
+}
+
 async function readGateway() {
   try { G.view = await api("never-break"); } catch (error) { toast(error.message); G.view = null; }
 }
@@ -33,10 +45,10 @@ function changedRows(p, now) {
     .map((k) => `<tr><th>${esc(k)}</th><td>${esc(now[k])}</td><td><b>${esc(p.config[k])}</b></td></tr>`).join("");
 }
 
-/* The card, under the last reply of this conversation that suggested a change, while the suggestion waits. */
+/* The card, under the last reply of this conversation that made the waiting suggestion, while it waits. */
 export function selfCard(m, messages) {
   const p = G.view?.proposal;
-  if (!p || !proposing(m) || messages.filter(proposing).at(-1) !== m) return "";
+  if (!p || !madeBy(m, p) || messages.filter((x) => madeBy(x, p)).at(-1) !== m) return "";
   const ok = p.check?.ok === true;
   const pill = ok ? '<span class="pill ok ml"><i></i>Tried on a throwaway copy · started cleanly</span>' : "";
   const why = p.why ? `<div class="sub">${esc(p.why)}</div>` : "";
