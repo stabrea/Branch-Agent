@@ -229,11 +229,10 @@ test(
         await page.locator("html").getAttribute("data-theme"),
         "daylight",
       );
-      // Q244: on the Windows runner, taking the restarted window to "/" (by the rail's link or by address) left the whole
-      // app answering nothing, its main process included, until it was ended (R21 runs 36186496292, 36188638363). That is
-      // kept as its own row; here the restarted app is reloaded, as the first one is, and must connect again.
-      await page.reload();
-      console.log("Desktop restart: reloaded");
+      // Q249: the restarted app quit mid-start when its first load was aborted by the page itself (fixed in
+      // src/desktop/main.ts), which is why this click, and going to "/" or reloading, found nothing answering.
+      await page.getByRole("link", { name: "Branch Agent home" }).click({ timeout: 30000 });
+      console.log("Desktop restart: home clicked");
       await connected(page);
       console.log("Desktop restart: home again");
       await settled(page, "restart");
