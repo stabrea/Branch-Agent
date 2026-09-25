@@ -1134,6 +1134,8 @@ async function renderUpdates() {
   /* DG-192: the card is on show everywhere, as the sample's is; a browser has the version, not the checking or the channel. */
   for (const id of ["updates-check", "updates-channel", "updates-channel-note"]) $(id).hidden = !window.branchDesktop;
   showVersions(window.branchDesktop ? null : { phase: "unsupported" });
+  // Dogfood F9: the version rows are never left blank; the desktop's own status fills in the commit when it comes.
+  showBuild(null);
   // An update that did not go through is said on any install, with or without the desktop app.
   void showUpdateFailure();
   void showKeeper();
