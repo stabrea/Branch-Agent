@@ -103,7 +103,7 @@ export class Store {
           `Branch is already open and using the work saved in ${this.folder}, so this second Branch stopped rather than write to the same files. Nothing was changed. `
             // mac7/smoke-fixes (B4): the sentence now says what does work, instead of leaving the
             // terminal looking broken while the window is open.
-            + "These work against the Branch that is already open, from any terminal: branch doctor, branch token, "
+            + "These work against the Branch that is already open, from any terminal: branch status, branch doctor, branch token, "
             + "branch trace, branch schedule, and the places that only look (memory, usage, sessions, inbox, library, "
             + "settings, places, tools, skills, projects, snapshots, channels, mcp, customize, automations). "
             + "Anything that writes to the saved work — backup, restore, security audit, activity verify, theme, model use, "
