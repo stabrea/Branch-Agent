@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { spawnSync } from "node:child_process";
 import { _electron } from "playwright";
 
 import { connected, desktopOptions } from "./fixtures/desktop-options.mjs";
@@ -85,7 +86,20 @@ async function settled(page, label) {
  */
 async function closeWithin(app, child, label) {
   const closed = await Promise.race([app.close().then(() => true, () => true), new Promise((resolve) => setTimeout(() => resolve(false), 30000))]);
-  if (!closed && child.exitCode === null) { console.log(`Desktop ${label}: close did not come back in 30 s; ending it`); child.kill(); }
+  if (!closed && child.exitCode === null) { console.log(`Desktop ${label}: close did not come back in 30 s; ending it`); endTree(child); }
+}
+/**
+ * Q244 (R21's Windows run): ending only Electron's main process left its helpers holding the test's output open, so the
+ * shard still waited out its hour after the test had failed. On Windows the whole tree is ended.
+ */
+function endTree(child) {
+  if (child.exitCode !== null) return;
+  if (process.platform === "win32" && child.pid) spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  else child.kill();
+}
+/** Q244: says what went wrong before the app is closed, so a run that then hangs still shows it. */
+function said(label) {
+  return (error) => { console.log(`Desktop ${label}: failed: ${String(error?.message ?? error).split(/\r?\n/)[0]}`); throw error; };
 }
 
 async function verifyNetworkBoundary(electron, page) {
@@ -142,7 +156,7 @@ test(
     // The trunk's Windows runs after R18 and R19: when this test ran out of time its app was never closed, so the
     // shard waited on it until the job's hour was up. Running out of time now ends each app it started.
     // Node aborts the signal whenever the test ends, passed or not (Mac mini 07fdc5b), so only a child still running is ended.
-    t.signal.addEventListener("abort", () => { if (child.exitCode === null) child.kill(); }, { once: true });
+    t.signal.addEventListener("abort", () => endTree(child), { once: true });
     let url;
     try {
       const page = await electron.firstWindow();
@@ -175,6 +189,8 @@ test(
       );
       console.log(`Desktop screenshot: ${join(home, "desktop.png")}`);
       await settled(page, "first run");
+    } catch (error) {
+      said("first app")(error);
     } finally {
       await closeWithin(electron, child, "first app");
       console.log("Desktop: first app closed");
@@ -183,7 +199,7 @@ test(
     await assert.rejects(fetch(url, { signal: AbortSignal.timeout(2000) }));
     const restarted = await _electron.launch(options);
     const restartedChild = restarted.process();
-    t.signal.addEventListener("abort", () => { if (restartedChild.exitCode === null) restartedChild.kill(); }, { once: true });
+    t.signal.addEventListener("abort", () => endTree(restartedChild), { once: true });
     try {
       // Each step says so, so a run that stops here shows where.
       const page = await restarted.firstWindow();
@@ -202,6 +218,8 @@ test(
       await connected(page);
       console.log("Desktop restart: home again");
       await settled(page, "restart");
+    } catch (error) {
+      said("restart")(error);
     } finally {
       await closeWithin(restarted, restartedChild, "restart");
       console.log("Desktop restart: closed");
