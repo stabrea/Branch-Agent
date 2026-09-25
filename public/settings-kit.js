@@ -59,7 +59,7 @@ const VALUE_WORDS = {
   true: ["settings-kit.value.yes", "Yes"], false: ["settings-kit.value.no", "No"],
 };
 const CHOICE_WORDS = {
-  "policy.preset": { "read-only": "Read only", "ask-before-changes": "Ask before changes", workspace: "Just do it inside my workspace", off: "No approvals", custom: "Your own rules" },
+  "policy.preset": { "read-only": "Read only", careful: "Careful", "ask-before-changes": "Ask before changes", workspace: "Just do it inside my workspace", off: "No approvals", custom: "Your own rules" },
   "policy.unmatchedCommands": { ask: "Ask first", allow: "Let it through" },
   "os-sandbox.network": { none: "Nowhere", limited: "Only reading from sites you allow", "per-site": "Sites you allow", open: "Anywhere" },
   // mac7/bind: where Branch's own door listens.
