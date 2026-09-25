@@ -183,11 +183,16 @@ export class AccountPoolProvider {
     // own-plans switch on, a pick that is at its limit is replaced by the plan that answered, so later turns stay.
     // NAS's review: whether it is at its limit is asked when a plan answers, so the turn that finds the limit replaces it.
     const picked = usable.find((account) => account.id === sticky && !account.keptSeparate);
-    const keepPick = (): boolean => !!picked && !(own && this.why(picked) !== null);
+    // NAS 61f58fb (MAJOR): one plan's answer can take minutes, and the owner may switch sharing or own plans off
+    // meanwhile. What they saved last is read again before the work moves on and before the pick is replaced.
+    const saved = (): Pool => this.hooks.settings() ?? pool;
+    const keepPick = (): boolean => !!picked && !(ownPlansOn(saved()) && this.why(picked) !== null);
+    const mayMoveTo = (account: Account): boolean => saved().autoSwitch && this.mayShare(saved(), usable, sticky).some((one) => one.id === account.id);
     const first = ready.findIndex((account) => account.id === sticky);
     if (first > 0) ready.unshift(...ready.splice(first, 1));
     let refused: unknown = null;
-    for (const account of ready) {
+    for (const [at, account] of ready.entries()) {
+      if (at > 0 && !mayMoveTo(account)) continue;
       try {
         const completion = await this.attempt(account, request, call);
         if (call?.sessionId && account.id !== sticky && !keepPick()) this.hooks.rememberChoice(call.sessionId, account.id);
@@ -197,7 +202,7 @@ export class AccountPoolProvider {
         if (isLimit(error)) { this.markLimited(account, error, call); continue; }
         // NAS's review: with own plans on, a plan whose sign-in is refused (expired, signed out) rests and the next of
         // the owner's own plans is tried, rather than every call failing on it until the limited default resets.
-        const failure = own ? failureFor(error, this.hooks.now()) : null;
+        const failure = ownPlansOn(saved()) ? failureFor(error, this.hooks.now()) : null;
         if (failure?.reason !== "refused") throw error;
         rest(this.state(account.id), failure, this.hooks.model);
         this.state(account.id).lastError = "its sign-in was refused";
@@ -207,7 +212,7 @@ export class AccountPoolProvider {
     }
     if (refused && !ready.some((account) => this.state(account.id).limitedUntil > this.hooks.now())) throw refused;
     const fallback = allowed.find((account) => account.id === sticky) ?? allowed[0]!;
-    throw this.limitError(pool, usable, fallback, "Every account this connection may share work between has reached its plan limit.");
+    throw this.limitError(saved(), usable, fallback, "Every account this connection may share work between has reached its plan limit.");
   }
 
   /**

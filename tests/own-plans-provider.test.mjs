@@ -58,3 +58,42 @@ test("the turn that finds the picked plan at its limit replaces the pick with th
   assert.equal((await ask("s1")).content, "from one");
   assert.equal(choices.get("s1"), "one", "replaced on this turn, not the next");
 });
+
+// NAS 61f58fb (MAJOR): the owner switches sharing, or own plans, off while the picked plan is still answering, and that
+// plan then reaches its limit. The work must not move on, and the pick must not change.
+for (const off of [{ autoSwitch: false }, { ownPlans: false }]) {
+  test(`switching ${Object.keys(off)[0]} off during a call stops the work moving to another own plan`, async () => {
+    const saved = pool();
+    const asked = [], choices = new Map([["s1", "one"]]);
+    const plan = (id) => ({ name: id, async complete() {
+      asked.push(id);
+      if (id === "one") { Object.assign(saved, off); throw new ProviderHttpError(429, 60_000, "rate_limit_exceeded"); }
+      return { content: `from ${id}`, toolCalls: [] };
+    } });
+    const provider = new AccountPoolProvider(plan("original"), {
+      owner: "local", pool: "chatgpt", model: "gpt-6-sol", settings: () => saved, states: new Map(), cursor: { value: 0 },
+      providerFor: async (id) => plan(id), capReached: () => false, record: () => {}, personIsNotOwner: () => false,
+      sessionChoice: (session) => choices.get(session) ?? null, rememberChoice: (session, id) => choices.set(session, id), now: () => Date.parse(at),
+    });
+    await assert.rejects(withAccountCall({ sessionId: "s1" }, () => provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal })));
+    assert.deepEqual(asked, ["one"], "no other plan was asked");
+    assert.equal(choices.get("s1"), "one", "the pick stays");
+  });
+}
+
+// NAS's review (p202): a program is signed out only by its own words about its sign-in, not a task's text quoting another.
+test("a program counts as signed out only by its own words, never by a task's text that quotes another program", async () => {
+  const { CliAgentProvider, cliAgentCatalog } = await import("../dist/providers/cli-agent.js");
+  const claude = cliAgentCatalog.find((row) => row.id === "claude-code");
+  const stopped = async (outcome) => {
+    const provider = new CliAgentProvider(claude, {}, async () => ({ code: 1, stdout: "", stderr: "", ...outcome }), { name: "CLAUDE_CONFIG_DIR", path: "/tmp/second" });
+    return provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal }).then(() => null, (error) => error.name);
+  };
+  assert.equal(await stopped({ stderr: "Not logged in · Please run /login" }), "ProgramSignInError");
+  assert.equal(await stopped({ stdout: "Invalid API key · Please run /login" }), "ProgramSignInError", "a one-line plain answer about itself");
+  assert.notEqual(await stopped({ stdout: JSON.stringify({ result: "git push said: Authentication failed for origin" }) }), "ProgramSignInError");
+  assert.notEqual(await stopped({ stdout: '{"type":"item","text":"You are not logged into any GitHub hosts. Run gh auth login"}' }), "ProgramSignInError");
+  assert.notEqual(await stopped({ stderr: "MCP server github: authentication failed (500)" }), "ProgramSignInError");
+  assert.notEqual(await stopped({ stdout: JSON.stringify({ result: "The README says: please run /login before you start." }) }), "ProgramSignInError",
+    "the task's own answer quoting the words is not the program speaking");
+});

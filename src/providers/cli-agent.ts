@@ -159,7 +159,14 @@ export class ProgramLimitError extends Error { override name = "ProgramLimitErro
 const limitWords = /usage limit|rate limit|limit reached|quota exceeded|exceeded your (?:current )?quota|too many requests/i;
 /** The program said the account folder's sign-in is gone or refused (NAS's own-plans review): the owner signs in again. */
 export class ProgramSignInError extends Error { override name = "ProgramSignInError"; }
-const signInWords = /not logged in|please run \/login|log ?in again|sign ?in again|invalid api key|oauth token (?:has )?expired|authentication (?:failed|error)/i;
+// NAS's review (p202): only the program's own words about its sign-in, never a task's text that quotes another
+// program ("Authentication failed" from git, "not logged into any GitHub hosts" from gh).
+const signInWords = /not logged in\b|please run \/login|(?:log|sign) ?in again|invalid api key|oauth token (?:has )?expired/i;
+/** What a program said about itself when it stopped: its error stream, and its output only when that is one short line of words. */
+const selfWords = (outcome: { stdout: string; stderr: string }): string => {
+  const out = outcome.stdout.trim();
+  return `${outcome.stderr}\n${out.length < 300 && !/^[[{]/.test(out) && !out.includes("\n") ? out : ""}`;
+};
 // ---- end mac6/accounts ----
 
 export const runCliAgent: SpawnAgent = (row, prompt, signal, limits, home) =>
@@ -221,7 +228,7 @@ export class CliAgentProvider implements Provider {
     // mac6/accounts: only when an account folder is in use, so a single sign-in behaves as before.
     if (outcome.code !== 0 && (this.home || this.detectLimits) && limitWords.test(`${outcome.stderr}\n${outcome.stdout.slice(0, 4000)}`))
       throw new ProgramLimitError(`${this.row.name} says this account has reached its plan limit.`);
-    if (outcome.code !== 0 && this.home && signInWords.test(`${outcome.stderr}\n${outcome.stdout.slice(0, 4000)}`))
+    if (outcome.code !== 0 && this.home && signInWords.test(selfWords(outcome)))
       throw new ProgramSignInError(`${this.row.name} says this account needs signing in again.`);
     if (outcome.code !== 0)
       throw new Error(`${this.row.name} stopped with an error and said nothing Branch can pass on. Run it yourself to see why.`);
