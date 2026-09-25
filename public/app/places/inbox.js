@@ -5,9 +5,11 @@
    Above every tab: each task Branch closed on that can be continued (state.attention with canContinue), picked up with
    POST /api/runs/<id>/resume or left with POST /api/runs/<id>/cancel. At the bottom of "Needs you": each request to change
    Branch itself (GET /api/self-development/requests); its review shows the request, and answering it stays greyed.
-   History's "Verify" walks the activity chain (POST /api/safety-extras/activity/verify) and shows what the engine found. */
+   History's "Verify" walks the activity chain (POST /api/safety-extras/activity/verify) and shows what the engine found.
+   "Watch again" plays a task back from its recording (GET /api/runs/<id>/recording): the engine's own frames, stepped or
+   played; with recordings switched off the engine's sentence is shown. It never runs the task again. */
 
-import { $, esc, renderNow } from "../core/dom.js";
+import { $, esc, renderNow, paint } from "../core/dom.js";
 import { S, E, refresh, level } from "../core/state.js";
 import { ic, av, toast, openDlg, dialog } from "../core/ui.js";
 import { api } from "../core/api.js";
@@ -64,13 +66,20 @@ function duration(r) {
   const secs = r.updatedAt && r.createdAt ? Math.round((new Date(r.updatedAt).getTime() - new Date(r.createdAt).getTime()) / 1000) : 0;
   return secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
 }
+/* The newest finished task, offered to watch again; the tile is not drawn when nothing has finished. */
+function replayTile() {
+  const last = (E.state.runs ?? []).find((r) => r.status === "completed");
+  if (!last) return "";
+  return `<div class="tile" data-css="margin:10px 0 12px"><div class="th"><b>Watch a task again</b></div><p>Step through what a task did, see the path it took, and keep it as a page or a workflow that repeats it.</p><div class="acts"><button class="btn sm" type="button" data-act="replay" data-id="${esc(last.id)}">${ic("play", "s")}Watch “${esc(firstLine(last.prompt))}”</button></div></div>`;
+}
+
 function historyTab() {
   const verify = `<button type="button" class="rec15" data-act="verify15" data-tip="Every entry is linked to the one before it, so a removed or rewritten entry shows.">${ic("shield15", "s")}<span>${chain?.ok ? "Record intact" : ""}</span><u>Verify</u></button>`;
   const rows = (E.state.runs || []).slice(0, 50).map((r) => {
     const cost = typeof r.cost?.amount === "number" ? "$" + r.cost.amount.toFixed(2) : r.cost?.display ?? "";
-    return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(when(r.createdAt))}</small></span><span class="meta">${[duration(r), cost].filter(Boolean).map(esc).join(" · ")}</span><button class="btn ghost sm" type="button" data-act="toast" data-msg="Plays the task back step by step.">Watch again</button></div>`;
+    return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(when(r.createdAt))}</small></span><span class="meta">${[duration(r), cost].filter(Boolean).map(esc).join(" · ")}</span><button class="btn ghost sm" type="button" data-act="replay" data-id="${esc(r.id)}">Watch again</button></div>`;
   });
-  return `<div class="rows"><div class="nl"><input class="inp" id="histq" placeholder="Search what ran" value="" aria-label="Search history">${verify}</div>${rows.join("")}</div>`;
+  return `${replayTile()}<div class="rows"><div class="nl"><input class="inp" id="histq" placeholder="Search what ran" value="" aria-label="Search history">${verify}</div>${rows.join("")}</div>`;
 }
 
 export function draw() {
@@ -130,6 +139,38 @@ async function verifyRecord() {
   renderNow();
 }
 
+/* ---------- watching a task again: the engine's recording, one frame at a time ---------- */
+const RP = { frames: [], i: 0, timer: null };
+function stopReplay() { clearInterval(RP.timer); RP.timer = null; }
+function drawReplay(i) {
+  RP.i = i;
+  const box = dialog()?.querySelector(".replay6");
+  if (!box) return stopReplay();
+  const n = RP.frames.length;
+  const path = RP.frames.map((_, j) => `<i class="${j < i ? "rp-d" : j === i ? "rp-n" : ""}"></i>`).join("<b></b>");
+  const steps = RP.frames.map((f, j) => `<li class="${j < i ? "ok" : ""} ${j === i ? "now6" : ""}">${ic(j < i ? "check" : j === i ? "play" : "info", "s")}<span>${esc(f.label)}<small>${esc(f.detail)}</small></span></li>`).join("");
+  paint(box, `<div class="rp-path">${path}</div><ol class="tl">${steps}</ol><span class="meter6"><u data-css="width:${n ? ((i + 1) / n) * 100 : 0}%"></u></span>`);
+}
+async function openReplay(id) {
+  let recording;
+  try { recording = await api(`runs/${encodeURIComponent(id)}/recording`); } catch (error) { toast(error.message); return; }
+  stopReplay();
+  RP.frames = recording.frames ?? [];
+  openDlg({ title: "Watch a task again", wide: true, body: '<div class="replay6"></div>',
+    foot: `<button class="btn ghost" type="button" data-act="rp" data-v="step">Step</button><button class="btn" type="button" data-act="rp" data-v="play">${ic("play", "s")}Play</button><span class="grow"></span><button class="btn ghost" type="button" data-act="toast">Save as a page</button><button class="btn" type="button" data-act="toast">Make a workflow</button>` });
+  drawReplay(0);
+}
+/* Step moves one frame on; Play runs from here (or from the start, once at the end) through the frames already loaded. */
+function stepReplay(el) {
+  stopReplay();
+  const last = RP.frames.length - 1;
+  if (last < 0) return;
+  if (el.dataset.v === "step") return drawReplay(Math.min(last, RP.i + 1));
+  let i = RP.i >= last ? 0 : RP.i;
+  drawReplay(i);
+  RP.timer = setInterval(() => { if (++i > last || !dialog()?.querySelector(".replay6")) return stopReplay(); drawReplay(i); }, 800);
+}
+
 /* The request as it was sent, who sent it and from which app; answering it needs the owner's contract terms and stays greyed. */
 function reviewChange(id) {
   const r = changeRequests.find((x) => x.id === id);
@@ -141,7 +182,9 @@ function reviewChange(id) {
 }
 
 export function init() {
-  markLive(["ptab", "chat", "tmsg", "cutgo15", "cutno15", "verify15", "selfrev15"]);
+  markLive(["ptab", "chat", "tmsg", "cutgo15", "cutno15", "verify15", "selfrev15", "replay", "rp"]);
+  on("replay", (el) => openReplay(el.dataset.id));
+  on("rp", (el) => stepReplay(el));
   on("tmsg", async (el) => {
     try { await api(`trunks/messages/${encodeURIComponent(el.dataset.id)}/${el.dataset.v === "answer" ? "answer" : "decline"}`, {}); } catch (error) { toast(error.message); }
     await refresh().catch((error) => toast(error.message));
