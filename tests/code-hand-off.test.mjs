@@ -370,6 +370,22 @@ test("a job that makes a link out of its folder and writes through it ends as le
   assert.deepEqual(result.changed, [], "nothing from the run is kept as done");
 });
 
+test("a link out of the folder made inside its .git is caught and removed too (Q241)", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const outside = join(f.root, "outside");
+  await mkdir(outside, { recursive: true });
+  const result = await f.handOff(async (call, onLine) => {
+    await symlink(outside, join(call.cwd, ".git", "refs", "escape"), process.platform === "win32" ? "junction" : "dir");
+    claudeLines("Done.").forEach(onLine);
+    return { code: 0, lines: claudeLines("Done."), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "Anything.", minutes: 5 }, context(f.app));
+  assert.equal(result.status, "left its folder");
+  assert.match(result.summary, /made a link out of the folder \(\.git[\\/]refs[\\/]escape -> /);
+  assert.equal(existsSync(join(f.workspace, "site", ".git", "refs", "escape")), false, "the link is removed");
+  assert.ok(existsSync(outside), "what it points at is left alone");
+});
+
 test("a job that writes next to its folder ends as left its folder, naming what it wrote", async (t) => {
   const f = await fixture(t);
   await repository(join(f.workspace, "site"));
