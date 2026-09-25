@@ -342,6 +342,31 @@ test("a restored task whose id the file writes as a number is still only offered
   }
 });
 
+// NAS f5ce37d: a task with no id is never settled, and at the next start the store's recovery takes it for the task
+// whose id is the text "null", which never-break then carries on. Such a file is refused whole, before anything is written.
+test("a backup with a task that has no id is refused, fresh or replacing, and nothing is written (NAS f5ce37d)", async (t) => {
+  const { app, owner } = await fixture(t);
+  const sessionId = app.store.createSession(owner);
+  const words = app.store.createRun(owner, "PLANTED-BY-FILE: the text null", sessionId);
+  app.store.finish(words.id, "completed", "done");
+  const archive = app.store.backup(app.version);
+  const planted = archive.tables.tasks.find((task) => task.id === words.id);
+  archive.tables.tasks = archive.tables.tasks.filter((task) => task.id !== words.id)
+    .concat([{ ...planted, id: "null" }, { ...planted, id: null, status: "running", prompt: "PLANTED-BY-FILE: no id" }]);
+  for (const table of Object.keys(archive.tables))
+    if (Array.isArray(archive.tables[table])) archive.tables[table] = archive.tables[table].map((row) => (row.run_id === words.id ? { ...row, run_id: "null" } : row));
+  const missing = structuredClone(archive);
+  delete missing.tables.tasks.at(-1).id;
+  for (const [file, name] of [[archive, "a null id"], [missing, "a missing id"]])
+    for (const replacing of [false, true]) {
+      const target = (await fixture(t)).app;
+      const before = target.store.sqlite.prepare("SELECT COUNT(*) AS n FROM tasks").get().n;
+      await assert.rejects(restoreBackup(target, async () => file, replacing), /task with no id/, `${name}, ${replacing ? "replacing" : "fresh"}: refused`);
+      assert.equal(target.store.sqlite.prepare("SELECT COUNT(*) AS n FROM tasks").get().n, before, "and nothing was written");
+      assert.equal(target.store.sqlite.prepare("SELECT 1 FROM tasks WHERE id='null'").get(), undefined, "no task named null came in");
+    }
+});
+
 // NAS 5653d17: the settle is found however many events the file gave the task (store.events() reads 2000), a task the
 // file says was running is settled too, and neither is carried on by never-break at the next start.
 test("a restored task padded past 2000 events, or marked running, is still only offered (NAS 5653d17)", async (t) => {

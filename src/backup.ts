@@ -65,7 +65,12 @@ export type BackupArchive = z.infer<typeof BackupArchiveSchema>;
 export function parseBackupArchive(input: unknown): BackupArchive {
   const serialized = JSON.stringify(input);
   if (!serialized || Buffer.byteLength(serialized) > maximumBackupBytes) throw new Error("Backup exceeds 64 MiB");
-  return BackupArchiveSchema.parse(input);
+  const archive = BackupArchiveSchema.parse(input);
+  // NAS f5ce37d: a task with no id cannot be settled, and at the next start the store's recovery would take it for the
+  // task whose id is the text "null" (or fail to start at all). Such a file is refused whole, before anything is written.
+  if (archive.tables.tasks.some((task) => task.id === null || task.id === undefined || task.id === ""))
+    throw new Error("This backup has a task with no id, so it cannot be restored as it is.");
+  return archive;
 }
 
 /**
@@ -438,6 +443,7 @@ function settleRestoredTasks(db: DatabaseSync, archive: BackupArchive): void {
     // NAS d96cab6: bound exactly as the import bound it. A file's number id (5) is stored as the text "5.0", and so are
     // the events written for it here, so String(5) would miss the row and leave it to be carried on by itself.
     const id = task.id;
+    // A file with a task of no id is refused when it is read (parseBackupArchive); this only narrows the type.
     if (id === null || id === undefined || !db.prepare("SELECT 1 FROM tasks WHERE id=?").get(id)) continue;
     db.prepare("UPDATE tasks SET status='interrupted' WHERE id=?").run(id);
     // NAS 5653d17: `run.restored` is what never-break asks for by name, however many events the file gave the task.
