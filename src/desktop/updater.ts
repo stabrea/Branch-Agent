@@ -441,8 +441,7 @@ export class Updater {
     const commit = await remoteHead(run, this.devRepo());
     const short = commit.slice(0, 7), running = this.options.currentCommit;
     // Dogfood F5: a copy built ahead of the main line is not offered the main line's older head as "newer".
-    const standing = running && running !== commit
-      ? await devStanding(run, join(this.options.scratchDir, "dev-history"), this.devRepo(), running, commit) : undefined;
+    const standing = running && running !== commit ? await this.devHistoryStanding(run, running, commit) : undefined;
     return {
       currentVersion: this.options.currentVersion, latestVersion: this.options.currentVersion, tag: `dev-${short}`,
       available: commit !== running && standing !== "ahead" && standing !== "apart", ...(standing ? { standing } : {}),
@@ -450,6 +449,17 @@ export class Updater {
       assetUrl: "", checksumUrl: "", assetBytes: 0, pageUrl: `https://github.com/${this.devRepo()}/commit/${commit}`,
       channel: "dev", commit,
     };
+  }
+  /**
+   * Dev (dogfood F5): where the running change stands, from a history kept in the updater's own folder. That folder is
+   * made private first, as an install makes it (NAS cfc3808); one that is not safe to use leaves the answer unknown.
+   */
+  private async devHistoryStanding(run: Run, running: string, commit: string): Promise<DevStanding> {
+    try {
+      await mkdir(this.options.scratchDir, { recursive: true });
+      if (this.platform !== "win32") await ensurePrivateDir(this.options.scratchDir);
+    } catch { return "unknown"; }
+    return devStanding(run, join(this.options.scratchDir, "dev-history"), this.devRepo(), running, commit);
   }
   /** Dev: builds the download from source on this computer; the steps after it are the same as for a release. */
   private async buildDevArchive(release: ReleaseInfo): Promise<{ archive: string; version: string }> {

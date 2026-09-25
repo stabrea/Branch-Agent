@@ -48,6 +48,9 @@ export function buildEnv(from: NodeJS.ProcessEnv, platform: NodeJS.Platform): No
   return {
     ...kept,
     GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", GIT_ASKPASS: "", SSH_ASKPASS: "",
+    // NAS cfc3808 follow-up: the Dev check's history holds commits only, and git would fetch a missing one lazily with
+    // all its trees (14,720 for one train on 2026-09-25) instead of through the check's own commits-only fetch.
+    GIT_NO_LAZY_FETCH: "1",
     PATH: [...extraPath, from.PATH ?? ""].filter(Boolean).join(platform === "win32" ? ";" : ":"),
   };
 }
@@ -78,20 +81,28 @@ export async function remoteHead(run: Run, repo: string): Promise<string> {
  * history could not be read, and the build's own never-go-back step (neverBack) still decides.
  */
 export type DevStanding = "behind" | "ahead" | "apart" | "unknown";
+/** NAS cfc3808: the walls every history call runs behind, as src/reach/agent-git.ts's do: no hooks, https only. */
+const historyWalls = ["-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
+  "-c", "http.followRedirects=false"];
 export async function devStanding(run: Run, historyDir: string, repo: string, running: string, head: string): Promise<DevStanding> {
   const cwd = historyDir, timeoutMs = 30_000;
-  const has = (commit: string) => run("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd, timeoutMs }).then(() => true, () => false);
-  const includes = (older: string, newer: string) =>
-    run("git", ["merge-base", "--is-ancestor", older, newer], { cwd, timeoutMs }).then(() => true, () => false);
-  if (!(await lstat(historyDir).then(() => true, () => false)))
-    await run("git", ["init", "--quiet", "--bare", historyDir], { timeoutMs }).catch(() => undefined);
-  for (const commit of [head, running])
+  const git = (args: string[], ms = timeoutMs) => run("git", [...quietGit, ...historyWalls, ...args], { cwd, timeoutMs: ms });
+  const has = (commit: string) => git(["cat-file", "-e", `${commit}^{commit}`]).then(() => true, () => false);
+  // NAS cfc3808: a link or a file planted where the history goes is never followed; the build's own step decides.
+  const found = await lstat(historyDir).catch(() => null);
+  if (found && (found.isSymbolicLink() || !found.isDirectory())) return "unknown";
+  if (!found) await run("git", ["init", "--quiet", "--bare", historyDir], { timeoutMs }).catch(() => undefined);
+  for (const [commit, ref] of [[head, "refs/branch/head"], [running, "refs/branch/running"]] as const) {
     if (!(await has(commit)))
-      await run("git", [...quietGit, "fetch", "--quiet", "--filter=tree:0", "--no-tags", `https://github.com/${repo}.git`, commit], { cwd, timeoutMs: minutes(5) })
-        .catch(() => undefined);
+      await git(["fetch", "--quiet", "--filter=tree:0", "--no-tags", `https://github.com/${repo}.git`, commit], minutes(5)).catch(() => undefined);
+    // Kept by name, so the next look fetches only what is new after it, not the whole line again (NAS cfc3808).
+    if (await has(commit)) await git(["update-ref", ref, commit]).catch(() => undefined);
+  }
   if (!(await has(head)) || !(await has(running))) return "unknown";
-  if (await includes(running, head)) return "behind";
-  return (await includes(head, running)) ? "ahead" : "apart";
+  // One question whose answer is a change id: a walk that fails is unknown, never "apart" (NAS cfc3808).
+  const shared = await git(["merge-base", running, head]).then((out) => out.trim(), () => "");
+  if (!/^[0-9a-f]{40}$/.test(shared)) return "unknown";
+  return shared === running ? "behind" : shared === head ? "ahead" : "apart";
 }
 
 /**

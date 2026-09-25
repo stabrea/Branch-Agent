@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, readdir, writeFile, access } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, writeFile, access, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -35,20 +35,23 @@ async function folders(t) {
  * go to `history`, so `calls` stays the build's own.
  */
 function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, failOn = null, tamper = false, running = "here", shared = OLD, stampless = false, standing = "behind" } = {}) {
-  const calls = [], history = [], inHistory = new Set();
+  const calls = [], history = [], inHistory = new Set(), walled = [];
   let knows = running === "here";
   const run = async (file, args, options) => {
-    const line = [file, ...args.filter((arg) => !arg.startsWith("credential.helper") && !arg.startsWith("core.askPass") && arg !== "-c")].join(" ");
+    const plain = [];
+    for (let at = 0; at < args.length; at++) { if (args[at] === "-c") { at++; continue; } plain.push(args[at]); }
+    const line = [file, ...plain].join(" ");
     if (line.startsWith("git init") || options.cwd === join(where.scratchDir, "dev-history")) {
       history.push(line);
+      if (!line.startsWith("git init")) walled.push(args.includes("protocol.allow=never") && args.includes("core.hooksPath=/dev/null"));
       if (standing === "unreadable" && !line.startsWith("git init")) throw new Error(`${line} did not finish.`);
       // A new history folder knows no change until it is fetched.
       if (line.startsWith("git fetch")) inHistory.add(args.at(-1));
       if (line.startsWith("git cat-file") && !inHistory.has(args.at(-1).replace("^{commit}", ""))) throw new Error("git cat-file did not finish.");
-      if (line.startsWith("git merge-base --is-ancestor")) {
-        const [older, newer] = args.slice(-2);
-        const yes = standing === "behind" ? older === OLD && newer === head : standing === "ahead" && older === head && newer === OLD;
-        if (!yes) throw new Error("git merge-base did not finish.");
+      if (line.startsWith("git merge-base")) {
+        // The shared change: the running one when the head includes it, the head when the running one includes that.
+        if (standing === "walk-fails") throw new Error("git merge-base did not finish.");
+        return `${standing === "behind" ? OLD : standing === "ahead" ? head : "c".repeat(40)}\n`;
       }
       return "";
     }
@@ -80,7 +83,7 @@ function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, fai
     }
     return "";
   };
-  return { run, calls, history };
+  return { run, calls, history, walled };
 }
 /** Unpacking the built zip: the app folder with the package identity inside the download. */
 const extract = async (archive, into) => {
@@ -124,7 +127,10 @@ test("F5 a copy ahead of the main line is told so, and the older head is not off
   assert.equal(status.message, "You are ahead of the main line: this copy (change bbbbbbb) already includes its newest change (aaaaaaa).");
   assert.equal(status.release.available, false);
   assert.ok(tools.history.includes(`git fetch --quiet --filter=tree:0 --no-tags https://github.com/${repo}.git ${NEW}`), tools.history.join("\n"));
-  assert.ok(tools.history.includes(`git merge-base --is-ancestor ${NEW} ${OLD}`), "the history decides, not the ids differing");
+  assert.ok(tools.history.includes(`git merge-base ${OLD} ${NEW}`), "the history decides, not the ids differing");
+  assert.ok(tools.walled.length && tools.walled.every(Boolean), "every history call runs behind the walls (NAS cfc3808)");
+  assert.ok(tools.history.includes(`git update-ref refs/branch/head ${NEW}`) && tools.history.includes(`git update-ref refs/branch/running ${OLD}`),
+    "both changes are kept by name, so the next look fetches only what is new");
   assert.equal(building(tools.calls).length, 0, "a check builds nothing");
   const apart = await updater(where, fakeTools(where, { standing: "apart" })).check();
   assert.equal(apart.phase, "current");
@@ -133,6 +139,23 @@ test("F5 a copy ahead of the main line is told so, and the older head is not off
   assert.equal(behind.phase, "available", "the main line's head that includes this copy is still offered");
   const unreadable = await updater(where, fakeTools(where, { standing: "unreadable" })).check();
   assert.equal(unreadable.phase, "available", "without the history, the build's own never-go-back step still decides");
+  // NAS cfc3808: a walk that fails is unknown, not "apart" (which would hide the update and say it goes back).
+  const failed = await updater(where, fakeTools(where, { standing: "walk-fails" })).check();
+  assert.equal(failed.phase, "available", failed.message);
+});
+
+// NAS cfc3808: a link planted where the history goes sent the fetch into another folder. It is never followed.
+test("F5 a link where the history folder goes is never followed, and the answer is left unknown", async (t) => {
+  const where = await folders(t);
+  const elsewhere = join(where.root, "elsewhere");
+  await mkdir(elsewhere, { recursive: true });
+  await mkdir(where.scratchDir, { recursive: true });
+  await symlink(elsewhere, join(where.scratchDir, "dev-history"), "dir");
+  const tools = fakeTools(where, { standing: "ahead" });
+  const status = await updater(where, tools).check();
+  assert.equal(status.phase, "available", "unknown: the build's own step decides, as before");
+  assert.equal(tools.history.filter((line) => !line.startsWith("git init")).length, 0, "no git ran through the link");
+  assert.deepEqual(await readdir(elsewhere), [], "and nothing was written where it pointed");
 });
 
 /* The Update button names KeepOak/Branch-Agent, which does not exist until the move, and git cannot fall back on a
@@ -269,6 +292,7 @@ test("the build never sees the running app's own switches, and never waits on a 
   assert.deepEqual(Object.keys(env).filter((key) => /^(BRANCH|ELECTRON)_/.test(key)), []);
   assert.equal(env.HOME, "/Users/me");
   assert.equal(env.GIT_TERMINAL_PROMPT, "0");
+  assert.equal(env.GIT_NO_LAZY_FETCH, "1", "a missing commit is never fetched lazily with all its trees (NAS cfc3808)");
   assert.equal(env.PATH, "/opt/homebrew/bin:/usr/local/bin:/usr/bin");
   assert.equal(buildEnv({ Path: "C:/x" }, "win32").GCM_INTERACTIVE, "never");
 });
