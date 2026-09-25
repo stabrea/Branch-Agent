@@ -34,7 +34,7 @@ const PAGES = {
   advanced, developer, achievements, self
 };
 
-const NAV = [
+export const NAV = [
   ["General", [["general", "General"], ["people", "People"], ["appearance", "Appearance"], ["notifications", "Notifications"]]],
   ["Your assistant", [["instructions", "Instructions & personality"], ["models", "Models"], ["local", "On this computer"], ["accounts", "Accounts"], ["voice", "Voice"]]],
   ["Safety", [["permissions", "Permissions"], ["computer", "Computer & browser"], ["secrets", "Saved sign-ins"]]],

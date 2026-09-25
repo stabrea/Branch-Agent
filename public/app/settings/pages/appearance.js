@@ -1,129 +1,131 @@
-/* Settings › appearance: bind real engine data and wire controls. */
-import { level, S, E, refresh } from "../../core/state.js";
-import { esc, render } from "../../core/dom.js";
-import { api } from "../../core/api.js";
+/* Settings › Appearance, 1:1 with the prototype's page, from the engine: light or dark and the reading choices from the
+   preferences (POST /api/preferences replaces the whole record, so shell/look.js lays each change over it), the theme
+   from GET /api/look (the gallery and the colour editor are shell/themes.js), the background and the pet from the
+   engine's delight switches (shell/scene.js). The painted scene, its season and where the pet walks are this window's. */
+
+import { E, S, refresh } from "../../core/state.js";
+import { esc, renderNow } from "../../core/dom.js";
 import { on } from "../../core/actions.js";
-import { markLive } from "../../core/features.js";
-import { toast } from "../../core/ui.js";
+import { ic, toast } from "../../core/ui.js";
+import { L, lookOf, lookEF, wornId, effMode, more, swatch, looks, savePrefs } from "../../shell/look.js";
+import { ACCENTS } from "../../shell/themes.js";
+import { D, W, SCENES, loadDelight, saveDelight, saveWindow, showsBackground, drawBackground } from "../../shell/scene.js";
+
+const pressed = (on) => `aria-pressed="${!!on}"`;
+const segAct = (title, sub, opts, cur, act) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l, a]) => `<button type="button" ${pressed(v === cur)} data-act="${a ?? act}" data-v="${v}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
+const prefs = () => E.state?.preferences ?? {};
 
 /* The light and dark previews mirror the conversation that is open (its title and last line). */
-const current = () => E.sessions.find((s) => s.sessionId === S.chat) ?? E.sessions[0];
-const mirrorName = () => current()?.opening || E.state?.identity?.name || "";
-const mirrorLine = () => (current()?.lastMessage ?? "").slice(0, 90);
-
-let prefs = {
-  textSize: "medium",
-  conversationWidth: "wide",
-};
-
-let delight = {
-  background: { on: false, scrim: 60 },
-  pets: { on: false, kind: "squirrel", name: "Hazel" },
-};
-
-async function loadSettings() {
-  try {
-    // The engine answers preferences inside its state (POST /api/preferences saves them); there is no GET of its own.
-    const [st, d] = await Promise.all([api("state"), api("delight")]);
-    prefs = st?.preferences || prefs;
-    delight = d || delight;
-  } catch (err) {
-    console.error("Failed to load appearance settings:", err);
-  }
-  render();
+const current = () => E.sessions.find((s) => (s.sessionId ?? s.id) === S.chat) ?? E.sessions[0];
+function mirror(mode) {
+  const c = mode === "light"
+    ? { bg: "#F8FAFB", side: "#EFF3F5", u: "#7A8791", bub: "#E6ECEF", ink: "#16212A", edge: "#C9D3D9" }
+    : { bg: "#11161A", side: "#0C1013", u: "#7D8A93", bub: "#1A2228", ink: "#E8EEF2", edge: "#2D3840" };
+  const rows = ["#2F8C86", "#D8612A", "#8A5AA8", "#5E8C4A"].map((d) => `<span class="mm-r"><i data-css="background:${d}"></i><u data-css="background:${c.u};opacity:.5"></u></span>`).join("");
+  const s = current(), name = s?.opening || E.state?.identity?.name || "";
+  return `<button class="mirror" type="button" data-act="themeset" data-v="${mode}" ${pressed(document.documentElement.dataset.theme === mode)}><span class="mm" data-css="background:${c.bg}"><span class="mm-s" data-css="background:${c.side}">${rows}</span><span class="mm-m"><span><span class="mm-b" data-css="background:${c.bub};color:${c.ink};display:block">${esc(s?.opening ?? "")}</span><span class="mm-t" data-css="color:${c.ink};display:block">${esc((s?.lastMessage ?? "").slice(0, 90))}</span></span><span class="mm-c" data-css="border:1px solid ${c.edge}"><i data-css="background:#E07033"></i></span></span></span><b>${mode === "light" ? "Light" : "Dark"} · live mirror of ${esc(name)}</b></button>`;
 }
 
-async function savePreferences(updates) {
-  try {
-    const merged = { ...prefs, ...updates };
-    await api("preferences", merged);
-    prefs = merged;
-    refresh();
-    render();
-  } catch (err) {
-    toast(err.message || "Failed to save preferences");
-    render();
-  }
+function themeSection() {
+  const id = wornId(), mode = effMode(), x = lookOf(id), eff = lookEF(id, mode);
+  const accs = ACCENTS.map((a) => `<button type="button" class="acc" data-css="--c:${a}" data-act="acc-set" data-v="${a}" ${pressed(L.accent === a)} aria-label="Accent ${a}"></button>`).join("");
+  const mine = L.my.length ? `<div class="ctl"><b>Your themes</b><span class="right acts" data-css="gap:6px;flex-wrap:wrap">${L.my.map((t) => `<button class="chip6" type="button" data-act="skin" data-v="my-${esc(t.id)}" ${pressed(id === "my-" + t.id)}>${esc(t.name)}</button>`).join("")}</span><small>Saved on this computer. Edit, copy or share them from Themes › Yours.</small></div>` : "";
+  return `<div class="sec"><h2>Theme</h2><div class="theme-now">${swatch(eff)}<span class="grow"><b>${esc(x[1])}</b><small>${esc(x[3] ? "Yours" : x[2])} · ${mode === "dark" ? "Moonlight" : "Daylight"}${more() ? " · more contrast" : ""}</small><span class="acts"><button class="btn pri sm" type="button" data-act="skins">Browse all ${looks().length} themes</button><button class="btn sm" type="button" data-act="ce-new">${ic("palette", "s")}Make your own</button></span></span></div>
+    <div class="ctl"><b>Accent colour</b><span class="right accs"><button type="button" class="acc theme-acc" data-act="acc-set" data-v="theme" ${pressed(!L.accent)} aria-label="The theme’s own accent">A</button>${accs}<label class="acc acc-pick" aria-label="Any colour"><input type="color" id="acc-pick" value="${L.accent || eff.accent}"></label></span><small>Only for what wants you: the working ring, the waiting dot, the yes button. <button class="link" type="button" data-act="acc-save">Save as a theme</button></small></div>
+    <div class="ctl"><b>More contrast</b><input class="sw" type="checkbox" id="a-contrast" data-sw="contrast" aria-label="More contrast" ${more() ? "checked" : ""}><small>Stronger lines and text, from each theme’s own high-contrast colours.</small></div>${mine}</div>`;
 }
 
-async function saveDelight(updates) {
-  try {
-    const merged = { ...delight, ...updates };
-    await api("delight/settings", merged);
-    delight = merged;
-    render();
-  } catch (err) {
-    toast(err.message || "Failed to save delight settings");
-    render();
-  }
+function agentsSection() {
+  return `<div class="sec"><h2>Agents</h2><div class="ctl"><b>Show the agent beside the conversation</b><input class="sw" type="checkbox" id="ag-show" aria-label="Show the agent beside the conversation" data-sw="set"><small>It acts out what the Trunk is doing: thinking, searching, reading, working, waiting for you, celebrating, resting.</small></div>${segAct("Size", "Small keeps it out of the way.", [["s", "Small"], ["m", "Medium"], ["l", "Large"]], "", "ag-size")}</div>`;
 }
 
-export function draw() {
-  return `<h1>Appearance</h1><p class="lede">How Branch looks on this computer. Changes show as you pick.</p>
-  <div class="sec"><h2>Light or dark</h2><div class="mirrors"><button class="mirror" type="button" data-act="themeset" data-v="light" aria-pressed="false"><span class="mm" data-css="background:#F8FAFB"><span class="mm-s" data-css="background:#EFF3F5"><span class="mm-r"><i data-css="background:#2F8C86"></i><u data-css="background:#7A8791;opacity:.5"></u></span><span class="mm-r"><i data-css="background:#D8612A"></i><u data-css="background:#7A8791;opacity:.5"></u></span><span class="mm-r"><i data-css="background:#8A5AA8"></i><u data-css="background:#7A8791;opacity:.5"></u></span><span class="mm-r"><i data-css="background:#5E8C4A"></i><u data-css="background:#7A8791;opacity:.5"></u></span></span><span class="mm-m"><span><span class="mm-b" data-css="background:#E6ECEF;color:#16212A;display:block"></span><span class="mm-t" data-css="color:#16212A;display:block">${esc(mirrorLine())}</span></span><span class="mm-c" data-css="border:1px solid #C9D3D9"><i data-css="background:#E07033"></i></span></span></span><b>Light · live mirror of ${esc(mirrorName())}</b></button><button class="mirror" type="button" data-act="themeset" data-v="dark" aria-pressed="false"><span class="mm" data-css="background:#11161A"><span class="mm-s" data-css="background:#0C1013"><span class="mm-r"><i data-css="background:#2F8C86"></i><u data-css="background:#7D8A93;opacity:.5"></u></span><span class="mm-r"><i data-css="background:#D8612A"></i><u data-css="background:#7D8A93;opacity:.5"></u></span><span class="mm-r"><i data-css="background:#8A5AA8"></i><u data-css="background:#7D8A93;opacity:.5"></u></span><span class="mm-r"><i data-css="background:#5E8C4A"></i><u data-css="background:#7D8A93;opacity:.5"></u></span></span><span class="mm-m"><span><span class="mm-b" data-css="background:#1A2228;color:#E8EEF2;display:block"></span><span class="mm-t" data-css="color:#E8EEF2;display:block">${esc(mirrorLine())}</span></span><span class="mm-c" data-css="border:1px solid #2D3840"><i data-css="background:#E07033"></i></span></span></span><b>Dark · live mirror of ${esc(mirrorName())}</b></button><button class="mirror" type="button" data-act="themeset" data-v="system" aria-pressed="false"><span class="mm" data-css="grid-template-columns:1fr 1fr"><span data-css="background:#F8FAFB"></span><span data-css="background:#11161A"></span></span><b>Match this computer</b></button></div></div>
-  <div class="sec"><h2>Theme</h2><div class="theme-now"><span class="sw6" data-css="--a:#EFF3F5;--b:#F8FAFB;--c:#FFFFFF;--d:#16212A;--e:#D8612A;--f:#16212A;--g:#DEE5E9"><i class="s1"></i><i class="s2"><em></em><em></em><u></u><b></b></i></span><span class="grow"><b>Branch Slate</b><small>Branch · Daylight</small><span class="acts"><button class="btn pri sm" type="button" data-act="skins">Browse all 46 themes</button><button class="btn sm" type="button" data-act="ce-new"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"></path><circle cx="7.5" cy="11" r="1.1"></circle><circle cx="10.5" cy="7" r="1.1"></circle><circle cx="15" cy="7.5" r="1.1"></circle></svg>Make your own</button></span></span></div>
-    <div class="ctl"><b>Accent colour</b><span class="right accs"><button type="button" class="acc theme-acc" data-act="acc-set" data-v="theme" aria-pressed="false" aria-label="The theme's own accent">A</button><button type="button" class="acc" data-css="--c:#D8612A" data-act="acc-set" data-v="#D8612A" aria-pressed="false" aria-label="Accent #D8612A"></button><button type="button" class="acc" data-css="--c:#E0A526" data-act="acc-set" data-v="#E0A526" aria-pressed="false" aria-label="Accent #E0A526"></button><button type="button" class="acc" data-css="--c:#2F8F5B" data-act="acc-set" data-v="#2F8F5B" aria-pressed="false" aria-label="Accent #2F8F5B"></button><button type="button" class="acc" data-css="--c:#2F8C86" data-act="acc-set" data-v="#2F8C86" aria-pressed="false" aria-label="Accent #2F8C86"></button><button type="button" class="acc" data-css="--c:#4F6FA8" data-act="acc-set" data-v="#4F6FA8" aria-pressed="false" aria-label="Accent #4F6FA8"></button><button type="button" class="acc" data-css="--c:#8A5AA8" data-act="acc-set" data-v="#8A5AA8" aria-pressed="false" aria-label="Accent #8A5AA8"></button><button type="button" class="acc" data-css="--c:#C0467A" data-act="acc-set" data-v="#C0467A" aria-pressed="false" aria-label="Accent #C0467A"></button><button type="button" class="acc" data-css="--c:#16212A" data-act="acc-set" data-v="#16212A" aria-pressed="false" aria-label="Accent #16212A"></button><label class="acc acc-pick" aria-label="Any colour"><input type="color" id="acc-pick" value="#D8612A"></label></span><small>Only for what wants you: the working ring, the waiting dot, the yes button. <button class="link" type="button" data-act="acc-save">Save as a theme</button></small></div>
-    <div class="ctl"><b>More contrast</b><input class="sw" type="checkbox" id="a-contrast" aria-label="More contrast"><small>Stronger lines and text, from each theme's own high-contrast colours.</small></div>
-    </div>
-  <div class="sec"><h2>Agents</h2><div class="ctl"><b>Show the agent beside the conversation</b><input class="sw" type="checkbox" id="ag-show" aria-label="Show the agent beside the conversation" data-sw="set"><small>It acts out what the Trunk is doing: thinking, searching, reading, working, waiting for you, celebrating, resting.</small></div><div class="ctl"><b>Size</b><span class="right"><span class="seg" role="group" aria-label="Size"><button type="button" aria-pressed="false" data-act="ag-size" data-v="s">Small</button><button type="button" aria-pressed="false" data-act="ag-size" data-v="m">Medium</button><button type="button" aria-pressed="false" data-act="ag-size" data-v="l">Large</button></span></span><small>Small keeps it out of the way.</small></div></div><div class="sec"><h2>Background</h2><div class="ctl" data-d12="1"><b>Behind the glass</b><span class="right"><span class="seg" role="group" aria-label="Behind the glass"><button type="button" aria-pressed="${delight.background?.on ? 'false' : 'true'}" data-act="bgset" data-v="none">None</button><button type="button" aria-pressed="false" data-act="bgset" data-v="painted">Painted grove</button><button type="button" aria-pressed="false" data-act="bgset" data-v="grove">The grove</button><button type="button" aria-pressed="false" data-act="bgset" data-v="oak3d">The oak in 3D</button><button type="button" aria-pressed="false" data-act="bgset" data-v="rings">Growth rings</button><button type="button" aria-pressed="false" data-act="bgset" data-v="own">Your own</button></span></span><small>The grove and the oak wear the theme's colours. A scrim in the theme's own colour keeps text readable.</small></div><div class="fld"><span>Painted scenes</span><div class="scenes12"><button type="button" class="scene-c12" data-act="scene-set" data-v="auto" aria-pressed="false"><span class="sc-img12 sc-auto12"><i data-css="background-image:url('/art/grove-spring.webp')"></i><i data-css="background-image:url('/art/grove-autumn.webp')"></i><i data-css="background-image:url('/art/grove-winter.webp')"></i><i data-css="background-image:url('/art/grove-night.webp')"></i></span><b>By the season</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="spring" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/grove-spring.webp')"></span><b>Spring grove</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="autumn" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/grove-autumn.webp')"></span><b>Autumn grove</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="winter" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/grove-winter.webp')"></span><b>Winter grove</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="night" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/grove-night.webp')"></span><b>Firefly night</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="summer" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/bg/grove-summer.webp')"></span><b>Summer Meadow</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="rain" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/bg/grove-rain.webp')"></span><b>Rainy Forest</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="lake" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/bg/grove-lake.webp')"></span><b>Mountain Lake</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="blossom" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/bg/grove-blossom.webp')"></span><b>Blossoming Grove</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="canyon" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/bg/grove-canyon.webp')"></span><b>Desert Canyon</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="snownight" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/bg/grove-snownight.webp')"></span><b>Snowy Night</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="bamboo" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/bg/grove-bamboo.webp')"></span><b>Bamboo Grove</b></button><button type="button" class="scene-c12" data-act="scene-set" data-v="hills" aria-pressed="false"><span class="sc-img12" data-css="background-image:url('/art/bg/grove-hills.webp')"></span><b>Sunflower Hills</b></button></div></div>
-    <div class="ctl"><b>How much the theme covers it</b><span class="right"><input class="range" type="range" id="scrim6" min="20" max="90" step="5" value="${delight.background?.scrim || 60}" aria-label="How much the theme covers the background" disabled=""><span data-css="font:12px var(--mono);color:var(--ink-3);width:34px">${delight.background?.scrim || 60}%</span></span><small>More keeps text calmer; less shows more of the background.</small></div>
-    <div class="ctl"><b>See-through panels</b><span class="right"><input class="range" type="range" id="see" min="0" max="60" step="5" value="25" aria-label="See-through panels" disabled=""><span data-css="font:12px var(--mono);color:var(--ink-3);width:34px">25%</span></span><small>Panels blur what's behind them.</small></div>
-    <div class="ctl"><b>Preview</b><span class="right"><button class="btn sm" type="button" data-act="bg-peek" disabled=""><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>See it clearly</button></span><small>Clear the view: see the background. Click anywhere or press Escape to come back.</small></div></div>
-  <div class="sec"><h2>Reading</h2><div class="ctl"><b>Conversation width</b><span class="right"><span class="seg" role="group" aria-label="Conversation width"><button type="button" aria-pressed="${prefs.conversationWidth === 'comfortable' ? 'true' : 'false'}" data-act="widthset" data-v="comfortable">Comfortable</button><button type="button" aria-pressed="${prefs.conversationWidth === 'wide' ? 'true' : 'false'}" data-act="widthset" data-v="wide">Wide</button><button type="button" aria-pressed="${prefs.conversationWidth === 'full' ? 'true' : 'false'}" data-act="widthset" data-v="full">Full</button></span></span><small>Wide uses more of a big screen.</small></div><div class="ctl"><b>Text size</b><span class="right"><span class="seg" role="group" aria-label="Text size"><button type="button" aria-pressed="${prefs.textSize === 'small' ? 'true' : 'false'}" data-act="size" data-v="small">Small</button><button type="button" aria-pressed="${prefs.textSize === 'medium' ? 'true' : 'false'}" data-act="size" data-v="medium">Regular</button><button type="button" aria-pressed="${prefs.textSize === 'large' ? 'true' : 'false'}" data-act="size" data-v="large">Large</button></span></span><small>Changes every screen.</small></div></div>
-  <div class="sec"><h2>The pet</h2><div class="ctl" data-d12="1"><b>Pet</b><span class="right"><span class="seg" role="group" aria-label="Pet"><button type="button" aria-pressed="${!delight.pets?.on ? 'true' : 'false'}" data-act="petset" data-v="none">None</button><button type="button" aria-pressed="${delight.pets?.kind === 'squirrel' ? 'true' : 'false'}" data-act="petset" data-v="squirrel">Squirrel</button><button type="button" aria-pressed="${delight.pets?.kind === 'owl' ? 'true' : 'false'}" data-act="petset" data-v="owl">Owl</button><button type="button" aria-pressed="${delight.pets?.kind === 'hedgehog' ? 'true' : 'false'}" data-act="petset" data-v="hedgehog">Hedgehog</button></span></span><small>It walks along the foot of the list. Click it for a tip; it speaks up by itself only when a Trunk needs you.</small></div></div>
-  <div class="sec"><h2>What's shown</h2><div class="ctl"><b>The usage ring</b><input class="sw" type="checkbox" id="h-usage" checked="" aria-label="The usage ring" data-sw="hide" data-k="usage"><small>Right-click it anywhere to hide it too.</small></div><div class="ctl"><b>The gateway in the status bar</b><input class="sw" type="checkbox" id="h-gateway" checked="" aria-label="The gateway in the status bar" data-sw="hide" data-k="gateway"><small>Right-click it anywhere to hide it too.</small></div><div class="ctl"><b>The pet</b><input class="sw" type="checkbox" id="h-pet" checked="" aria-label="The pet" data-sw="hide" data-k="pet"><small>Right-click it anywhere to hide it too.</small></div><div class="ctl"><b>Projects in the list</b><input class="sw" type="checkbox" id="h-projects" checked="" aria-label="Projects in the list" data-sw="hide" data-k="projects"><small>Right-click it anywhere to hide it too.</small></div><div class="ctl"><b>The Guide button</b><input class="sw" type="checkbox" id="h-notes" checked="" aria-label="The Guide button" data-sw="hide" data-k="notes"><small>Right-click it anywhere to hide it too.</small></div><div class="ctl"><b>The whole status bar</b><input class="sw" type="checkbox" id="h-statusbar" checked="" aria-label="The whole status bar" data-sw="hide" data-k="statusbar"><small>Lockdown's banner and Stop while a task runs can never be hidden.</small></div>
+function backgroundSection() {
+  const on = showsBackground(), scrim = D.settings?.background?.scrim ?? 60;
+  const kinds = [["none", "None"], ["painted", "Painted grove"], ["grove", "The grove", "bgset-grove"], ["oak3d", "The oak in 3D", "bgset-oak3d"], ["rings", "Growth rings", "bgset-rings"], ["own", "Your own", "bgset-own"]];
+  const scenes = SCENES.map(([v, n, f]) => `<button type="button" class="scene-c12" data-act="scene-set" data-v="${v}" ${pressed(on && W.scene === v)}>${f ? `<span class="sc-img12" data-css="background-image:url('${f}')"></span>` : `<span class="sc-img12 sc-auto12">${["spring", "autumn", "winter", "night"].map((k) => `<i data-css="background-image:url('/art/grove-${k}.webp')"></i>`).join("")}</span>`}<b>${esc(n)}</b></button>`).join("");
+  const season = on ? segAct("Season", "Spring greens, autumn copper, winter snow; the forest at night in dark mode.", [["auto", "By the date"], ["spring", "Spring"], ["autumn", "Autumn"], ["winter", "Winter"]], W.season, "season") : "";
+  return `<div class="sec"><h2>Background</h2>${segAct("Behind the glass", "The grove and the oak wear the theme’s colours. A scrim in the theme’s own colour keeps text readable.", kinds, on ? "painted" : "none", "bgset")}${season}<div class="fld"><span>Painted scenes</span><div class="scenes12">${scenes}</div></div>
+    <div class="ctl"><b>How much the theme covers it</b><span class="right"><input class="range" type="range" id="scrim6" min="20" max="90" step="5" value="${scrim}" aria-label="How much the theme covers the background" disabled><span data-css="font:12px var(--mono);color:var(--ink-3);width:34px">${scrim}%</span></span><small>More keeps text calmer; less shows more of the background.</small></div>
+    <div class="ctl"><b>See-through panels</b><span class="right"><input class="range" type="range" id="see" min="0" max="60" step="5" value="${prefs().seeThrough ?? 30}" aria-label="See-through panels" disabled><span data-css="font:12px var(--mono);color:var(--ink-3);width:34px">${prefs().seeThrough ?? 30}%</span></span><small>Panels blur what's behind them.</small></div>
+    <div class="ctl"><b>Preview</b><span class="right"><button class="btn sm" type="button" data-act="bg-peek" ${on ? "" : "disabled"}>${ic("eye", "s")}See it clearly</button></span><small>Clear the view: see the background. Click anywhere or press Escape to come back.</small></div></div>`;
+}
+
+function readingSection() {
+  const p = prefs();
+  return `<div class="sec"><h2>Reading</h2>${segAct("Conversation width", "Wide uses more of a big screen.", [["comfortable", "Comfortable"], ["wide", "Wide"], ["full", "Full"]], p.conversationWidth, "widthset")}${segAct("Text size", "Changes every screen.", [["small", "Small"], ["medium", "Regular"], ["large", "Large"]], p.textSize, "size")}</div>`;
+}
+
+function petSection() {
+  const pets = D.settings?.pets, kind = pets?.on ? pets.kind : "none";
+  const where = pets?.on ? segAct("Where it walks", "It keeps out of the way of your messages wherever it is.", [["side", "The list"], ["status", "Status bar"], ["dock", "By the message box", "petwhere15-dock"]], W.petWhere, "petwhere15") : "";
+  return `<div class="sec"><h2>The pet</h2>${segAct("Pet", "It walks along the foot of the list. Click it for a tip; it speaks up by itself only when a Trunk needs you.", [["none", "None"], ["squirrel", "Squirrel"], ["owl", "Owl"], ["hedgehog", "Hedgehog"]], kind, "petset")}${where}</div>`;
+}
+
+/* Each switch names a part of the window the engine keeps in preferences.hidden. */
+const HIDES = [["h-usage", "usage", "The usage ring"], ["h-gateway", "gateway", "The gateway in the status bar"], ["h-pet", "pet", "The pet"], ["h-projects", "projects", "Projects in the list"], ["h-notes", "notes", "The Guide button"], ["h-statusbar", "statusbar", "The whole status bar"]];
+function shownSection() {
+  const hidden = prefs().hidden ?? [];
+  const rows = HIDES.map(([id, k, l]) => `<div class="ctl"><b>${l}</b><input class="sw" type="checkbox" id="${id}" ${hidden.includes(k) ? "" : "checked"} aria-label="${l}" data-sw="hide" data-k="${k}"><small>${k === "statusbar" ? "Lockdown's banner and Stop while a task runs can never be hidden." : "Right-click it anywhere to hide it too."}</small></div>`).join("");
+  return `<div class="sec"><h2>What's shown</h2>${rows}
     <div class="ctl"><b>Keep things still</b><input class="sw" type="checkbox" id="a-still" aria-label="Keep things still" data-sw="still"><small>Stops the pet walking, the working ring, the logo's float and the background moving.</small></div>
     <div class="ctl"><b>Scenery behind the list</b><input class="sw" type="checkbox" id="a-scenery" aria-label="Scenery behind the list" data-sw="scenery"><small>A small pixel oak at the foot of the list.</small></div></div>
   <div class="sec"><h2>Language</h2><div class="ctl"><b>Language</b><span class="right"><select class="inp" id="lang" data-sw="lang" aria-label="Language"><option>English</option><option>Français</option><option>Español</option><option>Deutsch</option><option>Yorùbá</option></select></span><small>Dates and numbers follow it too.</small></div></div>`;
 }
 
+export function draw() {
+  return `<h1>Appearance</h1><p class="lede">How Branch looks on this computer. Changes show as you pick.</p>
+  <div class="sec"><h2>Light or dark</h2><div class="mirrors">${mirror("light")}${mirror("dark")}<button class="mirror" type="button" data-act="themeset" data-v="system" ${pressed(!document.documentElement.dataset.theme)}><span class="mm" data-css="grid-template-columns:1fr 1fr"><span data-css="background:#F8FAFB"></span><span data-css="background:#11161A"></span></span><b>Match this computer</b></button></div></div>
+  ${themeSection()}${agentsSection()}${backgroundSection()}${readingSection()}${petSection()}${shownSection()}`;
+}
+
+async function savePrefsAndDraw(change) {
+  await savePrefs(change);
+  await refresh().catch((error) => toast(error.message));
+  renderNow();
+}
+async function setBackground(on) { await saveDelight({ background: { on } }); drawBackground(); renderNow(); }
+
 export function init() {
-  loadSettings();
-
-  // "themeset" belongs to the shell, which applies the look and saves it to the engine.
-
-  on("widthset", (el) => {
-    const value = el.dataset.v;
-    savePreferences({ conversationWidth: value });
+  // "themeset" belongs to the shell, which applies the look and saves it to the engine; the theme controls are shell/themes.js.
+  on("widthset", (el) => savePrefsAndDraw({ conversationWidth: el.dataset.v }));
+  on("size", (el) => savePrefsAndDraw({ textSize: el.dataset.v }));
+  on("bgset", (el) => { if (el.dataset.v === "painted") { W.bg = "painted"; saveWindow(); } setBackground(el.dataset.v !== "none"); });
+  on("scene-set", (el) => { W.scene = el.dataset.v; W.bg = "painted"; saveWindow(); if (!D.settings?.background?.on) setBackground(true); else { drawBackground(); renderNow(); } });
+  on("season", (el) => { W.season = el.dataset.v; saveWindow(); drawBackground(); renderNow(); });
+  on("bg-peek", () => document.getElementById("app").classList.add("peek"));
+  on("petset", async (el) => { await saveDelight({ pets: el.dataset.v === "none" ? { on: false } : { on: true, kind: el.dataset.v } }); renderNow(); });
+  on("petwhere15", (el) => { W.petWhere = el.dataset.v; saveWindow(); renderNow(); });
+  document.addEventListener("change", (e) => {
+    const t = e.target;
+    const row = HIDES.find(([id]) => id === t.id);
+    if (!row) return;
+    const k = row[1], hidden = (prefs().hidden ?? []).filter((x) => x !== k);
+    savePrefsAndDraw({ hidden: t.checked ? hidden : [...hidden, k] });
   });
-
-  on("size", (el) => {
-    const value = el.dataset.v;
-    savePreferences({ textSize: value });
-  });
-
-  on("bgset", (el) => {
-    const value = el.dataset.v;
-    const on = value !== "none";
-    saveDelight({ background: { ...delight.background, on } });
-  });
-
-  on("petset", (el) => {
-    const value = el.dataset.v;
-    if (value === "none") {
-      saveDelight({ pets: { ...delight.pets, on: false } });
-    } else {
-      saveDelight({ pets: { ...delight.pets, on: true, kind: value } });
-    }
-  });
-
-  markLive([
-    "themeset",
-    "widthset",
-    "size",
-    "bgset",
-    "petset",
-  ]);
+  /* "See it clearly" lasts until a click anywhere or Escape. */
+  document.addEventListener("pointerdown", (e) => { const app = document.getElementById("app"); if (app.classList.contains("peek")) { app.classList.remove("peek"); e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener("keydown", (e) => { const app = document.getElementById("app"); if (e.key === "Escape" && app.classList.contains("peek")) { app.classList.remove("peek"); e.stopPropagation(); } }, true);
+  load();
 }
 
 export async function load() {
-  await loadSettings();
+  await loadDelight();
+  renderNow();
 }
 
 export const live = {
-  "themeset": true,
   "widthset": true,
   "size": true,
   "bgset": true,
   "petset": true,
+  "scene-set": true,
+  "season": true,
+  "bg-peek": true,
+  "petwhere15": true,
+  "sw:h-usage": true,
+  "sw:h-gateway": true,
+  "sw:h-pet": true,
+  "sw:h-projects": true,
+  "sw:h-notes": true,
+  "sw:h-statusbar": true,
 };
