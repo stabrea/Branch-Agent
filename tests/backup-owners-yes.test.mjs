@@ -295,3 +295,23 @@ test("a restored cut-off task is offered to the owner, never carried on by itsel
   assert.deepEqual(report.map((one) => one.runId), [], "never-break carries nothing on by itself");
   assert.equal(fresh.app.store.events(planted.id).some((event) => event.kind === "run.auto_resumed"), false);
 });
+
+// NAS dc50a36: a chat message the file says is still waiting to go is restored as not sent, so the owner's own bot never
+// sends it by itself at the next flush; it waits among the undelivered messages for a Retry.
+test("a pending chat message in a backup is restored as not sent (NAS dc50a36)", async (t) => {
+  const { app, owner } = await fixture(t);
+  const now = new Date().toISOString();
+  app.store.save("deliveries", owner, "planted-delivery", { key: "k", channel: "telegram", chatId: "file-makers-chat", seq: 0, order: 0,
+    text: "PLANTED-BY-FILE: my notes", replyTo: null, status: "pending", attempts: 0, nextAt: now, lastError: null, messageId: null, sentAt: null });
+  app.store.save("deliveries", owner, "sent-delivery", { key: "s", channel: "telegram", chatId: "mine", seq: 0, order: 1,
+    text: "already sent", replyTo: null, status: "sent", attempts: 1, nextAt: now, lastError: null, messageId: "9", sentAt: now });
+  const archive = app.store.backup(app.version);
+  for (const replacing of [false, true]) {
+    const target = replacing ? app : (await fixture(t)).app;
+    await restoreBackup(target, async () => archive, replacing);
+    const planted = target.store.get("deliveries", owner, "planted-delivery")?.data;
+    assert.equal(planted?.status, "dead", `${replacing ? "replacing" : "fresh"}: not sent by itself`);
+    assert.match(planted?.lastError ?? "", /Restored from a backup/);
+    assert.equal(target.store.get("deliveries", owner, "sent-delivery")?.data.status, "sent", "a sent one is left as it was");
+  }
+});

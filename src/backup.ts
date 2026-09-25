@@ -144,7 +144,9 @@ const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:",
   // a chat task, its webhook word, its MCP sign-in clients, which Trunk a flow run works as, the file-undo slots, a
   // "Watch me" under way, kept answers (a planted one comes back as if real) and the yeses carried over a restart.
   "channel-mark:", "channel-position:", "channel-replay:", "webhook-address:", "mcp-oauth:", "flow-run-trunk:",
-  "settings-kit-file-undo-", "trunk-watch:", "cache:", "session-carry:"];
+  "settings-kit-file-undo-", "trunk-watch:", "cache:", "session-carry:",
+  // NAS dc50a36: the memory a conversation's next turn reads, kept for that conversation here.
+  "memory-snapshot:"];
 /** The restore's own list of rows waiting for the owner's yes (src/restore-held.ts): about this computer, so it stays too. */
 export const restoreHeldKey = "restore-held";
 /**
@@ -190,6 +192,8 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   "browser-container", "reach-video-settings", "assistant-identity",
   // Q230: the notices card's record also holds automatic installing and the update channel, which install by themselves.
   "comfort-notify",
+  // NAS dc50a36: whether the model's own memory changes wait for the owner (read and written with raw SQL).
+  "learning",
   // Q230 (NAS a1291bd, eba8bd8): every other settings id src reads, classified one by one. Each of these could make
   // something run by itself, send somewhere or name a connection or account, run or name a program, carry words a turn
   // reads, or loosen a limit, price or safety switch. The one-line reasons are in tests/backup-classified.test.mjs.
@@ -222,6 +226,7 @@ const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "auto
  * none of this list, the held lists or this computer's, so a new id never travels by accident.
  */
 export const travelsWithBackup: Readonly<Record<string, string>> = {
+  "mcp-serving": "two timeouts for serving Branch's own tools; no address, program or switch",
   "channel-usage:": "only adds a tokens-and-cost line to replies that already go to that chat",
   "delight-achievements": "achievement progress only",
   "prompt-library-items": "a saved prompt only becomes a message the owner sends",
@@ -278,8 +283,17 @@ const catalogueGuards = (id: string): boolean =>
  */
 const codeOwnedLists = (id: string): boolean =>
   id === "privacy-guard" || neverTouched.some((pattern) => pattern.test(id)) || coveredSettings.some((pattern) => pattern.test(id));
+/** A catalogue setting whose every field is plain: the settings kit already treats any value of it as harmless. */
+const cataloguePlain = (id: string): boolean => settingsCatalogue.some((spec) => spec.key === id) && !catalogueGuards(id);
+/** Q230: what travels, by name or by a travelling prefix, or as a plain catalogue setting. */
+const travels = (id: string): boolean => id in travelsWithBackup || cataloguePlain(id)
+  || Object.keys(travelsWithBackup).some((key) => key.endsWith(":") && id.startsWith(key));
+/**
+ * Q230 (NAS dc50a36): an id in none of the lists waits for the owner's yes. Reading every id by hand kept missing one
+ * (a raw query, a single-quoted key), so an id nobody classified is held rather than put in place from a file.
+ */
 export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start))
-  || (!staysOnThisComputer(id) && (catalogueGuards(id) || codeOwnedLists(id)));
+  || (!staysOnThisComputer(id) && (catalogueGuards(id) || codeOwnedLists(id) || !travels(id)));
 /** A settings row from a backup, waiting for the owner's yes: its owner, its id and its data as the file had it. */
 export interface HeldRow { owner: string; id: string; data: string }
 const staysHere = (table: string, row: Record<string, unknown>): boolean => table === "settings" && staysOnThisComputer(String(row.id));
@@ -294,6 +308,7 @@ const staysHere = (table: string, row: Record<string, unknown>): boolean => tabl
  * SQLite reads JSON5, so the next start would rewrite it into a job that still carries the file's yes (NAS 54d30f2).
  */
 function disarmed<Row extends Record<string, unknown>>(table: string, row: Row): Row | null {
+  if (table === "deliveries") return undelivered(row);
   if (table !== "schedules") return row;
   if (typeof row.data !== "string") return null;
   let job: unknown;
@@ -304,6 +319,20 @@ function disarmed<Row extends Record<string, unknown>>(table: string, row: Row):
   // Only a job that has a webhook gets a new token; an empty one would otherwise switch a webhook on.
   if (typeof kept.hookToken === "string" && kept.hookToken) kept.hookToken = randomBytes(24).toString("hex");
   return { ...row, data: JSON.stringify(kept) } as Row;
+}
+
+/**
+ * NAS dc50a36: a chat message the file says is still waiting to go is restored as not sent, so it waits among the
+ * owner's undelivered messages for a Retry instead of being sent by the owner's own bot at the next flush.
+ */
+function undelivered<Row extends Record<string, unknown>>(row: Row): Row | null {
+  if (typeof row.data !== "string") return null;
+  let message: unknown;
+  try { message = JSON.parse(row.data); } catch { return null; }
+  if (!message || typeof message !== "object" || Array.isArray(message)) return null;
+  const kept = message as Record<string, unknown>;
+  if (kept.status !== "pending") return row;
+  return { ...row, data: JSON.stringify({ ...kept, status: "dead", lastError: "Restored from a backup and not sent. Retry it to send it." }) } as Row;
 }
 
 /** Tables whose rows SQLite itself reads by field (`json_extract`, `json_set` in src/store.ts). */

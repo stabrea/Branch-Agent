@@ -22,8 +22,10 @@ function scan() {
   const ids = new Set(), prefixes = new Set(), computed = new Set();
   for (const file of files(src)) {
     const text = readFileSync(file, "utf8");
-    const consts = new Map([...text.matchAll(/(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::\s*string)?\s*=\s*"([a-z0-9][a-z0-9_:.-]*)"/g)].map((m) => [m[1], m[2]]));
-    for (const m of text.matchAll(/"settings",\s*[^,()]+(?:\([^()]*\))?,\s*("([^"]+)"|`([^`$]*)\$\{|([A-Za-z_$][\w$.]*))/g)) {
+    const consts = new Map([...text.matchAll(/(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::\s*string)?\s*=\s*["']([a-z0-9][a-z0-9_:.-]*)["']/g)].map((m) => [m[1], m[2]]));
+    // NAS dc50a36: single-quoted keys, and the ids raw SQL names, count too.
+    for (const m of text.matchAll(/(?:FROM|INTO)\s+settings\b[^;`"]*?(?:id\s*=\s*|VALUES\s*\()'([a-z0-9][a-z0-9_:.-]*)'/g)) ids.add(m[1]);
+    for (const m of text.matchAll(/["']settings["'],\s*[^,()]+(?:\([^()]*\))?,\s*(["']([^"']+)["']|`([^`$]*)\$\{|([A-Za-z_$][\w$.]*))/g)) {
       if (m[2] !== undefined) ids.add(m[2]);
       else if (m[3] !== undefined) prefixes.add(m[3]);
       else if (consts.has(m[4])) ids.add(consts.get(m[4]));
@@ -189,4 +191,12 @@ test("each key worked out in code lands where its reading put it", () => {
     assert.equal(staysOnThisComputer(id) || heldForTheOwner(id), false, `${id} travels`);
     assert.ok(travels(id), `${id} says why it travels`);
   }
+});
+
+// NAS dc50a36: an id no list names (a raw query nobody scanned, a key added later) waits for the owner's yes.
+test("an id in none of the lists waits for the owner's yes, and a plain catalogue setting still travels", () => {
+  for (const id of ["made-up-later", "dream-cursor", "learning"]) assert.equal(heldForTheOwner(id) && !staysOnThisComputer(id), true, `${id} waits`);
+  assert.equal(staysOnThisComputer("memory-snapshot:s"), true);
+  assert.equal(heldForTheOwner("comfort-display"), false, "a plain catalogue card travels");
+  assert.equal(heldForTheOwner("mcp-serving"), false);
 });
