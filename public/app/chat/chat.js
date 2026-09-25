@@ -75,13 +75,22 @@ function composer() {
     <button class="c-btn send" id="send" type="submit" aria-label="Send" ${C.sending ? "disabled" : ""}>${ic("up")}</button></form></div>`;
 }
 
+/* The words of the message being sent, so the side panel can follow a new conversation's first task before its id is known. */
+export const sendingPrompt = () => (C.sending && !C.sessionId ? C.prompt : null);
+
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
   return `${narrowHead}${findBar()}<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>${composer()}`;
 }
 export function after(main) {
+  /* Newest at the bottom stays in view only while the reader is at the bottom; someone reading back keeps their place. */
   const box = $("#scroll", main);
-  if (box) box.scrollTop = box.scrollHeight;
+  if (box) {
+    const same = C.readSid === C.sessionId;
+    box.scrollTop = !same || C.atBottom !== false ? box.scrollHeight : C.readTop ?? box.scrollHeight;
+    C.readSid = C.sessionId;
+    box.addEventListener("scroll", () => { C.readTop = box.scrollTop; C.atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40; }, { passive: true });
+  }
   applyFind();
   loadChips();
 }
@@ -123,11 +132,28 @@ async function loadWaiting() {
   try { C.waiting = (await api("policy")).waiting ?? []; } catch { C.waiting = []; }
 }
 
+/* A line starting with / is offered to the engine's commands first (POST /api/commands/run). One it runs shows its answer
+   here and nothing goes to the model; a line it doesn't know is sent as a message. */
+async function command(line) {
+  let done;
+  try { done = await api("commands/run", { surface: "window", line, ...(C.sessionId ? { sessionId: C.sessionId } : {}) }); } catch (error) { toast(error.message); return true; }
+  if (!done?.handled) return false;
+  C.messages.push({ role: "assistant", content: done.text ?? "" });
+  S.drafts[C.sessionId ?? "new"] = "";
+  const box = $("#prompt");
+  if (box) box.value = "";
+  renderNow();
+  $("#prompt")?.focus();
+  return true;
+}
+
 async function send() {
   const box = $("#prompt");
   const prompt = (box?.value ?? "").trim();
   if (!prompt || C.sending) return;
+  if (prompt.startsWith("/") && (await command(prompt))) return;
   C.messages.push({ role: "user", content: prompt });
+  C.atBottom = true;
   C.prompt = prompt;
   S.drafts[C.sessionId ?? "new"] = "";
   C.sending = true;

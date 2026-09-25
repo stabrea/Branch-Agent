@@ -32,7 +32,7 @@ const RULES = `<div class="sec x15-sec"><h2>Rules for each tool and folder</h2><
 const ISOLATION = `<div class="sec x15-sec"><h2>Isolation</h2><div class="ctl"><b>A container per Trunk</b><span class="right"><span class="seg" role="group" aria-label="A container per Trunk"><button type="button" aria-pressed="false" data-act="seg">Off</button><button type="button" aria-pressed="true" data-act="seg">For code</button><button type="button" aria-pressed="false" data-act="seg">Always</button></span></span><small></small></div><div class="ctl"><b>System sandbox for commands</b><span class="right"><span class="seg" role="group" aria-label="System sandbox for commands"><button type="button" aria-pressed="false" data-act="seg">Off</button><button type="button" aria-pressed="true" data-act="seg">When needed</button><button type="button" aria-pressed="false" data-act="seg">Always</button></span></span><small></small></div><div class="ctl"><b>Add sign-ins from outside the sandbox</b><input class="sw" type="checkbox" id="f15-add-sign-ins-from-outside-the-sandbox" aria-label="Add sign-ins from outside the sandbox" data-sw="set"><small>The sandbox never holds a password; Branch adds it on the way out.</small></div><div class="ctl"><b>Verify each release</b><input class="sw" type="checkbox" id="f15-verify-each-release" aria-label="Verify each release" data-sw="set"><small>Checks the signature before installing an update.</small></div><div class="ctl"><b>Pin SSH hosts</b><input class="sw" type="checkbox" id="f15-pin-ssh-hosts" aria-label="Pin SSH hosts" data-sw="set"><small>Refuses a computer whose fingerprint changed.</small></div><div class="ctl"><b>Downloads may come from</b><span class="right"><span class="seg" role="group" aria-label="Downloads may come from"><button type="button" aria-pressed="false" data-act="seg">Anywhere</button><button type="button" aria-pressed="true" data-act="seg">Known sites</button><button type="button" aria-pressed="false" data-act="seg">Ask each time</button></span></span><small></small></div></div>`;
 
 /* The approval policy as the engine keeps it (GET /api/policy, GET /api/approvals/categories, GET /api/lockdown). */
-const P = { policy: null, presets: [], categories: [], locked: false, loaded: false };
+const P = { policy: null, presets: [], categories: [], locked: false, loaded: false, was: {} };
 const SWITCH = { "p-read": "read", "p-browse": "browse", "p-send": "message" };
 
 async function load() {
@@ -70,7 +70,11 @@ export function init() {
   document.addEventListener("change", async (e) => {
     const id = SWITCH[e.target.id];
     if (!id) return;
-    try { await api("approvals/categories", { [id]: e.target.checked ? "allow" : "ask" }); } catch (error) { toast(error.message); }
+    // Turning a kind back off restores a refusal the owner had written, rather than loosening it to "ask".
+    const before = P.categories.find((c) => c.id === id)?.decision ?? null;
+    if (e.target.checked) P.was[id] = before;
+    const off = P.was[id] === "deny" ? "deny" : "ask";
+    try { await api("approvals/categories", { [id]: e.target.checked ? "allow" : off }); } catch (error) { toast(error.message); }
     await load();
   });
   load();

@@ -52,6 +52,11 @@ export function openPop(anchor, html, opt = {}) {
   place(popEl, root.getBoundingClientRect(), anchor.getBoundingClientRect(), opt.right);
   popEl.querySelector("button:not([aria-disabled='true']),input")?.focus({ preventScroll: true });
 }
+/* A click anywhere outside the open popover and its button closes it. */
+document.addEventListener("pointerdown", (e) => {
+  if (popEl && !popEl.contains(e.target) && !popAnchor?.contains(e.target)) closePop();
+}, true);
+
 function place(el, a, r, right) {
   if (a.width <= 480) Object.assign(el.style, { left: "8px", right: "8px", maxWidth: "none" });
   const w = el.offsetWidth;

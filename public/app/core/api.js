@@ -8,6 +8,10 @@ export const token = {
 };
 export const isDesktop = new URLSearchParams(location.search).has("desktop");
 
+/* Whether the engine answered last time: requests and the event stream keep it current; onChange redraws the window. */
+export const link = { up: true, onChange: null };
+function setLink(up) { if (link.up !== up) { link.up = up; link.onChange?.(); } }
+
 function headers(json) {
   const out = {};
   const value = token.get();
@@ -24,7 +28,8 @@ export async function api(path, body, method, signal) {
     signal,
     headers: headers(body !== undefined),
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
+  }).catch((error) => { if (error.name !== "AbortError") setLink(false); throw error; });
+  setLink(true);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(data.error || String(response.status));
@@ -42,23 +47,33 @@ export async function apiBytes(path, blob) {
   return data;
 }
 
-/* Server-sent events over fetch (EventSource cannot carry the header). Calls onEvent(kind, payload) until stopped. */
-export function stream(kinds, onEvent) {
+/* Server-sent events over fetch (EventSource cannot carry the header). The engine names events exactly ("run.started"),
+   so the window takes them all and keeps those whose kind starts with one of `prefixes`. The engine closes a stream after a
+   while; this opens the next one, so live updates never quietly stop. Calls onEvent(kind, payload) until stopped. */
+export function stream(prefixes, onEvent) {
   const controller = new AbortController();
-  const run = async () => {
-    const query = kinds.length ? "?kind=" + encodeURIComponent(kinds.join(",")) : "";
-    const response = await fetch("/api/events/stream" + query, { headers: headers(false), signal: controller.signal });
+  const wanted = (kind) => !prefixes.length || prefixes.some((p) => kind === p || kind.startsWith(p + "."));
+  const once = async () => {
+    const response = await fetch("/api/events/stream", { headers: headers(false), signal: controller.signal });
     if (!response.ok || !response.body) throw new Error(String(response.status));
+    setLink(true);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer = drain(buffer + decoder.decode(value, { stream: true }), onEvent);
+      buffer = drain(buffer + decoder.decode(value, { stream: true }), (kind, data) => { if (wanted(kind)) onEvent(kind, data); });
     }
   };
-  const done = run().catch((error) => { if (error.name !== "AbortError") console.error(error); });
+  const run = async () => {
+    let wait = 500;
+    while (!controller.signal.aborted) {
+      try { await once(); wait = 500; } catch (error) { if (error.name === "AbortError") return; setLink(false); wait = Math.min(wait * 2, 15000); }
+      await new Promise((done) => setTimeout(done, wait));
+    }
+  };
+  const done = run();
   return { stop: () => controller.abort(), done };
 }
 

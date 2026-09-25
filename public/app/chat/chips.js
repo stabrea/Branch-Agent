@@ -18,7 +18,7 @@ const presets = () => E.state?.models?.presets ?? [];
 function current() {
   const eff = M.model?.effective ?? E.state?.activeModel ?? {};
   const reasoning = M.model ? M.model.reasoning ?? E.state?.models?.reasoning : E.state?.models?.reasoning;
-  return { id: M.model?.preset ?? eff.presetId, name: eff.presetName ?? "", provider: eff.provider ?? "", reasoning };
+  return { id: M.model?.preset ?? eff.presetId, name: eff.model || eff.presetName || "", provider: eff.provider ?? "", reasoning };
 }
 /* What the engine will really do here: Lockdown; for a new conversation, the mode picked for it or what new ones start
    on; for a conversation started from outside, Ask first whatever was picked; else its own pick, or the owner's policy. */
@@ -130,4 +130,14 @@ export function initChips() {
   on("pick-think", (el) => saveModel({ reasoning: el.dataset.v }));
   on("set-mode", (el) => setMode(el.dataset.v));
   document.addEventListener("change", (e) => { if (e.target.id === "pm-lock2") setLockdown(e.target.checked); });
+  /* Shift+Tab in the message box moves to the next mode it may pick, in the menu's order; the cursor stays put. */
+  document.addEventListener("keydown", (e) => {
+    if (e.target.id !== "prompt" || e.key !== "Tab" || !e.shiftKey || document.querySelector(".slash6")) return;
+    e.preventDefault();
+    const now = modeNow();
+    if (now === "lock") return;
+    const open = PMODES.map(([id]) => id).filter((id) => M.mode?.choices?.find((c) => c.mode === id)?.available !== false);
+    const from = open.indexOf(now === "follow" ? "ask" : now);
+    setMode(open[(from + 1) % open.length]);
+  });
 }
