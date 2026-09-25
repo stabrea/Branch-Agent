@@ -6064,6 +6064,7 @@
   "terminal.keys.line2": "Esc, then 1-5 (or Alt+1 to Alt+5): Conversation, Inbox, Automations, Library, Customize · Ctrl+K or /: find anything",
   "trunks.rail.here": "Trunks here",
   "attention.continue": "Continue where it stopped",
+  "attention.stop": "Stop it",
   "vault-autofill.managers.title": "Where Branch reads saved sign-ins from",
   "vault-autofill.managers.note": "Branch never shows you or the assistant a password. It fills one item at a time, only the ones you list.",
   "vault-autofill.managers.keychain": "Your Mac's Keychain",

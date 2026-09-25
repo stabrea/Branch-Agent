@@ -670,6 +670,8 @@ function renderAttention() {
     row.append(el("strong", needsYouTitle(item)), el("span", item.question),
       button(t(item.room ? "attention.openRoom" : "attention.openConversation"), () => { displayView("chat"); openConversation(item.open ?? item.sessionId); })); // phase2/rooms
     if (item.canContinue) row.append(continueButton(item));
+    // Dogfood F8: a waiting task, or one a restart cut off, can be stopped from here.
+    row.append(button(t("attention.stop"), async () => { await api("runs/" + item.runId + "/cancel", {}); await refresh(); }));
     return row;
   }));
   for (const item of waiting) {

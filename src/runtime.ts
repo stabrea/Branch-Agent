@@ -1264,7 +1264,10 @@ ${run.output.slice(0, 6000)}`;
   /** Records the continuation and tells the model which tool outcomes are unknown. */
   private resumeNote(run: Run, from: string): string {
     const messages = this.store.messages(run.sessionId);
-    const unknownIds = new Set(messages.filter((m) => m.role === "tool" && m.content.includes('"outcome":"unknown"')).map((m) => m.toolCallId));
+    // Dogfood F8: a call that stopped at the owner's question never ran, so its outcome is known (src/server.ts).
+    const notRun = new Set(this.store.events(from).filter((event) => event.kind === "run.call_not_run").map((event) => String(event.data.id)));
+    const unknownIds = new Set(messages.filter((m) => m.role === "tool" && m.content.includes('"outcome":"unknown"') && !notRun.has(String(m.toolCallId)))
+      .map((m) => m.toolCallId));
     const calls = messages.flatMap((m) => (m.role === "assistant" ? m.toolCalls ?? [] : [])).filter((c) => unknownIds.has(c.id)).map((c) => ({ name: c.name, arguments: c.arguments }));
     if (calls.length) this.unreconciled.set(run.sessionId, calls);
     const unknown = unknownIds.size;
