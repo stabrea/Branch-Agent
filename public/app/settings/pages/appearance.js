@@ -80,10 +80,7 @@ export function draw() {
 export function init() {
   loadSettings();
 
-  on("themeset", (el) => {
-    const value = el.dataset.v;
-    savePreferences({ appearance: value });
-  });
+  // "themeset" belongs to the shell, which applies the look and saves it to the engine.
 
   on("widthset", (el) => {
     const value = el.dataset.v;

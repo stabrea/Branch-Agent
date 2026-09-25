@@ -2,7 +2,7 @@
    sidebar (machine, search, Places, the conversation list, the person) and the status bar. Real data only. */
 
 import { $, esc, paint, renderNow } from "../core/dom.js";
-import { S, E, save } from "../core/state.js";
+import { S, E, refresh, save } from "../core/state.js";
 import { on } from "../core/actions.js";
 import { ic, av, mi, openPop, closePop, toast } from "../core/ui.js";
 import { greyOut, markLive } from "../core/features.js";
@@ -155,10 +155,13 @@ function ownerMenu() {
     ${mi("switchperson", "users", "Switch person")}${mi("view", "gear", "Settings", "<kbd>Ctrl ,</kbd>", 'data-v="settings"')}${mi("shortcuts", "keyboard", "Keyboard shortcuts", "<kbd>?</kbd>")}`;
 }
 
+/* The look applies at once and is kept by the engine too (its words: daylight is light, forest is dark). */
 function setTheme(value) {
   if (value) document.documentElement.dataset.theme = value; else delete document.documentElement.dataset.theme;
   S.theme = value;
   save();
+  const prefs = E.state?.preferences;
+  if (prefs) api("preferences", { ...prefs, followSystem: !value, ...(value ? { appearance: value === "light" ? "daylight" : "forest" } : {}) }).then(() => refresh(), (error) => toast(error.message));
   closePop();
   renderNow();
 }

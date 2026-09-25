@@ -25,23 +25,23 @@ function block(chunk) {
   // Empty
   if (!chunk.trim()) return "";
 
-  // Heading: # ## ### etc
-  const headingMatch = chunk.match(/^(#+)\s+(.+)$/m);
-  if (headingMatch) {
-    const level = Math.min(headingMatch[1].length, 6); // h1-h6
-    return `<h${level}>${headingMatch[2]}</h${level}>`;
+  // Heading: a first line of # to ######; whatever follows it in the chunk is drawn as its own block.
+  const heading = lines[0].match(/^(#{1,6})\s+(.+)$/);
+  if (heading) {
+    const rest = lines.slice(1).join("\n");
+    return `<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>${rest.trim() ? block(rest) : ""}`;
   }
 
-  // Quote: > at the start
-  if (/^>\s/.test(chunk)) {
-    const quoted = lines.map((l) => l.replace(/^\s*>\s?/, "")).join("\n");
+  // Quote: the text is already escaped, so ">" arrives as "&gt;".
+  if (/^&gt;\s?/.test(chunk)) {
+    const quoted = lines.map((l) => l.replace(/^\s*&gt;\s?/, "")).join("\n");
     return `<blockquote>${block(quoted)}</blockquote>`;
   }
 
-  // Table: lines with | and spaces/dashes
+  // Table: a header row, a |---| separator row (not drawn), then the rows.
   if (lines.length >= 3 && /^\s*\|.*\|/.test(lines[0]) && /^\s*\|[\s\-|:]+\|/.test(lines[1])) {
-    const rows = lines.filter((l) => /^\s*\|/.test(l)).map((l) =>
-      l.split("|").slice(1, -1).map((cell) => cell.trim())
+    const rows = [lines[0], ...lines.slice(2)].filter((l) => /^\s*\|/.test(l)).map((l) =>
+      l.split("|").slice(1, -1).map((cell) => inline(cell.trim()))
     );
     if (rows.length > 1) {
       const [header, ...body] = rows;
