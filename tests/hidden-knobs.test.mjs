@@ -115,7 +115,8 @@ test("R17-S09 most steps per task stops a task that needs more", async (t) => {
   saveKnobs(tight.app.store, owner, "limits", { maxSteps: 1 });
   const run = await tight.app.runtime.run({ prompt: "two rounds" });
   assert.notEqual(run.status, "completed");
-  assert.match(run.output, /Step budget exhausted/);
+  // It stops at the step limit and says so in words, naming the setting, rather than in the budget's own.
+  assert.match(run.output, /as many steps as one task may \(1\).*"Most steps in one task"/s);
 });
 
 test("R17-S09 a spending cap per task stops the task before its next round", async (t) => {

@@ -5,7 +5,7 @@ import type { RetryPolicy } from "../provider-retry.js";
 import type { ReasoningEffort } from "../models.js";
 import { estimateCost, formatCost, pricingSettings } from "../pricing.js";
 import { askMode, saveAskMode } from "../asks/settings.js";
-import { readKnobs } from "./settings.js";
+import { codingModelRounds, readKnobs } from "./settings.js";
 
 /**
  * What the runtime asks at each marked hook. Each function reads the owner's saved choice fresh, and
@@ -92,9 +92,15 @@ export function toolLimits(store: Reader, owner: string, launch: { toolResultCha
   };
 }
 
-/** mac7/speed: how many times one task may go back to the model before it gives the best answer it has. */
-export function maxModelRounds(store: Reader, owner: string, launch: { maxModelRounds: number }): number {
-  return readKnobs(store, owner, "limits").maxModelRounds ?? launch.maxModelRounds;
+/**
+ * mac7/speed: how many times one task may go back to the model before it gives the best answer it has.
+ * The owner's figure wins for every task. Without one, a task working on the project's files gets
+ * `codingModelRounds` (never fewer than the launch figure), and any other task the launch figure (12).
+ */
+export function maxModelRounds(store: Reader, owner: string, launch: { maxModelRounds: number }, coding = false): number {
+  const own = readKnobs(store, owner, "limits").maxModelRounds;
+  if (own !== null) return own;
+  return coding ? Math.max(launch.maxModelRounds, codingModelRounds) : launch.maxModelRounds;
 }
 
 /** mac7/coding-next: how long a model on this computer may take to start its reply, in milliseconds. */

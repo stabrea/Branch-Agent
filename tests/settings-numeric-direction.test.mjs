@@ -16,6 +16,7 @@ const numeric = [
   ["live-dictation", "silenceSeconds", 4, 30, true, "reach"],
   ["retention", "keepDays", 0, 3650, false, "plain"],
   ["comfort-mcp", "startupTimeoutSeconds", 10, 300, false, "plain"],
+  ["round-limit", "maxModelRounds", 12, 60, false, "plain"],
 ];
 
 for (const [key, name, from, to, expected, direction] of numeric) {

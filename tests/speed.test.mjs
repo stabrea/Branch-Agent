@@ -476,6 +476,10 @@ test("the ceiling: a long task still gets its answer, not silence", async (t) =>
     return { content: "", toolCalls: [{ id: `c${turn}`, name: "files.read", arguments: JSON.stringify({ path: "src/sum.js" }) }] };
   } };
   const { app, workspace } = await fixture(t, [], { provider });
+  // The round ceiling is what this is about. Work on files gets 40 rounds by default, and at 60 steps the
+  // step limit would come first; a task out of steps is not asked the last question.
+  const { saveKnobs } = await import("../dist/index.js");
+  saveKnobs(app.store, "local", "limits", { maxModelRounds: 12 });
   await writeFile(join(workspace, "src", "sum.js"), huge);
   const run = await app.runtime.run({ prompt: "read it and tell me what is in it" });
   assert.match(run.output, /found nothing conclusive/, `no answer came back: ${run.output.slice(0, 200)}`);
