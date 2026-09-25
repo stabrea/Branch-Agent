@@ -39,7 +39,7 @@ async function fixture(t, provider) {
      Chromium is a CDP round trip (`Page.enable`) and stalled for the whole thirty seconds on
      the loaded Windows checker. Nothing is waited for less: a real signal replaces a proxy. */
   await page.getByRole('button', { name: 'Connect', exact: true }).click({ noWaitAfter: true });
-  await page.locator('#workspace').waitFor({ state: 'visible', timeout: 120000 });
+  await page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
   /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
   await showEverything(page);
   return { app, page, root, sourceId, original, errors };
@@ -98,7 +98,7 @@ test('saved conversations search, paginate, export/import a JSON file, and resum
   assert.match(await f.page.locator('#session-context').innerText(), /untrusted history/);
   assert.deepEqual(f.app.store.messages(imported), archive.messages);
   assert.equal(JSON.stringify(f.app.store.sessionView('local', f.sourceId)), f.original);
-  await f.page.reload(); await f.page.locator('#workspace').waitFor({ state: 'visible', timeout: 120000 });
+  await f.page.reload(); await f.page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
   await library(f.page, 'Juniper lifecycle');
   await card(f.page, imported).getByRole('button', { name: 'Open', exact: true }).click(); await ready(f.page);
   assert.equal(await f.page.locator('#conversation').getAttribute('data-session-id'), imported);

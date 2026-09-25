@@ -5,9 +5,9 @@ import {
   type Server,
 } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { readFile, writeFile, lstat } from "node:fs/promises";
-import { dirname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
+import { dirname, extname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { TeamHandoffs, TeamHandoffRefusedError } from "./team-handoff.js";
@@ -431,300 +431,76 @@ const studySummary = (result: StudyRunResult) => ({
   rows: result.rows, tasks: result.tasks.length, resumed: result.resumed, stoppedEarly: result.stoppedEarly,
 });
 
+/** The new window's files (public/app/**) and its art (public/art/**), served by exact name only. */
+const windowFolders = ["app", "art"];
+const windowTypes: Record<string, string> = {
+  ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg",
+  ".webm": "video/webm", ".mp4": "video/mp4", ".woff2": "font/woff2",
+};
+let windowFileList: Map<string, [string, string]> | undefined;
+/**
+ * Redesign: the list is read from the folders once, at the first request, and never again. A request only ever
+ * picks an entry from it; nothing from the request is joined onto a disk path. Links, hidden files, names with
+ * anything but letters, digits, dot, dash or underscore, and unknown kinds of file are left out.
+ */
+function windowFiles(): Map<string, [string, string]> {
+  if (windowFileList) return windowFileList;
+  const found = new Map<string, [string, string]>();
+  const walk = (relative: string): void => {
+    const folder = fileURLToPath(new URL(`../public/${relative}/`, import.meta.url));
+    if (!existsSync(folder)) return;
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(entry.name)) continue;
+      const inside = `${relative}/${entry.name}`;
+      if (entry.isDirectory()) walk(inside);
+      const type = entry.isFile() ? windowTypes[extname(entry.name).toLowerCase()] : undefined;
+      if (type) found.set(`/${inside}`, [inside, type]);
+    }
+  };
+  for (const folder of windowFolders) walk(folder);
+  windowFileList = found;
+  return found;
+}
+
 async function staticFile(
   path: string,
   response: ServerResponse,
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
-    "/acorn.js": ["acorn.js", "text/javascript; charset=utf-8"],
-    // phase2/delight: the corner (acorn and pet), achievements and your own background.
-    "/delight.js": ["delight.js", "text/javascript; charset=utf-8"],
-    "/delight.css": ["delight.css", "text/css; charset=utf-8"],
-    "/delight-kit.js": ["delight-kit.js", "text/javascript; charset=utf-8"],
-    "/delight-pet.js": ["delight-pet.js", "text/javascript; charset=utf-8"],
-    "/delight-achievements.js": ["delight-achievements.js", "text/javascript; charset=utf-8"],
-    "/delight-background.js": ["delight-background.js", "text/javascript; charset=utf-8"],
-    "/delight-3d.js": ["delight-3d.js", "text/javascript; charset=utf-8"],
-    "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
-    "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
-    "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
+    // The window (public/index.html, public/app.css; its modules and art under /app/ and /art/ are served by exact file).
     "/": ["index.html", "text/html; charset=utf-8"],
-    "/app.js": ["app.js", "text/javascript; charset=utf-8"],
-    "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
-    // mac2/desktop-ui: this computer's own permission switches, and the Keychain list on a Mac.
-    "/os-permissions.js": ["os-permissions.js", "text/javascript; charset=utf-8"],
-    "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
-    // Wave 8: the composer's live-conversation button and everything behind it.
-    "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
-    "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
-    // Help in the app: the owner's handbook, opened in the pane on the right.
-    "/help.js": ["help.js", "text/javascript; charset=utf-8"],
-    "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
-    // FQ-collaboration: the seek-to-comment hook, for a media player screen to wire in.
-    "/media-comments.js": ["media-comments.js", "text/javascript; charset=utf-8"],
-    "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
-    "/media.js": ["media.js", "text/javascript; charset=utf-8"],
-    // FQ-surfaces.playback: an inline player for a sound or video file attached to a message.
-    "/playback.js": ["playback.js", "text/javascript; charset=utf-8"],
-    // Bucket 17: the video programs card and the speech plug-ins card.
-    "/media-programs.js": ["media-programs.js", "text/javascript; charset=utf-8"],
-    // Bucket 21: the "Building on Branch" and "Flows as files" cards.
-    "/sdk-kit.js": ["sdk-kit.js", "text/javascript; charset=utf-8"],
-    "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
-    "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
-    // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
-    "/docs-3.js": ["docs-3.js", "text/javascript; charset=utf-8"],
-    // Wave 9: what it noticed by itself, and the refresh that shows its cost first.
-    "/self-improving.js": ["self-improving.js", "text/javascript; charset=utf-8"],
-    "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
-    "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
-    // Wave mac5 (local models): the one-click block inside the same card.
-    "/local-oneclick.js": ["local-oneclick.js", "text/javascript; charset=utf-8"],
-    // mac7/clean-uninstall: the danger zone at the bottom of Settings.
-    "/danger-zone.js": ["danger-zone.js", "text/javascript; charset=utf-8"],
-    // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
-    "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
-    "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
-    // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
-    "/heartbeat.js": ["heartbeat.js", "text/javascript; charset=utf-8"],
-    "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
-    "/mcp-workbench.js": ["mcp-workbench.js", "text/javascript; charset=utf-8"],
-    "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
-    "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
-    "/tracing.js": ["tracing.js", "text/javascript; charset=utf-8"],
-    "/desktop.js": ["desktop.js", "text/javascript; charset=utf-8"],
-    "/linux-desktop.js": ["linux-desktop.js", "text/javascript; charset=utf-8"], // FQ-execution.desktop
-    "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
-    "/activity-log.js": ["activity-log.js", "text/javascript; charset=utf-8"], // mac7/diagnostics
-    "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
-    "/deployment.js": ["deployment.js", "text/javascript; charset=utf-8"],
-    "/pair": ["pair.html", "text/html; charset=utf-8"],
-    "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
-    "/pair.css": ["pair.css", "text/css; charset=utf-8"],
-    // Wave mac3: the owner's dashboard, and the card in Customize → Channels that switches it on.
-    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
-    "/dashboard/dashboard.css": ["dashboard/dashboard.css", "text/css; charset=utf-8"],
-    "/dashboard/dashboard.js": ["dashboard/dashboard.js", "text/javascript; charset=utf-8"],
-    "/dashboard/sections.js": ["dashboard/sections.js", "text/javascript; charset=utf-8"],
-    "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
-    "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
-    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
-    "/dashboard/commands.js": ["dashboard/commands.js", "text/javascript; charset=utf-8"],
-    // Wave mac3 (commands): the message box's / menu and the commands card.
-    "/commands.js": ["commands.js", "text/javascript; charset=utf-8"],
-    // Bucket 13 (mac4): the task recordings card and the "is Branch keeping up" card.
-    "/recordings.js": ["recordings.js", "text/javascript; charset=utf-8"],
-    // mac4/bucket-20: the cards for talking to other agents and tools, and ways of working.
-    "/interop.js": ["interop.js", "text/javascript; charset=utf-8"],
-    // Bucket 15: the add-ons card (Customize → Plugins).
-    "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
-    "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
-    "/devices.js": ["devices.js", "text/javascript; charset=utf-8"], // mac7/nodes
-    "/phone-app.js": ["phone-app.js", "text/javascript; charset=utf-8"], // mac7/phone-qr
-    "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
-    "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
-    "/settings-trunks.js": ["settings-trunks.js", "text/javascript; charset=utf-8"], // DG-193
-    // phase2/shell: faces, the Trunks strip, the studio, pairing, Overview and People
-    "/faces.js": ["faces.js", "text/javascript; charset=utf-8"],
-    "/faces.css": ["faces.css", "text/css; charset=utf-8"],
-    "/strip.js": ["strip.js", "text/javascript; charset=utf-8"],
-    "/topbar-crumbs.js": ["topbar-crumbs.js", "text/javascript; charset=utf-8"], // DG-099
-    "/rail-foot.js": ["rail-foot.js", "text/javascript; charset=utf-8"], // DG-094
-    "/lockdown-card.js": ["lockdown-card.js", "text/javascript; charset=utf-8"],
-    "/strip.css": ["strip.css", "text/css; charset=utf-8"],
-    "/studio.js": ["studio.js", "text/javascript; charset=utf-8"],
-    "/studio.css": ["studio.css", "text/css; charset=utf-8"],
-    "/pairing.js": ["pairing.js", "text/javascript; charset=utf-8"],
-    "/overview.js": ["overview.js", "text/javascript; charset=utf-8"],
-    "/people-place.js": ["people-place.js", "text/javascript; charset=utf-8"],
-    "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
-    "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
-    "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
-    "/safety-extras.js": ["safety-extras.js", "text/javascript; charset=utf-8"], // mac7/r17-g
-    "/vault-autofill.js": ["vault-autofill.js", "text/javascript; charset=utf-8"], // mac7/vault-autofill
-    "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
-    "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
-    "/memory-provider-ui.js": ["memory-provider-ui.js", "text/javascript; charset=utf-8"], // FQ-memory.providers
-    "/adapt.js": ["adapt.js", "text/javascript; charset=utf-8"], // mac7/adapt
-    "/learn.js": ["learn.js", "text/javascript; charset=utf-8"], // mac7/learn
-    "/popover.js": ["popover.js", "text/javascript; charset=utf-8"], // 0.18.1: how every popover opens and closes
-    "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
-    "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
-    // Wave 7: written-down experiments, under the evaluation card.
-    "/studies.js": ["studies.js", "text/javascript; charset=utf-8"],
-    // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
-    "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
-    // Batch 20 (wave 7): flows drawn as boxes and arrows under Procedures, and the suggested
-    // better versions of a skill under Skills.
-    "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
-    // Wave 9: the advisor switch and the two debate bounds.
-    "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
-    // FQ-collaboration.unified-search: the palette's fetch of GET /api/search, kept out of shell.js.
-    "/unified-search.js": ["unified-search.js", "text/javascript; charset=utf-8"],
-    // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
-    "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
-    "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
-    "/wake-word.js": ["wake-word.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
-    "/dictation.js": ["dictation.js", "text/javascript; charset=utf-8"], // mac7/live-voice
-    "/voice-listening.js": ["voice-listening.js", "text/javascript; charset=utf-8"], // DG-047
-    "/pins.js": ["pins.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
-    "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
-    // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
-    "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
-    "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
-    // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
-    "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
-    "/code-editor.js": ["code-editor.js", "text/javascript; charset=utf-8"], // bucket-18 (A0098)
-    // Wave 8: the Lockdown switch and the shape branched conversations make.
-    "/other.js": ["other.js", "text/javascript; charset=utf-8"],
-    "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
-    "/host-bridge.js": ["host-bridge.js", "text/javascript; charset=utf-8"], // FQ-execution.host-bridge
-    // Wave mac2: bringing your chats and memory over from another assistant.
-    "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
-    "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
-    // Wave mac2 (guards): the card that asks whether a folder is trusted.
-    "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
-    "/knobs.js": ["knobs.js", "text/javascript; charset=utf-8"], // R17-S-B: the hidden knobs
-    "/model-savings.js": ["model-savings.js", "text/javascript; charset=utf-8"], // R17-E
-    "/round-chart.js": ["round-chart.js", "text/javascript; charset=utf-8"], // R17-E (R17-049)
-    "/comfort.js": ["comfort.js", "text/javascript; charset=utf-8"], // R17-S-C
-    // mac3/never-break: the Keep running card and the Telegram setup card.
-    "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
-    // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
-    "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
-    // phase2/accounts: thinking levels per model, the Accounts page, the agent files editor.
-    "/thinking-levels.js": ["thinking-levels.js", "text/javascript; charset=utf-8"],
-    "/brand-marks.js": ["brand-marks.js", "text/javascript; charset=utf-8"],
-    "/accounts.css": ["accounts.css", "text/css; charset=utf-8"],
-    "/agent-files.js": ["agent-files.js", "text/javascript; charset=utf-8"],
-    "/service-marks.js": ["service-marks.js", "text/javascript; charset=utf-8"],
-    "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
-    // mac7/connect: the Set up panel for each chat app.
-    "/channel-setup.js": ["channel-setup.js", "text/javascript; charset=utf-8"],
-    "/channel-setup.css": ["channel-setup.css", "text/css; charset=utf-8"],
-    // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
-    "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
-    "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
-    // Wave mac3 (tool-safety): the card for the second look before an approval.
-    "/approval-reviewer.js": ["approval-reviewer.js", "text/javascript; charset=utf-8"],
-    "/jev-decisions.js": ["jev-decisions.js", "text/javascript; charset=utf-8"],
-    // Wave mac3 (os-sandbox): the card for the wall around programs.
-    "/os-sandbox.js": ["os-sandbox.js", "text/javascript; charset=utf-8"],
-    "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
-    "/style.css": ["style.css", "text/css; charset=utf-8"],
-    // App shell (wave 2): tokens, layout, appearance.
-    "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
-    "/shell.css": ["shell.css", "text/css; charset=utf-8"],
-    "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
-    // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
-    "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
-    "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
-    // R17-S-A (understandable settings): the settings kit, descriptions on every control, and first-run offers.
-    "/settings-kit.js": ["settings-kit.js", "text/javascript; charset=utf-8"],
-    "/settings-describe.js": ["settings-describe.js", "text/javascript; charset=utf-8"],
-    "/settings-descriptions.js": ["settings-descriptions.js", "text/javascript; charset=utf-8"],
-    "/first-run-next.js": ["first-run-next.js", "text/javascript; charset=utf-8"],
-    // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
-    "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
-    // mac3/security-check: the security self-check card.
-    "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
-    // bucket 12: saved prompts (Automations › Procedures) and the skill install record (Customize › Skills).
-    "/prompt-library.js": ["prompt-library.js", "text/javascript; charset=utf-8"],
-    "/skill-installs.js": ["skill-installs.js", "text/javascript; charset=utf-8"],
-    // bucket 19: the page people sign in on, and the owner's card for it (Settings, General).
-    "/people": ["people.html", "text/html; charset=utf-8"],
-    "/people.js": ["people.js", "text/javascript; charset=utf-8"],
-    "/people.css": ["people.css", "text/css; charset=utf-8"],
-    "/people-admin.js": ["people-admin.js", "text/javascript; charset=utf-8"],
-    // mac2/fly-core-2: the learning core's card.
-    "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
-    "/layout.css": ["layout.css", "text/css; charset=utf-8"],
-    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
-    // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
-    "/theme-bridge.js": ["theme-bridge.js", "text/javascript; charset=utf-8"],
-    // mac3/mobile integration: a phone paired in its browser sends its own secret on every request.
-    "/device-headers.js": ["device-headers.js", "text/javascript; charset=utf-8"],
-    "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
-    "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
-    // Wave 7: what a conversation is allowed to do right now, and the observability screens.
-    "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
-    "/labels-ui.js": ["labels-ui.js", "text/javascript; charset=utf-8"],
-    "/compare.js": ["compare.js", "text/javascript; charset=utf-8"],
-    "/activity-feed.js": ["activity-feed.js", "text/javascript; charset=utf-8"],
-    "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
-    // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
-    "/web-ui.js": ["web-ui.js", "text/javascript; charset=utf-8"],
-    // Wave 8: artifacts out of a reply, charts drawn in the page, the flow editor, reports, the
-    // to-do list, the log view and the page a local page of the owner's own can include.
-    "/artifacts.js": ["artifacts.js", "text/javascript; charset=utf-8"],
-    "/charts.js": ["charts.js", "text/javascript; charset=utf-8"],
-    "/reports.js": ["reports.js", "text/javascript; charset=utf-8"],
-    "/todos.js": ["todos.js", "text/javascript; charset=utf-8"],
-    "/logs.js": ["logs.js", "text/javascript; charset=utf-8"],
-    "/flow-editor.js": ["flow-editor.js", "text/javascript; charset=utf-8"],
-    // The small box a page of the owner's own can include. Nothing on this page imports it.
-    "/widget.js": ["widget.js", "text/javascript; charset=utf-8"],
-    "/bridges.js": ["bridges.js", "text/javascript; charset=utf-8"],
-    "/markdown.js": ["markdown.js", "text/javascript; charset=utf-8"],
-    "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
-    "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
-    "/plan-act.js": ["plan-act.js", "text/javascript; charset=utf-8"],
-    "/conversation-facts.js": ["conversation-facts.js", "text/javascript; charset=utf-8"],
-    "/follow-newest.js": ["follow-newest.js", "text/javascript; charset=utf-8"],
-    "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
-    "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
-    // phase2/everywhere: the window at phone and tablet widths
-    "/phone-layout.js": ["phone-layout.js", "text/javascript; charset=utf-8"],
-    "/phone-layout.css": ["phone-layout.css", "text/css; charset=utf-8"],
-    "/look-early.js": ["look-early.js", "text/javascript; charset=utf-8"],
-    "/rooms.js": ["rooms.js", "text/javascript; charset=utf-8"], // phase2/rooms
-    "/rooms.css": ["rooms.css", "text/css; charset=utf-8"], // phase2/rooms
-    "/voice-bar.js": ["voice-bar.js", "text/javascript; charset=utf-8"], // phase2/rooms
-    "/voice-view.js": ["voice-view.js", "text/javascript; charset=utf-8"], // phase2/rooms
-    "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
-    "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
-    // batch1/controls: single control factory (switches, segmented, dropdowns).
-    "/control-makers.js": ["control-makers.js", "text/javascript; charset=utf-8"],
-    // phase2/settings: Settings grown up (groups, levels, search over every setting).
-    "/settings-grown.js": ["settings-grown.js", "text/javascript; charset=utf-8"],
-    "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
-    "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
-    "/settings-rows.js": ["settings-rows.js", "text/javascript; charset=utf-8"], // DG-199
-    "/settings-row-levels.js": ["settings-row-levels.js", "text/javascript; charset=utf-8"], // DG-199
-    "/task-state.js": ["task-state.js", "text/javascript; charset=utf-8"], // Q51
-    "/team-tasks.js": ["team-tasks.js", "text/javascript; charset=utf-8"], // Q64
-    "/run-result.js": ["run-result.js", "text/javascript; charset=utf-8"], // Q52
-    "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
-    "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
-    // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
-    "/settings-kit.css": ["settings-kit.css", "text/css; charset=utf-8"],
-    // phase2/panels: the side panel's tabs, resizable panes, see-through message box, hide anything.
-    "/panels.js": ["panels.js", "text/javascript; charset=utf-8"],
-    "/panels.css": ["panels.css", "text/css; charset=utf-8"],
-    // FQ-surfaces.panes: compare topics side by side (public/topic-panes.js).
-    "/topic-panes.js": ["topic-panes.js", "text/javascript; charset=utf-8"],
-    "/topic-panes.css": ["topic-panes.css", "text/css; charset=utf-8"],
-    "/panels-hide.js": ["panels-hide.js", "text/javascript; charset=utf-8"],
-    "/composer-grown.js": ["composer-grown.js", "text/javascript; charset=utf-8"],
-    "/composer-grown.css": ["composer-grown.css", "text/css; charset=utf-8"],
-    "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
-    "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
-    "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
-    // batch1/controls: switch, segmented, and glass dropdown styling.
-    "/control-styles.css": ["control-styles.css", "text/css; charset=utf-8"],
-    "/web-ui.css": ["web-ui.css", "text/css; charset=utf-8"],
-    "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
-    "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
+    "/app.css": ["app.css", "text/css; charset=utf-8"],
+    "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
+    "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
+    "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
+    // The installable web app: its manifest, icons and service worker.
     "/manifest.webmanifest": ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
     "/service-worker.js": ["service-worker.js", "text/javascript; charset=utf-8"],
     "/assets/icon-192.png": ["assets/icon-192.png", "image/png"],
     "/assets/icon-512.png": ["assets/icon-512.png", "image/png"],
     "/assets/icon.svg": ["assets/icon.svg", "image/svg+xml"],
-    "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
-    "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
-    "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
+    "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
+    "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
+    // Pairing a phone in its browser (src/remote), and the page people sign in on (bucket 19); both use the shared tokens.
+    "/pair": ["pair.html", "text/html; charset=utf-8"],
+    "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
+    "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    "/people": ["people.html", "text/html; charset=utf-8"],
+    "/people.js": ["people.js", "text/javascript; charset=utf-8"],
+    "/people.css": ["people.css", "text/css; charset=utf-8"],
+    "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
+    "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
+    "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
+    // Wave mac3: the owner's dashboard (its other files are served by isDashboardFile) and the card that switches it on.
+    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
+    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
+    // One theme's colours under Branch's token names; the engine reads it too (src/terminal-theme.ts, src/achievements.ts).
+    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    // Wave 8: the small box a page of the owner's own can include; served only while the owner has switched it on.
+    "/widget.js": ["widget.js", "text/javascript; charset=utf-8"],
   };
-  const asset = assets[path];
+  const asset = Object.hasOwn(assets, path) ? assets[path] : windowFiles().get(path);
   if (!asset) return false;
   const body = await readFile(
     new URL("../public/" + asset[0], import.meta.url),
@@ -1621,7 +1397,11 @@ async function api(
     // Q58: queued tasks show they are waiting their turn, with position and what they wait behind.
     const waiting = new URL(request.url ?? "/", "http://local").searchParams.get("waiting") === "1";
     const staleMs = staleAfterMs(app.store, app.runtime.owner, app.runtime.reliability);
-    const activities = liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+    // Dogfood B1: what a running task's model is thinking now, from memory only (never the record).
+    const activities = liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => {
+      const thinking = app.runtime.thinkingOf(a.runId);
+      return { ...a, followUps: app.runtime.queued(a.sessionId).length, ...(thinking ? { thinking } : {}) };
+    });
     if (!waiting) return activities;
     // Q58: add queued tasks for each conversation using pure function
     const result: RunActivity[] = [];

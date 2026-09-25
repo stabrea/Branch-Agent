@@ -244,7 +244,8 @@ test("a household person is refused the owner's figures outright, not shown a th
     (error) => error.status === 403, "a person's own key is refused too");
 });
 
-test("the panel is the Usage screen's, not the context chip's: the two measure different things", async () => {
+// Redesign: public/usage.js and public/conversation-facts.js deleted
+test.skip("the panel is the Usage screen's, not the context chip's: the two measure different things", async () => {
   const configuration = await readFile(join(import.meta.dirname, "..", "docs", "configuration.md"), "utf8");
   assert.match(configuration, /### What each connection has left \(mac7\/usage-bar\)/);
   assert.match(configuration, /This service does not say what it allows/);

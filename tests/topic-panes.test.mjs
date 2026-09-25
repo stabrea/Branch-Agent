@@ -47,7 +47,7 @@ async function windowFixture(t, { width = 1440, height = 950 } = {}) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("body.lx-ready").waitFor({ state: "attached" });
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => Boolean(globalThis.branchTopicPanes));
   errors.length = 0; // whatever the login page failed at is not this feature's business
   return { app, page, context, errors };

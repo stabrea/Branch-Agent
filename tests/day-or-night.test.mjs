@@ -28,7 +28,7 @@ async function appearance(t) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
   await openSettings(page, "appearance");
   await page.locator("#lx-mode .segmented-option").first().waitFor();
@@ -77,7 +77,7 @@ test("DG-160: Daylight really switches the window, keeps the theme, and is still
   assert.deepEqual((await control(page)).pressed, ["☀ Daylight"]);
   await page.getByRole("button", { name: "Save appearance", exact: true }).click();
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openSettings(page, "appearance");
   await page.waitForFunction(() => document.querySelector('#lx-mode .segmented-option[aria-pressed="true"]')?.textContent === "☀ Daylight");
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "daylight");

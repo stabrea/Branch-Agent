@@ -56,7 +56,7 @@ async function fixture(t) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   return { app, page, errors, word, sessionId: run.sessionId, quietId: quiet.sessionId, workflow };
 }
 

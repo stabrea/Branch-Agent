@@ -38,7 +38,7 @@ async function open(f, { width, scheme, everything }) {
   await page.goto(f.server.url);
   await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.lx-ready").waitFor({ state: "attached" });
   await showEverything(page, { showEverything: everything, showAcorn: true });
   await page.waitForFunction(() => document.documentElement.dataset.acorn === "on");
