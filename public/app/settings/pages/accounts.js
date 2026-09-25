@@ -69,10 +69,26 @@ export function init() {
         .then(() => load(), (e) => { console.error(e); toast(e.message); });
     }
   });
-  markLive(["acct-up"]);
+  on("acct-menu", (el) => {
+    const i = parseInt(el.dataset.i || "0", 10);
+    const accts = flat();
+    if (i < accts.length) {
+      const acct = accts[i];
+      const isFirst = acct.first;
+      if (!isFirst) {
+        // Use this one first
+        api("accounts/update", { pool: acct.pool, account: acct.id, pool: acct.pool })
+          .then(() => load(), (e) => toast(e.message));
+      }
+    }
+  });
+  on("acsel15", () => {
+    // Toggle bulk select mode - window state
+  });
+  markLive(["acct-up", "acct-menu"]);
 }
 
-export const live = { "acct-up": true };
+export const live = { "acct-up": true, "acct-menu": true };
 
 export function after(col) {
   // Set up control listeners after rendering
