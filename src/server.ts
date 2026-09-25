@@ -929,9 +929,10 @@ function settleAsked(app: Branch, asked: { runId: string; sessionId: string; sou
   if (decision === "allow" && owners && app.store.profiles.isOwner() && !startedWithShortLivedKey()) {
     // NAS 06a9508: the carry-on reads as the owner saying yes, so with a plan waiting for the owner's own answer in
     // that conversation it would agree to the plan too. Then nothing carries on by itself: the task keeps waiting,
-    // and the owner answers the plan, then carries on.
+    // and the owner answers the plan, then carries on. So too for an agreed plan stopped at a check-back (NAS dead082):
+    // its "go ahead" would clear the next step. Only the plan's own task asking carries on (pausePlan keeps its runId).
     const plan = app.runtime.orchestration.plan(run.sessionId);
-    if (plan && !plan.approved) return;
+    if (plan && (!plan.approved || (plan.waitingOnOwner && plan.runId !== run.id))) return;
     // The conversation busy with another task: the carry-on is not started, and this task keeps waiting (the one-time
     // yes is still there for the owner's next message), rather than being marked done with its work undone.
     void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined }).catch(() => undefined);

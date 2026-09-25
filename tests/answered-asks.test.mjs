@@ -13,6 +13,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { startServer, carryOnWords } from "../dist/server.js";
 import { underShortLivedKey } from "../dist/key-context.js";
+import { randomUUID } from "node:crypto";
 
 /** Lets a task hold the conversation busy until the test releases it. */
 const hold = { release: null };
@@ -146,6 +147,32 @@ test("with a plan waiting for the owner in that conversation, a yes carries noth
   assert.equal(f.runsIn(first.sessionId).length, 1, "nothing carried on");
   assert.equal(f.app.runtime.orchestration.plan(first.sessionId).approved, false, "the plan still waits for the owner's own answer");
   assert.equal(f.app.store.run(first.id).status, "needs_input", "and the task still waits");
+});
+
+// NAS dead082 (the check-back half of 06a9508): an agreed plan stopped at a check-back is still approved, so an older
+// card's yes, carried on as "Yes, go ahead.", cleared the next step with no go-ahead, and the call it answered never ran.
+test("with an agreed plan stopped at a check-back, an older card's yes carries nothing on; the plan's own task still does", async (t) => {
+  const f = await fixture(t);
+  t.after(() => discardTemp(f.root));
+  const first = await f.app.runtime.run({ prompt: "write k.txt" });
+  const asked = f.app.runtime.approvals.questionFor(first.sessionId);
+  const paused = (runId) => f.app.runtime.orchestration.savePlan({ runId, sessionId: first.sessionId, prompt: "a plan",
+    steps: [{ title: "Step one" }, { title: "Step two" }], current: 1, approved: true, clearedThrough: 0, waitingOnOwner: true,
+    createdAt: new Date().toISOString() });
+  paused(randomUUID());
+  assert.equal((await f.call("policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true })).status, 200);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(f.runsIn(first.sessionId).length, 1, "nothing carried on");
+  const plan = f.app.runtime.orchestration.plan(first.sessionId);
+  assert.deepEqual([plan.clearedThrough, plan.waitingOnOwner], [0, true], "step two is not cleared: the check-back still waits for the owner");
+  assert.equal(f.app.store.run(first.id).status, "needs_input", "and the task still waits");
+
+  // Control: when the task that asked is the plan's own, the yes carries it on, as before.
+  const own = await f.app.runtime.run({ prompt: "write k2.txt" });
+  const ownAsk = f.app.runtime.approvals.questionFor(own.sessionId);
+  f.app.runtime.orchestration.savePlan({ ...f.app.runtime.orchestration.plan(first.sessionId), sessionId: own.sessionId, runId: own.id });
+  assert.equal((await f.call("policy/approve", { sessionId: own.sessionId, decision: "allow", remember: "never", fingerprint: ownAsk.fingerprint, carryOn: true })).status, 200);
+  assert.ok(await settled(() => f.runsIn(own.sessionId).length > 1), "the plan's own question carries on");
 });
 
 test("with the conversation busy, a yes leaves the task waiting rather than marking it done (NAS 06a9508)", async (t) => {
