@@ -94,3 +94,28 @@ test("F1: an approve control that names no request (as Inbox's Trunk-message row
   assert.equal(existsSync(join(workspace, "alpha.txt")), false, "the unseen request did not happen");
   assert.equal(app.runtime.approvals.waiting().length, 1, "it still waits");
 });
+
+test("the chat-app wizard: a pasted token is saved by the engine and never shown on the page or kept by the window", async (t) => {
+  const { page } = await signedIn(t);
+  const token = "tk_redesign_gate_secret_0000000000042";
+  await page.evaluate(() => {
+    const open = document.createElement("button");
+    open.type = "button"; open.id = "open-ntfy"; open.dataset.act = "ch-open"; open.dataset.v = "ntfy"; open.textContent = "ntfy";
+    document.querySelector("#main").append(open);
+  });
+  await page.locator("#open-ntfy").click();
+  const next = page.locator('.dlg [data-act="chw-next"]');
+  while (!(await page.locator("[data-chf]").count())) { await next.click(); await page.waitForTimeout(200); }
+  await page.locator('[data-chf="topic"]').fill("branch-gate");
+  await page.locator('[data-chf="NTFY_ACCESS_TOKEN"]').fill(token);
+  const checked = page.waitForResponse((r) => r.url().includes("/api/channel-setup/ntfy/check"));
+  await next.click();
+  const answer = await checked;
+  assert.equal(answer.status(), 200, `the engine saved it: ${await answer.text()}`);
+  await page.waitForTimeout(500);
+  assert.equal((await page.content()).includes(token), false, "the token is not in the page");
+  assert.equal(await page.evaluate((secret) => [...document.querySelectorAll("input")].some((i) => i.value.includes(secret)), token), false,
+    "no field still holds it");
+  assert.equal((await page.evaluate(() => JSON.stringify({ ...sessionStorage }) + JSON.stringify({ ...localStorage }))).includes(token), false,
+    "the window does not keep it");
+});
