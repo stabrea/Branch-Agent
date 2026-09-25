@@ -18,6 +18,11 @@ export interface ModelPreset {
   reasoning?: ReasoningEffort;
   /** Which line of the provider catalog this connection came from, when it came from one. */
   catalogId?: string;
+  /**
+   * For a model on this computer that Branch loaded: the room for words it was loaded with, in tokens.
+   * That is the most one request to it may hold (src/model-windows.ts).
+   */
+  loadedContext?: number;
 }
 export interface ModelChoice {
   presetId: string;

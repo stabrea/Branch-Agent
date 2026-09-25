@@ -8735,7 +8735,7 @@ short-lived key can read them but never change them.
 | When a long conversation is summarised (Settings, Models, Defaults) | `autoCompact` | `true` | Off keeps every message; a very long conversation then stops with "start a new conversation". |
 | | `compactAtPercent` | `null` | Fold at this share of the room; `null` works it out each round from the tools and the answer. |
 | | `keepRecentMessages` | `6` | Newest messages never folded. |
-| | `contextWindowTokens` | `null` (20,000) | Room in one request, used both for folding and for the "too long" stop. |
+| | `contextWindowTokens` | `null` (the model's own window) | Room in one request, used both for folding and for the "too long" stop. `null` gives each connection the window its model really has, from a named source only: a model on this computer that Branch loaded has the room it was loaded with, and a model whose service reported its window has that figure (`src/model-windows.ts`, each line citing where the figure came from). Any other model keeps 20,000, as every model did before. Folding also comes before the conversation outgrows what the task can still spend on one request. |
 | How far one task may go (Settings, Permissions) | `maxSteps` | `60` | Model rounds in one task of the owner's (and in a background sub-task). |
 | | `spendCapDollars` | `null` | The task stops before its next model round once it has cost about this much, sub-tasks included. A model with no price on file cannot be checked; the task notes that once (`limits.spend_unpriced`). |
 | Trying the model service again (Settings, Advanced) | `apiRetries` | `null` (launch setting, 2) | Tries after a busy or failed request, 0 to 5. |

@@ -65,7 +65,10 @@ const catalogIds: Record<RuntimeId, string | undefined> = { ollama: "ollama", "l
 
 function install(record: LocalConnection, deps: LocalConnectionDeps): void {
   const catalogId = catalogIds[record.runtime];
-  deps.models.register({ id: record.id, name: record.name, provider: providerFor(record, deps), model: record.model, ...(catalogId ? { catalogId } : {}) });
+  deps.models.register({ id: record.id, name: record.name, provider: providerFor(record, deps), model: record.model, ...(catalogId ? { catalogId } : {}),
+    // The room for words it was loaded with is all one request may hold: the runtime cuts off the rest
+    // without saying so. A record that never said (0 or none) leaves the window unknown.
+    ...(record.contextLength ? { loadedContext: record.contextLength } : {}) });
 }
 
 /** One very small question, so a connection that cannot answer is never left behind. */

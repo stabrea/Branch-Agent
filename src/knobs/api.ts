@@ -9,7 +9,7 @@ import { allKnobs, knobCardNames, resetKnobs, saveKnobs, type KnobCard } from ".
 import { memoryProvider, saveMemoryProvider } from "./apply.js";
 import { refusedEnvironmentName } from "./environment.js";
 import { launchFileView, saveLaunchFile } from "./launch-file.js";
-import { contextLimit } from "../runtime.js";
+import { modelWindow } from "../model-windows.js";
 
 /**
  * R17-S-B: the screen's way in.
@@ -30,7 +30,11 @@ export interface KnobsApp {
   store: Store;
   runtime: {
     owner: string;
-    models: { presets: ReadonlyMap<string, { id: string; name: string; model: string; provider: { name: string } }> };
+    models: {
+      presets: ReadonlyMap<string, { id: string; name: string; model: string; provider: { name: string } }>;
+      /** Which connection answers a conversation; its first candidate is the one in use. */
+      plan(owner: string, sessionId: string): { candidates: readonly Parameters<typeof modelWindow>[0][] };
+    };
     reliability: { toolResultChars: number; toolTimeoutMs: number; localFirstReplyMs: number; maxModelRounds: number };
     retryPolicy: { maxRetries: number };
   };
@@ -74,7 +78,8 @@ function view(app: KnobsApp) {
       ({ id: preset.id, name: preset.name, thinking: thinkingLevels(preset.provider.name, preset.model) })),
     leakKinds: leakKinds.filter((kind) => kind !== "private key"),
     launched: {
-      contextWindowTokens: contextLimit,
+      // What "Automatic" gives: the window of the connection in use, 20,000 when Branch does not know it.
+      contextWindowTokens: modelWindow(runtime.models.plan(runtime.owner, "").candidates[0]!).tokens,
       toolAnswerChars: runtime.reliability.toolResultChars,
       toolTimeoutSeconds: Math.round(runtime.reliability.toolTimeoutMs / 1000),
       apiRetries: runtime.retryPolicy.maxRetries,

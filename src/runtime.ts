@@ -111,9 +111,10 @@ import {
   type RetryPolicyInput,
 } from "./provider-retry.js";
 import {
-  answerReserve, catalogTokens, compactionThresholdFloor, contextBudget, expandToolName,
+  answerReserve, catalogTokens, compactionThresholdFloor, contextBudget, derivedCompactionThreshold, expandToolName,
   rankGroups, type ContextBudget,
 } from "./catalog.js";
+import { modelWindow, unknownContextWindow } from "./model-windows.js";
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
 import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
 import {
@@ -232,9 +233,11 @@ const reviewInstructions = "You review a finished task. Reply with JSON only: {\
  */
 export const compactionThreshold = compactionThresholdFloor;
 const compactionKeep = 6;
-/** Hard cap on one request's estimated tokens; kept well above the compaction threshold so that
- *  three clipped tool results still fit after the catalog. Raised with the threshold (wave 5). */
-export const contextLimit = 20000;
+/**
+ * The room one request has when Branch does not know the model's own window. A model it does know
+ * has its own (`Runtime.contextWindow`, src/model-windows.ts), and the owner's figure comes first.
+ */
+export const contextLimit = unknownContextWindow;
 /** Toolboxes the model is always shown, before the guess at what this task needs. */
 const alwaysOpenGroups = ["core", "files"] as const;
 const tooLong = "This conversation has grown too long to continue. Start a new conversation and mention what matters from this one.";
@@ -255,6 +258,19 @@ export function attachmentsNote(attachments?: AttachmentRef[]): string {
   return `\n\n[attached ${attachments.length === 1 ? "file" : "files"}: ${names.join(", ")}]`;
 }
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
+/**
+ * The request that asks for a fold's summary, cut so it fits the window of the connection writing it
+ * with room kept for the answer. Every character cut shortens the estimate's text by at least one, so
+ * one cut is enough; the few spare characters cover rounding and a split character pair.
+ */
+function summaryRequest(previous: string, transcript: string, window: number): Message[] {
+  const ask = (text: string): Message[] => [
+    { role: "system", content: compactionInstructions },
+    { role: "user", content: (previous ? previous + "\n\n" : "") + text },
+  ];
+  const over = estimateTokens({ messages: ask(transcript), tools: [] }) - (window - answerReserve);
+  return over > 0 ? ask(transcript.slice(0, Math.max(0, transcript.length - over * 4 - 8))) : ask(transcript);
+}
 const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
 /** Range of stored, non-system messages to summarise, leaving at least `compactionKeep` recent ones and never splitting a tool exchange. */
 export function compactionSplit(messages: Message[], ids: (number | null)[], keep = compactionKeep): { from: number; to: number } | null {
@@ -2159,12 +2175,19 @@ ${run.output.slice(0, 6000)}`;
     if (!context.permissions.size) return [];
     return this.catalogs.get(context.runId)?.descriptions() ?? this.registry.descriptions(context.permissions);
   }
+  /**
+   * How many tokens one request to this connection may hold: the owner's figure when they set one
+   * (R17-S08), else the window its model really has, 20,000 when Branch does not know it.
+   */
+  contextWindow(preset: ModelPreset): number {
+    return knobs.contextWindow(this.store, this.owner, modelWindow(preset).tokens);
+  }
   /** What this round costs and what is left, so compaction can be decided on the conversation alone. */
-  private budgetOf(messages: Message[], context: ToolContext): ContextBudget {
+  private budgetOf(messages: Message[], context: ToolContext, preset: ModelPreset): ContextBudget {
     const plain = messages.map(textOnly);
     // R17-048: with the card on, the service's own count of the last request can only raise the figure.
     return savings.withReported(this.store, this.owner, context.runId, contextBudget({
-      limit: knobs.contextWindow(this.store, this.owner, contextLimit), // R17-S08
+      limit: this.contextWindow(preset), // the window of the connection this round goes to
       system: estimateTokens(plain.filter((message) => message.role === "system")),
       catalog: catalogTokens(this.toolsFor(context)),
       messages: estimateTokens(plain),
@@ -2173,12 +2196,14 @@ ${run.output.slice(0, 6000)}`;
   }
   /** Keeps the working context under the limit: compaction first, then shrinking older tool results. */
   private async fitContext(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute): Promise<void> {
-    const before = this.budgetOf(messages, context);
+    // After a fall-back to another connection, rounds are fitted to that one's window.
+    const preset = route.candidates[route.index]!;
+    const before = this.budgetOf(messages, context, preset);
     this.store.event(run.id, "context.budget", { ...before });
     await this.maybeCompact(run, messages, ids, context, route, before);
-    if (this.budgetOf(messages, context).headroom >= 0) return;
+    if (this.budgetOf(messages, context, preset).headroom >= 0) return;
     const shrunk = shrinkToolResults(messages, 4);
-    const after = this.budgetOf(messages, context);
+    const after = this.budgetOf(messages, context, preset);
     this.store.event(run.id, "context.shrunk", { shrunkResults: shrunk, estimatedBefore: before.messages, estimatedAfter: after.messages });
     if (after.headroom < 0) throw new BudgetError(tooLong);
   }
@@ -2191,7 +2216,10 @@ ${run.output.slice(0, 6000)}`;
     // R17-S08: the owner may switch folding off, or fold at a share of the room of their own choosing.
     const threshold = knobs.compactionThresholdFor(this.store, this.owner, budget);
     if (threshold === null) return;
-    budget = { ...budget, threshold };
+    // Every round is charged in full against the task's tokens, so the fold also comes before the
+    // conversation outgrows what this task can still spend on one request. Without this, a window
+    // larger than that left a long conversation unfolded and every new task out of tokens at once.
+    budget = { ...budget, threshold: Math.min(threshold, derivedCompactionThreshold(budget.catalog, context.budget.remaining(), budget.reserve)) };
     if (before <= budget.threshold && budget.headroom >= 0) return;
     const split = compactionSplit(messages, ids, knobs.keepRecent(this.store, this.owner));
     if (!split) return;
@@ -2199,10 +2227,7 @@ ${run.output.slice(0, 6000)}`;
     const preset = this.sideJobPreset(this.owner, run.sessionId, route.candidates[route.index]!); // R17-S11
     const transcript = messages.slice(split.from, split.to).map((m) => `${m.role}: ${m.content}${m.toolCalls ? " [requested tools: " + m.toolCalls.map((c) => c.name).join(", ") + "]" : ""}`).join("\n").slice(0, 60000);
     const previous = messages.slice(1, split.from).filter((m) => m.role === "system").map((m) => m.content).join("\n");
-    const summariser: Message[] = [
-      { role: "system", content: compactionInstructions },
-      { role: "user", content: (previous ? previous + "\n\n" : "") + transcript },
-    ];
+    const summariser = summaryRequest(previous, transcript, this.contextWindow(preset));
     const reply = (await this.complete(run, summariser, { ...context, permissions: new Set() }, preset, null)).content.trim().slice(0, 6000);
     const structured = parseSessionSummary(reply);
     const summary = structured ? summaryText(structured) : reply;
@@ -2372,7 +2397,7 @@ ${run.output.slice(0, 6000)}`;
     if (context.trunkKeys && isSignInConnection(preset)) throw new Error(trunkSignInRefusal);
     const tools = this.toolsFor(context);
     const input = estimateTokens({ messages, tools });
-    if (input > knobs.contextWindow(this.store, this.owner, contextLimit)) throw new BudgetError(tooLong); // R17-S08
+    if (input > this.contextWindow(preset)) throw new BudgetError(tooLong); // judged against the connection being called
     // The same question asked twice. The kept answer is looked for before anything is charged or
     // written down as an attempt, so a round that never reached the provider really does cost
     // nothing — in the inspector and in the figures alike. The step count still applies, so a task

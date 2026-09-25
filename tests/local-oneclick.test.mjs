@@ -452,6 +452,18 @@ test("O1 one click with Ollama: start it, download, size the room for words, loa
   assert.equal(done.percent, 100);
 });
 
+test("O1 a one-click model's window is the room it was loaded with, never the most it supports", async (t) => {
+  const runtimes = fakeRuntimes();
+  // With 7 GB free, Qwen3 8B (which supports up to 40,960) fits well with room for 8,192.
+  const w = await world(t, { runtimes, machine: room({ freeMemoryBytes: 7 * GB }) });
+  const done = await settle(w.oneClick, (await w.oneClick.begin({ model: "qwen3-8b", quant: "Q4_K_M" })).id);
+  assert.equal(done.stage, "done", done.message);
+  assert.equal(done.context, 8192);
+  const saved = savedLocalConnections(w.store, "owner")[0];
+  assert.equal(saved.contextLength, 8192);
+  assert.equal(w.models.presets.get(saved.id).loadedContext, 8192, "one request may hold what was loaded, not 40,960");
+});
+
 test("O1 the switch, a missing program, a full disk and a model too big each stop it in plain words", async (t) => {
   const runtimes = fakeRuntimes();
   const off = await world(t, { runtimes, mode: null });

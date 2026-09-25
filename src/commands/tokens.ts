@@ -46,9 +46,10 @@ export function tokenReport(runtime: Runtime, sessionId: string, owner = runtime
   const last = lastBudget(runtime, sessionId, owner);
   const budget = last?.budget ?? null;
   // The conversation's own model and prices: a household profile's choices, not the owner's.
-  const choice = runtime.models.plan(owner, sessionId).choice;
+  const plan = runtime.models.plan(owner, sessionId), choice = plan.choice;
   const conversation = !last || last.folded ? stored : Math.max(n(budget!.messages) - n(budget!.system), stored);
-  const instructions = n(budget?.system), tools = n(budget?.catalog), limit = n(budget?.limit) || 20000;
+  // The room the last task measured against; before any task, the room a task would have with this model.
+  const instructions = n(budget?.system), tools = n(budget?.catalog), limit = n(budget?.limit) || runtime.contextWindow(plan.candidates[0]!);
   const input = instructions + tools + Math.max(0, conversation);
   const { overrides } = pricingSettings(runtime.store, owner);
   return {

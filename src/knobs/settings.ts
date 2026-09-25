@@ -19,7 +19,7 @@ export const KnobCompactionSettingsSchema = z.object({
   compactAtPercent: z.number().int().min(20).max(95).nullable().default(null),
   /** How many recent messages always stay word for word. */
   keepRecentMessages: z.number().int().min(2).max(40).default(6),
-  /** How many tokens one request may hold; null keeps the built-in 20,000. */
+  /** How many tokens one request may hold; null uses the window of the model in use (20,000 when not known). */
   contextWindowTokens: z.number().int().min(8000).max(2_000_000).nullable().default(null),
 }).strict();
 
