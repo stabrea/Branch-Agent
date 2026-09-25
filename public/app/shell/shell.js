@@ -52,13 +52,22 @@ function searchInside(q) {
   }, 200);
 }
 
+/* The engine's projects (GET /api/projects), read when the fold is opened. A project's own page is not in this window yet. */
+let projects = [];
+const projectRows = () => projects.map((pr) => `<button class="nav" type="button" data-act="project" data-v="${esc(pr.id)}">${ic("folder", "s")}${esc(pr.name)}</button>`).join("");
+async function toggleProjects() {
+  S.projOpen = !S.projOpen;
+  if (S.projOpen) projects = (await api("projects").catch(() => null))?.all ?? projects;
+  renderNow();
+}
+
 function list() {
   if (SQ.q.trim()) return `<nav class="list searching9" aria-label="Conversations">${searchHTML()}</nav>`;
   const rows = E.sessions;
   const pinned = rows.filter((s) => s.pinned);
   const recent = rows.filter((s) => !s.pinned);
   return `<nav class="list" aria-label="Conversations">
-    <button class="lh lh-btn" type="button" data-act="projtoggle" aria-expanded="false">${ic("chev", "s")}Projects</button>
+    <button class="lh lh-btn" type="button" data-act="projtoggle" aria-expanded="${!!S.projOpen}">${ic(S.projOpen ? "down" : "chev", "s")}Projects</button>${S.projOpen ? projectRows() : ""}
     ${pinned.length ? `<div class="lh">Pinned</div>${pinned.map(row).join("")}` : ""}
     ${recent.length ? `<div class="lh">Recent</div>${recent.map(row).join("")}` : ""}</nav>`;
 }
@@ -114,7 +123,8 @@ export function drawShell() {
 }
 
 export function initShell() {
-  markLive(["sq-f", "sq-clear"]);
+  markLive(["sq-f", "sq-clear", "projtoggle"]);
+  on("projtoggle", () => toggleProjects());
   on("sq-f", (el) => { SQ.f = el.dataset.v; renderNow(); });
   on("sq-clear", () => { SQ.q = ""; SQ.f = "all"; renderNow(); $("#side-q")?.focus(); });
   document.addEventListener("keydown", (e) => { if (e.target.id === "side-q" && e.key === "Escape") { SQ.q = ""; e.target.blur(); renderNow(); } });
