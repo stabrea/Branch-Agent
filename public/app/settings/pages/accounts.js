@@ -82,9 +82,7 @@ export function init() {
       }
     }
   });
-  on("acsel15", () => {
-    // Toggle bulk select mode - window state
-  });
+  // acsel15 is window state only (bulk select toggle)
   markLive(["acct-up", "acct-menu"]);
 }
 

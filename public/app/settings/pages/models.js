@@ -83,12 +83,7 @@ export function init() {
       tabs.forEach(t => t.setAttribute('aria-selected', t.dataset.v === tab ? 'true' : 'false'));
     }
   });
-  on("addacct", (el) => {
-    // addacct triggers the add account flow from flows/account.js
-  });
-  on("acct-menu", (el) => {
-    // Account menu for managing accounts
-  });
+  // addacct and acct-menu are handled in accounts.js
   markLive(["mtab"]);
 }
 
