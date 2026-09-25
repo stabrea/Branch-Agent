@@ -2,7 +2,10 @@
    Memory: how full it is (state.memoryCapacity), a tidy-up of the engine's findings (GET /api/memory/tidy; opening it
    stages them as suggestions with POST /api/memory/tidy, and each is applied or left through
    POST /api/memory/proposals/<id>/accept|reject), and a menu to export what is remembered (GET /api/memory/export),
-   see the archive and put a fact back (GET /api/memory/archive, POST /api/memory/archive/<id>/restore). */
+   see the archive and put a fact back (GET /api/memory/archive, POST /api/memory/archive/<id>/restore).
+   Documents: the engine's document library (GET /api/documents). Its Map stays greyed: the engine's map
+   (POST /api/knowledge/graph) reads a knowledge base from one named thing in it, and no route lists those things or
+   ties them to the documents listed here, so there is nowhere to start it from. */
 
 import { esc, renderNow } from "../core/dom.js";
 import { S, E, refresh, level } from "../core/state.js";
@@ -19,6 +22,8 @@ function tabBar(tabs, place, current) {
 
 let docsKey = "";
 let docsList = [];
+let docsFailed = false;
+let artsFailed = false;
 let artsKey = "";
 let artsList = [];
 let findings = null;
@@ -53,10 +58,11 @@ function documentsTab() {
   let html = `<div class="acts docacts15" data-css="margin:6px 0"><button class="btn" type="button" data-act="toast" data-msg="Opens a blank document.">
       ${ic('file', 's')}Write a new document</button><span class="seg dv15" role="group" aria-label="Show documents as">${view}</span></div>`;
   html += docsList.map((d) => `<div class="prow"><span class="fi">${esc((d.name || '').split('.').pop() || 'txt')}</span>
-        <span class="grow"><b>${esc(d.name)}</b><small>${esc(d.source || '')}</small></span>
+        <span class="grow"><b>${esc(d.name)}</b><small>${esc(when(d.updatedAt))}</small></span>
         <button class="btn sm" type="button" data-act="toast" data-msg="Opens in its own app.">Open</button></div>`).join('');
   return html;
 }
+const when = (iso) => (iso ? new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
 
 export function draw() {
   const tab = S.tabs.library || "memory";
@@ -95,13 +101,19 @@ export async function after() {
     try { fresh = await api("memory/tidy"); } catch (error) { tidyFailed = true; toast(error.message); return; }
     if (JSON.stringify(fresh) !== JSON.stringify(findings)) { findings = fresh; renderNow(); }
   } else if (tab === "documents") {
-    const fresh = await api("documents").catch(() => []);
+    /* The engine answers {documents: [...]} with its settings beside the list; only the list is drawn. */
+    if (docsFailed) return;
+    let fresh = [];
+    try { fresh = (await api("documents")).documents ?? []; } catch (error) { docsFailed = true; toast(error.message); }
     const key = JSON.stringify(fresh);
-    if (key !== docsKey) { docsKey = key; docsList = Array.isArray(fresh) ? fresh : []; renderNow(); }
+    if (key !== docsKey) { docsKey = key; docsList = fresh; renderNow(); }
   } else if (tab === "made") {
-    const fresh = await api("artifacts").catch(() => []);
+    /* The engine answers {artifacts: [...]} (each kept file's name, path and media type). */
+    if (artsFailed) return;
+    let fresh = [];
+    try { fresh = (await api("artifacts")).artifacts ?? []; } catch (error) { artsFailed = true; toast(error.message); }
     const key = JSON.stringify(fresh);
-    if (key !== artsKey) { artsKey = key; artsList = Array.isArray(fresh) ? fresh : []; renderNow(); }
+    if (key !== artsKey) { artsKey = key; artsList = fresh; renderNow(); }
   }
 }
 

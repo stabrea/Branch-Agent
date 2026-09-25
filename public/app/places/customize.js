@@ -1,7 +1,9 @@
 /* Customize: Trunks, Tools, Specialists, Channels, Everywhere. Every list is the engine's: the Trunks (E.trunks), the
    tool servers (GET /api/mcp/connections), skills (E.state.skills), plugins (GET /api/plugins), other assistants
    (GET /api/agents/remote), suggested skills (GET /api/skills/suggest), better versions of skills
-   (GET /api/skill-revisions) and the chat apps (GET /api/channel-setup, connected ones from GET /api/channels). */
+   (GET /api/skill-revisions) and the chat apps (GET /api/channel-setup, connected ones from GET /api/channels).
+   A better version is tried, kept or thrown away through POST /api/skill-revisions/try|accept|reject; a suggested skill
+   you have switched off is switched on through POST /api/skills/{id}/activate. */
 
 import { esc, renderNow, paint } from "../core/dom.js";
 import { S, E, refresh } from "../core/state.js";
@@ -56,15 +58,24 @@ function trunksTab() {
     <div class="sec"><h2>Start from a job</h2><div class="grid2">${jobs}</div></div></div>`;
 }
 
+/* The engine's changed lines, as the file history writes them: "+" added, "-" taken out, anything else kept. */
+const diffLines = (diff) => String(diff ?? "").split("\n").map((l) => `<span class="${l.startsWith("+") ? "d-add" : l.startsWith("-") ? "d-del" : ""}">${esc(l)}</span>`).join("");
+
+/* The newest drafted version still waiting for a yes or a no. Each button names its skill and version, the exact body the
+   engine's try, accept and reject take; switching a draft on without trying it (force) is never offered. */
 function learnedCard() {
   const r = revisions.find((x) => !x.decision);
   if (T9.k !== "skills" || !r) return "";
-  return `<div class="tile t9-learn"><div class="th"><b>A better version of “${esc(r.skillName)}”</b><span class="pill work ml"><i></i>Suggested</span></div><div class="acts"><button class="btn sm" type="button" data-act="rev" data-v="tried">Practice run on the last 3 tasks</button><button class="btn pri sm" type="button" data-act="rev" data-v="kept">Keep it</button><button class="btn ghost sm" type="button" data-act="rev" data-v="gone">Throw it away</button></div></div>`;
+  const at = `data-id="${esc(r.skillId)}" data-version="${esc(r.version)}"`;
+  return `<div class="tile t9-learn"><div class="th"><b>A better version of “${esc(r.skillName)}”</b><span class="pill work ml"><i></i>Suggested</span></div><p>Nothing changes on its own.</p><pre class="diff6">${diffLines(r.diff)}</pre><div class="acts"><button class="btn sm" type="button" data-act="rev" data-v="tried" ${at}>${r.trial ? "Try again" : "Practice run on the last 3 tasks"}</button><button class="btn pri sm" type="button" data-act="rev" data-v="kept" ${at}>Keep it</button><button class="btn ghost sm" type="button" data-act="rev" data-v="gone" ${at}>Throw it away</button></div></div>`;
 }
 
+/* A switched-off skill you already have is switched on (sugg15). One a registry lists would be installed from that
+   registry (POST /api/registry/install), which this engine's network rules keep from being tried here, so its Add is
+   drawn under its own name and stays greyed. */
 function suggested() {
   if (T9.k !== "skills" || !suggestions.length) return "";
-  return `<div class="sugg15"><h3>Suggested for you</h3>${suggestions.map((s) => `<div class="sg-row15"><span class="grow"><b>${esc(s.name)}</b><small>${esc(s.description)}</small></span><button type="button" class="btn sm" data-act="sugg15" data-v="${esc(s.id)}">Add</button></div>`).join("")}</div>`;
+  return `<div class="sugg15"><h3>Suggested for you</h3>${suggestions.map((s) => `<div class="sg-row15"><span class="grow"><b>${esc(s.name)}</b><small>${esc(s.description)}</small></span><button type="button" class="btn sm" data-act="${s.source === "installed" ? "sugg15" : "sugg15-reg"}" data-v="${esc(s.id)}">Add</button></div>`).join("")}</div>`;
 }
 
 /* Which Trunks may use a server or a skill is drawn from each Trunk's own lists (servers by id, skills by name), and stays greyed: adding a server to a
@@ -178,6 +189,36 @@ async function removeTool(el) {
   } catch (error) { toast(error.message); }
 }
 
+/* A drafted version: a practice run (POST /api/skill-revisions/try, where nothing is really done), keeping it (accept,
+   which the engine refuses until a practice run did no worse) or throwing it away (reject). */
+const REV = { tried: "try", kept: "accept", gone: "reject" };
+async function revise(el) {
+  const { v, id } = el.dataset, version = Number(el.dataset.version);
+  const before = revisions.find((r) => r.skillId === id && r.version === version);
+  el.disabled = true;
+  try {
+    await api(`skill-revisions/${REV[v]}`, { skillId: id, version });
+    if (v === "tried") toast("Practice run done. Nothing was really changed.");
+    if (v === "gone" && before?.activeVersion) toast(`Thrown away. The skill stays on version ${before.activeVersion}.`);
+    await refresh();
+  } catch (error) { toast(error.message); }
+  el.disabled = false;
+  await after();
+  renderNow();
+}
+
+/* Switching on a skill you have: POST /api/skills/{id}/activate with the version and revision the engine has now. A skill
+   the scan found something in is refused by the engine, in its own words. */
+async function addSuggested(el) {
+  try {
+    const skill = await api(`skills/${encodeURIComponent(el.dataset.v)}`);
+    await api(`skills/${encodeURIComponent(skill.id)}/activate`, { version: skill.headVersion, expectedRevision: skill.revision });
+    await refresh();
+  } catch (error) { toast(error.message); }
+  await after();
+  renderNow();
+}
+
 /* Filtering the chat apps redraws only the grid, so the search box keeps its caret. */
 function redrawGrid() {
   const grid = document.querySelector("#main .ch-grid12");
@@ -185,7 +226,9 @@ function redrawGrid() {
 }
 
 export function init() {
-  markLive(["ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam"]);
+  markLive(["ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam", "rev", "sugg15"]);
+  on("rev", (el) => revise(el));
+  on("sugg15", (el) => addSuggested(el));
   on("t9-kind", (el) => { T9.k = el.dataset.v; T9.sel = null; renderNow(); });
   on("t9-sel", (el) => { T9.sel = el.dataset.v; renderNow(); });
   on("tool-rm", (el) => removeTool(el));

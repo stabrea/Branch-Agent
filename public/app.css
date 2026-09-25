@@ -2689,3 +2689,6 @@ body.pet-dock15 .dock>.petbox{position:absolute;left:calc(50% - min(430px,50% - 
 /* area: settings leftovers */
 .ctl.ev15{grid-template-columns:minmax(0,1fr)}
 .ctl.ev15 .right{grid-row:auto;grid-column:1;margin:4px 0}
+
+/* area: places and customize leftovers */
+.replay6 .rp-path{overflow-x:auto}
