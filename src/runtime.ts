@@ -91,7 +91,7 @@ import {
   jsonWriteProblem, refusedByPolicy, simulatedResult, sleepFor, type PendingApproval,
 } from "./approvals.js";
 import {
-  addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, keepPolicyRule, policyFullNote, readPolicy,
+  cappedPolicy, evaluatePolicy, isReadOnlyPermission, keepPolicyRule, policyFullNote, readPolicy,
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
 import { alsoDecision, judgeTargets, stricterThan, targetRefusal, targetText, unknownTargetsRefusal } from "./policy-targets.js"; // mac7/multi-target
@@ -2908,7 +2908,7 @@ ${run.output.slice(0, 6000)}`;
       /** The fingerprint of the exact request the question was put for; the yes is bound to it. */
       fingerprint?: string },
     remember: PolicyRemember = "session",
-  ): void {
+  ): string | null {
     // Q182 (NAS 68eb8b2): a flow carried on by a key or away from the owner takes its question's "always" as
     // "for this conversation": it may carry on, but never writes a standing rule into the owner's policy.
     if (remember === "always" && !mayGiveStandingYes(this.store)) remember = "session";
@@ -2923,13 +2923,16 @@ ${run.output.slice(0, 6000)}`;
     if (remember !== "never")
       this.approvals.remember(key, about.tool, about.target, "allow",
         { fingerprint: about.fingerprint, label: about.label });
-    if (remember === "always")
-      addPolicyRule(this.store, this.owner, { tool: about.tool, match: about.target || "*", decision: "allow", remember: "always" });
+    // Q219 (NAS 6b600b4): with the approval rules full, an "always" that nothing less careful could make room for holds
+    // for this workflow or flow only; the note says so to whoever carried it on.
+    const kept = remember === "always"
+      ? keepPolicyRule(this.store, this.owner, { tool: about.tool, match: about.target || "*", decision: "allow", remember: "always" }).kept : true;
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner,
       subject: `${about.tool}${about.target ? ` on ${about.target}` : ""}`,
       reason: about.label, source: about.source, runId: about.runId ?? null, outcome: "allowed",
     });
+    return kept ? null : policyFullNote;
   }
   /**
    * Keeps one conversation inside its per-minute limits. Reaching a limit is not a failure: the task

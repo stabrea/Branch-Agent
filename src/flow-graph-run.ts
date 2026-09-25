@@ -25,6 +25,8 @@ export interface GraphRunView {
   runId: string; flowId: string; status: GraphRunStatus; nextNode: string | null;
   state: Record<string, unknown>; error: string | null; question: string | null;
   nodes: GraphNodeState[];
+  /** Q219: set when the owner's "always" was not kept because the approval rules are full. */
+  standingNote?: string;
 }
 /**
  * How deep one flow may reach into another: three flows counting the outer one, so a flow inside a
@@ -412,14 +414,15 @@ export class FlowGraphRunner {
       .run(this.owner).changes ?? 0);
   }
   /** The owner's yes to what a box stopped to ask about, remembered against this flow run. */
-  approve(runId: string, remember?: "never" | "session" | "always"): void {
+  approve(runId: string, remember?: "never" | "session" | "always"): string | null {
     const row = this.store.sqlite.prepare("SELECT approval, next_node FROM flow_graph_runs WHERE run_id=? AND owner=?").get(runId, this.owner);
     const asked = row?.approval ? JSON.parse(String(row.approval)) as { tool: string; target: string; label: string; remember: "never" | "session" | "always"; fingerprint?: string; source: RunSource } : null;
-    if (!asked) return;
-    this.runtime.grantApproval(`flow:${String(row?.next_node ?? "")}`, { tool: asked.tool, target: asked.target,
+    if (!asked) return null;
+    const note = this.runtime.grantApproval(`flow:${String(row?.next_node ?? "")}`, { tool: asked.tool, target: asked.target,
       label: asked.label, source: asked.source, ...(asked.fingerprint === undefined ? {} : { fingerprint: asked.fingerprint }) },
       remember ?? asked.remember);
     this.save(runId, { approval: null, question: null });
+    return note; // Q219: the approval rules were full, so an "always" holds for this flow run only
   }
   /**
    * A box that was still running when the app stopped. Its row says "running" and no later row
@@ -477,13 +480,14 @@ export class FlowGraphRunner {
         this.save(runId, { next_node: after, question: null });
       }
     }
-    if (options.approve) this.approve(runId);
+    const note = options.approve ? this.approve(runId) : null;
     const compiled = compileGraph(flow);
     this.save(runId, { status: "running", error: null });
     this.store.sqlite.prepare("UPDATE tasks SET status='running' WHERE id=?").run(runId);
     const kept = (this.store.get("settings", this.owner, limitKey(runId))?.data as { within?: string[] } | undefined)?.within;
     const within = kept && options.within ? kept.filter((p) => options.within!.includes(p)) : kept ?? options.within;
-    return this.work(runId, compiled, { ...(options.source === undefined ? {} : { source: options.source }),
+    const view = await this.work(runId, compiled, { ...(options.source === undefined ? {} : { source: options.source }),
       ...(within ? { within } : {}) });
+    return note ? { ...view, standingNote: note } : view;
   }
 }
