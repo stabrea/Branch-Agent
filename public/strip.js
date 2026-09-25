@@ -98,7 +98,7 @@ function statusWords(item) {
 function kindWords(item) {
   if (item.kind === "trunk") return say("strip.kind.trunk", "Trunk");
   const platform = item.device?.platform ?? item.request?.platform;
-  return platform ? platformWord(platform) : say("strip.kind.here", "the computer you are on");
+  return platform ? platformWord(platform) : say("strip.kind.here", "You are here");
 }
 
 /* ---------- which face is picked ---------- */
