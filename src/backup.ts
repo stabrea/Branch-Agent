@@ -122,6 +122,13 @@ export const thisComputerSettings: readonly string[] = [
   "jev-decisions", "vector-store",
   // NAS f7e95b5: the folder each task's trace is written to, the same class.
   "trace",
+  // Q230: this computer's own folders, devices, jobs, scheduler records, tallies for caps and setup records.
+  "adapt-stops", "channel-setup-done", "coding-worktree-forks", "dashboard-paused", "devices-join", "devices-picks",
+  "git-checkpoints", "heartbeat-state", "learning-more-readback-last", "obsidian", "onboarding",
+  "practice-previous-project", "practice-session", "reach-remote-trunks-inbox", "reach-video-count", "run_queue",
+  "studies", "trunk-receipts",
+  // Q230, keys worked out in code: the shell a coding task snapshots, and this computer's memory-history status.
+  "coding-shell-snapshot", "memory-history-status",
 ];
 /** NAS 23e7382: one row per add-on file on this disk, its fingerprint (src/safety-extras/wasm-add-ons.ts). */
 const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:",
@@ -129,7 +136,15 @@ const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:",
   "hook:",
   // NAS dd7589d: Branch's own records here: work put off, a move-in under way, and each flow run's limit and origin
   // (a file must never loosen a limit a task set, or say who started a run).
-  "deferred:", "move-in:", "flow-run-limit:", "flow-run-source:"];
+  "deferred:", "move-in:", "flow-run-limit:", "flow-run-source:",
+  // Q230 (NAS eba8bd8): a conversation's live waiting line, whose words run by themselves; this computer's MCP tool
+  // cache, plugins and their fingerprints; and a running task's shared notes.
+  "followups:", "mcp-tools:", "plugin-catalog:", "plugin:", "scratch:",
+  // Q230, keys worked out in code: this computer's place in each chat stream and its offsets, its holds against redoing
+  // a chat task, its webhook word, its MCP sign-in clients, which Trunk a flow run works as, the file-undo slots, a
+  // "Watch me" under way, kept answers (a planted one comes back as if real) and the yeses carried over a restart.
+  "channel-mark:", "channel-position:", "channel-replay:", "webhook-address:", "mcp-oauth:", "flow-run-trunk:",
+  "settings-kit-file-undo-", "trunk-watch:", "cache:", "session-carry:"];
 /** The restore's own list of rows waiting for the owner's yes (src/restore-held.ts): about this computer, so it stays too. */
 export const restoreHeldKey = "restore-held";
 /**
@@ -172,14 +187,81 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   "automatic-problem-reports", "pricing",
   // NAS f7e95b5: where the owner's browsing runs (a server's address, with the owner's own token sent to it), the
   // video part's price, daily count and locker secret, and the words every turn reads as the assistant's identity.
-  "browser-container", "reach-video-settings", "assistant-identity"];
+  "browser-container", "reach-video-settings", "assistant-identity",
+  // Q230: the notices card's record also holds automatic installing and the update channel, which install by themselves.
+  "comfort-notify",
+  // Q230 (NAS a1291bd, eba8bd8): every other settings id src reads, classified one by one. Each of these could make
+  // something run by itself, send somewhere or name a connection or account, run or name a program, carry words a turn
+  // reads, or loosen a limit, price or safety switch. The one-line reasons are in tests/backup-classified.test.mjs.
+  "batch-inference", "channel-parity-switches", "channel-setup", "chat-live-switches", "command-catalog",
+  "context-files", "conversation-mode-settings", "dashboard", "documents", "embeds", "flowboards-install-list",
+  "flowboards-kanban-settings", "flowboards-widget-ideas", "gemini-signin", "governance", "interop-modes-list",
+  "knowledge", "live-scoring", "local-models", "mcp-connections", "mcp-sharing", "media", "memory-consolidation",
+  "memory-retrieval", "metering", "model-profiles", "models", "orchestration", "page-notes", "page-notes:list",
+  "projects", "repository-context", "retention", "routing", "screen-watch", "second-opinion", "session-limits",
+  "slack-automations", "tool-meaning-search", "troubleshoot", "trunk-routines", "update-keeper", "web-pages"];
 /** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
 const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:",
   // NAS f30facf: each outside service the assistant may call, by its address.
   "openapi-service:",
   // NAS 2a15d6b: every ask part, its switch and its settings (Hindsight's address and the secret it sends, analytics'
   // `sendTo`, the answer engine, nodes and runtimes): each reaches past this computer or says where words go.
-  "asks-"];
+  "asks-",
+  // Q230: a chat made known for sends, a plan the next message carries on, a project's every-turn instructions and
+  // branch, a registry address, a conversation's connection, and a skill's trial, origin and package.
+  "channel-session:", "plan:", "project:", "registry-index:", "session-model:", "skill-candidate:", "skill-draft:",
+  "skill-origin:", "skill-package:",
+  // Q230, keys worked out in code: each coding, interop, learning-more, Trunks and model-savings part (they run
+  // programs, reach other assistants or outside services, or choose where the words go), a conversation's mode, goal,
+  // checklist, pinned skill and autonomy, a procedure's recipe checks, and a specialist's handoff list.
+  "coding-", "interop-", "learning-more-", "trunks-", "model-savings-", "conversation-mode:", "goal:", "coding-checklist:",
+  "pinned-skill:", "plan-act:", "flowboards-recipe-checks:", "handoffs:"];
+/**
+ * Q230 (NAS a1291bd): the settings ids and prefixes that travel in a backup and are put in place by a restore, each
+ * with why any value a file carries is harmless. tests/backup-classified.test.mjs fails for an id src reads that is in
+ * none of this list, the held lists or this computer's, so a new id never travels by accident.
+ */
+export const travelsWithBackup: Readonly<Record<string, string>> = {
+  "channel-usage:": "only adds a tokens-and-cost line to replies that already go to that chat",
+  "delight-achievements": "achievement progress only",
+  "prompt-library-items": "a saved prompt only becomes a message the owner sends",
+  "reflection-cursor:": "how far a look back has read; nothing runs from it",
+  "reflection-note:": "what accepting a queued note would do; it still needs the owner's yes",
+  "skill-install-log": "install history for display only",
+  "ask-first": "askFirst and maxQuestions only decide whether clarifying questions are asked",
+  "calendar": "country, days off, working days, timezone and quiet hours only skip or hold existing work",
+  "chat-engine": "whether a follow-up is rewritten before searching documents",
+  "delight": "pets, achievements, look and background are display preferences",
+  "diagnostic-log": "shapes a local, scrubbed log that sends nothing",
+  "event-loop-watch": "local event-loop measurement",
+  "flowboards-busy-mode": "what the owner's own typing does while a task works",
+  "fly-core": "only reorders what a task already has",
+  "knowledge-retention": "only creates archive suggestions",
+  "learn": "a feature switch and tour length",
+  "look": "appearance only",
+  "milestone:": "nothing reads it",
+  "preferences": "layout only",
+  "prompt-library": "a feature mode; a prompt only becomes a typed message",
+  "qa-scenarios": "a feature mode",
+  "reach-arena-ratings": "leaderboard scores",
+  "reach-note:": "the owner's own notes, read only when asked",
+  "reflection-batch:": "look-back history shown on a review card",
+  "reflection-jobs": "recent job outcomes the owner sees",
+  "request-cache": "whether plain answers are reused",
+  "reranking": "only reorders passages",
+  "retrieval-pipelines": "only changes search order",
+  "run-recording": "what a saved recording contains",
+  "settings-history": "change history the owner sees; undo is gated",
+  "shell-look": "how the window is drawn",
+  "skill-draft-offered:": "a marker that only stops an offer",
+  "skill-retire-offered:": "only holds back an offer",
+  "suggestions": "ask/never answers to a suggestion bar",
+  "terminal-switches": "terminal display switches",
+  "tool_catalog_health": "a nightly cache the owner sees",
+  "trunk-seen": "unread badge counts",
+  "usage-glance": "display and offers only",
+  "usage-report": "a local report never sent",
+};
 /**
  * NAS dfb2136: naming the ids by hand kept missing some, so every setting the catalogue itself marks as taking a
  * protection away or reaching further (a field whose guard is not "plain") is held too, unless it stays here. Read at

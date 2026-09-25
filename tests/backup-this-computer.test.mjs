@@ -30,12 +30,7 @@ async function fixture(t) {
 const keys = [...new Set([...thisComputerSettings, "devices-book", "remote-agent:helper", "jev-decisions", "vector-store", "trace"])];
 
 test("the list is what Q168 A names, and devices-book stays too (named once, with the #186 fix's sign-ins)", () => {
-  assert.deepEqual([...thisComputerSettings].sort(), ["comfort-update-failed", "folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode",
-    "keychain-entries", "listen-address", "lockdown", "media-programs", "os-sandbox", "reach-machine-name", "reach-relay-seen", "reach-relay-settings",
-    "reach-remote-trunks-keys", "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup", "safety-emergency-stop", "secret-commands",
-    "speech-engines", "voice", "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends", "code-run", "feature-switches-migration", "webhook-waits",
-    // NAS 360099c: a program and its arguments, and a database folder.
-    "jev-decisions", "vector-store", "trace"].sort());
+  assert.deepEqual([...thisComputerSettings].sort(), ["adapt-stops", "background-processes", "channel-setup-done", "code-check", "code-run", "coding-shell-snapshot", "coding-worktree-forks", "comfort-update-failed", "dashboard-paused", "debug-adapters", "devices-join", "devices-picks", "feature-switches-migration", "folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode", "git-checkpoints", "heartbeat-state", "jev-decisions", "keychain-entries", "language-servers", "learning-more-readback-last", "listen-address", "lockdown", "media-programs", "memory-history-status", "obsidian", "onboarding", "os-sandbox", "practice-previous-project", "practice-session", "reach-machine-name", "reach-relay-seen", "reach-relay-settings", "reach-remote-trunks-inbox", "reach-remote-trunks-keys", "reach-video-count", "remote-agent-pairing", "remote-computers", "run_queue", "safety-code-approvals-setup", "safety-emergency-stop", "sandbox-backends", "secret-commands", "speech-engines", "studies", "trace", "trunk-receipts", "vector-store", "voice", "webhook-waits"].sort());
   assert.equal(staysOnThisComputer("devices-book"), true);
   assert.equal(thisComputerSettings.includes("devices-book"), false, "one list names it, not two");
 });
