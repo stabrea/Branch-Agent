@@ -143,6 +143,8 @@ export async function openSettings(page, name) {
  * changing the level (which would also change the calm window).
  */
 export async function showEveryCard(page) {
+  // settings-grown.js is the page's last module; on a slow machine Settings can open before it has run.
+  await page.waitForFunction(() => globalThis.branchSettingsLevel?.peekPage, undefined, { timeout: 60000 });
   await page.evaluate(() => globalThis.branchSettingsLevel.peekPage());
 }
 

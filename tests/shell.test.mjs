@@ -196,10 +196,11 @@ test('runtime shutdown cancels command execution and waits for its child process
   await gone(pids.parent); await gone(pids.child);
 });
 
-test('shell integrates only when explicitly configured and survives invalid input before execution', async (t) => {
+test('with no settings file only programs installed here are offered, and a settings file replaces them', async (t) => {
   const f = await fixture(t), configPath = join(f.root, 'integrations.json');
   const registry = new (f.app.registry.constructor)();
-  const off = await loadIntegrations(registry); assert.equal(off.count, 0);
+  // Dogfood A2: nothing on PATH means nothing to run, so still no command tool.
+  const off = await loadIntegrations(registry, undefined, { PATH: join(f.root, 'no-programs-here') }); assert.equal(off.count, 0);
   assert.equal(registry.permissions().includes('shell.execute'), false);
   await writeFile(configPath, JSON.stringify({ shell: f.config }));
   const on = await loadIntegrations(registry, configPath, fakeEnv); t.after(on.close);

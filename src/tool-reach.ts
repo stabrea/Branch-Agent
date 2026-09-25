@@ -24,6 +24,8 @@ const outbound: readonly string[] = [
   "github.manage", "git.remote", "channels.send", "blocks.run", "addons.search",
   "agents.ask", "agents.manage", "nodes.run", "nodes.read", "remote.execute", "sessions.handoff",
   "devices.act", "devices.capture", "devices.run",
+  // The owner's Claude Code or Codex does a job with the owner's plan: the work goes to that program's service.
+  "code.handoff",
   // Acting on a web page or on another program's window is outside the workspace too.
   "browser.interact", "signin.fill", "desktop.control", "desktop.clipboard",
 ];
