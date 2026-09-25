@@ -128,7 +128,9 @@ function installModelPicker() {
     const active = activeModel(models, session);
     const practice = active?.provider === "offline-demo-fixture";
     const thinking = practice ? "" : thinkingWord(models, active);
-    name.textContent = (practice ? say("composer.practiceModel", "Practice") : active?.model || say("composer.noModel", "Connect a model"))
+    // Dogfood B25: the model's own name ("GPT-6 Sol") where the catalogue has one, else its id.
+    const preset = models?.presets?.find((one) => one.id === (active?.presetId ?? active?.id));
+    name.textContent = (practice ? say("composer.practiceModel", "Practice") : preset?.modelName || active?.model || say("composer.noModel", "Connect a model"))
       + (thinking ? ` · ${thinking}` : "");
     chip.setAttribute("aria-label", `${say("composer.changeModel", "Change the model")}: ${name.textContent}`);
   };
