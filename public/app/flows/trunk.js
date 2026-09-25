@@ -113,12 +113,13 @@ async function saveEditor() {
   } catch (error) { toast(error.message); }
 }
 
-/* The prototype saves an emoji face at once, not on Save. None goes back to the face made from the name. */
+/* The prototype saves an emoji face at once, not on Save, and nothing else with it: the saved look gets only the new face,
+   so an unsaved shape or motion stays a draft. None goes back to the face made from the name. */
 async function setEmoji(v) {
   keepFields();
   const t = trunkById(ed.id);
   try {
-    await api(`trunks/${encodeURIComponent(ed.id)}`, { look: fullLook(t, v ? { face: "emoji", emoji: v } : { face: "pattern", emoji: "" }) });
+    await api(`trunks/${encodeURIComponent(ed.id)}`, { look: { ...lookOf(t), ...(v ? { face: "emoji", emoji: v } : { face: "pattern", emoji: "" }) } });
     await refresh();
     drawEditor();
   } catch (error) { toast(error.message); }

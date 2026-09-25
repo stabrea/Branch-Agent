@@ -34,6 +34,13 @@ async function editor(page) {
   const a = await trunkNamed(N.a);
   await page.locator(`#main [data-act="edit"][data-id="${a.id}"]`).click();
   const dlg = page.locator(".dlg");
+  await dlg.locator('[data-act="st-shape"][data-v="4"]').click();
+  await dlg.locator('[data-act="emo15"][data-v="🐢"]').click();
+  await page.waitForTimeout(400);
+  await dlg.locator('.dlg-f [data-act="dlg-close"]').click();
+  let t = await trunkNamed(N.a);
+  check("emo15 saves only the face: an unsaved shape is not saved with it", t.look?.face === "emoji" && t.look?.emoji === "🐢" && t.look?.shape === null, JSON.stringify(t.look));
+  await page.locator(`#main [data-act="edit"][data-id="${a.id}"]`).click();
   await dlg.locator('[data-act="st-shuffle"]').click();
   await dlg.locator('[data-act="st-colour"][data-v="#D8612A"]').click();
   await dlg.locator('[data-act="st-shape"][data-v="2"]').click();
@@ -43,7 +50,7 @@ async function editor(page) {
   await dlg.locator('[data-act="st-tab"][data-v="look"]').click();
   await dlg.locator('[data-act="emo15"][data-v="🦊"]').click();
   await page.waitForTimeout(400);
-  let t = await trunkNamed(N.a);
+  t = await trunkNamed(N.a);
   check("emo15: the emoji face is saved at once", t.look?.face === "emoji" && t.look?.emoji === "🦊", JSON.stringify(t.look));
   await dlg.locator("#st-name").fill(N.a2);
   await dlg.locator("#st-role").fill("Checks the editor");
@@ -101,6 +108,11 @@ async function room(page) {
   await menu(page, "pin");
   await page.waitForTimeout(400);
   check("pin (room): the room is pinned", (await rooms()).find((x) => x.name === N.room)?.pinned === true);
+  await menu(page, "rename");
+  await page.locator("#rn-name").fill(`${N.room} renamed`);
+  await page.locator('.dlg [data-act="rename-save"]').click();
+  await page.waitForTimeout(400);
+  check("rename (room): POST /api/trunks/rooms/{id} renamed it", (await rooms()).some((x) => x.name === `${N.room} renamed`));
 }
 
 async function tools(page) {

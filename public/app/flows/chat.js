@@ -140,7 +140,7 @@ function onInput(e) {
 }
 
 export function init() {
-  markLive(["ch-open", "chw-next", "chw-back", "chw-save", "chf-eye"]);
+  markLive(["ch-open", "chw-next", "chw-back", "chw-save"]); // chf-eye stays greyed: it would show a pasted token
   on("ch-open", (el) => openChatWizard(el.dataset.v));
   on("chw-next", () => next());
   on("chw-back", () => { const w = S.chw; vals = {}; w.step = Math.max(0, w.step - 1); w.error = ""; w.result = null; draw(); });

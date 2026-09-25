@@ -67,12 +67,13 @@ function suggested() {
   return `<div class="sugg15"><h3>Suggested for you</h3>${suggestions.map((s) => `<div class="sg-row15"><span class="grow"><b>${esc(s.name)}</b><small>${esc(s.description)}</small></span><button type="button" class="btn sm" data-act="sugg15" data-v="${esc(s.id)}">Add</button></div>`).join("")}</div>`;
 }
 
-/* Which Trunks may use a server or a skill is drawn from each Trunk's own lists, and stays greyed: adding a server to a
-   Trunk widens what it can reach. Only skills and remote agents can be removed (servers live in the launch file). */
+/* Which Trunks may use a server or a skill is drawn from each Trunk's own lists (servers by id, skills by name), and stays greyed: adding a server to a
+   Trunk widens what it can reach. Remove is drawn for skills only: servers live in the launch file, and removing an
+   assistant elsewhere could not be checked against this engine. */
 function detail(k, x) {
   const list = k === "mcp" ? "mcpServers" : k === "skills" ? "skills" : null;
-  const who = list ? `<div class="sec"><h2>Which Trunks may use it</h2><div class="chips8">${E.trunks.map((t) => `<button type="button" class="chip6" data-act="tool-who" data-k="${k}" data-id="${esc(x.id)}" data-v="${esc(t.id)}" aria-pressed="${(t[list] ?? []).includes(x.id)}">${esc(t.name)}</button>`).join("")}</div></div>` : "";
-  const rm = k === "skills" || k === "agents" ? `<span class="grow"></span><button class="btn ghost sm" type="button" data-act="tool-rm" data-k="${k}" data-id="${esc(x.id)}">Remove</button>` : "";
+  const who = list ? `<div class="sec"><h2>Which Trunks may use it</h2><div class="chips8">${E.trunks.map((t) => `<button type="button" class="chip6" data-act="tool-who" data-k="${k}" data-id="${esc(x.id)}" data-v="${esc(t.id)}" aria-pressed="${(t[list] ?? []).includes(k === "skills" ? x.name : x.id)}">${esc(t.name)}</button>`).join("")}</div></div>` : "";
+  const rm = k === "skills" ? `<span class="grow"></span><button class="btn ghost sm" type="button" data-act="tool-rm" data-k="${k}" data-id="${esc(x.id)}">Remove</button>` : "";
   return `<div class="t9-detail"><div class="t9-dh"><span class="ico-tile t9i" data-css="width:40px;height:40px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span></div>
     ${who}${rm ? `<div class="acts" data-css="margin-top:16px">${rm}</div>` : ""}</div>`;
 }
@@ -162,13 +163,12 @@ export async function after() {
   if (!same(before, JSON.stringify([mcpServers, plugins, agents, suggestions, revisions, channelSetup, connected]))) renderNow();
 }
 
-/* Removing: a skill (POST /api/skills/{id}/remove, naming the revision it was shown at) or an assistant elsewhere (POST /api/agents/remote/remove). */
+/* Removing a skill: POST /api/skills/{id}/remove, naming the revision it was shown at. */
 async function removeTool(el) {
   const { k, id } = el.dataset;
   try {
-    if (k === "skills") await api(`skills/${encodeURIComponent(id)}/remove`, { expectedRevision: (E.state?.skills ?? []).find((s) => s.id === id)?.revision });
-    else if (k === "agents") await api("agents/remote/remove", { agent: id });
-    else return;
+    if (k !== "skills") return;
+    await api(`skills/${encodeURIComponent(id)}/remove`, { expectedRevision: (E.state?.skills ?? []).find((s) => s.id === id)?.revision });
     const name = itemsOf(k).find((x) => x.id === id)?.name ?? "";
     T9.sel = null;
     await refresh();
