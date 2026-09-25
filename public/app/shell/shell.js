@@ -10,6 +10,7 @@ import { head as chatHead, openConversation, startConversation } from "../chat/c
 import { statusItems } from "../chat/messages.js";
 import { initExtras } from "./extras.js";
 import { initUsage } from "./usage.js";
+import { initCelebrate } from "./celebrate.js";
 import { api, link } from "../core/api.js";
 import { SQ, searchHTML, askEngine } from "./search.js";
 
@@ -134,6 +135,7 @@ export function initShell() {
   document.addEventListener("keydown", (e) => { if (e.target.id === "side-q" && e.key === "Escape") { SQ.q = ""; e.target.blur(); renderNow(); } });
   initExtras();
   initUsage();
+  initCelebrate();
   markLive(["chat", "newconv", "newmenu", "places14", "owner", "themeset", "theme-flip", "side-toggle", "guide"]);
   on("chat", (el) => openConversation(el.dataset.id));
   on("newconv", () => { closePop(); startConversation(); });
