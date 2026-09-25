@@ -238,11 +238,47 @@ test("angle 6 BYPASS: /bg from a Trunk's side of a room ignores the room's mode,
   assert.equal(wrote("rm1"), false, `held to the room's Ask first (it was given ${modeOf(run.sessionId)})`);
 });
 
+test("angle 6 BYPASS, default settings: /bg from a conversation that follows a Read only setting asks instead of refusing", async (t) => {
+  const { app, api, wrote, modeOf } = await fixture(t, { preset: "read-only" });
+  const parent = await api("/api/run", { prompt: "Hello" }); // no mode: it follows the owner's setting, as one begun on the phone does
+  assert.equal(modeOf(parent.sessionId), null);
+  await api("/api/run", { prompt: "write d0", sessionId: parent.sessionId });
+  const own = await settled(app, "write d0");
+  assert.notEqual(own.status, "needs_input", "control: the conversation itself refuses the write, it does not ask");
+  assert.equal(wrote("d0"), false);
+  await bg(api, { surface: "window", line: "/bg write d1", sessionId: parent.sessionId });
+  const run = await settled(app, "write d1");
+  assert.equal(wrote("d1"), false);
+  assert.equal(run.status, own.status, `held to the conversation it came from (it was given ${modeOf(run.sessionId)}, and stopped on ${run.status})`);
+});
+
+test("angle 6: another profile's conversation, and /bg while another profile is in use", async (t) => {
+  const { app, api, send, wrote, modeOf } = await fixture(t);
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  const theirs = await api("/api/run", { prompt: "Hello from Sam" });
+  await new Promise((resolve) => setTimeout(resolve, 500)); // filed under Sam, so not in the owner's list
+  const whileSam = await send("/api/commands/run", { surface: "window", line: "/bg write pf0" });
+  assert.match(whileSam.body.text, /belongs to the owner/, "/bg is the owner's alone");
+  app.store.profiles.switch({ profileId: null });
+  pickConversationMode(app, theirs.sessionId, "ask");
+  const fromOwner = await send("/api/commands/run", { surface: "window", line: "/bg write pf1", sessionId: theirs.sessionId });
+  assert.equal(fromOwner.status, 404, "the owner cannot start /bg from Sam's conversation");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  for (const tag of ["pf0", "pf1"]) assert.equal(started(app, `write ${tag}`), undefined, tag);
+  assert.equal(wrote("pf0") || wrote("pf1"), false);
+  assert.equal(modeOf(theirs.sessionId), "ask");
+});
+
 test("angle 6: at most three background tasks start, even when five /bg arrive at once", async (t) => {
   const { app, api, gate } = await fixture(t);
   const replies = await Promise.all([1, 2, 3, 4, 5].map((n) => bg(api, { surface: "phone", line: `/bg hold race ${n}` })));
   const count = app.store.runs(app.runtime.owner).filter((run) => run.prompt.startsWith("hold race")).length;
   gate.release();
-  for (let n = 1; n <= count; n++) await settled(app, `hold race ${n}`).catch(() => undefined);
-  assert.ok(count <= 3, `${count} background tasks started: ${replies.map((r) => r.text).join(" | ")}`);
+  for (const run of app.store.runs(app.runtime.owner).filter((one) => one.prompt.startsWith("hold race"))) await settled(app, run.prompt);
+  const texts = replies.map((reply) => reply.text).join(" | ");
+  assert.equal(count, 3, `${count} background tasks started: ${texts}`);
+  assert.equal(replies.filter((reply) => /already working/.test(reply.text)).length, 2, texts);
 });
+
