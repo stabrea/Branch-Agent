@@ -42,16 +42,21 @@ export function gitEnvironment(source: NodeJS.ProcessEnv = process.env, platform
  * pinned to a harmless value. `-c` outranks every config file, and Git hands these to the Git
  * processes it starts itself (a submodule's), so a folder a task wrote cannot run anything through
  * them. These are the settings with a FIXED name. The named drivers a repository can also define —
- * `filter.<name>.clean/smudge/process` and `diff.<name>.textconv`, which Git runs during an everyday
- * status, diff or checkout — have a name Branch cannot know ahead of time, so they are read from the
- * folder itself and switched off per run instead (see `driverNeutralisers` and `GitRunner.run`).
- * Together these cover the class of settings a repository's own config could use to start a program.
- * `diff.external` cannot be emptied, so it names `false`: a patch Branch asks for passes
- * `--no-ext-diff` (src/integrations/git.ts), and any other would stop loudly rather than run a program.
- * The owner's own sign-in (credential helpers, askPass, sshCommand, the computer-wide config file
- * where macOS keeps its keychain helper) is left alone: Branch's pushes use it, and the folder's own
- * drivers are read with the owner's global and system config left out, so their own filters keep
- * working for a folder no task touched.
+ * `filter.<name>.clean/smudge/process`, `diff.<name>.textconv` and `merge.<name>.driver`, which Git
+ * runs during an everyday status, diff, checkout or merge — have a name Branch cannot know ahead of
+ * time, so they are read from the folder itself and switched off per run instead (see
+ * `driverNeutralisers` and `GitRunner.run`). Together the fixed-name pins here and the per-run driver
+ * switches cover the settings a repository's own config could use to start a program, with one
+ * setting left to the callers: a per-driver external diff, `diff.<name>.command`, is not emptied here.
+ * `diff.external` (the one external diff with a fixed name) names `false`, which stops that program
+ * loudly; `diff.<name>.command` still runs on a plain `git diff`, so it is kept off by every
+ * patch-producing Git call passing `--no-ext-diff` (git.ts's `noPrograms`) — a new patch-producing
+ * caller must pass it too. The owner's own sign-in (credential helpers, askPass, sshCommand, the
+ * computer-wide config file where macOS keeps its keychain helper) is left alone: Branch's pushes use
+ * it, and the folder's own drivers are read with the owner's global and system config left out, so
+ * their own filters and merge drivers keep working for a folder no task touched. A folder whose own
+ * filter is `required` (or whose merge driver is emptied by the pin) makes the affected Git command
+ * fail closed — no program runs — rather than pass the content through.
  */
 export const pinnedGitConfig: readonly string[] = [
   "core.fsmonitor=false", "core.pager=cat", "core.editor=:", "sequence.editor=:", "diff.external=false", "protocol.ext.allow=never",
@@ -98,57 +103,75 @@ export function hardening(cwd: string, inSource = inBranchSource(cwd)): string[]
 
 /**
  * Q192: the driver settings a folder's own config can carry, read so their name is known: a clean,
- * smudge or process filter, and a diff textconv. A `.gitattributes` picks one of these by name and
- * Git then starts the program it points to — during a plain status, diff or checkout, not only a
- * command a task wrote. The config sources a task could write (local config, `config.worktree`,
- * files these include) are all covered by reading the folder itself; the query runs with the owner's
- * global and system config left out (`GIT_CONFIG_NOSYSTEM`, a `GIT_CONFIG_GLOBAL` that is not there),
- * so a driver the owner set for themselves is not read here and keeps working for a folder no task touched.
+ * smudge or process filter, a diff textconv, and a merge driver. A `.gitattributes` picks one of
+ * these by name and Git then starts the program it points to — during a plain status, diff, checkout
+ * or a branch merge, not only a command a task wrote. Only `merge.<name>.driver` in the merge family
+ * names a program: `merge.<name>.name` is a label, and `merge.<name>.recursive` names another driver
+ * (whose own `.driver` is caught by this same pattern), not a program. The config sources a task could
+ * write (local config, `config.worktree`, files these include) are all covered by reading the folder
+ * itself; the query runs with the owner's global and system config left out (`GIT_CONFIG_NOSYSTEM`, a
+ * `GIT_CONFIG_GLOBAL` that is not there), so a driver the owner set for themselves is not read here
+ * and keeps working for a folder no task touched.
  */
-const DRIVER_KEY_PATTERN = "^(filter\\..*\\.(clean|smudge|process)|diff\\..*\\.textconv)$";
+const DRIVER_KEY_PATTERN = "^(filter\\..*\\.(clean|smudge|process)|diff\\..*\\.textconv|merge\\..*\\.driver)$";
 
 /**
- * Q192: the subcommands that can run a `diff.<name>.textconv` program. `--no-textconv` (name-independent)
- * switches textconv off for these, so a textconv driver never needs emptying by name and its name is
- * never a reason to refuse. No other subcommand runs textconv, so none needs the flag.
+ * Q192: the subcommands that can run a `diff.<name>.textconv` program and accept `--no-textconv`.
+ * `--no-textconv` (name-independent) switches textconv off for these, so a textconv driver never needs
+ * emptying by name and its name is never a reason to refuse. `diff`/`log`/`show` and their kin, and
+ * `blame`/`annotate`, run textconv on their own; `grep` runs it only when the caller passes
+ * `--textconv`. The injected `--no-textconv` sits right after the subcommand, so a caller's own later
+ * `--textconv` (a deliberate opt-in) still wins; no Branch caller passes one. `cat-file --textconv`
+ * runs textconv but has no `--no-textconv` option, so it is not listed (and `git.ts` runs `cat-file`
+ * only with `-e`, never `--textconv`). No Branch caller runs `blame`, `annotate`, `grep` or `cat-file`
+ * through `GitRunner` today; they are listed so a later caller is covered.
  */
 export const TEXTCONV_SUBCOMMANDS: ReadonlySet<string> = new Set([
   "diff", "diff-files", "diff-index", "diff-tree", "log", "show", "whatchanged", "reflog", "format-patch", "range-diff", "grep",
+  "blame", "annotate",
 ]);
 
 /**
  * Q192: from the NUL-separated `git config --get-regexp` reply for the driver keys, the neutralisers
- * for the drivers a folder's own config defines. A clean/smudge/process filter runs during an
- * everyday status, add, diff or checkout whatever flags are passed, so each is emptied by name with a
- * `-c` setting (an empty filter command passes content through unchanged, starting no program).
- * `textconv` is instead reported as a flag on the result, because it runs only for the subcommands
- * above and is switched off by `--no-textconv`, which does not depend on the driver's name.
- * `null` when a FILTER name carries `=`, which `-c name=value` reads as the value separator, so that
- * filter cannot be emptied by name: the caller then refuses to run Git in the folder rather than run
- * it with the filter still live. A textconv name with `=` is fine — `--no-textconv` covers it.
+ * for the drivers a folder's own config defines. A clean/smudge/process filter runs during an everyday
+ * status, add, diff or checkout whatever flags are passed, and a merge driver runs during a branch
+ * merge, so each is emptied by name with a `-c` setting: an empty filter command passes content
+ * through unchanged, and an empty merge driver command makes Git fail the merge closed (it starts no
+ * program and leaves the file unmerged) rather than run one. `textconv` is instead reported as a flag
+ * on the result, because it runs only for the subcommands above and is switched off by `--no-textconv`,
+ * which does not depend on the driver's name. `null` when a FILTER or MERGE name carries `=`, which
+ * `-c name=value` reads as the value separator, so that driver cannot be emptied by name: the caller
+ * then refuses to run Git in the folder rather than run it with the driver still live. A textconv name
+ * with `=` is fine — `--no-textconv` covers it.
  */
 export function driverNeutralisers(reply: string): { pins: string[]; textconv: boolean } | null {
   const filters = new Set<string>();
+  const merges = new Set<string>();
   let textconv = false;
   for (const record of reply.split("\0")) {
     if (!record) continue;
     const newline = record.indexOf("\n");
     const key = newline < 0 ? record : record.slice(0, newline);
-    const name = /^filter\.(.+)\.(?:clean|smudge|process)$/.exec(key)?.[1];
-    if (name !== undefined) {
-      if (name.includes("=")) return null;
-      filters.add(name);
+    const filterName = /^filter\.(.+)\.(?:clean|smudge|process)$/.exec(key)?.[1];
+    const mergeName = /^merge\.(.+)\.driver$/.exec(key)?.[1];
+    if (filterName !== undefined) {
+      if (filterName.includes("=")) return null;
+      filters.add(filterName);
+    } else if (mergeName !== undefined) {
+      if (mergeName.includes("=")) return null;
+      merges.add(mergeName);
     } else if (/^diff\..+\.textconv$/.test(key)) {
       textconv = true;
     }
   }
   const pins: string[] = [];
   for (const name of filters) pins.push("-c", `filter.${name}.clean=`, "-c", `filter.${name}.smudge=`, "-c", `filter.${name}.process=`);
+  for (const name of merges) pins.push("-c", `merge.${name}.driver=`);
   return { pins, textconv };
 }
 
-/** Q192: the plain reason Git is not run in a folder whose own settings name a filter Branch cannot switch off. */
-export const undisarmableDriver = "This folder's Git settings name a filter Branch cannot switch off safely, so Git did not run here.";
+/** Q192: the plain reason Git is not run in a folder whose own settings name a filter or merge driver Branch cannot switch off. */
+export const undisarmableDriver = "This folder's Git settings name a filter or merge driver Branch cannot switch off safely, so Git did not run here.";
 
 /**
  * Q192: `--no-textconv` placed just after the subcommand, when the folder's own config has a textconv
@@ -220,8 +243,8 @@ export class GitRunner {
     const inSource = inBranchSource(options.cwd);
     const env = { ...gitEnvironment(this.options.env), ...(inSource ? pinnedEnvironmentInSource : {}) };
     const command = options.args.filter((argument) => !argument.startsWith("-")).slice(0, 2).join(" ");
-    // Q192: switch off any clean/smudge/process filter or diff textconv the folder's own config
-    // defines, so this run starts no program through one; refuse the run if a filter cannot be switched off.
+    // Q192: switch off any clean/smudge/process filter, diff textconv or merge driver the folder's own
+    // config defines, so this run starts no program through one; refuse the run if one cannot be switched off.
     const disarm = await this.driverPins(executable, options.cwd, inSource, env, signal);
     if (disarm === null) return refusedGit(command, undisarmableDriver);
     const userArgs = withNoTextconv(options.args, disarm.textconv);
@@ -235,8 +258,8 @@ export class GitRunner {
   }
 
   /**
-   * Q192: the `-c` settings that switch off the folder's own filter and diff drivers, read with the
-   * owner's global and system config left out. `null` means one cannot be switched off safely (its
+   * Q192: the `-c` settings that switch off the folder's own filter, diff and merge drivers, read with
+   * the owner's global and system config left out. `null` means one cannot be switched off safely (its
    * name carries `=`, or its settings could not be read whole), so the caller refuses to run Git here.
    * The query runs Git directly (not through `run`, which would call this again) and starts no program:
    * `git config` only reads settings.

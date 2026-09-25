@@ -192,3 +192,141 @@ test('the owner\'s own global driver still runs for a folder no task touched', {
   await runner.run({ cwd: repo, args: ['diff', '--name-only', 'HEAD'] }, AbortSignal.timeout(30000));
   assert.equal(ran(marker), true, 'a global driver the owner set is left working for a folder no task touched');
 });
+
+/**
+ * Q192: a repository's own merge driver never makes Branch's Git start a program.
+ *
+ * git.ts merges a tried branch with `merge --no-ff --no-edit` (planMerge). A repository the owner did
+ * not write can define a `merge.<name>.driver` in its own config and select it with a committed
+ * `.gitattributes` `* merge=<name>`; Git would then run that program on the first file both sides
+ * changed. These tests plant such a driver and prove Branch's Git runs none of it, while the owner's
+ * own global merge driver keeps working for a folder no task touched.
+ */
+
+/** A temporary repository with two divergent branches whose content merge triggers the folder's own merge driver. */
+async function repoWithMergeDriver(t, home, driverName, attrName) {
+  const scratch = join(tmpdir(), 'Codex-session-files');
+  await mkdir(scratch, { recursive: true });
+  const root = await mkdtemp(join(scratch, 'branch-merge-repo-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, 'project');
+  await mkdir(repo, { recursive: true });
+  const marker = join(root, 'MARKER');
+  const env = { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: join(home, '.gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  const git = async (args) => assert.equal(await plainGit(args, repo, env), 0, `setup: git ${args.join(' ')}`);
+  await git(['init', '--initial-branch=main']);
+  await git(['config', 'user.name', 'Outsider']);
+  await git(['config', 'user.email', 'outsider@example.invalid']);
+  // The driver drops a marker and reports a conflict, so a live driver is visible and never resolves silently.
+  await git(['config', `merge.${driverName}.driver`, `sh -c 'touch "${marker}"; false'`]);
+  await writeFile(join(repo, '.gitattributes'), `* merge=${attrName}\n`);
+  await writeFile(join(repo, 'a.dat'), 'base\n');
+  await git(['add', '--', '.gitattributes', 'a.dat']);
+  await git(['commit', '--message', 'base']);
+  // Two lines of work that change the same file, so merging one into the other is a content merge.
+  await git(['checkout', '-b', 'other']);
+  await writeFile(join(repo, 'a.dat'), 'theirs\n');
+  await git(['commit', '--all', '--message', 'theirs']);
+  await git(['checkout', 'main']);
+  await writeFile(join(repo, 'a.dat'), 'ours\n');
+  await git(['commit', '--all', '--message', 'ours']);
+  await rm(marker, { force: true });
+  return { repo, marker, env };
+}
+
+test('a planted merge driver never runs when Branch Git merges a branch', { ...needsGit }, async (t) => {
+  const home = await cleanHome(t);
+  const { repo, marker, env } = await repoWithMergeDriver(t, home, 'evil', 'evil');
+  // Control: without the hardening, the folder's own merge driver really does run on the conflicting file.
+  await plainGit(['merge', '--no-ff', '--no-edit', '-m', 'try', 'other'], repo, env);
+  assert.equal(ran(marker), true, 'without hardening the planted merge driver runs');
+  await plainGit(['merge', '--abort'], repo, env);
+  await rm(marker, { force: true });
+
+  const runner = runnerFor(home);
+  await runner.run({ cwd: repo, args: ['merge', '--no-ff', '--no-edit', '-m', 'try', 'other'] }, AbortSignal.timeout(30000));
+  assert.equal(ran(marker), false, 'the repository\'s own merge driver never starts a program');
+});
+
+test('a merge driver name Branch cannot make safe fails closed, running no program', { ...needsGit }, async (t) => {
+  const home = await cleanHome(t);
+  // "=" in the driver name defeats a "-c merge.<name>.driver=" pin (Git splits -c on the first "="),
+  // so Branch refuses to run Git in the folder rather than run it with the driver still live.
+  const { repo, marker, env } = await repoWithMergeDriver(t, home, 'we=rd', 'we=rd');
+  await plainGit(['merge', '--no-ff', '--no-edit', '-m', 'try', 'other'], repo, env);
+  assert.equal(ran(marker), true, 'without hardening the awkwardly named merge driver runs');
+  await plainGit(['merge', '--abort'], repo, env);
+  await rm(marker, { force: true });
+
+  const runner = runnerFor(home);
+  const outcome = await runner.run({ cwd: repo, args: ['merge', '--no-ff', '--no-edit', '-m', 'try', 'other'] }, AbortSignal.timeout(30000));
+  assert.equal(ran(marker), false, 'the awkwardly named merge driver never starts a program');
+  assert.notEqual(outcome.status, 'completed', 'Branch refuses to run Git in that folder rather than run it unprotected');
+});
+
+test('a planted diff textconv never runs when Branch Git blames a file', { ...needsGit }, async (t) => {
+  const home = await cleanHome(t);
+  const { repo, marker, env } = await repoWithDriver(t, home, async ({ git, repo, marker }) => {
+    await git(['config', 'diff.evil.textconv', `sh -c 'touch "${marker}"; cat "$1"' -`]);
+    await writeFile(join(repo, '.gitattributes'), '*.dat diff=evil\n');
+  });
+  // Control: git blame runs textconv (which is on by default for blame) without the hardening.
+  await plainGit(['blame', '--', 'a.dat'], repo, env);
+  assert.equal(ran(marker), true, 'without hardening git blame runs the planted textconv');
+  await rm(marker, { force: true });
+
+  const runner = runnerFor(home);
+  const out = await runner.run({ cwd: repo, args: ['blame', '--', 'a.dat'] }, AbortSignal.timeout(30000));
+  assert.equal(ran(marker), false, 'the repository\'s own textconv driver never starts a program through blame');
+  assert.equal(out.status, 'completed', 'the blame itself still completes');
+});
+
+test('a planted diff textconv never runs when Branch Git annotates a file', { ...needsGit }, async (t) => {
+  const home = await cleanHome(t);
+  const { repo, marker, env } = await repoWithDriver(t, home, async ({ git, repo, marker }) => {
+    await git(['config', 'diff.evil.textconv', `sh -c 'touch "${marker}"; cat "$1"' -`]);
+    await writeFile(join(repo, '.gitattributes'), '*.dat diff=evil\n');
+  });
+  // Control: git annotate runs textconv (on by default) without the hardening.
+  await plainGit(['annotate', '--', 'a.dat'], repo, env);
+  assert.equal(ran(marker), true, 'without hardening git annotate runs the planted textconv');
+  await rm(marker, { force: true });
+
+  const runner = runnerFor(home);
+  const out = await runner.run({ cwd: repo, args: ['annotate', '--', 'a.dat'] }, AbortSignal.timeout(30000));
+  assert.equal(ran(marker), false, 'the repository\'s own textconv driver never starts a program through annotate');
+  assert.equal(out.status, 'completed', 'the annotate itself still completes');
+});
+
+test('the owner\'s own global merge driver still runs for a folder no task touched', { ...needsGit }, async (t) => {
+  const home = await cleanHome(t);
+  const marker = join(home, 'GLOBAL_MERGE_MARKER');
+  // A repository with NO merge driver of its own; only the owner's global one applies.
+  const scratch = join(tmpdir(), 'Codex-session-files');
+  await mkdir(scratch, { recursive: true });
+  const root = await mkdtemp(join(scratch, 'branch-merge-plain-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, 'project');
+  await mkdir(repo, { recursive: true });
+  const env = { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: join(home, '.gitconfig') };
+  const git = async (args) => assert.equal(await plainGit(args, repo, env), 0, `setup: git ${args.join(' ')}`);
+  await git(['config', '--global', 'user.name', 'Owner']);
+  await git(['config', '--global', 'user.email', 'owner@example.invalid']);
+  await git(['config', '--global', 'merge.ownermerge.driver', `sh -c 'touch "${marker}"; false'`]);
+  await git(['init', '--initial-branch=main']);
+  await writeFile(join(repo, '.gitattributes'), '*.dat merge=ownermerge\n');
+  await writeFile(join(repo, 'a.dat'), 'base\n');
+  await git(['add', '--', '.gitattributes', 'a.dat']);
+  await git(['commit', '--message', 'base']);
+  await git(['checkout', '-b', 'other']);
+  await writeFile(join(repo, 'a.dat'), 'theirs\n');
+  await git(['commit', '--all', '--message', 'theirs']);
+  await git(['checkout', 'main']);
+  await writeFile(join(repo, 'a.dat'), 'ours\n');
+  await git(['commit', '--all', '--message', 'ours']);
+  await rm(marker, { force: true });
+
+  const runner = runnerFor(home);
+  await runner.run({ cwd: repo, args: ['merge', '--no-ff', '--no-edit', '-m', 'try', 'other'] }, AbortSignal.timeout(30000));
+  assert.equal(ran(marker), true, 'a global merge driver the owner set is left working for a folder no task touched');
+});
