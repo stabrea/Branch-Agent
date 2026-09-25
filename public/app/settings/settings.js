@@ -58,17 +58,17 @@ export function draw() {
         .map(([id, l]) => `<button class="nav" type="button" data-act="setpage" data-v="${id}" aria-current="${S.setPage === id}">${esc(l)}</button>`)
         .join("")}`
     )
-    .join("") || '<p class="hint" data-css="padding:0 10px">No page matches.</p>';
+    .join("");
 
   const page = PAGES[S.setPage];
-  const pageContent = page?.draw?.() || `<div class="set-col"><h1>Settings</h1></div>`;
+  const pageContent = page?.draw?.() ?? "";
 
-  return `<div class="settings" data-note="settings">
+  return `<div class="settings">
     <nav class="set-nav" aria-label="Settings pages">
       <button class="set-back" type="button" data-act="view" data-v="chat">${ic("back", "s")}Back to Branch</button>
       <label class="set-search">${ic("search", "s")}<input id="set-q" placeholder="Search settings" value="${esc(searchText)}" aria-label="Search settings"></label>
       ${nav}
-      <div class="set-level" data-note="level" data-css="display:grid;gap:6px">
+      <div class="set-level" data-css="display:grid;gap:6px">
         <span>How much to show</span>
         <span class="seg" role="group" aria-label="How much to show">
           ${[["regular", "Regular"], ["advanced", "Advanced"], ["technical", "Technical"]]
@@ -108,7 +108,11 @@ export function init() {
   document.addEventListener("input", (e) => {
     if (e.target.id === "set-q") {
       searchText = e.target.value;
+      const pos = e.target.selectionStart;
       renderNow();
+      const box = $("#set-q");
+      box?.focus();
+      box?.setSelectionRange(pos, pos);
     }
   });
 
@@ -124,8 +128,6 @@ export function init() {
 }
 
 export function after(main) {
-  const input = $("input#set-q", main);
-  if (input && document.activeElement !== input) input.focus();
 
   for (const page of Object.values(PAGES)) page.after?.($(".set-col", main));
 }
