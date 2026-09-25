@@ -4,6 +4,7 @@ import { audit } from "../audit.js";
 import { securityShaped, secretShaped, settingsCatalogue, specFor, switchPositions, type FieldSpec, type SettingSpec } from "./catalogue.js";
 import { pinnedIds, pinnedRefusal, pinFor } from "./pins.js"; // mac7/wake-pins
 import { recordSettingsChange, type ChangeOrigin } from "./history.js"; // Q48
+import type { ToolLister } from "../preset-moves.js";
 
 /**
  * R17-S-A: one list of changes, whoever proposed them — putting settings back, a whole-app preset,
@@ -27,6 +28,8 @@ export interface Change {
   to: Value;
   /** True when this change makes Branch less careful or lets it reach further. */
   loosens: boolean;
+  /** For a setting weighed by what it lets through (the approval preset): what would get less careful, in plain words. */
+  looser?: string;
   /**
    * mac7/wake-pins: the owner pinned this setting. A whole-app preset, a settings file and putting
    * everything back all step over it rather than failing, so one pinned switch never stops an
@@ -72,7 +75,8 @@ export function currentValue(store: Store, owner: string, spec: SettingSpec, fie
   const kind = field.kind;
   if (kind.type === "number" && kind.fractions && typeof saved === "number" && Number.isFinite(saved) && saved >= kind.min && saved <= kind.max) return saved;
   // A choice saved outside the list ("custom" approval rules) is shown as it is, and counts as the
-  // least known position, so moving away from it always asks for the separate yes.
+  // least known position, so moving away from it asks for the separate yes. The approval preset is the
+  // exception: a move of it is weighed by what the rules answer before and after (`SettingSpec.weigh`).
   return field.kind.type === "choice" && typeof saved === "string" ? saved.slice(0, 40) : field.initial;
 }
 
@@ -98,9 +102,10 @@ export function loosens(field: FieldSpec, from: Value, to: Value, spec?: Pick<Se
 /**
  * Turns proposals into the changes they would make. Anything that is not in the catalogue, sounds
  * like a secret, or is not a value the field can hold is refused with a reason; anything that would
- * change nothing is left out.
+ * change nothing is left out. `tools` are the tools Branch has, which a move of the approval preset
+ * is weighed on; without them such a move counts as less careful.
  */
-export function changesFor(store: Store, owner: string, proposals: readonly Proposal[]): { changes: Change[]; refused: string[] } {
+export function changesFor(store: Store, owner: string, proposals: readonly Proposal[], tools?: ToolLister): { changes: Change[]; refused: string[] } {
   const changes: Change[] = [];
   const refused: string[] = [];
   const seen = new Set<string>();
@@ -120,8 +125,12 @@ export function changesFor(store: Store, owner: string, proposals: readonly Prop
     const from = currentValue(store, owner, spec, field);
     if (from === to || seen.has(id)) continue;
     seen.add(id);
+    let looser: string | null | undefined;
+    try { looser = spec.weigh?.(store, owner, field.field, to, tools); }
+    catch (error) { refused.push(`${id}: ${(error as Error).message}`); continue; }
     changes.push({ id, key: spec.key, field: field.field, name: spec.name, nameT: spec.t, label: field.label, labelT: field.t,
-      home: spec.home, from, to, loosens: loosens(field, from, to, spec), pinned: pinned.has(id) });
+      home: spec.home, from, to, loosens: looser === undefined ? loosens(field, from, to, spec) : looser !== null,
+      ...(looser ? { looser } : {}), pinned: pinned.has(id) });
   }
   return { changes, refused };
 }

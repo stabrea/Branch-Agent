@@ -2694,7 +2694,7 @@ ${run.output.slice(0, 6000)}`;
     const answered = decision === "ask" && !hold?.onceOnly
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact || unkeyed) : undefined;
     // Q50: a change to Branch's own settings is asked about with its exact before and after.
-    const preview = settingsPreview(this.store, tool, args, context);
+    const preview = settingsPreview(this.store, tool, args, context, this.registry);
     const shown = preview ? `${label}: ${preview}` : label;
     const noted = extra.note ? `${shown} — ${extra.note}` : shown; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,

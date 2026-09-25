@@ -1,6 +1,7 @@
 import { reachKey, reachLabels, reachParts, savedReachMode, type ReachPart } from "../reach/settings.js";
 import { listenAsked, listenPlaces, ListenSettingsSchema, listenKey, saveListenSettings } from "../listen-address.js"; // mac7/bind
-import { readPolicy, savePolicy } from "../policy.js";
+import { readPolicy, savePolicy, type PolicyPresetName } from "../policy.js";
+import { presetMoveLooser, type ToolLister } from "../preset-moves.js";
 import type { Store } from "../store.js";
 import { loopGuardMode, saveLoopGuardSettings } from "../loop-guard.js";
 import { folderTrustMode, saveFolderTrustSettings } from "../folder-trust.js";
@@ -204,6 +205,12 @@ export interface SettingSpec {
   putBack?: (store: Store, owner: string) => void;
   /** The whole record `putBack` writes, so put-back can name the saved values no field weighs when they differ from it (Q99). */
   shipped?: () => Record<string, unknown>;
+  /**
+   * A field whose move is weighed by what it lets through rather than by the order of its options (the
+   * approval preset): what would get less careful, in plain words, or null when nothing would; undefined
+   * leaves the field to the order of its options. It throws, with the reason, for a move that cannot be made.
+   */
+  weigh?: (store: Store, owner: string, field: string, to: string | number | boolean, tools: ToolLister | undefined) => string | null | undefined;
 }
 
 const sw = (field: string, label: string, t: string, guard: Guard): FieldSpec =>
@@ -246,6 +253,10 @@ const safety: SettingSpec[] = [
     // The approval rules are worked out from the preset, so the preset is saved the way the card saves it.
     write: (store, owner, patch) => { savePolicy(store, owner, patch, "Changed from Settings: presets, reset or a settings file"); },
     read: (store, owner) => ({ ...readPolicy(store, owner) }),
+    // A move of the preset is weighed by what the policy answers before and after it, the owner's own
+    // rules included; its place in the list of options is only a label (src/preset-moves.ts).
+    weigh: (store, owner, field, to, tools) =>
+      field === "preset" ? presetMoveLooser(readPolicy(store, owner), to as PolicyPresetName, tools) : undefined,
   },
   one("approval_reviewer", "A second look before approvals", "settings-kit.name.reviewer", "settings:permissions", "guard",
     { write: (store, owner, patch) => { saveReviewerSettings(store, owner, patch); }, read: (store, owner) => ({ ...reviewerSettings(store, owner) }) }),

@@ -354,14 +354,16 @@ test("a task the owner did not start cannot be given a standing yes and never ge
   savePolicy(app.store, app.runtime.owner, { preset: "off" });
   assert.equal(evaluatePolicy(cappedPolicy(readPolicy(app.store, app.runtime.owner), "trigger"),
     { tool: "files.write", target: "auto.txt", readOnly: false }).decision, "ask");
-  // The run itself cannot hand out a permanent yes.
+  // The run itself cannot hand out a permanent yes. The owner's own refusal above stays through the
+  // moves of the preset, so the rules to compare with are the ones in force before the run.
   savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
+  const rulesBefore = readPolicy(app.store, app.runtime.owner).rules;
   const run = await app.runtime.run({ prompt: "write it", source: "trigger" });
   assert.equal(run.status, "needs_input");
   assert.throws(() => app.runtime.approve(run.sessionId, "allow", "always"), /standing yes/);
   const once = await api("POST", "/api/policy/approve", { sessionId: run.sessionId, decision: "allow", remember: "session" });
   assert.equal(once.status, 200);
-  assert.equal(readPolicy(app.store, app.runtime.owner).rules.length, 1, "no rule was added by the task");
+  assert.deepEqual(readPolicy(app.store, app.runtime.owner).rules, rulesBefore, "no rule was added by the task");
 });
 
 test("a website is checked with you once and then remembered, under the workspace preset", async (t) => {

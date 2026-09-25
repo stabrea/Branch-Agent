@@ -10,6 +10,7 @@ import type { ChangeOrigin } from "./history.js";
 import { planUndo, undoSettingsChange, whySetting } from "./undo.js"; // Q49
 import { lockedDown } from "../lockdown.js";
 import { clarifyRequest } from "./clarify.js";
+import type { ToolLister } from "../preset-moves.js";
 
 /**
  * Changing Branch's own settings by asking for it: "turn the wake word on", "switch off the learning
@@ -148,14 +149,14 @@ function proposalOf(entry: ChangeInput["changes"][number]): Proposal | string {
 }
 
 interface Planned { changes: Change[]; refused: string[] }
-function plan(store: Store, owner: string, input: ChangeInput): Planned {
+function plan(store: Store, owner: string, input: ChangeInput, tools: ToolLister | undefined): Planned {
   const proposals: Proposal[] = [];
   const refused: string[] = [];
   for (const entry of input.changes) {
     const made = proposalOf(entry);
     if (typeof made === "string") refused.push(made); else proposals.push(made);
   }
-  const checked = changesFor(store, owner, proposals);
+  const checked = changesFor(store, owner, proposals, tools);
   return { changes: checked.changes, refused: [...refused, ...checked.refused] };
 }
 
@@ -166,6 +167,8 @@ function talked(store: Store, context: ToolContext): ChangeOrigin {
 }
 
 const said = (change: Change): string => `${change.name}, ${change.label}: ${String(change.from)} → ${String(change.to)}`;
+/** The same, with what it would make less careful when that is known, for a refusal and for the owner's question. */
+const saidWhy = (change: Change): string => `${said(change)}${change.looser ? ` (${change.looser})` : ""}`;
 
 /**
  * What the owner is asked about: exactly what the call asks for, from the call alone. It reads
@@ -182,28 +185,28 @@ function describe(input: ChangeInput): string {
  * a conversation they started, so a refused caller never gets Branch to read the owner's settings;
  * `describe` above stays the call's target, which rules and kept answers match against.
  */
-export function settingsPreview(store: Store, tool: string, args: unknown, context: ToolContext): string | null {
+export function settingsPreview(store: Store, tool: string, args: unknown, context: ToolContext, tools?: ToolLister): string | null {
   if (tool !== "settings.change" && tool !== "settings.loosen") return null;
   const input = ChangeSchema.safeParse(args);
   if (!input.success || !ownerIsHere(store, context)) return null;
-  const { changes } = plan(store, context.owner, input.data);
+  const { changes } = plan(store, context.owner, input.data, tools);
   // A pinned setting is stepped over when the change is saved, so it is shown staying as it is.
   const shown = (change: Change): string => change.pinned
-    ? `${change.name}, ${change.label}: stays ${String(change.from)} (pinned)` : said(change);
+    ? `${change.name}, ${change.label}: stays ${String(change.from)} (pinned)` : saidWhy(change);
   return (changes.length ? changes.map(shown).join("; ") : "every setting is already as asked").slice(0, 600);
 }
 
 /** Both change tools: the same plan, the same save, one rule about which may make Branch less careful. */
-function changeTool(loosen: boolean, store: Store, writers: () => Record<string, Writer>) {
+function changeTool(loosen: boolean, store: Store, writers: () => Record<string, Writer>, tools: ToolLister) {
   return async (input: ChangeInput, context: ToolContext) => {
     ownerHere(store, context);
     // Q65 review: as in the window (src/settings-kit/api.ts). Lockdown keeps its own copy of what it took over and
     // writes it back when it ends, so a change made underneath it would loosen it now or be thrown away then.
     if (lockedDown(store, context.owner)) throw new Error("Lockdown is on, so settings cannot be changed. The owner turns it off in Settings first.");
-    const { changes, refused } = plan(store, context.owner, input);
+    const { changes, refused } = plan(store, context.owner, input, tools);
     const loose = changes.filter((change) => change.loosens);
     if (!loosen && loose.length)
-      throw new Error(`These would make Branch less careful: ${loose.map(said).join("; ")}. Ask for them with settings.loosen, and the owner is asked about them each time.`);
+      throw new Error(`These would make Branch less careful: ${loose.map(saidWhy).join("; ")}. Ask for them with settings.loosen, and the owner is asked about them each time.`);
     if (loosen && !loose.length)
       throw new Error("None of these makes Branch less careful. Use settings.change for them.");
     if (!changes.length) return { changed: [], refused, note: "Nothing needed changing: every setting is already as asked." };
@@ -230,17 +233,17 @@ function whyTool(store: Store) {
 }
 
 /** Q49: undoing one recorded change, never one that would leave Branch less careful. */
-function undoTool(store: Store, writers: () => Record<string, Writer>) {
+function undoTool(store: Store, writers: () => Record<string, Writer>, tools: ToolLister) {
   return async (input: z.infer<typeof UndoSchema>, context: ToolContext) => {
     ownerHere(store, context);
     if (lockedDown(store, context.owner)) throw new Error("Lockdown is on, so settings cannot be changed. Turn it off first.");
-    const { changes } = planUndo(store, context.owner, input.record);
+    const { changes } = planUndo(store, context.owner, input.record, tools);
     const loose = changes.filter((change) => change.loosens);
     if (loose.length)
-      throw new Error(`Undoing this would make Branch less careful: ${loose.map(said).join("; ")}. Only the owner can do that, on the Recent changes card in Settings.`);
+      throw new Error(`Undoing this would make Branch less careful: ${loose.map(saidWhy).join("; ")}. Only the owner can do that, on the Recent changes card in Settings.`);
     if (context.dryRun) return { wouldPutBack: changes.map(said) };
     const asked = talked(store, context);
-    const done = undoSettingsChange(store, context.owner, input.record, { confirmLoosening: false, writers: writers(),
+    const done = undoSettingsChange(store, context.owner, input.record, { confirmLoosening: false, writers: writers(), tools,
       by: { writer: asked.writer, runId: asked.runId, sessionId: asked.sessionId } });
     return { putBack: done.applied.map(said), record: done.record };
   };
@@ -252,7 +255,7 @@ export function registerSettingsTools(registry: ToolRegistry, store: Store, writ
     description: "Before changing a setting the owner described in their own words, pass those words as request (and the value, if they said one). If it returns status \"ask\", ask the owner exactly that one question and change nothing until they answer. If it returns \"ready\", show the owner the preview (each setting from → to) and then call the tool it names. If it returns \"unchanged\", say so and change nothing.",
     parameters: FindSchema,
     target: () => "Branch's own settings",
-    execute: async (input: FindInput, context: ToolContext) => { ownerHere(store, context); return clarifyRequest(store, context.owner, input); },
+    execute: async (input: FindInput, context: ToolContext) => { ownerHere(store, context); return clarifyRequest(store, context.owner, input, registry); },
   });
   registry.register({
     name: "settings.list", permission: "settings.read",
@@ -266,14 +269,14 @@ export function registerSettingsTools(registry: ToolRegistry, store: Store, writ
     description: "Change some of Branch's own settings, by the names settings.list gives (for example wake-word.mode to \"on\"). When the owner described the setting in their own words, call settings.find first and ask its question if it has one. The owner is asked first. A change that makes Branch less careful is refused here; use settings.loosen for it.",
     parameters: ChangeSchema,
     target: (input: ChangeInput) => describe(input),
-    execute: changeTool(false, store, writers),
+    execute: changeTool(false, store, writers, registry),
   });
   registry.register({
     name: "settings.loosen", permission: "settings.write",
     description: "Make a change to Branch's own settings that leaves it less careful or lets it reach further. The owner is asked every time, and the answer is never kept. Only for changes settings.change refused.",
     parameters: ChangeSchema,
     target: (input: ChangeInput) => describe(input),
-    execute: changeTool(true, store, writers),
+    execute: changeTool(true, store, writers, registry),
   });
   registry.register({
     name: "settings.why", permission: "settings.read",
@@ -287,6 +290,6 @@ export function registerSettingsTools(registry: ToolRegistry, store: Store, writ
     description: "Undo one recorded change to Branch's own settings, by the record id settings.why gives, putting back exactly what each setting was before. The owner is asked first. It is refused as a whole if a setting was changed again since, is pinned, or if undoing would make Branch less careful; the owner does that one on the Recent changes card.",
     parameters: UndoSchema,
     target: (input: z.infer<typeof UndoSchema>) => `undo the settings change ${input.record}`.slice(0, 120),
-    execute: undoTool(store, writers),
+    execute: undoTool(store, writers, registry),
   });
 }
