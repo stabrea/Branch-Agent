@@ -1,4 +1,4 @@
-/* Flows: setup, account wizard, chat apps, pairing, local models, connectors, tour. */
+/* Flows: setup, account wizard, chat apps, pairing, local models, connectors, trunk editor, tour. */
 
 import * as account from "./account.js";
 import * as setup from "./setup.js";
@@ -7,6 +7,7 @@ import * as chat from "./chat.js";
 import * as pair from "./pair.js";
 import * as models from "./models.js";
 import * as connectors from "./connectors.js";
+import * as trunk from "./trunk.js";
 import { S, E } from "../core/state.js";
 import { onRender } from "../core/dom.js";
 
@@ -20,6 +21,7 @@ export function init() {
   pair.init();
   models.init();
   connectors.init();
+  trunk.init();
   onRender(checkFirstRun);
 }
 

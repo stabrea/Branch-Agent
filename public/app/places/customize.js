@@ -2,10 +2,11 @@
 
 import { esc, renderNow } from "../core/dom.js";
 import { S, E } from "../core/state.js";
-import { ic, av } from "../core/ui.js";
+import { ic, av, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
+import { openTrunkEditor } from "../flows/trunk.js";
 
 function tabBar(tabs, place, current) {
   return `<div class="tabs" role="tablist">${tabs.map(([id, label, count]) =>
@@ -159,13 +160,40 @@ export async function after() {
 }
 
 export function init() {
-  markLive(["ptab", "t9-kind", "t9-sel"]);
+  markLive(["ptab", "t9-kind", "t9-sel", "new-trunk", "edit", "pausetrunk", "tool-add"]);
+
+  on("ptab", (el) => {
+    const place = el.dataset.place;
+    const tab = el.dataset.v;
+    if (place === "customize") S.tabs.customize = tab;
+    renderNow();
+  });
+
   on("t9-kind", (el) => {
     toolsSelectedKind = el.dataset.v;
     renderNow();
   });
+
   on("t9-sel", (el) => {
     toolsSelectedId = el.dataset.v;
     renderNow();
+  });
+
+  on("new-trunk", () => openTrunkEditor());
+
+  on("edit", (el) => openTrunkEditor(el.dataset.id));
+
+  on("pausetrunk", async (el) => {
+    const id = el.dataset.id;
+    const trunk = E.trunks?.find(t => t.id === id);
+    if (!trunk) return;
+    const newPausedState = !trunk.paused;
+    try {
+      await api(`trunks/${id}`, { paused: newPausedState }, "PUT");
+      renderNow();
+      toast(`${trunk.name} is ${newPausedState ? 'paused' : 'resumed'}.`);
+    } catch (err) {
+      toast(err.message);
+    }
   });
 }
