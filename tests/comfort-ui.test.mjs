@@ -249,6 +249,7 @@ test("R17-S15: keys pressed into Settings set every window action, and the side 
   await page.locator("#studio").waitFor({ state: "visible" });
   await page.keyboard.press("Escape");
   await page.locator("#studio").waitFor({ state: "hidden" });
+  await page.unroute("**/studio.js"); // NAS's LOW: the delay is for this step only
   await page.keyboard.press("Alt+h");
   await page.waitForFunction(() => document.activeElement?.id === "history-query");
   assert.ok(await page.locator("#history-query").isVisible(), "the history search is open, ready to type in");
