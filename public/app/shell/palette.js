@@ -9,6 +9,7 @@ import { markLive, isLive } from "../core/features.js";
 import { app, ic, closePop, closeDlg } from "../core/ui.js";
 import { openConversation, startConversation } from "../chat/chat.js";
 import { NAV } from "../settings/settings.js";
+import { pressed, binding, spoken } from "./keys.js";
 
 const P = { el: null, sel: 0, items: [] };
 const PLACES = [["overview", "Overview", "home"], ["inbox", "Inbox", "inbox"], ["automations", "Automations", "clock"], ["library", "Library", "book"], ["customize", "Customize", "sliders"]];
@@ -23,7 +24,7 @@ function openPage(id) {
 }
 
 function all() {
-  const actions = [go("New conversation", "Ctrl N", "chat", () => startConversation()),
+  const actions = [go("New conversation", spoken(binding("newConversation")), "chat", () => startConversation()),
     ...ACTIONS.filter(([, , , a]) => has(a) && isLive(a)).map(([l, sub, i, a]) => go(l, sub, i, () => run(a)))];
   return [
     ["Actions", actions],
@@ -77,7 +78,7 @@ export function initPalette() {
   on("pal", (el) => pick(+el.dataset.i));
   document.addEventListener("input", (e) => { if (e.target.id === "pal-in") { P.sel = 0; paint(e.target.value); } });
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); return; }
+    if (pressed(e, "palette")) { e.preventDefault(); openPalette(); return; }
     if (!P.el) return;
     if (e.key === "Escape") { e.stopPropagation(); closePalette(); }
     else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); P.sel = Math.max(0, Math.min(P.items.length - 1, P.sel + (e.key === "ArrowDown" ? 1 : -1))); paint($("#pal-in").value); }

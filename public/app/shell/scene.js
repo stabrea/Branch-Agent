@@ -1,7 +1,7 @@
 /* What lives behind the glass and at the foot of the list, 1:1 with the prototype's: a painted scene behind the window
    when the engine's background is on (GET/POST /api/delight/settings keeps on, scrim and fit), and the pet walking along
    the list when the engine's pet is on. Which painted scene, the season and where the pet walks are the window's own
-   (FEATURE-AUDIT: scene-set, season, petwhere15), kept in this browser. A pat is told to the engine
+   (FEATURE-AUDIT: scene-set, season, petwhere15), kept in this browser; your own file is shell/ownbg.js. A pat is told to the engine
    (POST /api/delight/noticed, which counts it when achievements are on). */
 
 import { $, esc } from "../core/dom.js";
@@ -9,6 +9,7 @@ import { E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { toast } from "../core/ui.js";
 import { effMode } from "./look.js";
+import { OWN, loadOwn } from "./ownbg.js";
 
 const KEY = "branch-scene";
 export const W = { bg: "painted", scene: "auto", season: "auto", petWhere: "side" };
@@ -34,7 +35,7 @@ export function saveWindow() {
 function loadWindow() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (error) { toast(error.message); }
-  if (saved?.bg === "painted" || saved?.bg === "none") W.bg = saved.bg;
+  if (["painted", "none", "own"].includes(saved?.bg)) W.bg = saved.bg;
   if (SCENES.some((s) => s[0] === saved?.scene)) W.scene = saved.scene;
   if (["auto", "spring", "autumn", "winter"].includes(saved?.season)) W.season = saved.season;
   if (["side", "status"].includes(saved?.petWhere)) W.petWhere = saved.petWhere;
@@ -46,14 +47,32 @@ export async function loadDelight() {
   D.asked = true;
   loadWindow();
   try { const d = await api("delight"); D.settings = d.settings ?? null; D.earned = d.earned ?? null; } catch (error) { toast(error.message); }
+  try { await loadOwn(); } catch (error) { toast(error.message); }
 }
 /* Changes only the parts named; the engine merges each part into what it has. */
 export async function saveDelight(part) {
   try { D.settings = (await api("delight/settings", part)).settings; } catch (error) { toast(error.message); }
 }
 
-export const showsBackground = () => !!D.settings?.background?.on && W.bg === "painted";
+/* What "Behind the glass" has chosen: none while the engine's switch is off, else the painted grove or your own. */
+export const bgChoice = () => (D.settings?.background?.on ? W.bg : "none");
+export const showsBackground = () => bgChoice() === "painted" || (bgChoice() === "own" && !!OWN.url);
 const calm = () => !!E.state?.preferences?.reduceMotion || matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* Your own file: a video plays muted in a loop (paused while things are kept still); a picture or an animation fills,
+   fits or repeats as the engine's fit says. */
+function drawOwn(layer, fit) {
+  const { saved } = OWN;
+  if (saved.kind === "video") {
+    const v = Object.assign(document.createElement("video"), { src: OWN.url, muted: true, loop: true, playsInline: true, autoplay: !calm() });
+    v.className = `bg-media fit-${fit === "fit" ? "fit" : "fill"}`;
+    layer.prepend(v);
+    return;
+  }
+  const d = Object.assign(document.createElement("div"), { className: `bg-media bg-img fit-${fit}` });
+  d.style.backgroundImage = `url("${OWN.url}")`;
+  layer.prepend(d);
+}
 
 /* The layer behind the window: made once, redrawn only when what it shows changes. */
 let layerKey = "";
@@ -65,9 +84,11 @@ export function drawBackground() {
   if (!on) { layer?.remove(); layerKey = ""; return; }
   if (!layer) { layer = Object.assign(document.createElement("div"), { id: "bgLayer" }); app.prepend(layer); layerKey = ""; }
   layer.style.setProperty("--scrim", (D.settings.background.scrim ?? 60) / 100);
-  const key = paintFile() + "|" + calm();
+  const own = bgChoice() === "own", fit = D.settings.background.fit ?? "fill";
+  const key = own ? `own|${OWN.url}|${fit}|${calm()}` : paintFile() + "|" + calm();
   if (key === layerKey) return;
   layerKey = key;
+  if (own) { layer.innerHTML = '<div class="bg-scrim"></div>'; drawOwn(layer, fit); return; }
   layer.innerHTML = `<div class="paint11 ${calm() ? "" : "drift11"}"></div><div class="bg-scrim"></div>`;
   layer.firstElementChild.style.backgroundImage = `url("${paintFile()}")`;
 }
