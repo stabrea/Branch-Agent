@@ -17,7 +17,7 @@ import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 const reply = "Here is `npm test` and **bold** words.\n\n- one\n- two";
 const typed = "Please  keep   my spacing\nand this second line.";
 
-async function fixture(t) {
+async function fixture(t, prompt = typed) {
   const root = await mkdtemp(join(tmpdir(), "branch-copy-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
     provider: { name: "scripted", async complete() { return { content: reply, toolCalls: [] }; } } });
@@ -38,7 +38,7 @@ async function fixture(t) {
     await page.getByRole("button", { name: /Try it without an account/ }).click();
     await page.locator("#first-run").waitFor({ state: "hidden" });
   }
-  await page.locator("#prompt").fill(typed);
+  await page.locator("#prompt").fill(prompt);
   await page.locator("#send").click();
   await page.locator(".message.assistant").first().waitFor({ timeout: 20000 });
   return { page, errors };
@@ -88,4 +88,19 @@ test("B8 a message's text can be selected like any page's", async (t) => {
   });
   assert.match(selected.text, /bold words/);
   assert.notEqual(selected.style, "none", "nothing turns selection off on a message");
+});
+
+test("dogfood B22: a one-line message sits in a bubble the size of its words, with its buttons in a row under it", async (t) => {
+  const { page, errors } = await fixture(t, "which model are you?");
+  const message = page.locator("#conversation .message.user").last();
+  await message.hover();
+  const [bubble, row] = await Promise.all([message.boundingBox(), message.locator(".message-controls").boundingBox()]);
+  assert.ok(bubble.height < 70, `the bubble is ${bubble.height}px tall for one line`);
+  assert.ok(row.y >= bubble.y + bubble.height - 1, "Copy and Branch from here sit under the bubble, not inside it");
+  assert.ok(row.height < 40, `and in one row (${row.height}px)`);
+  const next = await page.locator("#conversation .message.assistant").last().boundingBox();
+  assert.ok(next.y >= row.y + row.height, "and the reply starts below them");
+  await message.locator(".message-copy").click();
+  assert.equal(await clipboard(page), "which model are you?");
+  assert.deepEqual(errors, []);
 });
