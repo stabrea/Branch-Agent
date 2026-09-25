@@ -33,8 +33,28 @@ export interface VersionInfo { version: string; path: string; dataDir: string; r
 
 const dataDirOf = (env: NodeJS.ProcessEnv): string => resolve(env.BRANCH_DATA_DIR ?? ".branch");
 
+/** Where the desktop app keeps its saved work on this kind of computer (its user-data folder's `state`). */
+export function desktopDataDirs(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] {
+  const home = env.HOME ?? env.USERPROFILE;
+  const bases = platform === "win32" ? [env.APPDATA, env.LOCALAPPDATA]
+    : platform === "darwin" ? [home && join(home, "Library", "Application Support")]
+      : [env.XDG_CONFIG_HOME ?? (home && join(home, ".config"))];
+  return bases.filter((base): base is string => typeof base === "string" && base.length > 0).map((base) => join(base, "Branch Agent", "state"));
+}
+/**
+ * Dogfood D1: `branch quit` in a plain terminal said "not running" while the desktop app ran, because it looked only
+ * in `.branch` under the folder it was typed in. Without BRANCH_DATA_DIR it now looks there first, then in the desktop
+ * app's own folder, and acts on whichever copy of Branch is running.
+ */
+async function runningDataDir(context: ManageContext): Promise<string> {
+  if (context.env.BRANCH_DATA_DIR) return dataDirOf(context.env);
+  const candidates = [dataDirOf(context.env), ...desktopDataDirs(context.env, context.platform)];
+  for (const dir of candidates) if (await runningNow(dir, context.deps?.quit?.alive)) return dir;
+  return candidates[0]!;
+}
+
 export async function versionInfo(context: ManageContext): Promise<VersionInfo> {
-  const dataDir = dataDirOf(context.env);
+  const dataDir = await runningDataDir(context);
   const installRoot = context.env.BRANCH_INSTALL_ROOT;
   return {
     version: context.version, path: installRoot || context.packageRoot, dataDir,
@@ -43,7 +63,7 @@ export async function versionInfo(context: ManageContext): Promise<VersionInfo> 
 }
 
 async function quit(context: ManageContext): Promise<number> {
-  const report = await quitRunning(dataDirOf(context.env), context.deps?.quit);
+  const report = await quitRunning(await runningDataDir(context), context.deps?.quit);
   context.print(report.message);
   return report.stopped ? 0 : 1;
 }
