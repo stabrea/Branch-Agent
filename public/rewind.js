@@ -9,9 +9,9 @@
  */
 export const CHOICES = ["both", "conversation", "files"];
 
-/** Your messages in a conversation, in the order the page shows them. */
+/** Your messages in a conversation, in the order the page shows them: Branch's own nudges are not drawn (Q206), so not counted. */
 export function userEntries(view) {
-  return (view?.messages ?? []).filter((m) => m.role === "user").map((m) => ({ messageId: m.messageId, content: m.content }));
+  return (view?.messages ?? []).filter((m) => m.role === "user" && m.from !== "branch").map((m) => ({ messageId: m.messageId, content: m.content }));
 }
 
 /** "undo that" (or the same words in the chosen language), on its own, with or without a full stop. */

@@ -99,6 +99,11 @@ export interface Message {
   content: string;
   toolCalls?: ToolCall[];
   toolCallId?: string;
+  /**
+   * Q206: written by Branch itself (a nudge to the model after an empty reply, or a failed check), not by the owner.
+   * It goes to the model as a user turn like any other, but the conversation never shows it as the owner's words.
+   */
+  from?: "branch";
   /** Pictures that travel with this message; only user messages carry them. */
   images?: MessageImage[];
   /**
