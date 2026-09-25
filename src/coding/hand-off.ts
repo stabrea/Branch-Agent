@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmdirSync, statSync, unlinkSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -231,9 +231,18 @@ function includeTargets(configFile: string, text: string): string[] {
  * The owner's own global and system config is never read here, so their credential helpers and filters (git-lfs)
  * keep working for a folder a job did not touch.
  */
+const settingsFileLimit = 1_000_000;
+const settingsFilesLimit = 500;
 export function repoOwnSettings(folder: string): string {
   const parts: [string, string][] = [];
+  // NAS 448815a: a folder's file can be a link to /dev/zero or a huge file, which reading would take Branch down with.
+  // A link is noted by where it points and never followed; anything not a plain file, or over a megabyte, by what it is.
   const record = (label: string, path: string): string => {
+    let about: import("node:fs").Stats;
+    try { about = lstatSync(path); } catch { parts.push([label, "absent"]); return ""; }
+    if (about.isSymbolicLink()) { parts.push([label, `link:${readlinkSafe(path)}`]); return ""; }
+    if (!about.isFile()) { parts.push([label, "special"]); return ""; }
+    if (about.size > settingsFileLimit) { parts.push([label, `size:${about.size}:${about.mtimeMs}`]); return ""; }
     try { const bytes = readFileSync(path); parts.push([label, `sha256:${createHash("sha256").update(bytes).digest("hex")}`]); return bytes.toString("utf8"); }
     catch { parts.push([label, "absent"]); return ""; }
   };
@@ -246,17 +255,21 @@ export function repoOwnSettings(folder: string): string {
   // .agents/, which Claude Code's edits may reach; every file there, to a bound, counts like the ones above.
   for (const dir of [".codex", ".agents"]) {
     const files: string[] = [];
+    let incomplete = false;
     const walk = (at: string): void => {
       let entries: import("node:fs").Dirent[] = [];
       try { entries = readdirSync(at, { withFileTypes: true }); } catch { return; }
       for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-        if (files.length >= 500) return;
+        if (files.length >= settingsFilesLimit) { incomplete = true; return; }
         const path = join(at, entry.name);
         if (entry.isDirectory()) walk(path); else files.push(path);
       }
     };
     walk(join(folder, dir));
     parts.push([`folder:${dir}/`, files.map((file) => relative(folder, file)).join(",")]);
+    // Past the bound the look is incomplete, so it never matches itself: the job ends as a settings change rather than
+    // one hiding past the bound (NAS 448815a LOW), as linksOut fails closed at its own.
+    if (incomplete) parts.push([`folder:${dir}/incomplete`, randomUUID()]);
     for (const file of files) record(`folder:${relative(folder, file)}`, file);
   }
   const dirs = gitDirsOf(folder);

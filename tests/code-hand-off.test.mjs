@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { ContractBook } from "../dist/self-development-contract.js";
-import { HandOff, claudeAllowedCommands, handOffReason, programCall, readClaude, readCodex } from "../dist/coding/hand-off.js";
+import { HandOff, claudeAllowedCommands, handOffReason, programCall, readClaude, readCodex, repoOwnSettings } from "../dist/coding/hand-off.js";
 import { addPolicyRule } from "../dist/policy.js";
 
 /**
@@ -396,4 +396,25 @@ test("a link that already led out before the job, and neighbours it did not touc
   }).run({ program: "claude-code", folder: "site", task: "Set a to 2.", minutes: 5 }, context(f.app));
   assert.equal(result.status, "done");
   assert.ok(existsSync(join(f.workspace, "site", "shared")), "the owner's own link stays");
+});
+
+// NAS 448815a: a folder's settings file can be a link to /dev/zero or a huge file; the fingerprint never reads through it.
+test("a settings file that is a link is noted by where it points, never read, and a change of target still counts", { skip: process.platform === "win32" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-handoff-links-"));
+  t.after(() => discardTemp(root));
+  await symlink("/dev/zero", join(root, ".mcp.json"));
+  const before = repoOwnSettings(root);
+  assert.match(before, /link:\/dev\/zero/, "the link is noted, and reading it would never have ended");
+  assert.equal(repoOwnSettings(root), before, "and it is the same each time");
+  await rm(join(root, ".mcp.json"));
+  await symlink("/dev/urandom", join(root, ".mcp.json"));
+  assert.notEqual(repoOwnSettings(root), before, "pointing it elsewhere is a change");
+});
+
+test("past its bound the look at .agents never matches itself, so a change beyond it is not hidden", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-handoff-many-"));
+  t.after(() => discardTemp(root));
+  await mkdir(join(root, ".agents"), { recursive: true });
+  for (let i = 0; i < 501; i++) await writeFile(join(root, ".agents", `f${String(i).padStart(3, "0")}`), "x");
+  assert.notEqual(repoOwnSettings(root), repoOwnSettings(root), "an incomplete look counts as a change");
 });
