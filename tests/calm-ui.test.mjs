@@ -208,22 +208,31 @@ test.skip("Show everything brings the full window back, and is remembered for th
   assert.deepEqual(f.errors, []);
 });
 
-// Redesign: Coming soon (pane, the side panel: Activity), checked at afa6ad94.
-test.skip("the activity panel slides in while a task runs and away when it finishes", async (t) => {
+/* Redesign: the side panel (public/app/chat/pane.js, design doc 4.6) opens from the conversation's own button
+   (data-act="pane"); its Activity tab shows the task running now and goes quiet when it finishes. Sliding in and out by
+   itself is the old calm window's (replaced by the new window: the prototype opens it from the button). The allowed
+   list is not in the prototype's panel (replaced). Stop in Send's place is read last. */
+test("the activity panel slides in while a task runs and away when it finishes", async (t) => {
   const model = slowModel();
   t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
   const f = await fixture(t, { provider: model.provider, onboarded: true });
-  assert.equal(await visible(f.page, "#context-panel"), false, "nothing running, no panel");
+  assert.equal(await f.page.locator("#pane").isVisible(), false, "nothing running, no panel");
+  /* A conversation first (the panel belongs to a conversation), then the slow task in it. */
+  await f.page.locator("#prompt").fill("Hello first.");
+  await f.page.locator("#send").click();
+  await f.page.locator("#conversation .b .txt").first().waitFor({ timeout: 30000 });
+  await f.page.waitForFunction(() => !document.getElementById("send").disabled);
   await f.page.locator("#prompt").fill("Sort my Downloads folder. Delete nothing.");
   await f.page.locator("#send").click();
-  await f.page.locator("#context-panel").waitFor({ state: "visible", timeout: 15000 });
-  await f.page.locator("#context-tasks").getByText("Sort my Downloads folder").waitFor({ timeout: 15000 });
-  assert.equal(await visible(f.page, "#context-allowed"), false, "while working it says only what is running, and nothing is allowed yet");
-  assert.equal(await visible(f.page, "#live-stop"), true, "the running task's Stop is in view");
+  await f.page.locator('[data-act="pane"][data-p="activity"]').first().click();
+  await f.page.locator("#pane").waitFor({ state: "visible", timeout: 15000 });
+  await f.page.locator("#pane .tl .run").filter({ hasText: "Sort my Downloads folder" }).waitFor({ timeout: 15000 });
+  const stop = await f.page.locator("#composer").getByRole("button", { name: "Stop", exact: true }).isVisible();
   model.release();
-  await f.page.locator(".message.assistant").waitFor({ timeout: 60000 });
-  await f.page.locator("#context-panel").waitFor({ state: "hidden", timeout: 15000 });
+  await f.page.waitForFunction(() => !document.getElementById("send").disabled, null, { timeout: 60000 });
+  await f.page.locator("#pane .tl .run").waitFor({ state: "detached", timeout: 15000 });
   assert.deepEqual(f.errors, []);
+  assert.equal(stop, true, "the running task's Stop is in view");
 });
 
 // Redesign: replaced by the new window (the one-screen first run and "Try it without an account"; setup is the
@@ -345,8 +354,8 @@ test("calm: an approval question, its answers and Inbox all show (the new window
   assert.deepEqual(f.errors, []);
 });
 
-// Redesign: Coming soon (pane, the side panel's allowed list), checked at afa6ad94; the "Yes, for this conversation"
-// answer and the #attention banner are replaced by the new window (not in the design's card).
+// Redesign: replaced by the new window (the side panel is live but has no allowed list, "What is allowed right now" is not in
+// the prototype; the "Yes, for this conversation" answer and the #attention banner are not in the design's card).
 test.skip("calm: an approval question, its answers, the waiting banner and Inbox all show; a yes it carries shows while work runs", async (t) => {
   const model = askingModel();
   t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
@@ -374,7 +383,8 @@ test.skip("calm: an approval question, its answers, the waiting banner and Inbox
   assert.deepEqual(f.errors, []);
 });
 
-// Redesign: Coming soon (lock: Lockdown in Settings › Permissions and the Inbox banner), checked at afa6ad94.
+// Redesign: Coming soon (lock: "Turn it off" on the Lockdown banner, and Settings › Permissions' "Turn Lockdown on"), checked
+// at 4460a085. (Lockdown itself turns on and off from the mode menu: mode-menu-lockdown.test.mjs.)
 test.skip("calm: Lockdown says so while it is on, and turns off from the banner", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#lx-more").click();
@@ -617,8 +627,47 @@ test("calm: a running task reads under its message, with a real Stop, and its co
   assert.deepEqual(f.errors, []);
 });
 
-// Redesign: Coming soon (plusmenu), checked at afa6ad94; the sample's 48/34 px sizes and placeholder are
-// replaced by the new window. Stop in Send's place is checked in "a running task reads under its message".
+/* Redesign: the prototype's message box: + on the left, one round Send that is quiet while the box is empty, the accent
+   once there is something to send (prototype: class "ready"), and Stop in its place while the task works. The + menu is
+   the prototype's POPS.plusmenu. The old sample's 48/34 px sizes, its placeholder and its "Your assistant" row are
+   replaced by the new window (the prototype's placeholder is the new window's own). */
+test("calm: the sample-height message box has + on the left and one round button: quiet, then the accent, then Stop (the new window)", async (t) => {
+  const model = slowModel();
+  t.after(() => model.release());
+  const f = await fixture(t, { provider: model.provider, onboarded: true });
+  const form = f.page.locator("#composer"), send = f.page.locator("#send");
+  const settledColour = () => send.evaluate(async (node) => {
+    await Promise.all(node.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
+    return getComputedStyle(node).backgroundColor;
+  });
+  assert.ok((await form.evaluate((node) => node.getBoundingClientRect().height)) <= 62, "the empty box is one line");
+  assert.equal(await send.getAttribute("aria-label"), "Send");
+  const plus = await f.page.locator('#composer [data-act="plusmenu"]').boundingBox(), box = await form.boundingBox();
+  assert.ok(plus.x - box.x < 20, "+ is on the left");
+  const shape = await send.evaluate((node) => { const b = node.getBoundingClientRect(); return { w: b.width, h: b.height, r: getComputedStyle(node).borderRadius }; });
+  assert.ok(Math.abs(shape.w - shape.h) < 2 && (shape.r === "50%" || parseFloat(shape.r) >= shape.h / 2 - 1), "one round button");
+  const quiet = await settledColour();
+  await send.click();
+  assert.equal(await f.page.locator("#conversation .u").count(), 0, "the quiet button sends nothing");
+  await f.page.locator("#prompt").fill("Sort my Downloads folder.");
+  const accent = await settledColour();
+  await f.page.locator('#composer [data-act="plusmenu"]').click();
+  const menu = f.page.locator("#app > .pop");
+  await menu.waitFor({ state: "visible" });
+  const rows = (await menu.getByRole("menuitem").allInnerTexts()).map((x) => x.replace(/\s+/g, " ").trim());
+  assert.deepEqual(rows.slice(0, 5).map((x) => x.replace(/ [@/]$/, "")), ["Attach files", "Add a folder", "Take a screenshot", "Mention a Trunk", "Use a skill"]);
+  await f.page.keyboard.press("Escape");
+  await send.click();
+  const stop = f.page.locator("#composer").getByRole("button", { name: "Stop", exact: true });
+  const stopShown = await stop.waitFor({ state: "visible", timeout: 10000 }).then(() => true, () => false);
+  model.release();
+  await f.page.waitForFunction(() => !document.getElementById("send").disabled, null, { timeout: 30000 });
+  assert.deepEqual(f.errors, []);
+  assert.notEqual(accent, quiet, "the accent once there is something to send");
+  assert.equal(stopShown, true, "while the task works, the same place holds Stop");
+});
+
+// Redesign: replaced by the new window (the old sample's sizes, placeholder, class names and + menu rows); ported above.
 test.skip("calm: the sample-height message box has + on the left and one round button: quiet, then the accent, then Stop", async (t) => {
   const model = slowModel();
   t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
@@ -709,16 +758,45 @@ async function everyWayClosed(page, trigger, panel, label) {
   assert.equal(await shown(), false, `${label} closes on a click elsewhere`);
 }
 
-/* Redesign: the new window's live popovers (public/app/core/ui.js openPop): New (newmenu), the person's menu (owner)
-   and Guide. */
+/* Redesign: the new window's popovers (public/app/core/ui.js openPop) work as the prototype's do: they close on their own
+   button, on Escape and on a click elsewhere (prototype: document click outside popEl), one at a time. The prototype's
+   closePop() gives no focus back to the button, so that check of the old window is replaced by the new window. */
+async function everyWayClosedNew(page, trigger, panel, label) {
+  const shown = () => page.locator(panel).first().isVisible();
+  const expanded = () => page.locator(trigger).getAttribute("aria-expanded");
+  const open = async () => { await page.locator(trigger).click(); await page.locator(panel).first().waitFor({ state: "visible", timeout: 5000 }); };
+  await open();
+  assert.equal(await expanded(), "true", `${label} says it is open`);
+  await page.locator(trigger).click();
+  assert.equal(await shown(), false, `${label} closes on its own button`);
+  assert.equal(await expanded(), "false", `${label} says it is closed`);
+  await open();
+  await page.keyboard.press("Escape");
+  assert.equal(await shown(), false, `${label} closes on Escape`);
+  await open();
+  await page.locator("#conversation").click({ position: { x: 5, y: 5 } });
+  assert.equal(await shown(), false, `${label} closes on a click elsewhere`);
+}
 test("every menu and popover closes on its own button, on Escape and on a click elsewhere, and one at a time (the new window)", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("hello");
   await f.page.locator("#send").click();
   await f.page.locator("#conversation .b").first().waitFor({ timeout: 30000 });
-  await everyWayClosed(f.page, '#side [data-act="newmenu"]', "#app > .pop", "New");
-  await everyWayClosed(f.page, '#side [data-act="owner"]', "#app > .pop", "the person's menu");
-  await everyWayClosed(f.page, '#tbActions [data-act="guide"]', "#app > .pop", "Guide");
+  /* The side panel's one switch closes and opens it; a tab inside the panel never closes it. */
+  const toggle = f.page.locator('[data-act="pane"][data-p="activity"]').first();
+  await toggle.click();
+  await f.page.locator("#pane").waitFor({ state: "visible" });
+  await toggle.click();
+  await f.page.locator("#pane").waitFor({ state: "hidden" });
+  await toggle.click();
+  const planTab = f.page.locator('#pane [data-act="ptabp"][data-p="plan"]');
+  await planTab.click();
+  await planTab.click();
+  assert.equal(await f.page.locator('#pane [data-act="ptabp"][data-p="plan"]').getAttribute("aria-selected"), "true", "a tab pressed twice keeps its panel open");
+  await everyWayClosedNew(f.page, '#side [data-act="newmenu"]', "#app > .pop", "New");
+  await everyWayClosedNew(f.page, '#side [data-act="owner"]', "#app > .pop", "the person's menu");
+  await everyWayClosedNew(f.page, '#tbActions [data-act="guide"]', "#app > .pop", "Guide");
+  await everyWayClosedNew(f.page, '#composer [data-act="plusmenu"]', "#app > .pop", "the + in the message box");
   await f.page.locator('#side [data-act="newmenu"]').click();
   await f.page.locator('#side [data-act="owner"]').click();
   assert.equal(await f.page.locator("#app > .pop").count(), 1, "one popover at a time");
@@ -727,8 +805,8 @@ test("every menu and popover closes on its own button, on Escape and on a click 
   assert.deepEqual(f.errors, []);
 });
 
-// Redesign: replaced by the new window (More, the Ctrl+K box and the full window's menus); Coming soon (plusmenu, pane),
-// checked at afa6ad94.
+// Redesign: replaced by the new window (More, the Ctrl+K box and the full window's menus); the + menu and the side panel are
+// checked in the new window's version above.
 test.skip("every menu and popover closes on its own button, on Escape and on a click elsewhere, and one at a time", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("hello");
