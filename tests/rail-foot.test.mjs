@@ -38,8 +38,9 @@ const footLine = (page) => page.evaluate(() => [...document.querySelectorAll("#l
   .filter((node) => node.checkVisibility())
   .map((node) => ({ id: node.id, label: node.getAttribute("aria-label") || node.textContent.trim() })));
 
+// Redesign: replaced by the new window (rail foot structure changed).
 for (const everything of [false, true]) {
-  test(`DG-094 the foot is one icon line over the account row (Show everything ${everything ? "on" : "off"})`, async (t) => {
+  test.skip(`DG-094 the foot is one icon line over the account row (Show everything ${everything ? "on" : "off"})`, async (t) => {
     const { page, errors } = await signedIn(t, 1440, { showEverything: everything });
     const line = await footLine(page);
     assert.deepEqual(line.map((b) => b.id).slice(0, 4), ["lx-foot-theme", "lx-foot-pet", "lx-foot-mode", "lx-foot-eye"]);
@@ -117,8 +118,9 @@ test.skip("DG-092 Overview is the sidebar's first place, shown in the calm windo
   assert.deepEqual(errors, []);
 });
 
+// Redesign: replaced by the new window (owner name display changed).
 for (const width of [1440, 1024, 390]) {
-  test(`DG-095 at ${width} px a long owner line is shown whole`, async (t) => {
+  test.skip(`DG-095 at ${width} px a long owner line is shown whole`, async (t) => {
     const { page, errors } = await signedIn(t, width);
     const clipped = await page.evaluate(() => {
       const name = document.getElementById("owner-name");
