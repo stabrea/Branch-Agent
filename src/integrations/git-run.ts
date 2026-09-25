@@ -20,6 +20,8 @@ export const branchRef = (branch: string): string => (branch === "HEAD" || branc
 
 const NO_HOOKS = join(tmpdir(), "branch-hooks-disabled-does-not-exist");
 const NO_GRAFTS = join(tmpdir(), "branch-grafts-disabled-does-not-exist");
+/** Q192: a global-config path that is not there, so the folder's own drivers are read without the owner's own. */
+const NO_GLOBAL_CONFIG = join(tmpdir(), "branch-global-config-does-not-exist");
 const KEEP_ENV = ["PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE",
   "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMDATA", "LANG", "LC_ALL", "TZ"];
 
@@ -36,15 +38,20 @@ export function gitEnvironment(source: NodeJS.ProcessEnv = process.env, platform
 }
 
 /**
- * Q12: settings a repository's own `.git/config` could use to make Git start a program, each pinned
- * to a harmless value. `-c` outranks every config file, and Git hands these to the Git processes it
- * starts itself (a submodule's), so a folder a task wrote cannot run anything through them.
+ * Q12, Q192: settings a repository's own `.git/config` could use to make Git start a program, each
+ * pinned to a harmless value. `-c` outranks every config file, and Git hands these to the Git
+ * processes it starts itself (a submodule's), so a folder a task wrote cannot run anything through
+ * them. These are the settings with a FIXED name. The named drivers a repository can also define —
+ * `filter.<name>.clean/smudge/process` and `diff.<name>.textconv`, which Git runs during an everyday
+ * status, diff or checkout — have a name Branch cannot know ahead of time, so they are read from the
+ * folder itself and switched off per run instead (see `driverNeutralisers` and `GitRunner.run`).
+ * Together these cover the class of settings a repository's own config could use to start a program.
  * `diff.external` cannot be emptied, so it names `false`: a patch Branch asks for passes
  * `--no-ext-diff` (src/integrations/git.ts), and any other would stop loudly rather than run a program.
  * The owner's own sign-in (credential helpers, askPass, sshCommand, the computer-wide config file
- * where macOS keeps its keychain helper) is left alone: Branch's pushes use it. A planted repository
- * never reaches those, because Git tools are kept out of nested repositories in Branch's source and a
- * held command cannot make a `.git` (src/self-development-contract.ts, src/sandbox-seatbelt.ts).
+ * where macOS keeps its keychain helper) is left alone: Branch's pushes use it, and the folder's own
+ * drivers are read with the owner's global and system config left out, so their own filters keep
+ * working for a folder no task touched.
  */
 export const pinnedGitConfig: readonly string[] = [
   "core.fsmonitor=false", "core.pager=cat", "core.editor=:", "sequence.editor=:", "diff.external=false", "protocol.ext.allow=never",
@@ -89,6 +96,73 @@ export function hardening(cwd: string, inSource = inBranchSource(cwd)): string[]
     "-c", "credential.interactive=never", ...pins.flatMap((setting) => ["-c", setting]), "--no-pager"];
 }
 
+/**
+ * Q192: the driver settings a folder's own config can carry, read so their name is known: a clean,
+ * smudge or process filter, and a diff textconv. A `.gitattributes` picks one of these by name and
+ * Git then starts the program it points to — during a plain status, diff or checkout, not only a
+ * command a task wrote. The config sources a task could write (local config, `config.worktree`,
+ * files these include) are all covered by reading the folder itself; the query runs with the owner's
+ * global and system config left out (`GIT_CONFIG_NOSYSTEM`, a `GIT_CONFIG_GLOBAL` that is not there),
+ * so a driver the owner set for themselves is not read here and keeps working for a folder no task touched.
+ */
+const DRIVER_KEY_PATTERN = "^(filter\\..*\\.(clean|smudge|process)|diff\\..*\\.textconv)$";
+
+/**
+ * Q192: the subcommands that can run a `diff.<name>.textconv` program. `--no-textconv` (name-independent)
+ * switches textconv off for these, so a textconv driver never needs emptying by name and its name is
+ * never a reason to refuse. No other subcommand runs textconv, so none needs the flag.
+ */
+export const TEXTCONV_SUBCOMMANDS: ReadonlySet<string> = new Set([
+  "diff", "diff-files", "diff-index", "diff-tree", "log", "show", "whatchanged", "reflog", "format-patch", "range-diff", "grep",
+]);
+
+/**
+ * Q192: from the NUL-separated `git config --get-regexp` reply for the driver keys, the neutralisers
+ * for the drivers a folder's own config defines. A clean/smudge/process filter runs during an
+ * everyday status, add, diff or checkout whatever flags are passed, so each is emptied by name with a
+ * `-c` setting (an empty filter command passes content through unchanged, starting no program).
+ * `textconv` is instead reported as a flag on the result, because it runs only for the subcommands
+ * above and is switched off by `--no-textconv`, which does not depend on the driver's name.
+ * `null` when a FILTER name carries `=`, which `-c name=value` reads as the value separator, so that
+ * filter cannot be emptied by name: the caller then refuses to run Git in the folder rather than run
+ * it with the filter still live. A textconv name with `=` is fine — `--no-textconv` covers it.
+ */
+export function driverNeutralisers(reply: string): { pins: string[]; textconv: boolean } | null {
+  const filters = new Set<string>();
+  let textconv = false;
+  for (const record of reply.split("\0")) {
+    if (!record) continue;
+    const newline = record.indexOf("\n");
+    const key = newline < 0 ? record : record.slice(0, newline);
+    const name = /^filter\.(.+)\.(?:clean|smudge|process)$/.exec(key)?.[1];
+    if (name !== undefined) {
+      if (name.includes("=")) return null;
+      filters.add(name);
+    } else if (/^diff\..+\.textconv$/.test(key)) {
+      textconv = true;
+    }
+  }
+  const pins: string[] = [];
+  for (const name of filters) pins.push("-c", `filter.${name}.clean=`, "-c", `filter.${name}.smudge=`, "-c", `filter.${name}.process=`);
+  return { pins, textconv };
+}
+
+/** Q192: the plain reason Git is not run in a folder whose own settings name a filter Branch cannot switch off. */
+export const undisarmableDriver = "This folder's Git settings name a filter Branch cannot switch off safely, so Git did not run here.";
+
+/**
+ * Q192: `--no-textconv` placed just after the subcommand, when the folder's own config has a textconv
+ * driver and the subcommand can run one and does not already say so. The change is shown as Git reads
+ * it, and no textconv program is started. Left untouched otherwise, so a command that runs no textconv
+ * (or one Branch already marks, as src/integrations/git.ts does) keeps its arguments exactly.
+ */
+export function withNoTextconv(args: readonly string[], textconv: boolean): string[] {
+  if (!textconv) return [...args];
+  const at = args.findIndex((argument) => !argument.startsWith("-"));
+  if (at < 0 || !TEXTCONV_SUBCOMMANDS.has(args[at]!) || args.includes("--no-textconv")) return [...args];
+  return [...args.slice(0, at + 1), "--no-textconv", ...args.slice(at + 1)];
+}
+
 let located: Promise<string | null> | undefined;
 /** Asks the operating system where Git is, once per launch. */
 export async function locateGit(env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
@@ -122,6 +196,16 @@ function firstLines(executable: string, args: string[], env: NodeJS.ProcessEnv):
   });
 }
 
+/** Q192: a Git run that never started, because the folder's own settings named a driver Branch could not switch off. */
+function refusedGit(command: string, message: string): GitOutcome {
+  return {
+    status: "failed", stdout: "", stderr: `fatal: ${message}`, exitCode: 128, signal: null,
+    durationMs: 0, truncated: false, observedOutputBytes: 0,
+    usage: { peakMemoryMb: 0, cpuSeconds: 0 }, isolation: "sampling",
+    cleanup: { status: "parent_exited", strategy: "none", limitation: "" }, command,
+  };
+}
+
 export class GitRunner {
   constructor(private readonly options: { locate?: GitLocator; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}) {}
   /** The absolute path of Git, or a plain explanation that it is not installed. */
@@ -134,14 +218,44 @@ export class GitRunner {
     const executable = await this.executable();
     // Decided once, so the settings and the environment always agree on whether this is Branch's source.
     const inSource = inBranchSource(options.cwd);
-    const args = [...hardening(options.cwd, inSource), ...options.args];
     const env = { ...gitEnvironment(this.options.env), ...(inSource ? pinnedEnvironmentInSource : {}) };
+    const command = options.args.filter((argument) => !argument.startsWith("-")).slice(0, 2).join(" ");
+    // Q192: switch off any clean/smudge/process filter or diff textconv the folder's own config
+    // defines, so this run starts no program through one; refuse the run if a filter cannot be switched off.
+    const disarm = await this.driverPins(executable, options.cwd, inSource, env, signal);
+    if (disarm === null) return refusedGit(command, undisarmableDriver);
+    const userArgs = withNoTextconv(options.args, disarm.textconv);
+    const args = [...hardening(options.cwd, inSource), ...disarm.pins, ...userArgs];
     const result = await new ShellProcess({
       executable, args, cwd: options.cwd, env, signal,
       timeoutMs: options.timeoutMs ?? this.options.timeoutMs ?? 30000,
       maxOutputBytes: options.maxOutputBytes ?? 65536, maxMemoryMb: 2048, maxCpuSeconds: 120,
     }).run();
-    return { ...result, command: options.args.filter((argument) => !argument.startsWith("-")).slice(0, 2).join(" ") };
+    return { ...result, command };
+  }
+
+  /**
+   * Q192: the `-c` settings that switch off the folder's own filter and diff drivers, read with the
+   * owner's global and system config left out. `null` means one cannot be switched off safely (its
+   * name carries `=`, or its settings could not be read whole), so the caller refuses to run Git here.
+   * The query runs Git directly (not through `run`, which would call this again) and starts no program:
+   * `git config` only reads settings.
+   */
+  private async driverPins(executable: string, cwd: string, inSource: boolean, baseEnv: NodeJS.ProcessEnv, signal: AbortSignal): Promise<{ pins: string[]; textconv: boolean } | null> {
+    const args = [...hardening(cwd, inSource), "config", "--null", "--get-regexp", DRIVER_KEY_PATTERN];
+    const env = { ...baseEnv, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: NO_GLOBAL_CONFIG };
+    const reply = await new ShellProcess({
+      executable, args, cwd, env, signal, timeoutMs: this.options.timeoutMs ?? 30000,
+      maxOutputBytes: 1_048_576, maxMemoryMb: 2048, maxCpuSeconds: 30,
+    }).run();
+    // Reading more than a megabyte of driver settings, or being stopped for a resource, leaves Branch
+    // unsure it saw every driver, so it does not run Git here. A resource stop reads the same config
+    // the real run would; a genuine config or "not a repository" error (exit 128) stops the real run too.
+    if (reply.truncated || reply.status === "timed_out" || reply.status === "output_limit" || reply.status === "memory_limit" || reply.status === "cpu_limit") return null;
+    if (reply.status !== "completed") return { pins: [], textconv: false };
+    if (reply.exitCode === 1) return { pins: [], textconv: false }; // Git's answer for "no such settings".
+    if (reply.exitCode !== 0) return { pins: [], textconv: false }; // e.g. not a repository (128): the real run fails the same way, running nothing.
+    return driverNeutralisers(reply.stdout);
   }
 }
 
