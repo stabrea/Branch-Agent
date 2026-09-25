@@ -151,11 +151,13 @@ test("the model chip opens a real model picker without leaving the conversation"
   const page = await fixture(t);
   const chip = page.locator('#composer [data-act="modelmenu2"]');
   const menu = page.locator("#app > .pop");
-  const rows = () => menu.locator('[data-act="pick-model"]').evaluateAll((nodes) => nodes.map((n) => `${n.querySelector(".mi-t").textContent.trim()} · ${n.querySelector(".mi-s").textContent.trim()}`));
+  /* Each row names the model and the connection it goes through (prototype: the model in .mi-t, the way in .mi-s). */
+  const rows = () => menu.locator('[data-act="pick-model"]').evaluateAll((nodes) => nodes.map((n) =>
+    [n.querySelector(".mi-t").textContent.trim(), n.querySelector(".mi-s").textContent.trim()].sort().join(" · ")));
   const said = [];
   await chip.click();
   await menu.waitFor({ state: "visible" });
-  assert.deepEqual(await rows(), ["Default connection · configured", "Alternate connection · other-model"]);
+  assert.deepEqual(await rows(), ["Default connection · configured", "Alternate connection · other-model"].map((r) => r.split(" · ").sort().join(" · ")));
   assert.equal(await menu.getByRole("menuitem", { name: /Accounts and order/ }).isVisible(), true);
   await menu.locator('[data-act="pick-model"]').first().click();
   await page.keyboard.press("Escape");
@@ -170,7 +172,7 @@ test("the model chip opens a real model picker without leaving the conversation"
     headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } })).json()).preset, sessionId);
   await chip.click();
   await menu.waitFor({ state: "visible" });
-  assert.deepEqual(await rows(), ["Default connection · configured", "Alternate connection · other-model"]);
+  assert.deepEqual(await rows(), ["Default connection · configured", "Alternate connection · other-model"].map((r) => r.split(" · ").sort().join(" · ")));
   await menu.locator('[data-act="pick-model"]').nth(1).click();
   await page.waitForFunction(async (id) => (await (await fetch(`/api/sessions/${id}/model`, {
     headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } })).json()).preset === "alternate", sessionId, { timeout: 10_000 });
