@@ -98,7 +98,7 @@ test("A2240 a tool's page is kept fresh, served sealed with a refresh, and a hel
   build = 2;
   savePolicy(app.store, "local", { preset: "custom", rules: [{ tool: "demo.status", decision: "ask" }] });
   const held = (await api(`/api/asks/surfaces/${surface.id}/refresh`, {})).body.surface;
-  assert.match(held.error, /Before I go ahead: Using demo.status/);
+  assert.match(held.error, /Before I go ahead: build status/); // dogfood E2 part 2: the tool's own words
   assert.match(await (await fetch(`${server.url}/asks-surface/${surface.page}`)).text(), /Not refreshed: Before I go ahead[\s\S]*<h1>Build 1<\/h1>/);
   // Switched off, the page is gone too.
   await api("/api/asks/switch", { part: "live-surfaces", mode: "off" });

@@ -127,6 +127,20 @@ export class ToolRegistry {
         return options.diet === false ? described : slimTool(described);
       });
   }
+  /**
+   * Dogfood E2 part 2 (Mac mini's list: 164 of 233 tools read "Using x.y"): the first sentence of a built-in tool's own
+   * description, as what the step does, or null. Never a tool from outside: its description is somebody else's text,
+   * and it must not get to word its own approval question ("a harmless check").
+   */
+  plainWords(name: string): string | null {
+    const tool = this.tools.get(name);
+    if (!tool || tool.external) return null;
+    const first = tool.description.trim().split(/(?<=[.!?])\s/)[0]?.replace(/[.!?]$/, "").trim() ?? "";
+    if (!first) return null;
+    if (first.length <= 90) return first;
+    const cut = first.slice(0, 90);
+    return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 60))}…`;
+  }
   /** Whether a tool came from outside, so its description is read as untrusted text. */
   isExternal(name: string): boolean {
     return this.tools.get(name)?.external === true;

@@ -199,7 +199,8 @@ test("replaying a saved recipe asks about the steps inside it before any of them
   // Replaying at all is the first question; saying yes to it is not a yes to what is inside.
   const first = (await api("POST", "/api/run", { prompt: "replay it" })).body;
   assert.equal(first.status, "needs_input");
-  assert.match(first.output, /Before I go ahead: Using procedures\.replay/);
+  // Dogfood E2 part 2: the step is put in its own words (its description's first sentence), not its tool name.
+  assert.match(first.output, /Before I go ahead: Execute a verified recipe/);
   await api("POST", "/api/policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "session" });
   provider.reset();
   const paused = (await api("POST", "/api/run", { prompt: "replay it", sessionId: first.sessionId })).body;

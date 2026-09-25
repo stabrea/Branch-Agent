@@ -2053,7 +2053,7 @@ ${run.output.slice(0, 6000)}`;
       const args = JSON.parse(call.arguments) as Record<string, unknown>;
       const candidate = [args.path, args.file, args.filePath].find((value) => typeof value === "string" && value);
       this.store.noteWorking(this.owner, run.sessionId, {
-        tool: describeToolCall(call.name, args), ...(candidate ? { file: String(candidate) } : {}),
+        tool: describeToolCall(call.name, args, this.registry.plainWords(call.name)), ...(candidate ? { file: String(candidate) } : {}),
       });
     } catch { /* the working line is never worth failing a task for */ }
   }
@@ -2742,7 +2742,7 @@ ${run.output.slice(0, 6000)}`;
     const readOnly = isReadOnlyPermission(permission);
     // FQ-execution.browser: a step judged ahead of the steps before it says where it will be (`judgeStep`).
     const target = at?.target ?? this.registry.targetOf(tool, args, context);
-    const label = describeToolCall(tool, args);
+    const label = describeToolCall(tool, args, this.registry.plainWords(tool));
     const source: RunSource = this.sourceOf(context); // mac7/outside-resume
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the
     // owner wrote about that one thing is considered before the broad ones.
@@ -3428,7 +3428,7 @@ ${run.output.slice(0, 6000)}`;
     // assistant can notice which files this person keeps coming back to. See src/memory-learning.ts.
     const path = filePathOf(call.name, seen);
     this.store.event(context.runId, "tool.started",
-      { name: call.name, id: call.id, label: describeToolCall(call.name, seen), ...(path ? { path } : {}) });
+      { name: call.name, id: call.id, label: describeToolCall(call.name, seen, this.registry.plainWords(call.name)), ...(path ? { path } : {}) });
     if (call.name === expandToolName) return this.openToolbox(call, context, args);
     if (call.name === toolSearchName) return this.searchTools(call, context, args);
     if (call.name === toolDescribeName) return this.describeTools(call, context, args);

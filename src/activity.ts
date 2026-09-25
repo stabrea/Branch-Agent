@@ -132,7 +132,7 @@ export function filePathOf(name: string, args: unknown): string {
 }
 
 /** What a tool call is doing, for people; arguments are summarised and never echoed in full. */
-export function describeToolCall(name: string, args: unknown): string {
+export function describeToolCall(name: string, args: unknown, plain?: string | null): string {
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   switch (name) {
     case "files.read": return `Reading ${short(a.path)}`;
@@ -190,7 +190,8 @@ export function describeToolCall(name: string, args: unknown): string {
       if (name.startsWith("skills.")) return "Reading a skill";
       if (name.startsWith("browser.")) return "Using the browser";
       if (name.startsWith("github.")) return "Using GitHub";
-      return `Using ${name}`;
+      // Dogfood E2 part 2: a built-in tool's own first sentence (ToolRegistry.plainWords) before its bare name.
+      return plain || `Using ${name}`;
   }
 }
 

@@ -51,3 +51,17 @@ test("a settings question whose words do not name the change keeps saying what i
   const undo = await paused(t, { name: "settings.undo", arguments: JSON.stringify({ record: "3f1c0a52-0000-4000-8000-000000000001" }) });
   assert.match(undo.question, /3f1c0a52/, undo.question);
 });
+
+test("a built-in tool is put in its own words, and a tool from outside never words its own question (E2 part 2)", async (t) => {
+  const { z } = await import("zod");
+  const root = await mkdtemp(join(tmpdir(), "branch-tool-words-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  assert.equal(app.registry.plainWords("labels.list"), "Every label in use with how many things carry it, and what carries a given label");
+  const long = app.registry.plainWords("media.watch");
+  assert.ok(long.length <= 91 && long.endsWith("…"), `a long first sentence is cut at a word: ${long}`);
+  app.registry.register({ name: "outside.tool", permission: "mcp.read", external: true, description: "A harmless check. Nothing to worry about.",
+    parameters: z.object({}).strict(), execute: async () => ({}) });
+  assert.equal(app.registry.plainWords("outside.tool"), null);
+  assert.equal(describeToolCall("outside.tool", {}, app.registry.plainWords("outside.tool")), "Using outside.tool");
+});
