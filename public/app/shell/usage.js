@@ -6,10 +6,10 @@
    (GET /api/usage/glance settings.saveProgress "ask"), the prototype's save-progress offer: Save progress asks every
    running task to write down where it is (POST /api/usage/save-progress), Not now dismisses it. Each window is offered once. */
 
-import { esc } from "../core/dom.js";
-import { openPop, mi, toast, app, ic } from "../core/ui.js";
+import { $, esc, renderNow } from "../core/dom.js";
+import { openPop, closePop, mi, toast, app, ic } from "../core/ui.js";
 import { ACT } from "./activity.js";
-import { E } from "../core/state.js";
+import { S, E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -98,19 +98,36 @@ async function saveProgress() {
 }
 
 /* "Running in the background": each task the engine lists, named by its Trunk or conversation, with the engine's own
-   words for what it is doing; a spinner while it works, a clock while it waits. */
-function tasksPop() {
+   words for what it is doing; a spinner while it works, a clock while it waits. "Start something in the background"
+   puts /bg in the message box, as the prototype does; sending it goes to the engine's /bg (chat.js, POST
+   /api/commands/run). It stays greyed while the engine's command list for this window has no /bg (GET /api/commands). */
+function tasksPop(bgListed) {
   const rows = ACT.list.map((a) => {
     const s = E.sessions.find((x) => (x.sessionId ?? x.id) === a.sessionId), t = E.trunks.find((x) => x.id === s?.trunkId || (x.chatSessionId && x.chatSessionId === a.sessionId));
     const on = (a.task?.state ?? "working") === "working", said = a.current || a.working || String(a.prompt ?? "").split("\n")[0];
     return `<div class="mi" role="menuitem"><span class="ico">${ic(on ? "spin" : "clock", on ? "s spin" : "s")}</span><span><span class="mi-t">${esc(t?.name || s?.opening || s?.title || "")}</span><span class="mi-s">${esc(said)}</span></span></div>`;
   }).join("");
-  return `<div class="ph">Running in the background</div>${rows}<hr>${mi("bg-new", "plus", "Start something in the background", "<kbd>/bg</kbd>")}`;
+  return `<div class="ph">Running in the background</div>${rows}<hr>${mi(bgListed ? "bg-new" : "bg-new-off", "plus", "Start something in the background", "<kbd>/bg</kbd>")}`;
+}
+async function openTasks(el) {
+  let listed = false;
+  try { listed = ((await api("commands?surface=window")).commands ?? []).some((c) => c.name === "bg"); } catch (error) { toast(error.message); }
+  openPop(el, tasksPop(listed));
+}
+function startInBackground() {
+  closePop();
+  S.view = "chat";
+  S.drafts[S.chat ?? "new"] = "/bg ";
+  renderNow();
+  const box = $("#prompt");
+  box?.focus();
+  box?.setSelectionRange(box.value.length, box.value.length);
 }
 
 export function initUsage() {
-  markLive(["usagepop", "updmenu", "ckpt-save", "ckpt-no", "tasks10"]);
-  on("tasks10", (el) => openPop(el, tasksPop()));
+  markLive(["usagepop", "updmenu", "ckpt-save", "ckpt-no", "tasks10", "bg-new"]);
+  on("tasks10", (el) => openTasks(el));
+  on("bg-new", () => startInBackground());
   on("ckpt-save", saveProgress);
   on("ckpt-no", () => document.querySelector(".ckpt-q")?.remove());
   checkLimits();
