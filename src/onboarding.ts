@@ -23,7 +23,12 @@ export function finishSetupOnFirstAnswer(store: Pick<Store, "get" | "save">, own
 export function finishSetupFromHistory(store: Pick<Store, "get" | "save" | "runs" | "events">, owner: string): boolean {
   const saved = store.get("settings", owner, "onboarding")?.data as { done?: unknown } | undefined;
   if (saved?.done === true) return true;
-  const answered = store.runs(owner).some((run) => run.status === "completed" && store.events(run.id)
-    .some((event) => event.kind === "model.completed" && typeof event.data.provider === "string" && event.data.provider !== demo));
-  return answered && finishSetupOnFirstAnswer(store, owner, "history");
+  try {
+    const answered = store.runs(owner).some((run) => run.status === "completed" && store.events(run.id)
+      .some((event) => event.kind === "model.completed" && typeof event.data.provider === "string" && event.data.provider !== demo));
+    return answered && finishSetupOnFirstAnswer(store, owner, "history");
+  } catch {
+    // NAS 82ed54b: a damaged task record never stops Branch from opening; the card shows, and the owner's Done ends it.
+    return false;
+  }
 }

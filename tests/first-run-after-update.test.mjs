@@ -40,3 +40,17 @@ test("dogfood B15: answers from the offline demonstration alone leave the card t
 test("dogfood B15: a folder nothing answered in yet still shows the card", async (t) => {
   assert.equal(await updatedAfter(await folder(t, "chatgpt"), false), false);
 });
+
+// NAS 82ed54b: the history read parses each task's events, so one damaged row must never stop Branch from opening.
+test("dogfood B15: a damaged task record leaves the card showing and never stops Branch from opening", async (t) => {
+  const options = await folder(t, "chatgpt");
+  const before = await createBranch(options);
+  assert.equal((await before.runtime.run({ prompt: "hello from long ago" })).status, "completed");
+  before.store.delete("settings", before.runtime.owner, "onboarding");
+  const damaged = before.store.db.prepare("UPDATE events SET data='{not json' WHERE kind='model.completed'").run();
+  assert.ok(damaged.changes >= 1, "the fixture damaged the answer's record");
+  await before.close();
+  const after = await createBranch(options);
+  t.after(() => after.close());
+  assert.equal(after.store.get("settings", after.runtime.owner, "onboarding")?.data?.done === true, false);
+});
