@@ -27,6 +27,13 @@ function drawMain() {
   VIEWS.after?.[S.view]?.(main);
 }
 
+/* The conversation's width, from the owner's saved preference (the prototype's three: comfortable, wide, full). */
+const THREAD_W = { comfortable: "720px", wide: "clamp(860px,52vw,1180px)", full: "100%" };
+function drawWidth() {
+  const width = THREAD_W[E.state?.preferences?.conversationWidth] ?? THREAD_W.wide;
+  $("#app")?.style.setProperty("--thread-w", width);
+}
+
 on("dlg-close", () => closeDlg());
 on("view", (el) => { S.view = el.dataset.v; if (el.dataset.tab) S.tabs[el.dataset.v] = el.dataset.tab; closePop(); renderNow(); });
 on("ptab", (el) => { S.view = el.dataset.place; S.tabs[el.dataset.place] = el.dataset.v; closePop(); renderNow(); });
@@ -39,6 +46,7 @@ async function boot() {
   initShell();
   onRender(drawShell);
   onRender(drawMain);
+  onRender(drawWidth);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closePop(); closeDlg(); } });
   await connect();
 }
