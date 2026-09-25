@@ -58,6 +58,10 @@ test("Claude Code may edit in the folder and run only the checks and read-only G
   assert.equal(claude.cwd, "/work/repo");
   assert.deepEqual(claude.args.slice(claude.args.indexOf("--permission-mode"), claude.args.indexOf("--permission-mode") + 2), ["--permission-mode", "acceptEdits"]);
   assert.ok(!claude.args.includes("bypassPermissions") && !claude.args.some((arg) => /dangerously/.test(arg)));
+  // NAS 454af77: the folder's own hooks (.claude/settings*.json) and MCP servers (.mcp.json) are never loaded.
+  const sources = claude.args[claude.args.indexOf("--setting-sources") + 1];
+  assert.equal(sources, "user", "only the account's own settings, never the folder's (project, local)");
+  assert.ok(claude.args.includes("--strict-mcp-config"), "and no MCP server from the folder");
   for (const allowed of claudeAllowedCommands) assert.doesNotMatch(allowed, /push|commit|curl|rm |npm install|gh /, `${allowed} does nothing that sends or removes`);
   const codex = programCall("codex", "/work/repo");
   assert.deepEqual(codex.args.slice(codex.args.indexOf("--sandbox"), codex.args.indexOf("--sandbox") + 2), ["--sandbox", "workspace-write"]);

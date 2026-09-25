@@ -65,13 +65,20 @@ export function handOffHold(tool: string): { reason: string; onceOnly: true } | 
   return tool === "code.hand_off" ? { reason: handOffReason, onceOnly: true } : null;
 }
 
+/** What keeps the folder's own Claude Code settings (hooks) and MCP servers out of a handed-over job. */
+export const claudeIsolation: readonly string[] = ["--setting-sources", "user", "--strict-mcp-config"];
+
 export interface ProgramCall { command: string; args: string[]; cwd: string }
 export function programCall(program: HandOffProgram, folder: string, model?: string, effort?: string): ProgramCall {
   const chosen = model ? ["--model", model] : [];
   if (program === "claude-code")
     return { command: "claude", cwd: folder, args: ["-p", "--output-format", "stream-json", "--verbose", ...chosen,
       ...(effort ? ["--effort", effort] : []),
-      "--permission-mode", "acceptEdits", ...(claudeAllowedCommands.length ? ["--allowedTools", ...claudeAllowedCommands] : [])] };
+      "--permission-mode", "acceptEdits", ...(claudeAllowedCommands.length ? ["--allowedTools", ...claudeAllowedCommands] : []),
+      // NAS 454af77: hooks in the folder's own .claude/settings*.json, and servers in its .mcp.json, would run programs
+      // outside every permission and wall, and an earlier job could have left them there. Only the account's own
+      // settings (Branch's per-account folder) and no folder MCP servers are loaded.
+      ...claudeIsolation] };
   return { command: "codex", cwd: folder, args: ["exec", "--json", "--sandbox", "workspace-write", "--cd", folder, ...chosen,
     ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []), "-"] };
 }
