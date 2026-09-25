@@ -1654,7 +1654,11 @@ async function api(
     // Q58: queued tasks show they are waiting their turn, with position and what they wait behind.
     const waiting = new URL(request.url ?? "/", "http://local").searchParams.get("waiting") === "1";
     const staleMs = staleAfterMs(app.store, app.runtime.owner, app.runtime.reliability);
-    const activities = liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+    // Dogfood B1: what a running task's model is thinking now, from memory only (never the record).
+    const activities = liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => {
+      const thinking = app.runtime.thinkingOf(a.runId);
+      return { ...a, followUps: app.runtime.queued(a.sessionId).length, ...(thinking ? { thinking } : {}) };
+    });
     if (!waiting) return activities;
     // Q58: add queued tasks for each conversation using pure function
     const result: RunActivity[] = [];
