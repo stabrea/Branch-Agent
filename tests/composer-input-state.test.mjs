@@ -21,7 +21,7 @@ async function fixture(t, viewport = { width: 1440, height: 950 }, { everything 
   });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport, reducedMotion: "reduce" });
+  const context = await browser.newContext({ viewport, reducedMotion: "reduce", serviceWorkers: "block" });
   t.after(async () => {
     await context.close();
     await browser.close();
@@ -39,7 +39,7 @@ async function fixture(t, viewport = { width: 1440, height: 950 }, { everything 
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120_000 });
-  await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120_000 });
+  page.app = app;
   /* DG-175: the owner can be in either window; the bar is the sample's in both. */
   if (everything) {
     await page.evaluate(async () => {
@@ -50,6 +50,47 @@ async function fixture(t, viewport = { width: 1440, height: 950 }, { everything 
   }
   return page;
 }
+
+/* Redesign: the new window's message box (public/app/chat/chat.js composer()): + (plusmenu), Tools (tools9), the box,
+   the model chip (modelmenu2), the mode chip (modemenu2), dictation (dict), voice, Send. */
+async function newShape(page) {
+  return page.evaluate(() => {
+    const box = (selector) => {
+      const node = document.querySelector(selector);
+      if (!node?.checkVisibility()) return null;
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height, middle: rect.top + rect.height / 2 };
+    };
+    return {
+      form: box("#composer"), plus: box('#composer [data-act="plusmenu"]'), prompt: box("#prompt"), mode: box('#composer [data-act="modemenu2"]'),
+      model: box('#composer [data-act="modelmenu2"]'), send: box("#send"),
+      modelWords: document.querySelector('#composer [data-act="modelmenu2"]')?.textContent.trim() ?? "",
+      viewportWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth,
+    };
+  });
+}
+function assertNewComposer(measured, { compact = false } = {}) {
+  assert.ok(measured.form, "the message box is visible");
+  for (const key of ["plus", "prompt", "model", "send"]) assert.ok(measured[key], `${key} stays in the bar`);
+  if (!compact) assert.ok(measured.mode, "the mode chip stays in the bar");
+  const visible = [measured.plus, measured.prompt, measured.mode, measured.model, measured.send].filter(Boolean);
+  assert.ok(Math.max(...visible.map((item) => item.middle)) - Math.min(...visible.map((item) => item.middle)) <= 2, "controls share one line");
+  assert.ok(visible.every((item) => item.left >= measured.form.left && item.right <= measured.form.right), "controls stay inside the bar");
+  assert.equal(measured.scrollWidth <= measured.viewportWidth, true, "the composer never widens the page");
+  if (!compact) assert.equal(measured.modelWords, "configured", "the chip names the model, not the connection");
+}
+
+// Redesign: replaced by the new window (the bar's exact 48/34 px sizes and the hidden microphone are the old sample's; the
+// new message box follows design/redesign/prototype.html, checked by the look check). What stays: one line, inside the
+// bar, no sideways scroll, and the model chip names the model.
+test("the new window's composer keeps its controls on one line inside the bar at desktop, compact and phone widths", async (t) => {
+  const page = await fixture(t);
+  for (const [width, height, compact] of [[1440, 950, false], [1024, 700, false], [390, 844, true]]) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(200);
+    assertNewComposer(await newShape(page), { compact });
+  }
+});
 
 async function shape(page) {
   return page.evaluate(() => {
@@ -84,8 +125,10 @@ function assertComposerContract(measured, { compact = false, everything = false 
   if (!compact) assert.equal(measured.modelWords, "configured", "the chip names the model, not the connection");
 }
 
+// Redesign: replaced by the new window (the calm and full windows are one window; the sample bar's sizes and ids are
+// replaced by the prototype's message box, re-checked above).
 for (const everything of [false, true]) {
-  test(`the ${everything ? "full" : "calm"} window's composer matches the sample bar at desktop, compact and phone widths`, async (t) => {
+  test.skip(`the ${everything ? "full" : "calm"} window's composer matches the sample bar at desktop, compact and phone widths`, async (t) => {
     const page = await fixture(t, undefined, { everything });
     for (const [width, height, compact] of [[1440, 950, false], [1024, 700, false], [390, 844, true]]) {
       await page.setViewportSize({ width, height });
@@ -94,7 +137,8 @@ for (const everything of [false, true]) {
   });
 }
 
-test("the model chip opens a real model picker without leaving the conversation", async (t) => {
+// Redesign: Coming soon (modelmenu2), checked at afa6ad94.
+test.skip("the model chip opens a real model picker without leaving the conversation", async (t) => {
   const page = await fixture(t);
   await page.locator("#lx-model-chip").click();
   const menu = page.locator("#lx-model-menu");
@@ -125,8 +169,9 @@ test("the model chip opens a real model picker without leaving the conversation"
   await page.waitForFunction(() => document.querySelector("#lx-model-chip")?.textContent.trim() === "configured");
 });
 
+// Redesign: Coming soon (plusmenu), checked at afa6ad94; the calm/full split is replaced by the new window (one window).
 for (const everything of [false, true]) {
-  test(`the plus menu changes the real conversation choices in the ${everything ? "full" : "calm"} window`, async (t) => {
+  test.skip(`the plus menu changes the real conversation choices in the ${everything ? "full" : "calm"} window`, async (t) => {
     const page = await fixture(t, undefined, { everything });
     for (const [name, target] of [
       ["Ask me questions first", "#ask-first-toggle"],
@@ -140,7 +185,8 @@ for (const everything of [false, true]) {
   });
 }
 
-test("a refresh that began before Ask first changed cannot put the old choice back", async (t) => {
+// Redesign: Coming soon (plusmenu, where "Ask me questions first" lives), checked at afa6ad94.
+test.skip("a refresh that began before Ask first changed cannot put the old choice back", async (t) => {
   const page = await fixture(t);
   let captured, release;
   const responseCaptured = new Promise((resolve) => { captured = resolve; });
@@ -164,13 +210,27 @@ test("a refresh that began before Ask first changed cannot put the old choice ba
   assert.equal(await page.locator("#ask-first-toggle").isChecked(), true, "the stale refresh cannot overwrite the new choice");
 });
 
+/* Redesign: the new window redraws an open conversation every four seconds (it re-reads the questions waiting) and on
+   every engine event, so a conversation is open while typing. */
 test("typing, focus and selection survive the three-second redraw", async (t) => {
   const page = await fixture(t);
+  const run = page.app.store.createRun("local", "Earlier");
+  page.app.store.message(run.sessionId, { role: "user", content: "Earlier question" });
+  page.app.store.message(run.sessionId, { role: "assistant", content: "Earlier answer" });
+  page.app.store.finish(run.id, "completed", "Earlier answer");
+  await page.reload();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120_000 });
+  await page.locator(`#side [data-act="chat"][data-id="${run.sessionId}"]`).click();
+  await page.locator("#conversation").getByText("Earlier answer").waitFor();
   const prompt = page.locator("#prompt");
+  await prompt.click();
+  const draws = await page.evaluate(() => { globalThis.__draws = 0; new MutationObserver(() => globalThis.__draws++).observe(document.getElementById("main"), { childList: true }); });
+  void draws;
   const typed = "Compare the three supplier quotes and flag delivery";
   await prompt.fill(typed);
   await prompt.evaluate((node) => node.setSelectionRange(8, 16));
   await page.waitForTimeout(7_000);
+  assert.ok(await page.evaluate(() => globalThis.__draws) > 0, "control: the conversation was drawn again meanwhile");
   assert.equal(await prompt.inputValue(), typed);
   assert.deepEqual(
     await prompt.evaluate((node) => ({ start: node.selectionStart, end: node.selectionEnd, focused: document.activeElement === node })),
