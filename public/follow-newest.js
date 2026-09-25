@@ -52,9 +52,13 @@ if (box) {
   box.addEventListener("pointerdown", (event) => { if (event.target === box) reading(); });
   box.addEventListener("scroll", () => { if (atBottom(box)) following = true; }, { passive: true });
 }
-/* A send under way: its conversation gets its id when the answer lands, and that is not the person opening one. */
+/* A send under way: its conversation gets its id when the answer lands, and that is not the person opening one. Set
+   only while public/app.js really sends (NAS f050949): a slash command, a box of spaces or a first send that fails
+   used to leave it set, and the next conversation opened from Recents then started at its top. */
 let sending = false;
-$("chat-form")?.addEventListener("submit", () => { sending = true; followNewest(); });
+$("chat-form")?.addEventListener("submit", () => followNewest());
+document.addEventListener("branch-send-started", () => { sending = true; });
+document.addEventListener("branch-send-settled", () => { sending = false; });
 const watched = [$("conversation"), $("live-row")].filter(Boolean);
 const observer = new MutationObserver(keepUp);
 for (const node of watched) observer.observe(node, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["hidden"] });

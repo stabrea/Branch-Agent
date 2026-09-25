@@ -174,3 +174,26 @@ test("Q198 a conversation opened from Recents after a scroll up on the empty scr
   assert.ok((await gap(page)) <= 80, `opened at the newest message (${await gap(page)} px above the bottom)`);
   assert.deepEqual(errors, []);
 });
+
+// NAS f050949: a submit that sends nothing (a slash command, a box of spaces, a first send that fails) left the send
+// flag set, so after a wheel up the next conversation opened from Recents started at its top.
+test("a slash command on the empty screen leaves no send under way: Recents still opens at the newest message", async (t) => {
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
+  await send(page, "A long answer to open again.");
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.waitForFunction(() => globalThis.branchFollowNewest, null, { timeout: 20000 });
+  await page.locator("#prompt").fill("/help");
+  await page.locator("#prompt").press("Enter");
+  await page.waitForFunction(() => document.getElementById("prompt").value === "", null, { timeout: 20000 });
+  assert.equal(await page.locator("#conversation").getAttribute("data-session-id") ?? "", "", "control: nothing was sent");
+  await page.evaluate(() => document.getElementById("workspace").dispatchEvent(new WheelEvent("wheel", { deltaY: -300, bubbles: true })));
+  assert.equal(await page.evaluate(() => globalThis.branchFollowNewest.following), false, "control: the wheel counted as reading");
+  const row = page.locator("#rail-list .rail-item").filter({ hasText: "A long answer to open again" });
+  await row.waitFor({ timeout: 20000 });
+  await row.click();
+  await page.waitForFunction(() => document.querySelectorAll("#conversation .message.assistant").length >= 1, null, { timeout: 20000 });
+  await page.waitForTimeout(500);
+  assert.ok((await gap(page)) <= 80, `opened at the newest message (${await gap(page)} px above the bottom)`);
+  assert.deepEqual(errors, []);
+});

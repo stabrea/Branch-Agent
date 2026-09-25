@@ -2069,6 +2069,8 @@ $("chat-form").addEventListener("submit", async (event) => {
   const answering = chosenSpecialist();
   const prompt = answering ? `Delegate to specialist ${answering.id}: ${asked}` : asked;
   setConversationBusy(true);
+  // A send really starts here (public/follow-newest.js tells its first id apart from the person opening one).
+  document.dispatchEvent(new CustomEvent("branch-send-started"));
   const startsConversation = !sessionId;
   if (startsConversation) $("conversation").replaceChildren();
   // FQ-surfaces.playback: the sound/video file just attached, handed to this one message's bubble.
@@ -2129,6 +2131,7 @@ $("chat-form").addEventListener("submit", async (event) => {
   } catch (e) {
     message("assistant", e.message);
   } finally {
+    document.dispatchEvent(new CustomEvent("branch-send-settled"));
     globalThis.branchPlaybackSettle?.();
     stopActivity();
     globalThis.branchLiveRun?.stop(sessionId);
