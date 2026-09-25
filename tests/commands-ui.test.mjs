@@ -31,7 +31,7 @@ async function fixture(t, viewport = { width: 1280, height: 900 }, mode = "on") 
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.lx-ready").waitFor({ state: "attached" });
   return { app, server, page, errors };
 }
@@ -143,7 +143,7 @@ test("the phone app's window asks for the phone's list", async (t) => {
   await page.evaluate(() => sessionStorage.setItem("branch-phone", JSON.stringify({ at: Date.now() })));
   const asked = page.waitForRequest((request) => request.url().includes("/api/commands?surface=phone"));
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 }).catch(() => undefined);
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 }).catch(() => undefined);
   await asked;
   assert.equal(await page.evaluate(() => globalThis.branchSlashCommands.surface()), "phone");
   assert.deepEqual(errors, []);

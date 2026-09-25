@@ -38,7 +38,7 @@ test("the Inbox says it carries on only when it does, and that it still waits wh
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   const answerOnce = async () => {
     const card = page.locator("#policy-waiting .item").first();
     await card.waitFor({ timeout: 30000 });

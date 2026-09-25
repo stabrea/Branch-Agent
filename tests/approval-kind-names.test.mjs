@@ -24,7 +24,7 @@ test("every kind-of-tool dropdown is named by its kind, and still says what the 
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click({ noWaitAfter: true });
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openSettings(page, "permissions");
   const selects = page.locator("#approval-categories select");
   await selects.first().waitFor({ state: "visible", timeout: 30000 });
@@ -73,7 +73,7 @@ test("the keyboard stays on the same kind of tool when the language changes", as
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click({ noWaitAfter: true });
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openSettings(page, "permissions");
   await page.locator("#approval-categories select").first().waitFor({ state: "visible", timeout: 30000 });
 

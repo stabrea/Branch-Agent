@@ -49,7 +49,7 @@ test("Computer & browser: the sample's sections, counts and paired devices, at e
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   const open = async (name) => {
     if (!(await page.locator("#settings-window").isVisible())) {

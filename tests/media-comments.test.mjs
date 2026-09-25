@@ -101,7 +101,7 @@ test("the Files browser opens a workspace video, and clicking a comment's timest
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 30000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 30000 });
   await page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, sessionId);
   await page.locator(".message.assistant").first().waitFor();
 

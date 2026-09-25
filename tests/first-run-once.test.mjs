@@ -55,7 +55,7 @@ test("in the window, the card goes once a model has answered and a new conversat
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#first-run").waitFor({ state: "visible" });
   // The owner writes straight away, without pressing Done.
   await page.locator("#prompt").fill("hello");
@@ -66,7 +66,7 @@ test("in the window, the card goes once a model has answered and a new conversat
   await page.waitForFunction(() => { document.getElementById("new-session").click(); return document.querySelectorAll("#conversation .message").length === 0; }, null, { timeout: 10000, polling: 500 });
   assert.equal(await page.locator("#first-run").isVisible(), false, "a new conversation does not bring it back");
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   assert.equal(await page.locator("#first-run").isVisible(), false, "a reloaded window does not show it either");
   assert.deepEqual(errors, []);
 });

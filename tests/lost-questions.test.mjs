@@ -109,7 +109,7 @@ test("F8 in the window, the row of a task a restart cut off offers Continue and 
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   const row = page.locator("#attention .attention-row").filter({ hasText: "Branch restarted before you answered" });
   await row.waitFor({ timeout: 30000 });
   await row.getByRole("button", { name: "Continue where it stopped" }).waitFor();

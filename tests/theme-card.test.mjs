@@ -33,7 +33,7 @@ async function appearance(t) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const open = async () => {
-    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+    await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
     await openSettings(page, "appearance");
     await page.locator("#lx-contrast .segmented-option").first().waitFor();
   };

@@ -91,7 +91,7 @@ test("a picture is one of the six files a message may carry, and its bytes are p
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
 
   const note = (name) => ({ name, mimeType: "text/plain", buffer: Buffer.from("a note") });
 
@@ -397,7 +397,7 @@ test("the picture button on the message box makes a chip the next message will c
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
 
   await page.setInputFiles("#composer-media-file", { name: "dot.png", mimeType: "image/png", buffer: onePixelPng });
   await page.waitForSelector("#composer-attachments .attachment img");

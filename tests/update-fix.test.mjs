@@ -116,7 +116,7 @@ test("in the app: Fix update opens the keeper's conversation with the record sen
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openSettingFor(page, "#updates-card");
   await page.locator("#updates-failed-fix").waitFor({ state: "visible" });
   assert.equal(await page.locator("#updates-keeper").inputValue(), "", "the Update keeper until another Trunk is chosen");
@@ -172,7 +172,7 @@ test("in the app: Fix update waits while another task is working, and says so", 
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#prompt").fill("hold on while I work");
   await page.locator("#prompt").press("Enter");
   await page.waitForFunction(() => document.getElementById("send")?.disabled === true);

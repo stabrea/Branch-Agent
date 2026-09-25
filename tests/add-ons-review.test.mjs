@@ -448,7 +448,7 @@ test("review: the add-ons card opens in Customize → Plugins and fits 400 px wi
   await page.goto(server.url + "/");
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openPlace(page, "customize:plugins");
   const card = page.locator("#add-ons-card");
   await card.waitFor({ state: "visible" });

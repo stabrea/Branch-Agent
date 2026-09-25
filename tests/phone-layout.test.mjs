@@ -112,7 +112,7 @@ test("a phone can connect when the shared shell stylesheet does not load", async
     return hit === button || button.contains(hit);
   }), true, "Connect owns its hit target");
   await connect.click();
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 30000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 30000 });
   assert.deepEqual(f.errors, []);
 });
 

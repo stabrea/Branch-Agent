@@ -35,7 +35,7 @@ async function fixture(t) {
   await page.goto(server.url, { timeout: 120000 }); // a busy Windows build machine once took over 30 s (tests/places.mjs waits 120 s too)
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   if (await page.locator("#first-run").isVisible()) {
     /* "Try it without an account" finishes first run in one click. */
     await page.getByRole("button", { name: /Try it without an account/ }).click();
@@ -110,7 +110,7 @@ test("F2 the timeline under the picture says where each step has got to", async 
       { name: "Ask again", kind: "prompt", prompt: "say goodbye", retries: 0, timeoutMs: 120000 }] });
   /* The page keeps its key for this browser session, so a reload comes back connected. */
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openPlace(page, "procedures");
   await page.locator("#editor-flow").selectOption({ label: "Two things" });
   await page.locator("#editor-timeline .card-row").first().waitFor();

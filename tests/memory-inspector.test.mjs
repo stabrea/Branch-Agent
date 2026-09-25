@@ -269,7 +269,7 @@ test("Q54 the memory list shows what was recorded about a fact, and opens the co
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0;
   const card = page.locator("#memory-list [data-memory-id]").first();
   await card.waitFor({ state: "attached", timeout: 15000 });

@@ -78,12 +78,12 @@ test("a household window is not offered Yes, always; the owner's window is", asy
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   if (await page.locator("#first-run").isVisible()) await page.locator("#first-run-done").click().catch(() => undefined);
   const mine = await ask("owner.txt"); assert.ok(mine.includes("Yes, always"), `control: the owner is offered a standing yes: ${mine}`);
   app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => document.documentElement.dataset.household === "on", null, { timeout: 10000 });
   const offered = await ask("sam.txt");
   assert.ok(offered.includes("Yes, just now"), `Sam can still say yes: ${offered}`);

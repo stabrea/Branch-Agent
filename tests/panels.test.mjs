@@ -167,7 +167,7 @@ async function windowFixture(t, { width = 1440, height = 950, seeded = true, ser
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     await page.locator("body.lx-ready").waitFor({ state: "attached" });
     // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
-    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+    await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
     await page.waitForFunction(() => globalThis.branchPanels && globalThis.branchOnscreen);
     errors.length = 0; // what failed before the key was given is the login page's business
   };
@@ -271,7 +271,7 @@ test("the side list and side panel can be dragged, the width is kept, double-cli
   await f.page.reload();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
   // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForFunction(() => globalThis.branchPanels);
   assert.equal(await f.page.evaluate(() => document.documentElement.style.getPropertyValue("--aside-w")), `${stored}px`, "kept after a reload");
   const rail = f.page.locator('.panels-rz[data-rz="rail"]');
@@ -556,7 +556,7 @@ test("with achievements on, hiding everything earns \"It's lonely over here\" (p
   await f.page.reload(); // the window reads the switch when it starts
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
   // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForFunction(() => globalThis.branchOnscreen);
   assert.equal((await lonely()).got, undefined, "not earned yet");
   await f.look({ hidden: await f.page.evaluate(() => globalThis.branchOnscreen.ids()) });

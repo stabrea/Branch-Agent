@@ -27,7 +27,7 @@ async function settings(t, page = "general") {
   await tab.goto(server.url);
   await tab.getByLabel("Session token", { exact: true }).fill(server.token);
   await tab.getByRole("button", { name: "Connect", exact: true }).click();
-  await tab.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await tab.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
   await tab.locator("body.sg-ready").waitFor();
   /* Opened as a person opens it, not through the test helper that also shows every card of the page. */

@@ -69,7 +69,7 @@ async function fixture(t, { provider, onboarded = false, width = 1440, height = 
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.lx-ready").waitFor({ state: "attached" });
   return { page, server, call, errors, app };
 }
