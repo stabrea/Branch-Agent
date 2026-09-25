@@ -315,3 +315,31 @@ test("a pending chat message in a backup is restored as not sent (NAS dc50a36)",
     assert.equal(target.store.get("deliveries", owner, "sent-delivery")?.data.status, "sent", "a sent one is left as it was");
   }
 });
+
+// NAS 5653d17: the settle is found however many events the file gave the task (store.events() reads 2000), a task the
+// file says was running is settled too, and neither is carried on by never-break at the next start.
+test("a restored task padded past 2000 events, or marked running, is still only offered (NAS 5653d17)", async (t) => {
+  const { app, owner } = await fixture(t);
+  const archive = app.store.backup(app.version);
+  const sessionId = app.store.createSession(owner);
+  const padded = app.store.createRun(owner, "PLANTED-BY-FILE: padded", sessionId);
+  for (let i = 0; i < 2005; i++) app.store.event(padded.id, "run.note", { i });
+  app.store.finish(padded.id, "interrupted", "cut off");
+  const running = app.store.createRun(owner, "PLANTED-BY-FILE: running", sessionId);
+  const later = app.store.backup(app.version);
+  archive.tables.sessions = later.tables.sessions;
+  archive.tables.events = later.tables.events;
+  const now = new Date().toISOString();
+  archive.tables.tasks = [...archive.tables.tasks,
+    { ...later.tables.tasks.find((task) => task.id === padded.id), updated_at: now },
+    { ...later.tables.tasks.find((task) => task.id === running.id), status: "running", updated_at: now }];
+  const fresh = await fixture(t);
+  await restoreBackup(fresh.app, async () => archive, false);
+  for (const id of [padded.id, running.id]) assert.equal(fresh.app.store.run(id).status, "interrupted", `${id} is restored as cut off`);
+  // A step for one of them left open in this computer's own journal (an update's restart cut it off) holds it no less.
+  fresh.app.neverBreak.journal.database.prepare("INSERT INTO steps(run_id,session_id,kind,call_id,tool,arguments,key,effects,evidence,state,started_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+    .run(running.id, sessionId, "tool", "c1", "files.read", "{}", "k1", "none", null, "started", new Date().toISOString());
+  assert.equal(fresh.app.neverBreak.journal.open().some((step) => step.runId === running.id), true, "control: the step is open");
+  const report = await recoverAfterRestart({ store: fresh.app.store, runtime: fresh.app.runtime, journal: fresh.app.neverBreak.journal, mode: "on" });
+  assert.deepEqual(report.map((one) => one.runId), [], "never-break carries neither on by itself");
+});

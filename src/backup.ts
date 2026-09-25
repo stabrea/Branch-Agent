@@ -438,6 +438,8 @@ function settleRestoredTasks(db: DatabaseSync, archive: BackupArchive): void {
     const id = String(task.id);
     if (!db.prepare("SELECT 1 FROM tasks WHERE id=?").get(id)) continue;
     db.prepare("UPDATE tasks SET status='interrupted' WHERE id=?").run(id);
+    // NAS 5653d17: `run.restored` is what never-break asks for by name, however many events the file gave the task.
+    db.prepare("INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)").run(id, "run.restored", "{}", now);
     db.prepare("INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)").run(id, "run.can_continue", JSON.stringify({ note: restoredTaskNote }), now);
   }
 }
