@@ -2042,6 +2042,7 @@ $("login-form").addEventListener("submit", async (event) => {
     globalThis.branchLearningCoreReady?.(); // mac2/fly-core-2
     globalThis.branchPeopleReady?.(); // bucket 19: who may sign in from other devices
     globalThis.branchSettingsKitReady?.(); // R17-S-A: presets, putting settings back, the settings file
+    globalThis.branchSpecialistStylesReady?.(); // dogfood B23: the ways a specialist can work
   } catch (e) {
     toast(e.message);
   }
