@@ -23,6 +23,11 @@ export function init() {
     const mode = el.dataset.v;
     api("never-break", { mode }).then(() => loadGateway(), (e) => toast(e.message));
   });
+  on("gw-restart", (el) => {
+    // Restart the gateway engine - may require IPC on desktop
+    toast("Restarting the engine...");
+    // Note: Desktop restart uses IPC (branch:restart), this is a placeholder
+  });
   markLive(["gw-mode"]);
 }
 
