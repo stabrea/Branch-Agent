@@ -46,8 +46,5 @@ export function init() {
   }
 }
 
-on("lock", () => {
-  // POST /api/lockdown with { on: true }
-});
 
-markLive([ "lock",]);
+markLive([]);

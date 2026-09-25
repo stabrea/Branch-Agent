@@ -17,12 +17,6 @@ export function draw() {
   return `<h1>Data &amp; usage</h1><p class="lede">What each connection has left, what Branch spent, what it keeps.</p>` + REPORT + LIMITS_EMPTY + KEEPING;
 }
 
-on("rep15", () => {
-  // Handle period change
-});
 
-on("repopen15", () => {
-  // Open full usage report
-});
 
-markLive(["rep15", "repopen15",]);
+markLive([]);
