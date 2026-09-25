@@ -71,15 +71,17 @@ const background = new WeakMap<object, Set<string>>();
 const maxBackground = 3;
 
 /**
- * Redesign security review: how much a /bg task may do. It is held to the conversation it was started from; with none,
- * a task started from the window takes the owner's choice for a new conversation, as a message sent there does. Left
- * out, it would follow the owner's rules alone, which can be looser than the conversation the owner is looking at.
+ * Redesign security review: how much a /bg task may do. Started from a conversation, it is held to that conversation
+ * exactly as the conversation's own tasks are: a Trunk's side of a room follows the room's conversation, and a
+ * conversation with no mode of its own follows the owner's rules (so does the task). Only with no conversation at all
+ * does a task started from the window take the owner's choice for a new one, as a message sent there does.
  */
 function backgroundMode(call: Call): ConversationMode | null {
-  const { store, owner } = call.host.runtime;
-  const held = readConversationMode(store, owner, call.sessionId)?.mode;
-  if (held) return held;
-  const chosen = call.surface === "window" ? conversationModeSettings(store, owner).newConversation : "follow";
+  const runtime = call.host.runtime;
+  if (call.sessionId)
+    return readConversationMode(runtime.store, runtime.owner, runtime.modeFollows(call.sessionId) ?? call.sessionId)?.mode ?? null;
+  if (call.surface !== "window") return null;
+  const chosen = conversationModeSettings(runtime.store, runtime.owner).newConversation;
   return chosen === "follow" ? null : chosen;
 }
 
