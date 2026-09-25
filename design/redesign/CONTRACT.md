@@ -21,7 +21,7 @@ cannot do yet is drawn in place but **greyed out** ("Coming soon"). Nothing new 
    data from the engine; where there is none, show the empty state the document describes.
 5. **One definition per thing.** No `const _x = x; x = function () {…}` layering, no legacy branches, no fallbacks to the old
    window, no imports from deleted files. Functions stay under about 50 lines.
-6. **Greyed out, one way.** `public/app/features.js` lists every feature as `live` or `soon`. A `soon` control keeps its
+6. **Greyed out, one way.** `public/app/core/features.js` lists every feature as `live` or `soon`. A `soon` control keeps its
    exact place and look, gets `aria-disabled="true"`, the class `soon`, and the tooltip "Coming soon". Nothing else is said.
    Flipping a feature to live is a one-line change there plus the wiring.
 7. **The engine's security policy stays.** `script-src 'self'; style-src 'self'`: no inline `<script>`, no `style="…"`
