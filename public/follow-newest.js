@@ -41,15 +41,24 @@ if (box) {
   let touchY = null;
   box.addEventListener("touchstart", (event) => { touchY = event.touches[0]?.clientY ?? null; }, { passive: true });
   box.addEventListener("touchmove", (event) => { const y = event.touches[0]?.clientY; if (touchY !== null && y > touchY + 8) reading(); }, { passive: true });
-  box.addEventListener("keydown", (event) => {
+  // Q197 (NAS b613f63): keys that scroll up, Shift+Space too, wherever the focus is but a field: a key pressed with
+  // the focus on the page itself (after a click on the live row, say) scrolls the view without reaching it.
+  document.addEventListener("keydown", (event) => {
     if (event.target.closest?.("input, textarea, select, [contenteditable]")) return;
-    if (["ArrowUp", "PageUp", "Home"].includes(event.key)) reading();
+    if (event.target !== document.body && !box.contains(event.target)) return;
+    if (["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)) reading();
   });
   /* A press on the box itself, not on anything in it, is its scroll bar. */
   box.addEventListener("pointerdown", (event) => { if (event.target === box) reading(); });
   box.addEventListener("scroll", () => { if (atBottom(box)) following = true; }, { passive: true });
 }
-$("chat-form")?.addEventListener("submit", followNewest);
+/* A send under way: its conversation gets its id when the answer lands, and that is not the person opening one. Set
+   only while public/app.js really sends (NAS f050949): a slash command, a box of spaces or a first send that fails
+   used to leave it set, and the next conversation opened from Recents then started at its top. */
+let sending = false;
+$("chat-form")?.addEventListener("submit", () => followNewest());
+document.addEventListener("branch-send-started", () => { sending = true; });
+document.addEventListener("branch-send-settled", () => { sending = false; });
 const watched = [$("conversation"), $("live-row")].filter(Boolean);
 const observer = new MutationObserver(keepUp);
 for (const node of watched) observer.observe(node, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["hidden"] });
@@ -59,8 +68,10 @@ for (const node of watched) observer.observe(node, { childList: true, subtree: t
 let shownSession = $("conversation")?.dataset.sessionId ?? "";
 new MutationObserver(() => {
   const now = $("conversation")?.dataset.sessionId ?? "";
-  // From none (a first send, or a fresh window opening one from Recents), following as it arrives is enough.
-  const opened = now !== shownSession && shownSession !== "";
+  // From none: a first send's id arriving leaves a reader where they are; one opened from Recents starts at its
+  // newest message even after a scroll up on the empty screen (Q198, NAS e87c522).
+  const opened = now !== shownSession && (shownSession !== "" || !sending);
+  sending = false; // the window writes the id when an answer lands, so a send has settled by now
   shownSession = now;
   if (opened) followNewest();
 }).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
