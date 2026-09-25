@@ -31,6 +31,8 @@ export interface VoiceApiDeps {
   oauth?: OAuthConnections;
   /** phase2/rooms: why a live conversation cannot hang off this conversation (a Trunk's, a room), or null. */
   liveRefusal?: (sessionId: string) => string | null;
+  /** The task a live conversation hangs off waits for its socket to open it, and is stopped if none does. */
+  liveWaits?: (runId: string) => void;
 }
 
 const switchBody = z.object({ sessionId: z.string().uuid(), model: z.string().trim().min(1).max(120) }).strict();
@@ -90,6 +92,9 @@ export function openLive(deps: VoiceApiDeps, input: unknown) {
   const plan = livePlanFor(deps.voice.settings(deps.owner), deps.models.plan(deps.owner, sessionId ?? "voice").candidates[0]);
   if (!plan.available) throw new Error(plan.reason);
   const run = deps.store.createRun(deps.owner, "A live conversation", sessionId ?? undefined, false, "web");
+  // Only the socket ends a conversation, so a task whose socket never opens one is stopped after a wait
+  // (src/realtime-voice.ts) rather than left working until Branch restarts.
+  deps.liveWaits?.(run.id);
   return { runId: run.id, sessionId: run.sessionId, plan };
 }
 

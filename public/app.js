@@ -43,6 +43,15 @@ let token = sessionStorage.getItem("branch-token") || "",
   state = null,
   sessionId = null,
   selectedRun = null;
+/* Dogfood F7: the desktop app signs every /api/ request itself (src/desktop/main.ts) and never gives the page its key,
+   but a dozen parts of the page ask "is anyone signed in?" by reading branch-token. Without it the comfort settings
+   (keys, notifications, updates by themselves) never loaded in the desktop, and Dev never updated itself. The window
+   says it is signed in with a stand-in that is not a key; the desktop replaces the header it would have sent. */
+const desktopStandIn = "desktop-window";
+if (desktop && !token) {
+  token = desktopStandIn;
+  sessionStorage.setItem("branch-token", token);
+}
 const titles = {
   chat: "Conversation",
   runs: "Activity",

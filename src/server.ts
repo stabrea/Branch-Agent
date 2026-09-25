@@ -1569,7 +1569,8 @@ async function api(
       // Q221, Q226 (NAS 39e8973, 9ec0d3a): a short-lived key stops only a task it started, working or waiting, as it answers one.
       const keyRefusal = keyStopRefusal(app.store, run.id);
       if (keyRefusal) throw new HttpError(401, keyRefusal);
-      if (app.runtime.cancel(run.id)) return { cancelled: true };
+      // A live conversation's task has no model turn to stop; one that never connected is stopped by the live side.
+      if (app.runtime.cancel(run.id) || app.live.cancel(run.id)) return { cancelled: true };
       // Dogfood F8: a task waiting for an answer, or cut off by a restart, is stopped too, and its question goes with it.
       if (run.status !== "needs_input" && run.status !== "interrupted") return { cancelled: false };
       // Q222: by the task, so a question with no fingerprint never takes another task's question with it.
@@ -4449,6 +4450,7 @@ function voiceDeps(app: Branch) {
     // Wave 7: the Gemini card's "Sign in with Google" needs the workspace's OAuth connections.
     oauth: app.oauth,
     liveRefusal: (sessionId: string) => liveRefusalFor(app, sessionId), // phase2/rooms
+    liveWaits: (runId: string) => app.live.expect(runId),
   };
 }
 /**
