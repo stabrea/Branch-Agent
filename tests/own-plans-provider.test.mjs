@@ -103,3 +103,18 @@ ${JSON.stringify({ type: "error", message: "Not logged in. Please run /login" })
   assert.notEqual(await stopped({ stdout: JSON.stringify({ result: "The README says: please run /login before you start." }) }), "ProgramSignInError",
     "the task's own answer quoting the words is not the program speaking");
 });
+
+// Q247 (NAS c6feb33): a plan's limit is the program's own words too, never a task's text or a tool's output.
+test("a program is at its plan limit only by its own words, never by a task's text that mentions a rate limit", async () => {
+  const { CliAgentProvider, cliAgentCatalog } = await import("../dist/providers/cli-agent.js");
+  const claude = cliAgentCatalog.find((row) => row.id === "claude-code");
+  const stopped = async (outcome) => {
+    const provider = new CliAgentProvider(claude, {}, async () => ({ code: 1, stdout: "", stderr: "", ...outcome }), { name: "CLAUDE_CONFIG_DIR", path: "/tmp/second" });
+    return provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal }).then(() => null, (error) => error.name);
+  };
+  assert.equal(await stopped({ stderr: "Claude usage limit reached. Your limit resets at 3pm." }), "ProgramLimitError");
+  assert.equal(await stopped({ stdout: JSON.stringify({ type: "result", is_error: true, result: "Claude AI usage limit reached|1790370000" }) }), "ProgramLimitError");
+  assert.equal(await stopped({ stdout: JSON.stringify({ type: "error", message: "You've hit your usage limit. Try again later." }) }), "ProgramLimitError");
+  assert.notEqual(await stopped({ stdout: "Updated src/rate limit.ts: the usage limit check now counts retries.\nAll 3 tests pass." }), "ProgramLimitError");
+  assert.notEqual(await stopped({ stdout: `${JSON.stringify({ type: "item.completed", item: { type: "command_execution", aggregated_output: "HTTP 429 Too Many Requests" } })}\n${JSON.stringify({ type: "turn.failed", error: { message: "stream disconnected" } })}` }), "ProgramLimitError");
+});

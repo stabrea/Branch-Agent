@@ -244,7 +244,9 @@ export class CliAgentProvider implements Provider {
     if (outcome.code === null)
       throw new Error(`${this.row.name} took too long and was stopped. Ask again, or pick another model.`);
     // mac6/accounts: only when an account folder is in use, so a single sign-in behaves as before.
-    if (outcome.code !== 0 && (this.home || this.detectLimits) && limitWords.test(`${outcome.stderr}\n${outcome.stdout.slice(0, 4000)}`))
+    // Q247 (NAS c6feb33): the program's own words about its plan, never a task's text or a tool's output that mentions a
+    // "rate limit"; Codex's own usage limit arrives as an error event, which selfWords reads.
+    if (outcome.code !== 0 && (this.home || this.detectLimits) && limitWords.test(selfWords(outcome)))
       throw new ProgramLimitError(`${this.row.name} says this account has reached its plan limit.`);
     if (outcome.code !== 0 && this.home && signInWords.test(selfWords(outcome)))
       throw new ProgramSignInError(`${this.row.name} says this account needs signing in again.`);
