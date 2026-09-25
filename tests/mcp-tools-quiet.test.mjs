@@ -64,3 +64,17 @@ test("a row the owner ticks is drawn again, so the list still follows what is sh
   assert.ok(changed.writes > 0, "a changed choice is drawn");
   assert.equal(await page.locator("#mcp-tools input[type=checkbox]").first().isChecked(), !before);
 });
+
+// NAS 11bf954: with the rows left alone, a box the owner clicked whose save was refused kept showing that choice, so
+// a tool could look shared, or not, when it was the other way. The next refresh puts it back to what is shared.
+test("a box whose save was refused shows what is really shared again after the next refresh", async (t) => {
+  const page = await openApp(t);
+  await page.route("**/api/mcp/settings", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Could not save" }) }) : route.continue());
+  const first = page.locator("#mcp-tools input[type=checkbox]").first();
+  const was = await first.evaluate((input) => input.checked);
+  await first.evaluate((input) => { input.checked = !input.checked; input.dispatchEvent(new Event("change")); });
+  await page.evaluate(() => window.branchMcp.render());
+  assert.equal(await first.evaluate((input) => input.checked), was, "the box shows the choice that is in effect");
+  assert.equal((await renderCost(page)).writes, 0, "and putting it back wrote nothing to the page");
+});
