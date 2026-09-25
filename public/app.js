@@ -988,6 +988,8 @@ $("first-run-test").addEventListener("click", async () => {
 });
 async function finishFirstRun() {
   try {
+    // Dogfood E1: two more short questions (how it looks, how much it asks) before it is done (public/onboarding.js).
+    if (firstRunDoor !== "demo") await globalThis.branchOnboardingSteps?.();
     await api("onboarding", { done: true }); await refresh(); toast("You're set. Say hello."); $("prompt").focus();
     globalThis.branchFirstRunDone?.(); // R17-S06: what to try next (public/first-run-next.js)
   }
