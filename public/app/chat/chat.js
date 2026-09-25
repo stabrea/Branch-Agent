@@ -12,6 +12,7 @@ import { chips, loadChips, initChips } from "./chips.js";
 import { drawPane, initPane } from "./pane.js";
 import { attached, takePending, initPlus } from "./plus.js";
 import { findBar, applyFind, initFind } from "./find.js";
+import { initToolsHub } from "./toolshub.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -189,6 +190,7 @@ export function init() {
   initPane();
   initPlus();
   initFind();
+  initToolsHub();
   onRender(drawPane);
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
