@@ -23,6 +23,7 @@ export const S = {
 export const E = {
   state: null,
   trunks: [],
+  trunkModes: {},
   sessions: [],
   conversation: null,
   profiles: null,
@@ -51,6 +52,7 @@ export async function refresh() {
   E.profiles = profiles;
   E.state = state;
   E.trunks = trunks?.trunks ?? (Array.isArray(trunks) ? trunks : []);
+  E.trunkModes = trunks?.modes ?? {};
   E.sessions = sessions?.sessions ?? [];
   E.loaded = true;
   render();

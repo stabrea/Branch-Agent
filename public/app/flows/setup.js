@@ -74,7 +74,7 @@ function yours(o) {
 }
 
 function trunks(o) {
-  const made = new Set((E.trunks?.trunks ?? E.trunks ?? []).map?.((t) => t.name) ?? []);
+  const made = new Set(E.trunks.map((t) => t.name));
   return `<h2 tabindex="-1">Your first Trunks</h2><p>Pick a few, or tell Branch about your life and work and it proposes them.</p><div class="ob-tr">${TEMPLATES.map(([n, s, col], i) => `<button class="ob-tpl" type="button" data-act="ob-tpl" data-i="${i}" ${pressed(o.tpls.has(i) || made.has(n))}><span class="ob-dot" data-css="background:${col}"></span><b>${n}</b><small>${s}</small></button>`).join("")}</div><label class="fld" data-css="margin-top:12px"><span>Or describe what you do</span><textarea class="inp" id="ob-life" rows="2" placeholder="I’m a finance student with a part-time job at Hartwell. I travel a lot."></textarea></label><button class="btn sm" type="button" data-act="ob-propose">${ic("spark", "s")}Let Branch propose Trunks</button>${o.error ? `<p class="hint" role="alert">${esc(o.error)}</p>` : ""}`;
 }
 
@@ -167,9 +167,11 @@ function close() {
   try { localStorage.setItem("branch-setup-seen", "1"); } catch { /* private window */ }
 }
 
-/* Leaving "Your first Trunks" makes each picked template a Trunk, skipping names that already exist. */
+/* Leaving "Your first Trunks" makes each picked template a Trunk, skipping names that already exist. Picking one is
+   asking for Trunks, so they are switched on first if they are off. */
 async function makeTrunks(o) {
-  const have = new Set((E.trunks?.trunks ?? []).map((t) => t.name));
+  if (E.trunkModes.trunks === "off") await api("trunks/switch", { part: "trunks", mode: "on" });
+  const have = new Set(E.trunks.map((t) => t.name));
   for (const i of o.tpls) {
     const [name, description] = TEMPLATES[i];
     if (!have.has(name)) await api("trunks", { name, description });
