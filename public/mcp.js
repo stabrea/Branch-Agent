@@ -25,6 +25,9 @@ async function api(path, body) {
 
 let sharing = { enabled: false, exposedTools: [], tools: [] };
 let busy = false;
+/* The rows last drawn. Every state refresh asks again, and rebuilding a couple of hundred unchanged rows each
+   time kept the page busy for nothing (and made tests/language-idempotent flaky on a slow machine). */
+let drawn = "";
 
 function status(message) {
   $("mcp-status").textContent = message;
@@ -34,6 +37,9 @@ function status(message) {
 function renderTools() {
   const box = $("mcp-tools");
   $("mcp-choose").hidden = !sharing.enabled;
+  const rows = JSON.stringify([sharing.exposedTools, sharing.tools]);
+  if (rows === drawn && box.childElementCount === sharing.tools.length) return;
+  drawn = rows;
   box.replaceChildren();
   for (const tool of sharing.tools) {
     const row = el("label", undefined, "check");
