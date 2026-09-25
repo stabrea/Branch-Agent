@@ -1,7 +1,7 @@
 /* The conversation (design doc 4.1–4.4): the header (merged into the title bar on wide windows), the thread, the
    composer, sending through POST /api/run, and the approval card for a task waiting on a yes (GET /api/policy). */
 
-import { $, esc, renderNow, render } from "../core/dom.js";
+import { $, esc, renderNow, render, onRender } from "../core/dom.js";
 import { S, E, refresh } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
@@ -9,6 +9,7 @@ import { ic, av, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { text } from "./markdown.js";
 import { chips, loadChips, initChips } from "./chips.js";
+import { drawPane, initPane } from "./pane.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -180,6 +181,8 @@ async function follow(id) {
 
 export function init() {
   initChips();
+  initPane();
+  onRender(drawPane);
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
   /* Live once the engine scopes a standing yes to one Trunk (PR #285); until then features.js keeps it greyed. */

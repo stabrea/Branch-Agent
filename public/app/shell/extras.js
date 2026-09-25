@@ -31,7 +31,7 @@ async function setGateway(v) {
   if (anchor) openPop(anchor, gatewayPop(), { right: true, force: true });
 }
 
-const KEYS = [["Find anything", "Ctrl K"], ["New conversation", "Ctrl N"], ["Settings", "Ctrl ,"], ["Show or hide the list", "Ctrl B"], ["New line in a message", "Shift Enter"], ["This list", "?"], ["Close anything", "Esc"]];
+const KEYS = [["Find anything", "Ctrl K"], ["New conversation", "Ctrl N"], ["Settings", "Ctrl ,"], ["Show or hide the list", "Ctrl B"], ["Show or hide the side panel", "Ctrl Shift K"], ["New line in a message", "Shift Enter"], ["This list", "?"], ["Close anything", "Esc"]];
 function showShortcuts() {
   closePop();
   openDlg({ title: "Keyboard shortcuts", body: `<div class="shortcuts">${KEYS.map(([a, b]) => `<span>${a}</span><span>${b.split(" ").map((x) => `<kbd>${x}</kbd>`).join(" ")}</span>`).join("")}</div>` });
