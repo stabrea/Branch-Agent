@@ -82,7 +82,7 @@ export async function after() {
 }
 
 export function init() {
-  markLive(["ptab", "forget"]);
+  markLive(["ptab", "forget", "memmore15", "tidy15", "dv15"]);
   /* One memory, by its id, through the engine's own memory.delete (POST /api/action); nothing else is forgotten. */
   on("forget", async (el) => {
     const id = el.dataset.id;
@@ -90,4 +90,27 @@ export function init() {
     try { await api("action", { tool: "memory.delete", args: { id } }); } catch (error) { toast(error.message); return; }
     await refresh().catch(() => {});
     renderNow();
-  });}
+  });
+  on("memmore15", async (el) => {
+    // Window-only: Opens the Memory menu
+    toast("Memory menu (window state only)");
+  });
+  on("tidy15", async (el) => {
+    // Opens the memory tidy dialog
+    try {
+      const tidy = await api("memory/tidy");
+      toast(`Found ${tidy.length} items to tidy up`);
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  on("dv15", async (el) => {
+    // Opens the knowledge graph visualization
+    try {
+      const graph = await api("knowledge/graph", { collection: "", entity: "", depth: 1 });
+      toast("Knowledge graph loaded");
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+}

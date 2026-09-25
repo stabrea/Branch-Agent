@@ -83,7 +83,7 @@ export async function after() {
 }
 
 export function init() {
-  markLive(["ptab", "chat", "tmsg", "ask"]);
+  markLive(["ptab", "chat", "tmsg", "ask", "verify15"]);
   on("tmsg", async (el) => {
     try { await api(`trunks/messages/${encodeURIComponent(el.dataset.id)}/${el.dataset.v === "answer" ? "answer" : "decline"}`, {}); } catch (error) { toast(error.message); }
     await refresh().catch(() => {});
@@ -114,5 +114,14 @@ export function init() {
     }
     await refresh().catch(() => {});
     renderNow();
+  });
+  on("verify15", async (el) => {
+    // Verify activity chain integrity
+    try {
+      const result = await api("safety-extras/activity/verify", {});
+      toast(`Activity chain verified: ${result.count || 0} entries`);
+    } catch (error) {
+      toast(error.message);
+    }
   });
 }
