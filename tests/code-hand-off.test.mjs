@@ -328,3 +328,51 @@ test("an untouched folder whose owner-level Git config has a filter still hands 
   assert.deepEqual(result.changed, ["src/a.ts"]);
   assert.equal(calls.length, 1, "the program still ran");
 });
+
+// Legion's adversarial of R19: a job left its folder through a link it made in it, or by writing next to it, and the
+// after-check (which only sees the folder's own repository) said "done".
+test("a job that makes a link out of its folder and writes through it ends as left its folder, and the link is removed", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const outside = join(f.root, "outside");
+  await mkdir(outside, { recursive: true });
+  const result = await f.handOff(async (call, onLine) => {
+    await symlink(outside, join(call.cwd, "escape"), process.platform === "win32" ? "junction" : "dir");
+    await writeFile(join(call.cwd, "escape", "pwned.txt"), "x");
+    claudeLines("Done.").forEach(onLine);
+    return { code: 0, lines: claudeLines("Done."), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "Anything.", minutes: 5 }, context(f.app));
+  assert.equal(result.status, "left its folder");
+  assert.match(result.summary, /made a link out of the folder/);
+  assert.equal(existsSync(join(f.workspace, "site", "escape")), false, "the link is removed");
+  assert.equal(existsSync(join(outside, "pwned.txt")), true, "what it points at is left alone for the owner to look at");
+  assert.deepEqual(result.changed, [], "nothing from the run is kept as done");
+});
+
+test("a job that writes next to its folder ends as left its folder, naming what it wrote", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const result = await f.handOff(async (call, onLine) => {
+    await writeFile(join(call.cwd, "..", "escape.txt"), "x");
+    claudeLines("Done.").forEach(onLine);
+    return { code: 0, lines: claudeLines("Done."), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "Anything.", minutes: 5 }, context(f.app));
+  assert.equal(result.status, "left its folder");
+  assert.match(result.summary, /added escape\.txt next to the folder/);
+});
+
+test("a link that already led out before the job, and neighbours it did not touch, are not the job's", async (t) => {
+  const f = await fixture(t);
+  await repository(join(f.workspace, "site"));
+  const outside = join(f.root, "outside");
+  await mkdir(outside, { recursive: true });
+  await symlink(outside, join(f.workspace, "site", "shared"), process.platform === "win32" ? "junction" : "dir");
+  await writeFile(join(f.workspace, "notes.txt"), "the owner's own file next to the folder");
+  const result = await f.handOff(async (call, onLine) => {
+    await writeFile(join(call.cwd, "src", "a.ts"), "export const a = 2;\n");
+    claudeLines("Changed a to 2.").forEach(onLine);
+    return { code: 0, lines: claudeLines("Changed a to 2."), stderr: "", timedOut: false, missing: false };
+  }).run({ program: "claude-code", folder: "site", task: "Set a to 2.", minutes: 5 }, context(f.app));
+  assert.equal(result.status, "done");
+  assert.ok(existsSync(join(f.workspace, "site", "shared")), "the owner's own link stays");
+});

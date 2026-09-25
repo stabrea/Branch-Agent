@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmdirSync, statSync, unlinkSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -173,7 +173,7 @@ export interface HandOffDeps {
 export interface HandOffResult {
   program: HandOffProgram;
   account: string;
-  status: "done" | "failed" | "limit reached" | "sign in again" | "stopped" | "timed out" | "repository settings changed";
+  status: "done" | "failed" | "limit reached" | "sign in again" | "stopped" | "timed out" | "repository settings changed" | "left its folder";
   summary: string;
   steps: string[];
   changed: string[];
@@ -249,6 +249,49 @@ export function repoOwnSettings(folder: string): string {
   return JSON.stringify(parts.sort());
 }
 
+/**
+ * The adversarial of R19 (Legion, 2026-09-25): a job could leave its folder through a link it made inside it (to
+ * somewhere else on disk, then write through it) or by writing next to the folder, and the Git after-check, which only
+ * sees the folder's own repository, said "done". These two looks catch both; writes further out are held back by the
+ * programs' own limits (Claude Code runs no commands; Codex runs in its workspace-write sandbox).
+ */
+const linkLookLimit = 200_000;
+/** Every link inside the folder (not following links, skipping `.git`) that leads out of it, as "path -> target". */
+export function linksOut(folder: string): { links: Set<string>; complete: boolean } {
+  const links = new Set<string>();
+  const stack = [folder];
+  let seen = 0;
+  while (stack.length) {
+    const dir = stack.pop()!;
+    let entries: import("node:fs").Dirent[] = [];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (++seen > linkLookLimit) return { links, complete: false };
+      const path = join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        let target = "";
+        try { target = realpathSync.native(path); } catch { target = resolve(dir, readlinkSafe(path)); }
+        const from = relative(folder, target);
+        if (from.startsWith("..") || resolve(from) === from) links.add(`${relative(folder, path)} -> ${target}`);
+      } else if (entry.isDirectory() && entry.name !== ".git") stack.push(path);
+    }
+  }
+  return { links, complete: true };
+}
+function readlinkSafe(path: string): string { try { return readlinkSync(path); } catch { return ""; } }
+/** The folder's neighbours (its parent directory's entries, except the folder itself), each with when it last changed. */
+export function neighbours(folder: string): Map<string, number> {
+  const parent = dirname(folder), found = new Map<string, number>();
+  let entries: string[] = [];
+  try { entries = readdirSync(parent); } catch { return found; }
+  for (const name of entries) {
+    const path = join(parent, name);
+    if (path === folder) continue;
+    try { found.set(name, lstatSync(path).mtimeMs); } catch { /* gone while looking */ }
+  }
+  return found;
+}
+
 export class HandOff {
   constructor(private readonly deps: HandOffDeps) {}
 
@@ -318,6 +361,8 @@ export class HandOff {
     const env = this.environment(input.program, account);
     // The folder's own Git settings as they were before the job, so a job that rewrites them is caught below.
     const settingsBefore = repoOwnSettings(folder.absolute);
+    // Links that already led out of the folder, and what sat next to it, so only what the job did is judged below.
+    const linksBefore = linksOut(folder.absolute).links, besideBefore = neighbours(folder.absolute);
     const start = (await this.gitText(folder.absolute, ["rev-parse", "--verify", "HEAD"], context.signal)).trim();
     let shown = 0;
     const onLine = (line: string): void => {
@@ -330,6 +375,8 @@ export class HandOff {
     // A job could have written the folder's own `.git` settings (its config, attributes or hooks) so that the
     // steps below would run a program of its choosing. If any of them changed, run no Git in the folder at all.
     if (repoOwnSettings(folder.absolute) !== settingsBefore) return this.settingsChanged(input, account, report, context);
+    const left = this.leftFolder(folder.absolute, linksBefore, besideBefore);
+    if (left) return this.leftItsFolder(input, account, report, context, left);
     const changed = await this.changedSince(folder.absolute, start, AbortSignal.timeout(60_000));
     const undone = await this.keepToContract(folder, start, changed, AbortSignal.timeout(60_000));
     const status: HandOffResult["status"] = context.signal.aborted ? "stopped" : ran.timedOut ? "timed out"
@@ -337,6 +384,37 @@ export class HandOff {
     const result: HandOffResult = { program: input.program, account, status,
       summary: (report.summary || report.failed || ran.stderr.trim()).slice(0, 4000), steps: report.steps.slice(-40),
       changed: [...changed.tracked, ...changed.added].filter((file) => !undone.includes(file)), undone };
+    this.deps.store.event(context.runId, "code.hand_off", { ...result, summary: result.summary.slice(0, 500) });
+    return result;
+  }
+
+  /**
+   * What the job did outside its folder, in plain words, or null when nothing. A new link leading out is removed at
+   * once (only the link, never what it points at); a changed neighbour is only named, since it is not the job's to keep.
+   */
+  private leftFolder(folder: string, linksBefore: Set<string>, besideBefore: Map<string, number>): string | null {
+    const found: string[] = [];
+    const now = linksOut(folder);
+    for (const link of now.links) if (!linksBefore.has(link)) {
+      const path = join(folder, link.split(" -> ")[0]!);
+      try { unlinkSync(path); } catch { try { rmdirSync(path); } catch { /* a junction is removed as a directory */ } }
+      found.push(`made a link out of the folder (${link}), which I removed`);
+    }
+    if (!now.complete) found.push(`has more than ${linkLookLimit.toLocaleString()} files, so not every link in it could be looked at`);
+    for (const [name, when] of neighbours(folder)) {
+      const before = besideBefore.get(name);
+      if (before === undefined) found.push(`added ${name} next to the folder`);
+      else if (before !== when) found.push(`changed ${name} next to the folder`);
+    }
+    return found.length ? found.join("; ") : null;
+  }
+
+  /** The job reached outside its folder. What it did inside is not trusted either: nothing is checked or kept. */
+  private leftItsFolder(input: HandOffInput, account: string, report: ProgramReport, context: ToolContext, what: string): HandOffResult {
+    const result: HandOffResult = { program: input.program, account, status: "left its folder",
+      summary: `The job reached outside the folder it was given: it ${what}. I checked and kept nothing from this run. `
+        + "Look over the folder and what is next to it yourself before you trust anything from it.",
+      steps: report.steps.slice(-40), changed: [], undone: [] };
     this.deps.store.event(context.runId, "code.hand_off", { ...result, summary: result.summary.slice(0, 500) });
     return result;
   }
@@ -359,7 +437,8 @@ export function registerHandOff(registry: ToolRegistry, handOff: HandOff): void 
       + "folder of the workspace that is a Git repository: the program reads, edits and runs the checks there, and this answers "
       + "with what it did and which files changed. Choose the account from Settings › Accounts, or leave it out for the usual one. "
       + "When the answer says the plan's limit was reached, try another account. Inside Branch's own source, anything the job "
-      + "changed outside the contract's allowed paths is put back and named.",
+      + "changed outside the contract's allowed paths is put back and named. A job that makes a link out of its folder, or "
+      + "writes next to it, ends as \"left its folder\" and nothing from it is kept.",
     parameters: HandOffInputSchema,
     // The program may change anything in the folder, so a rule about any folder inside it counts; inside Branch's
     // own source the contract must cover the whole folder, and is held again file by file afterwards.
