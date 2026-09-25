@@ -1,7 +1,9 @@
 /* Settings › On this computer: what the engine says about models here (GET /api/local-models): this computer's memory
    and graphics, the models the one-click catalogue offers with how each size fits, what Ollama has installed, and the
-   runtimes. Removing an installed model is POST /api/local-models/remove. Installing a size and running a model go
-   through the one-click setup, which needs a runtime program the window cannot check here, so those stay greyed. */
+   runtimes. Removing an installed model is POST /api/local-models/remove. Install starts the engine's one-click setup of
+   exactly that catalogue size (POST /api/local-models/setup { model, quant }: the engine resolves the runtime's own
+   download name, which the offers do not carry), follows the job in oneClick.setups, and shows the engine's refusal
+   verbatim (switched off, or no runtime program installed). Running a model stays greyed. */
 import { esc, render } from "../../core/dom.js";
 import { S } from "../../core/state.js";
 import { api } from "../../core/api.js";
@@ -38,6 +40,9 @@ function hardware() {
   return `<div class="hw12">${tile("layers", "Memory", gb(hw.totalMemoryBytes))}${tile("monitor", "Graphics", graphics)}${tile("term", "Runtime", runtime)}</div>`;
 }
 
+/* The engine's unfinished one-click setup of this offer, if one is running. */
+const setupFor = (o) => (L.data?.oneClick?.setups ?? []).find((j) => j.request?.model === o.id && !j.finishedAt);
+
 const FIT = { well: ["great", "ok"], tight: ["ok", "warn"], no: ["no", "no"] };
 const summaryOf = (o) => (typeof o.summary === "string" ? o.summary : o.summary?.en ?? "");
 
@@ -49,9 +54,13 @@ function offer(o) {
   const sizes = o.variants.map((x) => `<button type="button" data-act="lm-v" data-id="${esc(o.id)}" data-v="${esc(x.quant)}" aria-pressed="${x.quant === v?.quant}">${esc(x.label || x.quant)} · ${gb(x.downloadBytes)}</button>`).join("");
   /* The engine's note starts with its verdict ("Fits well: …"); the pill shows the verdict and the tip the rest. */
   const note = v?.note ?? "";
+  const job = setupFor(o);
+  const act = job
+    ? `<div class="lm-bar12"><i data-css="width:${Math.round(job.percent)}%"></i></div><small class="lm-st12">${esc(job.message)} · ${Math.round(job.percent)}%</small>`
+    : `<div class="acts"><button class="btn ${fit === "no" ? "ghost" : "pri"} sm" type="button" data-act="lm-get" data-id="${esc(o.id)}" data-v="${esc(v?.quant ?? "")}" ${fit === "no" ? "disabled" : ""}>${DOWNLOAD_ICON}Install ${gb(v?.downloadBytes)}</button></div>`;
   return `<div class="lm12 fit-${fit}"><div class="lm-h12"><b>${esc(o.name)}</b><span class="pill ${pill}" data-tip="${esc(note)}"><i></i>${esc(note.split(":")[0])}</span></div><p>${esc(summaryOf(o))}</p>
     <div class="lm-tags12">${tags}</div><div class="seg lm-v12">${sizes}</div>
-    <div class="acts"><button class="btn ${fit === "no" ? "ghost" : "pri"} sm" type="button" data-act="lm-get" data-id="${esc(o.id)}" data-v="${esc(v?.quant ?? "")}" ${fit === "no" ? "disabled" : ""}>${DOWNLOAD_ICON}Install ${gb(v?.downloadBytes)}</button></div></div>`;
+    ${act}</div>`;
 }
 
 /* What Ollama has installed; the one it has in memory is running on its own port. */
@@ -86,15 +95,34 @@ async function remove(el) {
   await loadLocal();
 }
 
+/* Starts the setup; a refusal comes back as an error or as needsRuntime with the engine's own sentence. */
+async function install(el) {
+  let job;
+  try { job = await api("local-models/setup", { model: el.dataset.id, quant: el.dataset.v }); } catch (error) { toast(error.message); return; }
+  if (job.needsRuntime) { toast(job.message); return; }
+  await follow(job.id);
+}
+
+/* Re-reads the engine's jobs until this one finishes; a failed or stopped setup says why in the engine's words. */
+async function follow(id) {
+  while (S.view === "settings" && S.setPage === "local") {
+    const data = await loadLocal();
+    const job = (data?.oneClick?.setups ?? []).find((j) => j.id === id);
+    if (!job || job.finishedAt) { if (job && job.stage !== "done") toast(job.message); return; }
+    await new Promise((done) => setTimeout(done, 1000));
+  }
+}
+
 export function init() {
   loadLocal();
   loadCatalog();
   on("lm-v", (el) => { chosen[el.dataset.id] = el.dataset.v; render(); });
   on("lm-rm", (el) => remove(el));
+  on("lm-get", (el) => install(el));
   on("lm-chat", () => { closeDlg(); S.view = "chat"; S.chat = null; render(); });
-  markLive(["lm-v", "lm-rm", "lm-chat"]);
+  markLive(["lm-v", "lm-rm", "lm-chat", "lm-get"]);
 }
 
 export function load() { loadCatalog(); return loadLocal(); }
 
-export const live = { "lm-v": true, "lm-rm": true, "lm-chat": true };
+export const live = { "lm-v": true, "lm-rm": true, "lm-chat": true, "lm-get": true };
