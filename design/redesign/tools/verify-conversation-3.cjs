@@ -211,7 +211,10 @@ async function verifyTeach(page, trunk) {
   await bar.locator('[data-act="teach-stop"]').click();
   const taught = await until(async () => { const t = (await api(`trunks/${trunk.id}`)); return t.trunk.taught.length === 1 && t.watching === null && t; });
   const flows = (await api("workflows")).workflows.length;
-  const lesson = (await api("state")).runs.find((r) => r.prompt === `teach task ${stamp}` && r.status === "completed");
+  // The yes carries the task on as a new task in the same conversation; the newest finished one there is the lesson.
+  const runs = (await api("state")).runs, asked = runs.find((r) => r.prompt === `teach task ${stamp}`);
+  const lesson = runs.filter((r) => asked && r.sessionId === asked.sessionId && r.status === "completed")
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
   check("teach-stop gives the Trunk the task as a workflow", !!taught && flows === before + 1, `GET trunks/{id} taught ${taught && taught.trunk.taught.map((x) => x.name).join(", ")}; GET workflows ${before} -> ${flows}`);
   check("teach-stop names the task done in that conversation", !!taught && !!lesson && taught.trunk.taught[0].runId === lesson.id, `taught runId ${taught && taught.trunk.taught[0].runId}`);
   check("the bar is gone once saved", await until(async () => (await page.locator(".bar.teach").count()) === 0));
