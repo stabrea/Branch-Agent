@@ -14,7 +14,7 @@ async function loadLocalData() {
   }
 }
 
-function draw() {
+export function draw() {
   if (!localData) {
     return `<h1>On this computer</h1><p class="lede">Models that run here, free and private.</p><p class="hint">Loading...</p>`;
   }

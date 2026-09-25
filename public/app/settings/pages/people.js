@@ -102,7 +102,7 @@ function renderProfileDetail() {
   return html;
 }
 
-function draw() {
+export function draw() {
   let html = `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p><div class="t10">
     ${renderProfileList()}
     ${renderProfileDetail()}
@@ -123,14 +123,4 @@ export function init() {
 }
 
 export const live = {
-  "p-sel": true,
-  "p-invite": true,
-  "p-switch": true,
-  "p-role": true,
-  "p-code": true,
-  "p-signout": true,
-  "p-remove": true,
-  "sw:pp-pin": true,
-  "sw:pp-own": true,
-  "p-open-team": true,
 };

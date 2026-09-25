@@ -48,5 +48,5 @@ export function draw() {
 }
 
 export function init() {
-  markLive(["ptab", "teach-start", "toast", "sw:auto"]);
+  markLive(["ptab",]);
 }

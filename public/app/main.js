@@ -39,7 +39,7 @@ async function boot() {
 async function connect(refusal = "") {
   try { await refresh(); }
   catch (error) {
-    if (error.status === 401) { showSignIn(() => connect(true), refusal ? error.message : ""); return; }
+    if (error.status === 401 || error.status === 429) { showSignIn(() => connect(true), refusal || error.status === 429 ? error.message : ""); return; }
     E.error = error; render(); return;
   }
   stream(["run", "approval", "message", "trunk"], () => refresh().catch(() => {}));

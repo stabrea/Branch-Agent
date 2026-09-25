@@ -41,8 +41,9 @@ export function save() {
 
 /* The engine's picture of things: state, the Trunks and the conversation list. */
 export async function refresh() {
-  const [state, trunks, sessions, profiles] = await Promise.all([
-    api("state"),
+  /* One request first: until the engine accepts the window, every refused request counts against sign-in. */
+  const state = await api("state");
+  const [trunks, sessions, profiles] = await Promise.all([
     api("trunks").catch(() => null),
     api("sessions?limit=50").catch(() => null),
     api("profiles").catch(() => null),

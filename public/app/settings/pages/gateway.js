@@ -49,4 +49,4 @@ on("gw-restart", () => {
   // POST /api/gateway/restart
 });
 
-markLive(["gw-mode", "gw-restart", "gw-carry", "gw-tray"]);
+markLive(["gw-mode", "gw-restart",]);

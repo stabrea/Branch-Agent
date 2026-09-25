@@ -41,7 +41,7 @@ function renderAccountGroup(provider, logoColor, logoSvg) {
   return html;
 }
 
-function draw() {
+export function draw() {
   const lv = level();
 
   let html = `<h1>Models</h1><p class="lede">Which models answer, and where they run.</p><div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="true" data-act="mtab" data-v="connections">Connections</button><button class="tab" role="tab" type="button" aria-selected="false" data-act="mtab" data-v="defaults">Defaults</button><button class="tab" role="tab" type="button" aria-selected="false" data-act="mtab" data-v="local">On this computer</button><button class="tab" role="tab" type="button" aria-selected="false" data-act="mtab" data-v="second">Second opinion</button><button class="tab" role="tab" type="button" aria-selected="false" data-act="mtab" data-v="media">Media</button></div><p class="hint" data-css="margin:2px 0 12px">You can sign in to the same service more than once. When one account runs low, Branch moves to the next. The order is in <button class="link" type="button" data-act="setpage" data-v="accounts">Settings › Accounts</button>.</p><div class="acct-gs">`;

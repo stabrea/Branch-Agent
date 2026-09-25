@@ -28,4 +28,4 @@ export function draw() {
   return BASE + secretsSection(secrets);
 }
 
-export const live = { "secret-rm": true };
+export const live = {};

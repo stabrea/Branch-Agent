@@ -23,7 +23,7 @@ const OB_STEPS = [
 ];
 
 export function init() {
-  markLive(["onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-trust", "ob-set"]);
+  markLive(["onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set"]);
   on("onboard", () => openSetup());
   on("ob-go", (el) => { if (S.ob) { S.ob.i = +el.dataset.v; drawSetup(); } });
   on("ob-next", () => { if (S.ob) { S.ob.i = Math.min(S.ob.i + 1, OB_STEPS.length - 1); drawSetup(); } });

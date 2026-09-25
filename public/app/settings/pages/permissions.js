@@ -50,4 +50,4 @@ on("lock", () => {
   // POST /api/lockdown with { on: true }
 });
 
-markLive(["p-read", "p-browse", "p-send", "p-install", "p-record", "p-loop", "lock", "pin-rm8", "pin-add8", "f15-practice-runs", "f15-scan-commands-for-hidden-characters", "f15-scan-for-personal-details", "f15-authenticator-code-for-sensitive-tools", "f15-add-sign-ins-from-outside-the-sandbox", "f15-verify-each-release", "f15-pin-ssh-hosts", "sw:p-read", "sw:p-browse", "sw:p-send", "sw:p-install", "sw:p-record", "sw:p-loop", "sw:f15-practice-runs", "sw:f15-scan-commands-for-hidden-characters", "sw:f15-scan-for-personal-details", "sw:f15-authenticator-code-for-sensitive-tools", "sw:f15-add-sign-ins-from-outside-the-sandbox", "sw:f15-verify-each-release", "sw:f15-pin-ssh-hosts"]);
+markLive([ "lock",]);

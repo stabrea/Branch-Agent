@@ -17,7 +17,7 @@ export function init() {
 }
 
 async function openConnectorCatalog() {
-  if (!connectors) connectors = await api("mcp/connectors").catch(() => ({}));
+  if (!connectors) connectors = await api("mcp/connections").catch(() => ({}));
   S.mcp = { cat: "all", q: "" };
   drawConnectorCatalog();
 }

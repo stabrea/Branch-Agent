@@ -47,5 +47,5 @@ export function draw() {
 }
 
 export function init() {
-  markLive(["ptab", "chat", "toast", "edit", "pausetrunk"]);
+  markLive(["ptab", "chat",]);
 }
