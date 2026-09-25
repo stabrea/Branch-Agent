@@ -8,6 +8,7 @@ import { ic, openPop, closePop, mi, toast } from "../core/ui.js";
 import { S } from "../core/state.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { plusMore } from "./media.js";
 
 const MAX_FILES = 6, MAX_BYTES = 32 * 1024 * 1024;
 const Q = { files: [], temporary: false };
@@ -75,7 +76,7 @@ function insert(text) {
 
 export function initPlus() {
   markLive(["plusmenu", "attach", "unattach", "insert", "sw:pm-temp"]);
-  on("plusmenu", (el) => openPop(el, menu()));
+  on("plusmenu", (el) => openPop(el, menu() + plusMore()));
   on("attach", () => pick());
   on("unattach", (el) => { Q.files.splice(+el.dataset.i, 1); redraw(); });
   on("insert", (el) => insert(el.dataset.v));

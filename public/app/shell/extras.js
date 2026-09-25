@@ -8,6 +8,7 @@ import { S } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { chatMenuTop } from "../chat/beside.js";
 
 const MODES = [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]];
 const SAID = { off: "Off. When you close Branch, your Trunks stop, and Telegram and automations go quiet until you open it again.", "when-needed": "Starts by itself when a chat app, your phone or an automation needs Branch, and rests otherwise.", on: "On. Telegram, your phone and automations keep working when the window is closed." };
@@ -38,7 +39,7 @@ function showShortcuts() {
 }
 
 function chatMenu() {
-  return mi("pin", "pin", "Pin to top") + mi("call", "wave", "Talk out loud") + mi("inspect", "eye", "Look inside the last reply") + mi("export-conv", "copy", "Export conversation");
+  return chatMenuTop() + mi("pin", "pin", "Pin to top") + mi("call", "wave", "Talk out loud") + mi("inspect", "eye", "Look inside the last reply") + mi("export-conv", "copy", "Export conversation");
 }
 
 async function exportConversation() {
