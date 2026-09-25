@@ -1,7 +1,7 @@
 import type { Run, RunStatus } from "./contracts.js";
 import type { Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
-import { addPolicyRule, readPolicy, savePolicy, policyPresets, type PolicyPresetName } from "./policy.js";
+import { keepPolicyRule, readPolicy, savePolicy, policyPresets, type PolicyPresetName } from "./policy.js";
 import { recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 import { readAttachment, type Attachment, attachedText } from "./terminal-commands.js";
 import { progressLine } from "./terminal.js";
@@ -237,7 +237,11 @@ export function statusSnapshot(runtime: Runtime) {
   };
 }
 
-export interface ApprovalAnswer { runId: string; tool: string; target: string; decision: "allow" | "deny"; rule: string }
+export interface ApprovalAnswer {
+  runId: string; tool: string; target: string; decision: "allow" | "deny"; rule: string;
+  /** Q215: false when the approval rules were full and nothing less careful could make room, so nothing was saved. */
+  kept: boolean;
+}
 /**
  * Answers a task that stopped to ask, from a separate command. The question itself lived in the
  * program run that stopped, which has since ended, so the answer is written into the approval
@@ -263,6 +267,6 @@ export function answerFromCommand(runtime: Runtime, id: string, answer: string):
   runtime.approvals.remember(run.sessionId, tool, target, decision,
     { ...(fingerprint ? { fingerprint } : {}), label: String(asked.data.label ?? "") });
   // Left with no target only for a tool that can name none, where a rule on "*" is the tool itself.
-  addPolicyRule(runtime.store, runtime.owner, { tool, match: target || "*", decision, remember: "always" });
-  return { runId: run.id, tool, target, decision, rule: `${tool} on ${target || "anything"}` };
+  const { kept } = keepPolicyRule(runtime.store, runtime.owner, { tool, match: target || "*", decision, remember: "always" });
+  return { runId: run.id, tool, target, decision, rule: `${tool} on ${target || "anything"}`, kept };
 }

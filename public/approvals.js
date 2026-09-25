@@ -128,8 +128,10 @@ function filesBlock(question, tone) {
 
 async function answer(sessionId, decision, remember, fingerprint) {
   try {
-    await api("policy/approve", { sessionId, decision, remember, ...(fingerprint ? { fingerprint } : {}) });
-    status(decision === "allow" ? "Noted. Send your next message in that conversation to carry on." : "Noted. It will not do that.");
+    const said = await api("policy/approve", { sessionId, decision, remember, ...(fingerprint ? { fingerprint } : {}) });
+    const noted = decision === "allow" ? "Noted. Send your next message in that conversation to carry on." : "Noted. It will not do that.";
+    // Q215: with the approval rules full, an "always" was kept for this conversation only.
+    status(said?.standingNote ? `${noted} ${said.standingNote}` : noted);
     await render();
   } catch (e) {
     status(e.message);

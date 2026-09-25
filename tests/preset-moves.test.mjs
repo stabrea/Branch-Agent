@@ -163,6 +163,16 @@ test("near the most rules a policy holds, a preset's own lines are never cut", a
   assert.ok(!policy().rules.some((rule) => rule.tool === "other.yes"), "the owner's yes made room");
   assert.equal(policy().rules.filter((rule) => rule.tool.startsWith("other.t")).length, 298, "every refusal stays");
   assert.match(app.store.audit.list(owner, { limit: 5 }).map((entry) => entry.reason).join("\n"), /made room/);
+  // Q215 (NAS 8f03a68): an owner's "ask first" is as careful as a refusal to a standing yes: it never makes room for one.
+  store("read-only", [...ownRefusals(149, "other"), ...ownRefusals(150, "asked").map((rule) => ({ ...rule, decision: "ask" })), ...presetRules("read-only")]);
+  const guarded = policy().rules;
+  standing("other.newest", "allow");
+  assert.deepEqual(policy().rules, guarded, "a standing yes pushes out none of the owner's asks either");
+  // A standing question may take the oldest ask's place, and a refusal comes before neither.
+  standing("asked.newest", "ask");
+  assert.equal(policy().rules[0].tool, "asked.newest");
+  assert.ok(!policy().rules.some((rule) => rule.tool === "asked.t149"), "the oldest ask made room");
+  assert.equal(policy().rules.filter((rule) => rule.decision === "deny" && rule.tool.startsWith("other.")).length, 149, "every refusal stays");
   // A move whose kept refusals and own lines would not fit is refused in plain words, and nothing changes.
   store("off", ownRefusals(295, "more"));
   assert.throws(() => savePolicy(app.store, owner, { preset: "workspace" }), /more than the 300/);

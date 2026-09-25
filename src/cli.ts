@@ -3,6 +3,7 @@ import { reportCommand } from "./diagnostic-cli.js"; // mac7/diagnostics
 import { installTypeOf } from "./diagnostic-api.js"; // mac7/diagnostics
 import { resolve } from "node:path";
 import { createBranch } from "./index.js";
+import { maximumPolicyRules } from "./policy.js"; // Q215
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, join, dirname } from "node:path";
@@ -723,6 +724,12 @@ function printApproval(app: Awaited<ReturnType<typeof createBranch>>): void {
   if (process.argv.includes("--json")) { console.log(JSON.stringify(result)); return; }
   // The run that asked has already ended, so there is nothing left to answer just this once: the
   // answer has to be saved as a rule. Say that plainly rather than letting it look like a one-off.
+  // Q215: the asking run has ended, so an answer that was not saved holds nowhere; say so rather than "Saved".
+  if (!result.kept) {
+    console.log(`Nothing was saved: your approval rules are full (${maximumPolicyRules}), and making room would drop one of your refusals or "ask first" rules.`);
+    console.log("Remove some rules under \"When to check with me\" in Settings, then answer again. The task will ask again when you run it.");
+    return;
+  }
   console.log(result.decision === "allow"
     ? `Saved a standing rule: ${result.rule} may go ahead from now on, without asking.`
     : `Saved a standing rule: ${result.rule} is refused from now on, without asking.`);

@@ -2631,6 +2631,7 @@
   "live.steerPlaceholder": "Change of plan: …",
   "live.steerSend": "Send",
   "live.steered": "Noted. It will take that into account.",
+  "live.standingFull": "Your approval rules are full, so this answer holds for this conversation only. Remove some rules under \"When to check with me\" in Settings to keep more.",
   "live.stop": "Stop",
   "live.stopped": "Stopped.",
   "live.tokens": "{tokens} words of context used so far",

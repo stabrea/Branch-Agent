@@ -87,7 +87,7 @@ import {
   jsonWriteProblem, refusedByPolicy, simulatedResult, sleepFor, type PendingApproval,
 } from "./approvals.js";
 import {
-  addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
+  addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, keepPolicyRule, policyFullNote, readPolicy,
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
 import { alsoDecision, judgeTargets, stricterThan, targetRefusal, targetText, unknownTargetsRefusal } from "./policy-targets.js"; // mac7/multi-target
@@ -3053,7 +3053,7 @@ ${run.output.slice(0, 6000)}`;
      * from.
      */
     answeredOn?: string,
-  ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null } {
+  ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null; standingNote?: string } {
     // With a fingerprint the answer lands on that exact request, whichever of the questions this
     // conversation is waiting on it is; without one, on the oldest, which is the only one when
     // only one is waiting.
@@ -3085,7 +3085,9 @@ ${run.output.slice(0, 6000)}`;
     // mac7/coding-next: "Once" for the tests is a single pass for the next run of them.
     if (waiting.tool === projectTestsTool && decision === "allow" && remember === "never")
       this.approvals.grantOnce(sessionId, waiting.tool, waiting.target);
-    if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
+    // Q215: with the rules full, an "always" that nothing less careful could make room for holds for this conversation only, and says so.
+    const kept = remember === "always" ? keepPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" }).kept : true;
+    if (!kept) remember = "session";
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
       // The sentence still says where the answer was pressed, because that is what a person reads
@@ -3100,7 +3102,8 @@ ${run.output.slice(0, 6000)}`;
       origin: waiting.source, runId: waiting.runId,
       outcome: decision === "allow" ? "allowed" : "refused",
     });
-    return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
+    return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null,
+      ...(kept ? {} : { standingNote: policyFullNote }) };
   }
   /**
    * mac7/coding-next: "Always for this folder" to running a project's tests is the owner's alone:

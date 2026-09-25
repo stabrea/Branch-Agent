@@ -404,23 +404,33 @@ export function standingRule(rule: PolicyRule): PolicyRule {
   if (!rule.match.includes("*")) return rule;
   return { ...rule, match, resource: { kind: "command", pattern: exactCommandPattern(command), exact: true } };
 }
+const carefulness: Record<PolicyDecision, number> = { allow: 0, ask: 1, deny: 2 };
 /**
  * At the most rules a policy holds, the oldest rule of the owner's own makes room for the newest
- * answer, in front: never a line of the preset, and never the answer just given. Q212: a rule that is
- * not a refusal goes first. A standing yes or question never pushes out one of the owner's refusals, so
- * when only refusals are left it is not kept (`dropped` null); a new refusal may take the oldest one's place.
+ * answer, in front: never a line of the preset, and never the answer just given. Q212, Q215: the least
+ * careful kind goes first (a yes, then a question, then a refusal), and never one more careful than the
+ * new answer, so a standing yes never pushes out one of the owner's refusals or "ask first" rules. When
+ * nothing may make room the answer is not kept (null).
  */
 function withRoom(rules: PolicyRule[], preset: PolicyPresetName): { rules: PolicyRule[]; dropped: PolicyRule | undefined } | null {
   if (rules.length <= maximumPolicyRules) return { rules, dropped: undefined };
   const lines = new Set(presetRules(preset).map(ruleKey));
   const own = (rule: PolicyRule, at: number): boolean => at > 0 && !lines.has(ruleKey(rule));
-  let oldest = rules.findLastIndex((rule, at) => own(rule, at) && rule.decision !== "deny");
-  if (oldest < 0 && rules[0]!.decision === "deny") oldest = rules.findLastIndex(own);
-  if (oldest < 0) return null;
-  return { rules: rules.filter((_rule, at) => at !== oldest), dropped: rules[oldest] };
+  for (const decision of ["allow", "ask", "deny"] as const) {
+    if (carefulness[decision] > carefulness[rules[0]!.decision]) break;
+    const oldest = rules.findLastIndex((rule, at) => own(rule, at) && rule.decision === decision);
+    if (oldest >= 0) return { rules: rules.filter((_rule, at) => at !== oldest), dropped: rules[oldest] };
+  }
+  return null;
 }
+/** Q215: the words for a standing answer that was not kept because the rules are full. */
+export const policyFullNote = `Your approval rules are full (${maximumPolicyRules}), so this answer was not kept as a standing rule. It holds for this conversation. Remove some rules under "When to check with me" in Settings to keep more.`;
 /** Records a standing answer as a rule in front of the others, so it beats the broader ones. */
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {
+  return keepPolicyRule(store, owner, rule).policy;
+}
+/** The same, saying whether the rule was kept (Q215): a full list keeps it only when a less careful rule makes room. */
+export function keepPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): { policy: Policy; kept: boolean } {
   const current = readPolicy(store, owner);
   const added = standingRule(PolicyRuleSchema.parse(rule));
   const room = withRoom([added, ...current.rules], current.preset);
@@ -429,9 +439,9 @@ export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof 
     // Q212: the answer still counts for the question it was given to; it is only not remembered.
     audit(store, owner, {
       action: "policy.changed", actor: owner, subject, outcome: "not kept",
-      reason: `A standing "${added.decision}" was not remembered: the approval rules are full (${maximumPolicyRules}), and making room would drop one of your refusals. Remove some rules to keep more answers.`,
+      reason: `A standing "${added.decision}" was not remembered: the approval rules are full (${maximumPolicyRules}), and making room would drop one of your refusals or "ask first" rules. Remove some rules to keep more answers.`,
     });
-    return current;
+    return { policy: current, kept: false };
   }
   const next: Policy = { ...current, rules: room.rules };
   store.save("settings", owner, policyKey, next);
@@ -442,5 +452,5 @@ export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof 
       + (room.dropped ? `. The rules were full, so your oldest rule (${room.dropped.decision} ${room.dropped.tool} on ${room.dropped.match}) made room` : ""),
     outcome: "saved",
   });
-  return next;
+  return { policy: next, kept: true };
 }

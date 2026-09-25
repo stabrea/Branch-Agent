@@ -158,6 +158,30 @@ test("an ask pauses the task, a yes for this conversation is not asked again, an
   assert.equal(evaluatePolicy(policy, { tool: "files.write", target: "other.txt", readOnly: false }).decision, "ask");
 });
 
+// Q215 (NAS 8f03a68): with the approval rules full and only the owner's refusals and "ask first" rules to make room
+// with, a standing yes is not kept. The owner is told, the yes holds for that conversation, and nothing is saved.
+test("with the approval rules full, a standing yes is kept for the conversation only, and the answer says so", async (t) => {
+  const { app, api, workspace, provider } = await served(t, [calls(write("c1", "notes.txt", "one")), say("done")]);
+  await api("POST", "/api/policy", { preset: "ask-before-changes" });
+  const lines = presetRules("ask-before-changes");
+  const own = Array.from({ length: 300 - lines.length }, (_, i) =>
+    ({ tool: `helper.t${i}`, match: "*", applies: "any", decision: i % 2 ? "ask" : "deny", remember: "always" }));
+  app.store.save("settings", app.runtime.owner, "policy", { ...readPolicy(app.store, app.runtime.owner), rules: [...own, ...lines] });
+  const full = readPolicy(app.store, app.runtime.owner).rules;
+  assert.equal(full.length, 300);
+  const paused = (await api("POST", "/api/run", { prompt: "write notes" })).body;
+  assert.equal(paused.status, "needs_input");
+  const answered = await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "always" });
+  assert.equal(answered.status, 200);
+  assert.equal(answered.body.remembered, "session", "held for this conversation");
+  assert.match(answered.body.standingNote, /rules are full \(300\).*not kept as a standing rule/);
+  assert.deepEqual(readPolicy(app.store, app.runtime.owner).rules, full, "no rule was saved, and none of the owner's was dropped");
+  provider.reset();
+  const again = (await api("POST", "/api/run", { prompt: "write notes", sessionId: paused.sessionId })).body;
+  assert.equal(again.status, "completed", again.output);
+  assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "one");
+});
+
 test("replaying a saved recipe asks about the steps inside it before any of them runs", async (t) => {
   let recipeId = "";
   const replay = () => ({ content: "", toolCalls: [{ id: "r1", name: "procedures.replay", arguments: JSON.stringify({ id: recipeId }) }] });
