@@ -54,7 +54,7 @@ test("the backup card lists what a restore holds, and each answer puts it in pla
   assert.match(reportsText, /destination\.repository: file-maker\/inbox/);
   assert.match(reportsText, /mode: on/);
   assert.doesNotMatch(await card.innerText(), /s3cret-from-file/, "a secret the file carries is never shown");
-  assert.match(await card.locator(".restore-held-row", { hasText: "goal:held-test" }).innerText(), /Nothing in it names an address/);
+  assert.match(await card.locator(".restore-held-row", { hasText: "goal:held-test" }).innerText(), /fromFile: true/, "every field is shown");
   // "Use all" says what it would turn on and asks once more; "Not now" changes nothing.
   await card.getByRole("button", { name: "Use all from the backup" }).click();
   const confirm = page.locator("#restore-held-confirm");

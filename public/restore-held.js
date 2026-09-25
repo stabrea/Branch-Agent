@@ -37,9 +37,11 @@ function fieldsOf(details) {
     head.append(plain);
     // The id beside the plain name, once: a row with no plain name is already shown by its id.
     if (nameOf(detail) !== detail.id) head.append(" ", Object.assign(document.createElement("code"), { textContent: detail.id }));
+    // Q239 (NAS 881666e): a household person's own row says whose it is.
+    if (detail.person) head.append(" ", t("restoreHeld.forPerson", { person: detail.person }));
     box.append(head);
     if (!detail.fields.length) {
-      box.append(Object.assign(document.createElement("p"), { className: "meta", textContent: t("restoreHeld.nothingTelling") }));
+      box.append(Object.assign(document.createElement("p"), { className: "meta", textContent: t("restoreHeld.empty") }));
       continue;
     }
     const list = document.createElement("ul");
@@ -52,6 +54,7 @@ function fieldsOf(details) {
       list.append(item);
     }
     box.append(Object.assign(document.createElement("p"), { className: "meta", textContent: t("restoreHeld.fromBackup") }), list);
+    if (detail.more) box.append(Object.assign(document.createElement("p"), { className: "meta", textContent: t("restoreHeld.moreFields", { count: detail.more }) }));
   }
   return box;
 }

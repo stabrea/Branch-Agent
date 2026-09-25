@@ -6223,8 +6223,10 @@
   "restoreHeld.keptAll": "Tout ce qui attendait reste comme sur cet ordinateur.",
   "restoreHeld.failed": "Cette réponse n’a pas pu être enregistrée.",
   "restoreHeld.fromBackup": "Dans la sauvegarde :",
-  "restoreHeld.nothingTelling": "Rien n’y nomme une adresse, une discussion, un programme, un chemin ou une protection.",
   "restoreHeld.confirmAll": "Cela met tout ceci en place, tel que la sauvegarde l’a :",
   "restoreHeld.yesUseAll": "Oui, tout reprendre",
-  "restoreHeld.notNow": "Pas maintenant"
+  "restoreHeld.notNow": "Pas maintenant",
+  "restoreHeld.empty": "Rien dedans.",
+  "restoreHeld.forPerson": "(pour {person})",
+  "restoreHeld.moreFields": "{count} autres champs non affichés."
 }

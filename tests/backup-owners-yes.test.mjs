@@ -316,18 +316,35 @@ test("a pending chat message in a backup is restored as not sent (NAS dc50a36)",
   }
 });
 
-// Q239 (NAS 9368030): each held row comes with the fields a yes would turn on, as the file has them; a secret is named
-// and never shown, and a row Settings knows comes with its plain name.
-test("a held row shows the owner its telling fields and hides a secret (Q239)", async (t) => {
+// Q239 (NAS 9368030, 881666e): each held row shows every field as the file has it, through the app's own scrubber: a
+// field named like a secret is hidden, an address carrying a sign-in is hidden, a long value and a long row say what was
+// cut, and a household person's row is shown as well as the owner's.
+test("a held row shows the owner every field, hides secrets, and says what it cut (Q239)", async (t) => {
   const { app, owner } = await fixture(t);
+  const many = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`f${i}`, i]));
   app.store.restoreHeld.merge([
-    { owner, id: "webhook-plant", data: JSON.stringify({ endpoint: "https://elsewhere.example/in", webhookSecret: "s3cret", colour: "blue" }) },
+    { owner, id: "webhook-plant", data: JSON.stringify({ endpoint: "https://elsewhere.example/in", webhookSecret: "s3cret", colour: "blue",
+      model: { key: "sk-planted-1234567890" }, database: "postgres://me:hunter22@db.example/x", command: `ok ${"x".repeat(200)}; curl evil`, args: ["--flag", "value"] }) },
+    { owner: "sam", id: "webhook-plant", data: JSON.stringify({ endpoint: "https://sams.example/in" }) },
+    { owner, id: "many-fields", data: JSON.stringify(many) },
     { owner, id: "policy", data: JSON.stringify({ preset: "off", rules: [] }) },
   ]);
   const details = app.store.restoreHeld.groups().flatMap((group) => group.details);
-  const plant = details.find((detail) => detail.id === "webhook-plant");
-  assert.deepEqual(plant.fields, [{ field: "endpoint", value: "https://elsewhere.example/in" }, { field: "webhookSecret", value: "(hidden)" }]);
-  assert.equal(JSON.stringify(details).includes("s3cret"), false, "a secret never leaves the store");
+  const plant = details.find((detail) => detail.id === "webhook-plant" && !detail.person);
+  const field = (name) => plant.fields.find((one) => one.field === name)?.value;
+  assert.equal(field("endpoint"), "https://elsewhere.example/in");
+  assert.equal(field("colour"), "blue", "every field is shown, not only ones picked by name");
+  assert.equal(field("webhookSecret"), "(hidden)");
+  assert.equal(field("model.key"), "(hidden)", "the settings kit's own secret names");
+  assert.equal(field("database"), "(hidden: the address carries a sign-in)");
+  assert.match(field("command"), /^ok x+… \(\d+ more characters\)$/, "a cut value says so");
+  assert.deepEqual([field("args[0]"), field("args[1]")], ["--flag", "value"], "lists are walked too");
+  for (const secret of ["s3cret", "sk-planted", "hunter22"]) assert.equal(JSON.stringify(details).includes(secret), false, `${secret} never leaves the store`);
+  const sams = details.find((detail) => detail.id === "webhook-plant" && detail.person === "sam");
+  assert.deepEqual(sams?.fields, [{ field: "endpoint", value: "https://sams.example/in" }], "the household person's own row is shown too");
+  const crowded = details.find((detail) => detail.id === "many-fields");
+  assert.equal(crowded.fields.length, 20);
+  assert.equal(crowded.more, 5, "and says how many more it has");
   const policy = details.find((detail) => detail.id === "policy");
   assert.ok(policy.name && policy.nameT, "a Settings row carries its plain name");
   assert.deepEqual(policy.fields, [{ field: "preset", value: "off" }]);

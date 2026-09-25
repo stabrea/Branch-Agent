@@ -6222,8 +6222,10 @@
   "restoreHeld.keptAll": "Everything waiting stays as this computer has it.",
   "restoreHeld.failed": "That answer could not be saved.",
   "restoreHeld.fromBackup": "From the backup:",
-  "restoreHeld.nothingTelling": "Nothing in it names an address, a chat, a program, a path or a guard.",
   "restoreHeld.confirmAll": "This puts all of these in place, as the backup has them:",
   "restoreHeld.yesUseAll": "Yes, use all of them",
-  "restoreHeld.notNow": "Not now"
+  "restoreHeld.notNow": "Not now",
+  "restoreHeld.empty": "Nothing in it.",
+  "restoreHeld.forPerson": "(for {person})",
+  "restoreHeld.moreFields": "{count} more fields not shown."
 }
