@@ -254,6 +254,15 @@ function poolControls(pool) {
   label.append(tick, " ", worded("span", "accounts.field.auto-switch"));
   tick.addEventListener("change", () => void api("/pool", { pool: pool.pool, autoSwitch: tick.checked }).catch((e) => { said = e.message; }).then(refresh));
   box.append(label, worded("p", "accounts.auto-switch.risk", "field-note"));
+  // Owner decision 2026-09-24 (Hermes-style): also move between the owner's own plans, with its own warning beside it.
+  const own = node("input");
+  own.type = "checkbox";
+  own.checked = !!pool.ownPlans;
+  own.disabled = !pool.autoSwitch;
+  const ownLabel = node("label");
+  ownLabel.append(own, " ", worded("span", "accounts.field.own-plans"));
+  own.addEventListener("change", () => void api("/pool", { pool: pool.pool, ownPlans: own.checked }).catch((e) => { said = e.message; }).then(refresh));
+  box.append(ownLabel, worded("p", "accounts.own-plans.risk", "field-note local-warning"));
   return box;
 }
 function addBlock(pool) {

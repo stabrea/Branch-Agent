@@ -41,6 +41,8 @@ export const PoolUpdateSchema = z.object({
   pool: poolName,
   strategy: z.enum(strategies).optional(),
   autoSwitch: z.boolean().optional(),
+  /** Owner decision 2026-09-24: also move between the owner's own plans (see PoolSchema.ownPlans). */
+  ownPlans: z.boolean().optional(),
   defaultAccount: accountName.nullable().optional(),
 }).strict();
 export const NoticeSchema = z.object({ pool: poolName }).strict();
@@ -158,6 +160,11 @@ export function updatePool(service: AccountsService, input: unknown) {
     pool.autoSwitch = asked.autoSwitch;
     note(service, pool.pool, "Sharing work between sign-in accounts was changed (see the terms line on the card)", asked.autoSwitch ? "on" : "off");
   }
+  if (asked.ownPlans !== undefined) {
+    if (pool.kind === "api-key") throw new Error("API keys always move to the next key; this choice is for sign-in accounts.");
+    pool.ownPlans = asked.ownPlans;
+    note(service, pool.pool, "Moving work between the owner's own plans was changed (see the warning beside the switch)", asked.ownPlans ? "on" : "off");
+  }
   if (asked.defaultAccount !== undefined) {
     if (asked.defaultAccount) accountIn(pool, asked.defaultAccount);
     pool.defaultAccount = asked.defaultAccount;
@@ -221,7 +228,7 @@ export function viewPool(service: AccountsService, pool: Pool) {
   const others = someoneElse(service);
   const shown = others ? pool.accounts.filter((account) => pool.kind === "api-key" && account.shared) : pool.accounts;
   return {
-    pool: pool.pool, kind: pool.kind, strategy: pool.strategy, autoSwitch: pool.autoSwitch,
+    pool: pool.pool, kind: pool.kind, strategy: pool.strategy, autoSwitch: pool.autoSwitch, ownPlans: pool.ownPlans,
     defaultAccount: pool.defaultAccount ?? pool.accounts[0]?.id ?? null,
     terms: accountTerms(pool.kind, pool.pool),
     accounts: shown.map((account) => {

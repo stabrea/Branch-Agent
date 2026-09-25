@@ -57,6 +57,12 @@ export const PoolSchema = z.object({
    * plan limit. Off unless the owner turns it on after reading the terms line (docs/configuration.md).
    */
   autoSwitch: z.boolean().default(false),
+  /**
+   * Owner decision 2026-09-24 (Hermes-style): with sharing on, also move work between the owner's OWN plans of this
+   * service when one reaches its limit. Off unless the owner turns it on beside its own terms warning: providers may
+   * treat it as getting round a limit (OpenAI's terms forbid circumventing rate limits). The owner's risk and choice.
+   */
+  ownPlans: z.boolean().default(false),
   /** The account new work uses, when no conversation picked one. Null means the first in the list. */
   defaultAccount: accountId.nullable().default(null),
   accounts: z.array(AccountSchema).max(maxAccounts).default([]),

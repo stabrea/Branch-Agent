@@ -144,8 +144,9 @@ export function firstChoice(accounts: Account[], wanted: (string | null)[]): Acc
  * limits, so Branch never moves one person's work between their own identical plans to get past a
  * limit; providers treat that as abuse.
  */
-export function rotationSet(kind: AccountKind, usable: Account[], defaultAccount: string | null, sticky: string | null): Account[] {
-  if (kind === "api-key") return usable;
+export function rotationSet(kind: AccountKind, usable: Account[], defaultAccount: string | null, sticky: string | null, ownPlans = false): Account[] {
+  // Owner decision 2026-09-24: with "also my own plans" on, every usable account may take the work (the owner's risk).
+  if (kind === "api-key" || ownPlans) return usable;
   const self = firstChoice(usable.filter((account) => !account.keptSeparate), [sticky, defaultAccount]);
   return usable.filter((account) => account.keptSeparate || account.id === self?.id);
 }

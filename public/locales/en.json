@@ -15,6 +15,8 @@
   "accounts.action.use": "Use for new work",
   "accounts.added": "Account added.",
   "accounts.auto-switch.risk": "Off unless you turn it on. With it on, Branch may move work between your own account and the accounts you marked kept separate (someone else's, or work's): it picks the one with the most left and moves on when one reaches its plan limit. It never moves between your own plans. Providers may still count switching accounts as getting round their limits, which can get accounts suspended; read the terms below first.",
+  "accounts.field.own-plans": "Also move between my own plans when one reaches its limit",
+  "accounts.own-plans.risk": "Off unless you turn it on, and only with sharing on. When one of your own plans reaches its limit, Branch moves the work to your next plan, as Hermes does. Your risk: the service may treat this as getting round its limits (OpenAI's terms forbid circumventing rate limits) and could limit or close an account.",
   "accounts.badge.default": "(new work uses this one)",
   "accounts.badge.kept-separate": "(kept separate)",
   "accounts.badge.pinned": "(pinned)",

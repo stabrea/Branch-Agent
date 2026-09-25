@@ -16,6 +16,8 @@
   "accounts.action.use": "Utiliser pour le nouveau travail",
   "accounts.added": "Compte ajouté.",
   "accounts.auto-switch.risk": "Désactivé tant que vous ne l'activez pas. Une fois activé, Branch peut répartir le travail entre votre propre compte et les comptes que vous avez marqués comme tenus à part (ceux d'une autre personne, ou du travail) : il choisit celui à qui il reste le plus et passe au suivant quand l'un atteint la limite de son abonnement. Il ne passe jamais d'un de vos propres abonnements à un autre. Les fournisseurs peuvent tout de même considérer ce changement de compte comme un contournement de leurs limites, ce qui peut entraîner la suspension des comptes ; lisez d'abord les conditions ci-dessous.",
+  "accounts.field.own-plans": "Passer aussi d'un de mes abonnements à l'autre quand l'un atteint sa limite",
+  "accounts.own-plans.risk": "Désactivé tant que vous ne l'activez pas, et seulement avec le partage activé. Quand l'un de vos abonnements atteint sa limite, Branch passe le travail au suivant, comme Hermes. À vos risques : le service peut y voir un contournement de ses limites (les conditions d'OpenAI interdisent de contourner les limites de débit) et pourrait limiter ou fermer un compte.",
   "accounts.badge.default": "(utilisé pour le nouveau travail)",
   "accounts.badge.kept-separate": "(tenu à part)",
   "accounts.badge.pinned": "(épinglé)",

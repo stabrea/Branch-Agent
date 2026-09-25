@@ -198,8 +198,8 @@ export class AccountPoolProvider {
    * moves it on, or points it, to a second of the owner's own plans.
    */
   private mayShare(pool: Pool, usable: Account[], current: string | null): Account[] {
-    const allowed = rotationSet(pool.kind, usable, pool.defaultAccount, current);
-    if (!usable.some((account) => account.id === current && account.keptSeparate)) return allowed;
+    const allowed = rotationSet(pool.kind, usable, pool.defaultAccount, current, pool.ownPlans);
+    if (pool.ownPlans || !usable.some((account) => account.id === current && account.keptSeparate)) return allowed;
     const own = allowed.find((account) => !account.keptSeparate);
     const otherOwnLimited = usable.some((account) => !account.keptSeparate && account.id !== own?.id
       && this.state(account.id).limitedUntil > this.hooks.now());

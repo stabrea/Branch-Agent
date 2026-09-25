@@ -406,3 +406,35 @@ test("P11 moved by hand onto the work account after one own plan ran out: never 
   const fresh = await app.runtime.run({ prompt: "new work" });
   assert.equal(fresh.output, "from primary");
 });
+
+test("P12 with the owner's own switch on, work moves on to their next own plan (owner decision 2026-09-24, Hermes-style)", async (t) => {
+  const fx = await fixture(t);
+  const { app, service } = fx;
+  const seen = program(fx, { primary: limited });
+  setMode(service, { mode: "on" });
+  const second = (await addAccount(service, { pool: POOL, label: "Second" })).accounts.at(-1).id;
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  // Off unless the owner turns it on: with sharing alone, the owner's second plan is never used.
+  const stays = await app.runtime.run({ prompt: "hello" });
+  assert.equal(stays.status, "failed", "sharing alone never moves between the owner's own plans");
+  assert.ok(!seen.includes(second));
+  // The owner's own switch, beside its warning.
+  updatePool(service, { pool: POOL, ownPlans: true });
+  assert.equal((await viewAll(service)).pools.find((pool) => pool.pool === POOL).ownPlans, true, "the card shows it on");
+  service.statesOf(POOL).clear();
+  const moved = await app.runtime.run({ prompt: "hello again" });
+  assert.equal(moved.status, "completed");
+  assert.equal(moved.output, `from ${second}`, "the work moved on to the owner's next plan");
+});
+
+test("P13 the own-plans switch is the owner's, and is for sign-in accounts only", async (t) => {
+  const fx = await fixture(t);
+  assert.deepEqual(ids(rotationSet("claude-code", [acct("a"), acct("b")], null, null, true)), ["a", "b"], "with the switch on, both own plans may take work");
+  assert.deepEqual(ids(rotationSet("claude-code", [acct("a"), acct("b")], null, null, false)), ["a"], "without it, one");
+  const { app, owner, service } = fx;
+  app.store.save("settings", owner, "model-connections", { connections: [{ id: "openai-pool", name: "OpenAI", catalogId: "openai", model: "gpt-4o-mini", extras: {} }] });
+  app.runtime.models.register({ id: "openai-pool", name: "OpenAI", model: "gpt-4o-mini", catalogId: "openai",
+    provider: { name: "openai-chat", complete: async () => ({ content: "first", toolCalls: [] }) } });
+  setMode(service, { mode: "on" });
+  assert.throws(() => updatePool(service, { pool: "openai-pool", ownPlans: true }), /this choice is for sign-in accounts/);
+});
