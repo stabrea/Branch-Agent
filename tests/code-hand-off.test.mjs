@@ -92,7 +92,8 @@ test("a job in a workspace repository is done by the program in that folder, and
   assert.equal(result.status, "done");
   assert.equal(result.summary, "Changed a to 2.");
   assert.deepEqual(result.changed, ["src/a.ts"]);
-  assert.equal(f.calls[0].call.cwd, realpathSync(join(f.workspace, "site")), "the folder where it really is");
+  // The code reads the folder with realpathSync.native, which on Windows also expands a short 8.3 name (RUNNER~1).
+  assert.equal(f.calls[0].call.cwd, realpathSync.native(join(f.workspace, "site")), "the folder where it really is");
   assert.equal(f.calls[0].prompt, "Set a to 2.");
   const steps = f.app.store.events(job.runId).filter((event) => event.kind === "code.hand_off.step");
   assert.equal(steps.length, 2, "each line the program printed is shown on the task as it comes");
