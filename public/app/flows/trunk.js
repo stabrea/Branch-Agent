@@ -26,9 +26,11 @@ export const lookOf = (t) => ({ ...LOOK, ...(t?.look ?? {}) });
 /* What av() draws from: the engine keeps the colour as chosenColour and the emoji inside look. */
 export const face = (t) => ({ name: t?.name, color: hex(t?.chosenColour), emoji: lookOf(t).face === "emoji" ? lookOf(t).emoji : "" });
 const trunkById = (id) => E.trunks.find((t) => t.id === id);
-const trunkOfChat = () => E.trunks.find((t) => t.chatSessionId === S.chat);
+const trunkOfChat = (sid = S.chat) => E.trunks.find((t) => t.chatSessionId === sid);
 let rooms = [];
-const roomOfChat = () => rooms.find((r) => r.sessionId === S.chat);
+const roomOfChat = (sid = S.chat) => rooms.find((r) => r.sessionId === sid);
+/* The Trunk or room whose own conversation this is, for the list's row menu (shell/shell.js). */
+export const chatOwner = (sid) => trunkOfChat(sid) ?? roomOfChat(sid) ?? null;
 
 async function loadRooms() {
   const answer = await api("trunks");
@@ -155,16 +157,16 @@ async function change(kind, id, body) {
   } catch (error) { toast(error.message); return false; }
 }
 
-function pinChat() {
+export function pinChat(sid = S.chat) {
   closePop();
-  const t = trunkOfChat(), r = roomOfChat();
+  const t = trunkOfChat(sid), r = roomOfChat(sid);
   if (t) change("trunk", t.id, { pinned: !t.pinned });
   else if (r) change("room", r.id, { pinned: !r.pinned });
 }
 
-function renameDlg() {
+export function renameDlg(sid = S.chat) {
   closePop();
-  const t = trunkOfChat(), r = roomOfChat(), target = t ?? r;
+  const t = trunkOfChat(sid), r = roomOfChat(sid), target = t ?? r;
   if (!target) return;
   openDlg({ title: t ? "Rename" : "Rename room", body: `<div class="field"><label for="rn-name">Name</label><input class="inp" id="rn-name" value="${esc(target.name)}"></div>`,
     foot: `<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="rename-save" data-k="${t ? "trunk" : "room"}" data-id="${esc(target.id)}">Save</button>` });
