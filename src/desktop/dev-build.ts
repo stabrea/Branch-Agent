@@ -14,7 +14,7 @@ import { join } from "node:path";
 export const devBranch = "mac/cross-platform";
 
 export interface Run {
-  (file: string, args: string[], options: { cwd?: string; timeoutMs: number }): Promise<string>;
+  (file: string, args: string[], options: { cwd?: string; timeoutMs: number; env?: Record<string, string> }): Promise<string>;
 }
 export type DevPhase = "fetching" | "installing" | "building";
 
@@ -28,7 +28,7 @@ export function realRun(platform: NodeJS.Platform = process.platform): Run {
     const [program, programArgs] = platform === "win32" && file === "npm"
       ? [join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe"), ["/d", "/s", "/c", "npm", ...args]]
       : [file, args];
-    execFile(program, programArgs, { cwd: options.cwd, env, windowsHide: true, timeout: options.timeoutMs, maxBuffer: 16 << 20 },
+    execFile(program, programArgs, { cwd: options.cwd, env: options.env ? { ...env, ...options.env } : env, windowsHide: true, timeout: options.timeoutMs, maxBuffer: 16 << 20 },
       (error, stdout, stderr) => {
         if (!error) return resolve(String(stdout));
         const lastLine = String(stderr).trim().split(/\r?\n/).filter(Boolean).at(-1) ?? "";
@@ -81,17 +81,26 @@ export async function remoteHead(run: Run, repo: string): Promise<string> {
  * history could not be read, and the build's own never-go-back step (neverBack) still decides.
  */
 export type DevStanding = "behind" | "ahead" | "apart" | "unknown";
-/** NAS cfc3808: the walls every history call runs behind, as src/reach/agent-git.ts's do: no hooks, https only. */
+/**
+ * NAS cfc3808: the walls every history call runs behind, as src/reach/agent-git.ts's do: no hooks, https only.
+ * Redirects are followed for the first request only (git's own default), and the walls keep them to https: GitHub
+ * forwards Branch's current name after a move, and refusing that would leave every answer unknown (Q210).
+ */
 const historyWalls = ["-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
-  "-c", "http.followRedirects=false"];
+  "-c", "http.followRedirects=initial"];
+/**
+ * Q209: git reads `protocol.<name>.allow` before `protocol.allow`, so a setting in the history folder's own config could
+ * allow another protocol past the walls. `GIT_ALLOW_PROTOCOL` outranks every setting, and it lets only https through.
+ */
+const historyEnv = { GIT_ALLOW_PROTOCOL: "https" };
 export async function devStanding(run: Run, historyDir: string, repo: string, running: string, head: string): Promise<DevStanding> {
   const cwd = historyDir, timeoutMs = 30_000;
-  const git = (args: string[], ms = timeoutMs) => run("git", [...quietGit, ...historyWalls, ...args], { cwd, timeoutMs: ms });
+  const git = (args: string[], ms = timeoutMs) => run("git", [...quietGit, ...historyWalls, ...args], { cwd, timeoutMs: ms, env: historyEnv });
   const has = (commit: string) => git(["cat-file", "-e", `${commit}^{commit}`]).then(() => true, () => false);
   // NAS cfc3808: a link or a file planted where the history goes is never followed; the build's own step decides.
   const found = await lstat(historyDir).catch(() => null);
   if (found && (found.isSymbolicLink() || !found.isDirectory())) return "unknown";
-  if (!found) await run("git", ["init", "--quiet", "--bare", historyDir], { timeoutMs }).catch(() => undefined);
+  if (!found) await run("git", ["init", "--quiet", "--bare", historyDir], { timeoutMs, env: historyEnv }).catch(() => undefined);
   for (const [commit, ref] of [[head, "refs/branch/head"], [running, "refs/branch/running"]] as const) {
     if (!(await has(commit)))
       await git(["fetch", "--quiet", "--filter=tree:0", "--no-tags", `https://github.com/${repo}.git`, commit], minutes(5)).catch(() => undefined);
