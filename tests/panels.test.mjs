@@ -179,10 +179,46 @@ async function windowFixture(t, { width = 1440, height = 950, seeded = true, ser
   const look = (patch) => page.evaluate(async (p) => (await import("/appearance.js")).changeAppearance(p), patch);
   return { app, page, call, errors, open, conversation, look, context, seeded: seededWith };
 }
+/* Redesign: the new window (public/app) signs in, then draws the side list; a conversation opens from its row. */
+async function newWindow(t, { width = 1440, height = 950 } = {}) {
+  const { app, root } = await world(t);
+  const seeded = await seed(app);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); });
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
+  const page = await (await browser.newContext({ viewport: { width, height } })).newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  const conversation = async () => {
+    await page.locator(`.list [data-act="chat"][data-id="${seeded.session}"]`).click();
+    await page.locator("#conversation .b").first().waitFor({ timeout: 30000 });
+  };
+  return { app, page, errors, conversation, seeded };
+}
+const paneOpen = (page) => page.evaluate(() => !document.getElementById("pane").hidden);
 const paneShown = (page) => page.evaluate(() => document.body.classList.contains("lx-aside"));
 
-test.skip("one switch opens the side panel in the calm window, its tabs are inside it, and Terminal shows the command", async (t) => {
-  // Redesign: side panel pane.js structure is different (data-act="pane" button, data-act="ptabp" tabs, #pane). Terminal/Browser tabs are greyed. Re-point when panel tab structure is finalized.
+test("one switch opens the side panel in the calm window, its tabs are inside it, and Terminal shows the command", async (t) => {
+  // Redesign: one header button (data-act="pane") opens #pane; its tabs (Activity, Plan, Files, Memory, Browser, Terminal)
+  // are inside it, and Activity lists what the task ran. Browser and Terminal follow the window's own state (greyed until real).
+  const f = await newWindow(t);
+  await f.conversation();
+  assert.equal(await paneOpen(f.page), false);
+  await f.page.locator('[data-act="pane"][data-p="activity"]').first().click();
+  assert.equal(await paneOpen(f.page), true);
+  assert.deepEqual(await f.page.locator("#pane .ptab").allInnerTexts(), ["Activity", "Plan", "Files", "Memory", "Browser", "Terminal"]);
+  const steps = await f.page.locator("#pane .pane-b").innerText();
+  assert.match(steps, /browser\.navigate/);
+  assert.match(steps, /shell\.execute/);
+  assert.match(steps, /compare\.mjs|git|node/, "the command a step ran shows with it");
+  await f.page.keyboard.press("ControlOrMeta+Shift+k");
+  assert.equal(await paneOpen(f.page), false, "the same switch, from the keyboard, closes it");
+  assert.deepEqual(f.errors, []);
 });
 
 test.skip("More offers Browser and Terminal, and a household window offers neither", async (t) => {
@@ -202,8 +238,25 @@ test.skip("More offers Browser and Terminal, and a household window offers neith
   assert.deepEqual(f.errors, []);
 });
 
-test.skip("the full window has one panel button too, and its tabs never wrap or clip at any panel width", async (t) => {
-  // Redesign: pane.js tab layout structure needs finalization. Re-point when layout is stable.
+test("the full window has one panel button too, and its tabs never wrap or clip at any panel width", async (t) => {
+  // Redesign: the design keeps the tabs on one row that scrolls sideways (overflow-x:auto), so "never clip" means every tab
+  // can be reached and read in full, never cut off with no way to see it.
+  const f = await newWindow(t);
+  await f.conversation();
+  assert.equal(await f.page.locator('[data-act="pane"][data-p="activity"]').count(), 1, "one panel button");
+  await f.page.locator('[data-act="pane"][data-p="activity"]').click();
+  for (const width of [1440, 1200, 1024]) {
+    await f.page.setViewportSize({ width, height: 900 });
+    await f.page.waitForTimeout(150);
+    const rows = await f.page.evaluate(() => new Set([...document.querySelectorAll("#pane .ptab")].map((b) => Math.round(b.getBoundingClientRect().top))).size);
+    assert.equal(rows, 1, `${width}: the tabs stay on one row`);
+    const unreachable = await f.page.evaluate(() => {
+      const row = document.querySelector("#pane .ptabs");
+      return [...row.querySelectorAll(".ptab")].filter((b) => { b.scrollIntoView({ inline: "nearest", block: "nearest" }); const r = b.getBoundingClientRect(), o = row.getBoundingClientRect(); return r.left < o.left - 1 || r.right > o.right + 1; }).map((b) => b.textContent);
+    });
+    assert.deepEqual(unreachable, [], `${width}: every tab can be brought into view in full`);
+  }
+  assert.deepEqual(f.errors, []);
 });
 
 test.skip("the side list and side panel can be dragged, the width is kept, double-click resets, Ctrl+B folds the list", async (t) => {
