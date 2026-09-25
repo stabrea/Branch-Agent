@@ -6,6 +6,10 @@ import * as tour from "./tour.js";
 import * as chat from "./chat.js";
 import * as pair from "./pair.js";
 import * as connectors from "./connectors.js";
+import * as trunk from "./trunk.js";
+import * as flowEditor from "./flow-editor.js";
+import * as prompts from "./prompts.js";
+import * as computers from "./computers.js";
 import { S, E } from "../core/state.js";
 import { onRender } from "../core/dom.js";
 
@@ -18,6 +22,10 @@ export function init() {
   chat.init();
   pair.init();
   connectors.init();
+  trunk.init();
+  flowEditor.init();
+  prompts.init();
+  computers.init();
   onRender(checkFirstRun);
 }
 
