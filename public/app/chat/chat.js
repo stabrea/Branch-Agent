@@ -34,14 +34,16 @@ function bot(m, first) {
    greyed out until the engine can scope a rule to one Trunk), and "Don't …" (deny). The fingerprint is always sent. */
 function askCard(q) {
   const verb = q.label || "Allow";
+  const trunk = q.trunk ? E.trunks.find((t) => t.id === q.trunk) : null;
+  const always = trunk ? `Always allow for ${esc(trunk.name)}` : "Always allow";
   return `<div class="b"><div class="gut"></div><div><div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.question || q.label)}</span><span class="pill work ml"><i></i>Needs you</span></div>
     ${q.bytes ? `<dl class="kv"><dd class="mailbody">${esc(q.bytes)}</dd></dl>` : ""}
-    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" data-fp="${esc(q.fingerprint || "")}">${esc(verb)}</button><button class="btn" type="button" data-act="ask-always" data-fp="${esc(q.fingerprint || "")}">Always allow</button><button class="btn ghost" type="button" data-act="ask" data-v="deny" data-fp="${esc(q.fingerprint || "")}">Don’t allow</button></div></div></div></div>`;
+    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" data-fp="${esc(q.fingerprint || "")}">${esc(verb)}</button><button class="btn" type="button" data-act="ask-always" data-fp="${esc(q.fingerprint || "")}" data-trunk="${esc(q.trunk || "")}">${always}</button><button class="btn ghost" type="button" data-act="ask" data-v="deny" data-fp="${esc(q.fingerprint || "")}">Don’t allow</button></div></div></div></div>`;
 }
 
 function thread() {
   let lastRole = null;
-  const rows = C.messages.filter((m) => m.role === "user" || m.role === "assistant").map((m) => {
+  const rows = C.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.from !== "branch").map((m) => {
     const html = m.role === "user" ? user(m) : bot(m, lastRole !== "assistant");
     lastRole = m.role;
     return html;
@@ -117,18 +119,43 @@ async function send() {
   }
 }
 
-async function answer(el, decision) {
+async function answer(el, decision, extra = {}) {
   const q = C.waiting.find((w) => (w.fingerprint || "") === el.dataset.fp) ?? C.waiting[0];
   if (!q) return;
+  let said = null;
   try {
-    await api("policy/approve", { sessionId: q.sessionId, decision, remember: "never", ...(q.fingerprint ? { fingerprint: q.fingerprint } : {}), carryOn: true });
+    said = await api("policy/approve", { sessionId: q.sessionId, decision, remember: "never", ...extra, ...(q.fingerprint ? { fingerprint: q.fingerprint } : {}), carryOn: true });
   } catch (error) { toast(error.message); }
-  await openConversation(q.sessionId);
+  C.waiting = C.waiting.filter((w) => w !== q);
+  if (said?.task === "carrying-on") await follow(q.sessionId);
+  else await openConversation(q.sessionId);
+}
+
+const busy = (id) => (E.state?.runs ?? []).some((r) => r.sessionId === id && ["running", "queued", "waiting"].includes(r.status));
+const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+
+/* A task carried on after a yes: show it working, re-read the conversation each second until it has finished. */
+async function follow(id) {
+  C.sessionId = id;
+  C.sending = true;
+  renderNow();
+  for (let waited = 0; waited < 600; waited++) {
+    await pause(1000);
+    await refresh().catch(() => {});
+    try { C.messages = (await api("sessions/" + id)).messages ?? C.messages; } catch { /* the next second tries again */ }
+    await loadWaiting();
+    renderNow();
+    if (!busy(id)) break;
+  }
+  C.sending = false;
+  renderNow();
 }
 
 export function init() {
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
+  /* Live once the engine scopes a standing yes to one Trunk (PR #285); until then features.js keeps it greyed. */
+  on("ask-always", (el) => { if (el.dataset.trunk) answer(el, "allow", { remember: "always", trunk: el.dataset.trunk }); });
   on("side", () => document.getElementById("app").classList.toggle("side-open"));
   document.addEventListener("submit", (e) => { if (e.target.id === "composer") { e.preventDefault(); send(); } });
   document.addEventListener("keydown", (e) => { if (e.target.id === "prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });

@@ -43,8 +43,19 @@ const NAV = [
 
 let searchText = "";
 
+/* A page starts (registers its actions, fetches its data) the first time it is opened after sign-in, and re-reads its
+   data each time it is opened again; nothing is fetched before the engine has accepted the window. */
+const started = new Set();
+function open(id) {
+  const page = PAGES[id];
+  if (!page || !E.loaded) return;
+  if (!started.has(id)) { started.add(id); page.init?.(); }
+  else page.load?.();
+}
+
 export function draw() {
   const lv = level();
+  if (!started.has(S.setPage)) open(S.setPage);
   const q = searchText.trim().toLowerCase();
   const extra = [lv >= 1 ? ["advanced", "Advanced"] : null, lv >= 2 ? ["developer", "Developer"] : null].filter(Boolean);
   const groups = [...NAV, ...(extra.length ? [["More", extra]] : [])]
@@ -91,6 +102,7 @@ export function init() {
   on("setpage", (el) => {
     S.setPage = el.dataset.v;
     closePop();
+    open(S.setPage);
     renderNow();
   });
 
@@ -116,8 +128,6 @@ export function init() {
     }
   });
 
-  /* Initialize each page's actions. */
-  for (const page of Object.values(PAGES)) page.init?.();
 
   /* Mark the controls that are live. */
   const live = [];
