@@ -46,16 +46,7 @@ export function draw() {
   return html;
 }
 
-on("comp-add", () => {
-  // Add computer flow
-});
 
-on("comp-chip", (el) => {
-  // Toggle Trunk's computer access
-});
 
-on("comp-max", (el) => {
-  // Set max parallel tasks for Trunk
-});
 
-markLive(["comp-add", "comp-chip", "comp-max",]);
+
