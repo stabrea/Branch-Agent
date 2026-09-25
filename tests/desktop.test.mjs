@@ -97,6 +97,16 @@ function endTree(child) {
   if (process.platform === "win32" && child.pid) spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
   else child.kill();
 }
+/** Q244: what the window was doing when a step failed: its address, loading, crashed, visible, and whether the page answers. */
+async function windowState(app, page) {
+  const within = (work) => Promise.race([work.catch((error) => `error: ${String(error?.message ?? error).split(/\r?\n/)[0]}`),
+    new Promise((resolve) => setTimeout(() => resolve("no answer in 5 s"), 5000))]);
+  const main = await within(app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => ({
+    url: w.webContents.getURL(), loading: w.webContents.isLoading(), crashed: w.webContents.isCrashed(),
+    visible: w.isVisible(), destroyed: w.isDestroyed() }))));
+  const inPage = await within(page.evaluate(() => ({ ready: document.readyState, url: location.href })));
+  return JSON.stringify({ main, inPage });
+}
 /** Q244: says what went wrong before the app is closed, so a run that then hangs still shows it. */
 function said(label) {
   return (error) => { console.log(`Desktop ${label}: failed: ${String(error?.message ?? error).split(/\r?\n/)[0]}`); throw error; };
@@ -218,6 +228,7 @@ test(
       console.log("Desktop restart: home again");
       await settled(page, "restart");
     } catch (error) {
+      console.log(`Desktop restart: window state: ${await windowState(restarted, await restarted.firstWindow())}`);
       said("restart")(error);
     } finally {
       await closeWithin(restarted, restartedChild, "restart");
