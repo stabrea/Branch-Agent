@@ -43,15 +43,16 @@ function spendTile() {
   const week = runs.filter(r => new Date(r.createdAt).getTime() > weekAgo);
   const byTrunk = {};
   let total = 0;
-  week.forEach(r => {
-    const cost = typeof r.cost?.amount === "number" ? r.cost.amount : 0;
+  const priced = week.filter((r) => typeof r.cost?.amount === "number");
+  priced.forEach(r => {
+    const cost = r.cost.amount;
     total += cost;
     const firstLine = r.prompt?.split("\n")[0]?.slice(0, 30) || "Task";
     byTrunk[firstLine] = (byTrunk[firstLine] || 0) + cost;
   });
   const sorted = Object.entries(byTrunk).sort((a, b) => b[1] - a[1]).slice(0, 3);
   const maxCost = Math.max(...sorted.map(e => e[1]), 0.01);
-  let html = `<div class="tile"><h2>Spend this week</h2><div class="big-n">${formatSpend(total)}</div><div class="bars" data-css="margin:0">`;
+  let html = `<div class="tile"><h2>Spend this week</h2><div class="big-n">${priced.length ? formatSpend(total) : esc(week.find((r) => r.cost?.display)?.cost.display ?? "")}</div><div class="bars" data-css="margin:0">`;
   sorted.forEach(([trunk, cost]) => {
     const pct = (cost / maxCost) * 100;
     html += `<div class="brow"><span>${esc(trunk)}</span><span class="track"><u data-css="width:${pct}%"></u></span><span class="v">${formatSpend(cost)}</span></div>`;
@@ -80,7 +81,7 @@ function controlsTile() {
 }
 
 function usersTile() {
-  const identity = E.state?.identity?.name || (E.profiles?.filter(p => p.active)?.[0]?.name) || "You";
+  const identity = E.profiles?.profiles?.find((p) => p.id === E.profiles.active)?.name || E.profiles?.roleLabels?.owner?.label || "";
   return `<div class="tile"><h2>Who is using Branch</h2><div data-css="display:flex;align-items:center;gap:10px;font-size:13px"><span class="me" data-css="width:26px;height:26px;font-size:11px">${esc(identity.charAt(0))}</span><span data-css="flex:1">${esc(identity)}</span></div><div class="acts"><button class="btn sm" type="button" data-act="invite">Invite someone</button></div></div>`;
 }
 

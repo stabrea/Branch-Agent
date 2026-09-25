@@ -64,7 +64,7 @@ export function draw() {
       ["agents", "Agents", 0, "Other assistants over A2A, and Trunks on other computers"]
     ];
     const currentKind = toolsSelectedKind;
-    const kindIcons = {mcp:"wrench", skills:"zap", plugins:"puzzle", clis:"terminal", agents:"people"};
+    const kindIcons = {mcp:"plug", skills:"bolt", plugins:"puzzle", clis:"term", agents:"users"};
 
     html += `<div class="t9"><nav class="t9-nav" aria-label="Kinds of tools">`;
     kinds.forEach(([k, label, count, desc]) => {
