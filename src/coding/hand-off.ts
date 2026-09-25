@@ -242,6 +242,23 @@ export function repoOwnSettings(folder: string): string {
   // NAS 4b4812a: the folder's own Claude Code settings and MCP servers can start programs too, so a job that writes
   // them is caught the same way, even though a hand-off no longer loads them.
   for (const file of [".claude/settings.json", ".claude/settings.local.json", ".mcp.json"]) record(`folder:${file}`, join(folder, file));
+  // NAS 538774b: Codex's own project settings (its config, MCP servers, hooks, exec rules) live under .codex/ and
+  // .agents/, which Claude Code's edits may reach; every file there, to a bound, counts like the ones above.
+  for (const dir of [".codex", ".agents"]) {
+    const files: string[] = [];
+    const walk = (at: string): void => {
+      let entries: import("node:fs").Dirent[] = [];
+      try { entries = readdirSync(at, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (files.length >= 500) return;
+        const path = join(at, entry.name);
+        if (entry.isDirectory()) walk(path); else files.push(path);
+      }
+    };
+    walk(join(folder, dir));
+    parts.push([`folder:${dir}/`, files.map((file) => relative(folder, file)).join(",")]);
+    for (const file of files) record(`folder:${relative(folder, file)}`, file);
+  }
   const dirs = gitDirsOf(folder);
   if (dirs) {
     const seen = new Set<string>();

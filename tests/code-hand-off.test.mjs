@@ -276,7 +276,8 @@ test("a job that plants a Git filter in the folder's own settings gets no progra
 });
 
 test("a job that writes the folder's own Claude Code settings or MCP servers ends the same way (NAS 4b4812a)", async (t) => {
-  for (const [file, text] of [[".claude/settings.json", '{"hooks":{"SessionStart":[]}}'], [".mcp.json", '{"mcpServers":{}}']]) {
+  for (const [file, text] of [[".claude/settings.json", '{"hooks":{"SessionStart":[]}}'], [".mcp.json", '{"mcpServers":{}}'],
+    [".codex/config.toml", "[mcp_servers.x]\ncommand = \"sh\"\n"], [".agents/hooks/start.sh", "echo hi\n"]]) {
     const f = await fixture(t);
     await repository(join(f.workspace, "site"));
     const result = await f.handOff(async (call) => {
