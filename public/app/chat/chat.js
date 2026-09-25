@@ -8,6 +8,7 @@ import { on } from "../core/actions.js";
 import { ic, av, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { text } from "./markdown.js";
+import { chips, loadChips, initChips } from "./chips.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -64,7 +65,7 @@ function composer() {
   return `<div class="dock"><form class="composer" id="composer" data-form="composer">
     <button class="c-btn" type="button" aria-label="Attach, mention a Trunk, skills, Temporary" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="Tools: connectors, skills, plugins and command-line tools" data-tip="Tools" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
     <textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch">${esc(draft)}</textarea>
-    <button type="button" class="chip-c" data-act="modelmenu2" data-tip="Model and how long it thinks"><span class="lbl">${esc([E.state?.activeModel?.presetName, E.state?.activeModel?.reasoning].filter(Boolean).join(" · "))}</span>${ic("chev", "s")}</button><button type="button" class="chip-c" data-act="modemenu2" data-tip="How much it may do in this conversation (Shift+Tab)">${ic("shield", "s")}<span class="lbl">Ask first</span>${ic("chev", "s")}</button>
+    ${chips()}
     <button class="c-btn" type="button" aria-label="Dictate into the box" data-act="dict">${ic("mic")}</button><button class="c-btn" type="button" aria-label="Talk live with voice" data-act="voice">${ic("wave")}</button>
     <button class="c-btn send" id="send" type="submit" aria-label="Send" ${C.sending ? "disabled" : ""}>${ic("up")}</button></form></div>`;
 }
@@ -76,6 +77,7 @@ export function draw() {
 export function after(main) {
   const box = $("#scroll", main);
   if (box) box.scrollTop = box.scrollHeight;
+  loadChips();
 }
 
 export async function openConversation(id) {
@@ -177,6 +179,7 @@ async function follow(id) {
 }
 
 export function init() {
+  initChips();
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
   /* Live once the engine scopes a standing yes to one Trunk (PR #285); until then features.js keeps it greyed. */
@@ -185,5 +188,10 @@ export function init() {
   document.addEventListener("submit", (e) => { if (e.target.id === "composer") { e.preventDefault(); send(); } });
   document.addEventListener("keydown", (e) => { if (e.target.id === "prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
   document.addEventListener("input", (e) => { if (e.target.id === "prompt") S.drafts[C.sessionId ?? "new"] = e.target.value; });
-  setInterval(() => { if (S.view === "chat" && C.sessionId && !C.sending) loadWaiting().then(render); }, 4000);
+  setInterval(async () => {
+    if (S.view !== "chat" || !C.sessionId || C.sending) return;
+    const before = JSON.stringify(C.waiting);
+    await loadWaiting();
+    if (JSON.stringify(C.waiting) !== before) render();
+  }, 4000);
 }

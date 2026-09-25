@@ -37,6 +37,7 @@ export function closePop() {
 export function openPop(anchor, html, opt = {}) {
   const same = popAnchor === anchor;
   closePop();
+  hideTip();
   if (same && !opt.force) return;
   const root = app();
   popEl = document.createElement("div");
@@ -115,11 +116,12 @@ function showTip(el) {
     tipEl.style.top = (r.top - a.top - tipEl.offsetHeight - 6 < 4 ? r.bottom - a.top + 6 : r.top - a.top - tipEl.offsetHeight - 6) + "px";
   }, 450);
 }
+function hideTip() { clearTimeout(tipTimer); tipEl?.remove(); tipEl = null; }
 export function listenTips() {
   let current = null;
   document.addEventListener("pointerover", (e) => { const el = e.target.closest(TIP_SEL); if (el !== current) { current = el; showTip(el); } });
   document.addEventListener("focusin", (e) => { const el = e.target.closest(TIP_SEL); if (el) showTip(el); });
-  document.addEventListener("pointerdown", () => { clearTimeout(tipTimer); tipEl?.remove(); tipEl = null; }, true);
+  document.addEventListener("pointerdown", hideTip, true);
 }
 
 export { $ };

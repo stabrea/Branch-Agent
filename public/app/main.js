@@ -11,11 +11,19 @@ import { VIEWS } from "./views.js";
 import { drawShell, initShell } from "./shell/shell.js";
 import { showSignIn } from "./shell/signin.js";
 
+/* A redraw keeps the field being typed in focused, with its caret where it was. */
 function drawMain() {
   const main = $("#main");
   const draw = VIEWS[S.view] ?? VIEWS.chat;
+  const a = document.activeElement;
+  const typing = a?.id && main?.contains(a) && "selectionStart" in a ? { id: a.id, from: a.selectionStart, to: a.selectionEnd } : null;
   paint(main, draw());
   greyOut(main);
+  if (typing) {
+    const field = document.getElementById(typing.id);
+    field?.focus({ preventScroll: true });
+    try { field?.setSelectionRange(typing.from, typing.to); } catch { /* a field without a caret */ }
+  }
   VIEWS.after?.[S.view]?.(main);
 }
 

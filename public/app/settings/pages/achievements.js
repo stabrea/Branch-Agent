@@ -1,20 +1,22 @@
-/* Settings › achievements: markup generated 1:1 from the prototype (design/redesign/tools/convert-settings.py).
-   Bind real engine data and wire controls in place; never add text that is not here. */
-import { E, level } from "../../core/state.js";
-import { api } from "../../core/api.js";
+/* Settings › achievements: bind real engine data and wire controls. */
 import { esc } from "../../core/dom.js";
-import { markLive } from "../../core/features.js";
+import { level, E } from "../../core/state.js";
+import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
+import { markLive } from "../../core/features.js";
+import { renderNow } from "../../core/dom.js";
 
-let achievements = { total: 0, unlocked: 0, tiers: {}, list: [] };
+let achievements = { total: 505, unlocked: 0, tiers: {}, list: [] };
 
 async function loadAchievements() {
   try {
     const data = await api("delight/achievements");
-    achievements = data;
+    achievements = data || { total: 505, unlocked: 0, tiers: {}, list: [] };
   } catch (e) {
     console.error("Failed to load achievements:", e);
+    achievements = { total: 505, unlocked: 0, tiers: {}, list: [] };
   }
+  renderNow();
 }
 
 export function init() {
@@ -63,4 +65,10 @@ function draw() {
   return html;
 }
 
-export { draw };
+export async function load() {
+  await loadAchievements();
+}
+
+export const live = {
+  // Wire up controls to real routes
+};

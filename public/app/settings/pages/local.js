@@ -2,22 +2,26 @@
 import { esc } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
+import { renderNow } from "../../core/dom.js";
+import { on } from "../../core/actions.js";
+import { markLive } from "../../core/features.js";
 
 let localData = null;
 
 async function loadLocalData() {
   try {
-    const data = await api("providers/local");
-    localData = data;
+    const data = await api("local-models");
+    localData = data || { ollama: {}, lmStudio: {}, hardware: {}, recommendations: [] };
   } catch (err) {
     console.error("Failed to load local data:", err);
-    localData = { hardware: {}, models: [], runtimes: [] };
+    localData = { ollama: {}, lmStudio: {}, hardware: {}, recommendations: [] };
   }
+  renderNow();
 }
 
 export function draw() {
   if (!localData) {
-    return `<h1>On this computer</h1><p class="lede">Models that run here, free and private.</p><p class="hint">Loading...</p>`;
+    return `<h1>On this computer</h1><p class="lede">Models that run here, free and private. Branch looks at this computer first and only offers what fits.</p><p class="hint">Loading...</p>`;
   }
 
   const hw = localData.hardware || {};
@@ -115,16 +119,16 @@ export function draw() {
   return html;
 }
 
+export function init() {
+  loadLocalData();
+}
+
 export async function load() {
   await loadLocalData();
 }
 
-export function init() {
-  // Set up event handlers
-}
-
 export const live = {
-  // Wire up these controls
+  // Wire up controls to real routes
 };
 
 export function after(col) {
