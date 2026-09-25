@@ -41,7 +41,7 @@ export function draw() {
       <p>Trunks suggest what to remember and you decide. Nothing here leaves this computer.</p></div></div>`;
     if (mem.length) {
       html += mem.map((m, i) => `<div class="prow"><span class="ico-tile">${ic('star', 's')}</span>
-        <span class="grow"><b>${esc(m.title || m)}</b><small>${esc(m.source || 'Trunk')}</small></span>
+        <span class="grow"><b>${esc(m.data?.text ?? m.data?.fact ?? m.data?.content ?? "")}</b><small>${esc(m.data?.kind ?? "")}</small></span>
         <button class="btn ghost sm" type="button" data-act="forget" data-i="${i}" data-id="${esc(m.id || '')}">Forget</button></div>`).join('');
     }
   } else if (tab === "documents") {

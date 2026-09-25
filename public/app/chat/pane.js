@@ -8,12 +8,17 @@ import { S, E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
+import { sendingPrompt } from "./chat.js";
 
 const TABS = [["activity", "Activity"], ["plan", "Plan"], ["files", "Files"], ["memory", "Memory"], ["browser", "Browser"], ["terminal", "Terminal"]];
 const REAL = new Set(["activity", "plan", "files", "memory"]);
 const P = { sid: null, messages: [], plan: null, at: 0 };
 
-const runsHere = () => (E.state?.runs ?? []).filter((r) => r.sessionId === S.chat);
+/* This conversation's tasks; before a new conversation has its id, the task its first message started. */
+const runsHere = () => {
+  const first = sendingPrompt();
+  return (E.state?.runs ?? []).filter((r) => (S.chat ? r.sessionId === S.chat : first && r.prompt === first));
+};
 const working = () => runsHere().some((r) => ["running", "queued", "waiting"].includes(r.status));
 
 function target(args) {
@@ -50,7 +55,7 @@ const BODY = { activity, plan, files, memory: () => '<p class="empty">Nothing re
 
 export function drawPane() {
   const pane = $("#pane"), body = $("#body");
-  const open = S.view === "chat" && !!S.pane && !!S.chat;
+  const open = S.view === "chat" && !!S.pane && (!!S.chat || !!sendingPrompt());
   if (!pane) return;
   pane.hidden = !open;
   body?.classList.toggle("pane-on", open);

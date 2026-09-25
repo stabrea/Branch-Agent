@@ -9,7 +9,7 @@ import { greyOut, markLive } from "../core/features.js";
 import { head as chatHead, openConversation, startConversation } from "../chat/chat.js";
 import { initExtras } from "./extras.js";
 import { initUsage } from "./usage.js";
-import { api } from "../core/api.js";
+import { api, link } from "../core/api.js";
 import { SQ, searchHTML, askEngine } from "./search.js";
 
 const WIDE = matchMedia("(min-width: 761px)");
@@ -95,7 +95,7 @@ function titleActions() {
 function status() {
   const version = E.state?.version ?? "";
   const model = modelLabel();
-  return `<button class="sb" type="button" data-act="machines"><span class="dot"></span>Connected · this computer</button>
+  return `<button class="sb" type="button" data-act="machines"><span class="dot ${link.up ? "" : "off"}"></span>${link.up ? "Connected" : "Not connected"} · this computer</button>
     <button class="sb" type="button" data-act="gwpop" data-tip="The gateway keeps Branch running in the background"><span class="dot off"></span>Gateway</button>
     <span class="tb-grow"></span>
     ${model ? `<button class="sb usage" type="button" data-act="usagepop" data-tip="What each connection has left: 5-hour, daily and weekly limits"><span class="hide-sm">${esc(model)}</span></button>` : ""}

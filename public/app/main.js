@@ -3,7 +3,7 @@
 
 import { $, onRender, render, renderNow, paint } from "./core/dom.js";
 import { S, E, loadSaved, refresh } from "./core/state.js";
-import { stream } from "./core/api.js";
+import { stream, link } from "./core/api.js";
 import { listen, on } from "./core/actions.js";
 import { listenTips, closePop, closeDlg } from "./core/ui.js";
 import { greyOut } from "./core/features.js";
@@ -50,7 +50,12 @@ async function connect(refusal = "") {
     if (error.status === 401 || error.status === 429) { showSignIn(() => connect(true), refusal || error.status === 429 ? error.message : ""); return; }
     E.error = error; render(); return;
   }
-  stream(["run", "approval", "message", "trunk"], () => refresh().catch(() => {}));
+  link.onChange = () => renderNow();
+  let queued = null;
+  stream([], () => {
+    clearTimeout(queued);
+    queued = setTimeout(() => refresh().then(render, () => {}), 250);
+  });
 }
 
 boot();
