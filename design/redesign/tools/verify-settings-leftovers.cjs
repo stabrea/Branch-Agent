@@ -11,6 +11,7 @@ const PORT = process.env.PORT, TOKEN = process.env.TOKEN;
 if (!PORT || !TOKEN) { console.error("Set PORT and TOKEN."); process.exit(2); }
 const BASE = `http://127.0.0.1:${PORT}`;
 const results = [];
+const skipped = [];
 const check = (name, ok, detail = "") => { results.push({ name, ok: Boolean(ok), detail }); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  (" + detail + ")" : ""}`); };
 
 async function api(p, body) {
@@ -74,7 +75,7 @@ async function install(page) {
 
   /* The refusal is asked for directly only where it cannot start anything: no runtime program on this computer. */
   const runtimes = (await api("local-models")).oneClick?.runtimes ?? [];
-  if (runtimes.some((r) => r.installed)) { check("skipped the no-runtime check: a runtime is installed here", true); return; }
+  if (runtimes.some((r) => r.installed)) { skipped.push("the no-runtime refusal (a model runtime is installed here)"); console.log("SKIP  the no-runtime refusal: a model runtime is installed here"); return; }
   await api("local-models/switch", { mode: "on" });
   await openPage(page, "general");
   await openPage(page, "local");
@@ -107,6 +108,6 @@ async function install(page) {
   check("no page errors", errors.length === 0, errors.join(" | "));
   await browser.close();
   const bad = results.filter((r) => !r.ok).length;
-  console.log(`\n${results.length - bad} passed, ${bad} failed`);
+  console.log(`\n${results.length - bad} passed, ${bad} failed${skipped.length ? `, ${skipped.length} skipped: ${skipped.join("; ")}` : ""}`);
   process.exit(bad ? 1 : 0);
 })();

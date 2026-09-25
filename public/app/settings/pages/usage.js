@@ -72,7 +72,8 @@ function took(run) {
 
 function result(run) {
   const s = run.summary ?? {};
-  const cost = s.dollars == null ? "" : ` · cost $${s.dollars.toFixed(2)}`;
+  /* The engine never lets a figure worked out from its own token count read as a bill; the page's own words say so. */
+  const cost = s.dollars == null ? "" : ` · cost $${s.dollars.toFixed(2)}${run.costBasis === "reported" ? "" : " · estimated from each model’s price"}`;
   const time = took(run);
   const title = `${s.passed} of ${s.total} right${cost}${time ? ` · ${time}` : ""}`;
   const regressions = run.regressions ?? [];
