@@ -308,7 +308,10 @@ export function linksOut(folder: string): { links: Set<string>; complete: boolea
   const links = new Set<string>();
   const gitRoot = join(folder, ".git");
   // Mac mini's Q243 review: a submodule's own Git folder is `.git/modules/<name>`, with its own object store.
-  const gitDirOf = (dir: string): boolean => dir === gitRoot || (dir.startsWith(gitRoot + sep) && basename(dirname(dir)) === "modules");
+  // NAS 6d4a753: a submodule's Git folder is `modules/<name>` directly under `.git` or under another submodule's, never
+  // a `modules` folder anywhere (`.git/refs/heads/modules/x` is a branch's name, and its `objects` is no store).
+  const gitDirOf = (dir: string): boolean => dir === gitRoot
+    || (dir.startsWith(gitRoot + sep) && basename(dirname(dir)) === "modules" && gitDirOf(dirname(dirname(dir))));
   const isStore = (dir: string): boolean => basename(dir) === "objects"
     && (gitDirOf(dirname(dir)) || (basename(dirname(dir)) === "lfs" && gitDirOf(dirname(dirname(dir)))));
   const stack = [folder];
