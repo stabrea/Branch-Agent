@@ -5486,6 +5486,7 @@
   "voice.talkStart": "Parler",
   "voice.talkStop": "Arrêter",
   "voiceLive.cutIn": "Interrompre",
+  "voiceLive.neverConnected": "La conversation en direct n'a pas pu se connecter, elle a donc été arrêtée.",
   "voiceLive.stop": "Arrêter",
   "voiceLive.talk": "Parler en direct",
   "wsedit.card.note": "Ouvrez et modifiez les fichiers texte de votre espace de travail depuis l'onglet Fichiers d'une conversation. Chaque enregistrement peut être annulé, et un fichier modifié depuis son ouverture n'est jamais écrasé.",

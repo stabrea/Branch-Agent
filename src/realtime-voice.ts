@@ -345,10 +345,31 @@ export class LiveConversation {
   }
 }
 
+/**
+ * How long the task a Talk live press makes waits for its socket to open the conversation. The page
+ * opens that socket as soon as the task is made and says "start" the moment it is open, and the service
+ * then has 15 seconds to answer (src/realtime.ts), so a press that works is under way well inside this.
+ * A press whose socket never got through is stopped at the end of it, so it holds an update or a quit
+ * for under a minute instead of until Branch restarts.
+ */
+export const liveConnectWaitMs = 45_000;
+/** Why a live conversation's task ended before it had a conversation, as its history says it. */
+export const liveNeverConnected = "The live conversation never connected";
+export const liveStoppedBeforeConnected = "Stopped before the live conversation connected";
+
 /** The live conversations open right now, one to a conversation, closed together on Lock. */
 export class LiveConversations {
   private readonly open = new Map<string, LiveConversation>();
-  constructor(private readonly deps: LiveVoiceDeps) {}
+  /** Tasks made for a live conversation that has not opened yet, each with the end of its wait. */
+  private readonly waiting = new Map<string, NodeJS.Timeout>();
+  /** Tasks whose conversation is being opened right now. */
+  private readonly starting = new Set<string>();
+  /** How long a task waits for its conversation to open (liveConnectWaitMs); read when the wait starts. */
+  connectWaitMs = liveConnectWaitMs;
+  constructor(private readonly deps: LiveVoiceDeps) {
+    // However a task ends, its wait goes with it.
+    deps.store.onRunFinished((runId) => this.forget(runId));
+  }
   plan(sessionId = "voice"): LivePlan {
     return livePlanFor(
       voiceSettings(this.deps.store, this.deps.owner),
@@ -367,9 +388,56 @@ export class LiveConversations {
     if (refused) throw new Error(refused);
     this.stop(runId);
     const conversation = new LiveConversation(this.deps, runId, sessionId, out);
-    const plan = await conversation.start();
-    this.open.set(runId, conversation);
-    return { conversation, plan };
+    this.starting.add(runId);
+    try {
+      const plan = await conversation.start();
+      this.open.set(runId, conversation);
+      this.forget(runId); // it opened in time, so its task no longer waits
+      return { conversation, plan };
+    } finally {
+      this.starting.delete(runId);
+    }
+  }
+  /**
+   * The task a Talk live press made waits for its socket to open the conversation. If none has opened
+   * by the end of the wait, the task is stopped with the reason, so a press whose socket never got
+   * through holds no update or quit. A conversation that opens in time is not touched.
+   */
+  expect(runId: string): void {
+    this.forget(runId);
+    const wait = setTimeout(() => this.waited(runId), this.connectWaitMs);
+    wait.unref(); // the wait never keeps Branch running by itself
+    this.waiting.set(runId, wait);
+  }
+  /**
+   * Stop, for a live conversation's task whose conversation never opened: true when it was ended here.
+   * A conversation that is open, or still being opened, is left to its own endings.
+   */
+  cancel(runId: string): boolean {
+    if (!this.waiting.has(runId) || this.starting.has(runId)) return false;
+    this.forget(runId);
+    return this.endUnopened(runId, liveStoppedBeforeConnected);
+  }
+  private waited(runId: string): void {
+    this.waiting.delete(runId);
+    try {
+      // Still being opened: the service's own time limit settles that, so the task waits once more.
+      if (this.starting.has(runId)) { this.expect(runId); return; }
+      if (!this.open.has(runId)) this.endUnopened(runId, liveNeverConnected);
+    } catch { /* a wait that ends while Branch is closing must never take Branch down */ }
+  }
+  private forget(runId: string): void {
+    const wait = this.waiting.get(runId);
+    if (wait) clearTimeout(wait);
+    this.waiting.delete(runId);
+  }
+  /** Ends a live conversation's task that never had a conversation: stopped, with the reason. */
+  private endUnopened(runId: string, reason: string): boolean {
+    const { store } = this.deps;
+    if (!store.isOpen || store.run(runId)?.status !== "running") return false;
+    store.event(runId, "voice.live.ended", { reason, seconds: 0, cost: 0 });
+    store.finish(runId, "cancelled", `${reason}.`);
+    return true;
   }
   stop(runId: string, reason?: string): boolean {
     const conversation = this.open.get(runId);

@@ -1502,8 +1502,9 @@ async function api(
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.store.profiles.scope())
       throw new HttpError(404, "Run not found");
+    // A live conversation's task has no model turn to stop; one that never connected is stopped by the live side.
     if (request.method === "POST" && match[2] === "cancel")
-      return { cancelled: app.runtime.cancel(run.id) };
+      return { cancelled: app.runtime.cancel(run.id) || app.live.cancel(run.id) };
     if (request.method === "POST" && match[2] === "resume")
       return app.runtime.resume(run.id);
     // Steering a task that is working, and editing or approving the plan it is waiting on.
@@ -4254,6 +4255,7 @@ function voiceDeps(app: Branch) {
     // Wave 7: the Gemini card's "Sign in with Google" needs the workspace's OAuth connections.
     oauth: app.oauth,
     liveRefusal: (sessionId: string) => liveRefusalFor(app, sessionId), // phase2/rooms
+    liveWaits: (runId: string) => app.live.expect(runId),
   };
 }
 /**
