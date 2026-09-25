@@ -22,7 +22,12 @@ const runsHere = () => {
 const working = () => runsHere().some((r) => ["running", "queued", "waiting"].includes(r.status));
 
 function target(args) {
-  try { const a = typeof args === "string" ? JSON.parse(args) : args ?? {}; return a.path ?? a.url ?? a.command ?? a.query ?? a.name ?? ""; } catch { return ""; }
+  try {
+    const a = typeof args === "string" ? JSON.parse(args) : args ?? {};
+    // A command shows as it was run: the program and its arguments.
+    if (a.executable) return [a.executable, ...(Array.isArray(a.args) ? a.args : [])].join(" ");
+    return a.path ?? a.url ?? a.command ?? a.query ?? a.name ?? "";
+  } catch { return ""; }
 }
 
 function activity() {
