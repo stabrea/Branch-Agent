@@ -24,7 +24,36 @@ const restoredByTheOwner = { writer: "owner-in-window", source: "import", detail
 
 /** A model account is only half of where the owner's words go without its connection, so the two are one group. */
 const groupOf = (id: string): string => (id === "model-connections" ? "accounts" : id);
-export interface HeldGroup { group: string; ids: string[] }
+/** One held row as the owner is shown it (Q239): its plain name when Settings has one, and the file's telling fields. */
+export interface HeldDetail { id: string; name?: string; nameT?: string; fields: { field: string; value: string }[] }
+export interface HeldGroup { group: string; ids: string[]; details: HeldDetail[] }
+
+/** Q239: a field whose value says where something goes, what runs, or whether a guard is on. */
+const tellingField = /url|endpoint|address|host|server|chat|channel|deliver|destination|repositor|command|program|path|folder|webhook|mode|enabled|require|approv|preset|model/i;
+/** A field whose value is a secret: named, never shown. */
+const secretField = /secret|token|password|passcode|apikey|credential/i;
+const maxFieldsShown = 8;
+/**
+ * Q239 (NAS 9368030): what the owner needs to see before saying yes to a held row: each field, up to two levels in, that
+ * names an address, a chat, a program or a path, or switches a guard or a mode, with the file's own value.
+ */
+function tellingFields(data: string): HeldDetail["fields"] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(data); } catch { return []; }
+  const found: HeldDetail["fields"] = [];
+  const walk = (value: unknown, path: string, depth: number): void => {
+    if (found.length >= maxFieldsShown) return;
+    if (value && typeof value === "object" && !Array.isArray(value) && depth < 2) {
+      for (const [key, inner] of Object.entries(value)) walk(inner, path ? `${path}.${key}` : key, depth + 1);
+      return;
+    }
+    if (!path || !tellingField.test(path)) return;
+    const shown = secretField.test(path) ? "(hidden)" : typeof value === "string" ? value : JSON.stringify(value) ?? "";
+    found.push({ field: path, value: shown.slice(0, 120) });
+  };
+  walk(parsed, "", 0);
+  return found;
+}
 
 export class RestoreHeld {
   constructor(private readonly store: Store) {}
@@ -57,7 +86,16 @@ export class RestoreHeld {
   groups(): HeldGroup[] {
     const groups = new Map<string, Set<string>>();
     for (const row of this.read().rows) groups.set(groupOf(row.id), (groups.get(groupOf(row.id)) ?? new Set()).add(row.id));
-    return [...groups].map(([group, ids]) => ({ group, ids: [...ids].sort() }));
+    const rows = this.read().rows;
+    return [...groups].map(([group, ids]) => {
+      const sorted = [...ids].sort();
+      const details = sorted.map((id): HeldDetail => {
+        const spec = specFor(id);
+        const row = rows.find((one) => one.id === id)!;
+        return { id, ...(spec ? { name: spec.name, nameT: spec.t } : {}), fields: tellingFields(row.data) };
+      });
+      return { group, ids: sorted, details };
+    });
   }
   /** The owner's own list, from the owner's own window. */
   list(): { held: HeldGroup[] } {

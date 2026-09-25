@@ -315,3 +315,20 @@ test("a pending chat message in a backup is restored as not sent (NAS dc50a36)",
     assert.equal(target.store.get("deliveries", owner, "sent-delivery")?.data.status, "sent", "a sent one is left as it was");
   }
 });
+
+// Q239 (NAS 9368030): each held row comes with the fields a yes would turn on, as the file has them; a secret is named
+// and never shown, and a row Settings knows comes with its plain name.
+test("a held row shows the owner its telling fields and hides a secret (Q239)", async (t) => {
+  const { app, owner } = await fixture(t);
+  app.store.restoreHeld.merge([
+    { owner, id: "webhook-plant", data: JSON.stringify({ endpoint: "https://elsewhere.example/in", webhookSecret: "s3cret", colour: "blue" }) },
+    { owner, id: "policy", data: JSON.stringify({ preset: "off", rules: [] }) },
+  ]);
+  const details = app.store.restoreHeld.groups().flatMap((group) => group.details);
+  const plant = details.find((detail) => detail.id === "webhook-plant");
+  assert.deepEqual(plant.fields, [{ field: "endpoint", value: "https://elsewhere.example/in" }, { field: "webhookSecret", value: "(hidden)" }]);
+  assert.equal(JSON.stringify(details).includes("s3cret"), false, "a secret never leaves the store");
+  const policy = details.find((detail) => detail.id === "policy");
+  assert.ok(policy.name && policy.nameT, "a Settings row carries its plain name");
+  assert.deepEqual(policy.fields, [{ field: "preset", value: "off" }]);
+});

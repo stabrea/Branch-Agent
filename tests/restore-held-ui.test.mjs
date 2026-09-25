@@ -27,6 +27,8 @@ test("the backup card lists what a restore holds, and each answer puts it in pla
   app.store.restoreHeld.merge([
     { owner, id: "goal:held-test", data: JSON.stringify({ fromFile: true }) },
     { owner, id: "handoffs:held-test", data: JSON.stringify({ fromFile: true }) },
+    // Q239: a row whose file names where it sends, and carries a secret.
+    { owner, id: "automatic-problem-reports", data: JSON.stringify({ mode: "on", destination: { kind: "github", repository: "file-maker/inbox" }, apiToken: "s3cret-from-file" }) },
   ]);
   await fetch(new URL("/api/onboarding", server.url), { method: "POST", body: JSON.stringify({ done: true }),
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } });
@@ -41,13 +43,30 @@ test("the backup card lists what a restore holds, and each answer puts it in pla
   const card = page.locator("#restore-held");
   await page.locator("#backup-card").scrollIntoViewIfNeeded();
   await card.waitFor({ state: "visible", timeout: 20000 });
-  assert.match(await card.innerText(), /A restore is waiting for your answer[\s\S]*goal:held-test[\s\S]*handoffs:held-test/);
+  const shown = await card.innerText();
+  assert.match(shown, /A restore is waiting for your answer/);
+  for (const id of ["goal:held-test", "handoffs:held-test", "automatic-problem-reports"]) assert.ok(shown.includes(id), `${id} is listed`);
   assert.deepEqual(setting("goal:held-test"), { mine: true }, "control: this computer's own stays until the owner answers");
+  // Q239 (NAS 9368030): the owner sees what a yes would turn on: the file's own address, never its secret.
+  const reports = card.locator(".restore-held-row", { hasText: "automatic-problem-reports" });
+  const reportsText = await reports.innerText();
+  assert.match(reportsText, /From the backup:/);
+  assert.match(reportsText, /destination\.repository: file-maker\/inbox/);
+  assert.match(reportsText, /mode: on/);
+  assert.doesNotMatch(await card.innerText(), /s3cret-from-file/, "a secret the file carries is never shown");
+  assert.match(await card.locator(".restore-held-row", { hasText: "goal:held-test" }).innerText(), /Nothing in it names an address/);
+  // "Use all" says what it would turn on and asks once more; "Not now" changes nothing.
+  await card.getByRole("button", { name: "Use all from the backup" }).click();
+  const confirm = page.locator("#restore-held-confirm");
+  assert.match(await confirm.innerText(), /This puts all of these in place[\s\S]*file-maker\/inbox/);
+  await confirm.getByRole("button", { name: "Not now" }).click();
+  assert.equal(await confirm.innerText(), "");
+  assert.deepEqual(setting("goal:held-test"), { mine: true }, "nothing was put in place");
 
   await card.locator(".restore-held-row", { hasText: "goal:held-test" }).getByRole("button", { name: "Use the backup's" }).click();
   await page.locator("#restore-held-status", { hasText: "goal:held-test now comes from the backup" }).waitFor();
   assert.deepEqual(setting("goal:held-test"), { fromFile: true }, "a yes puts the backup's in place");
-  assert.equal(await card.locator(".restore-held-row").count(), 1, "and it no longer waits");
+  assert.equal(await card.locator(".restore-held-row").count(), 2, "and it no longer waits");
 
   await card.getByRole("button", { name: "Keep all of this computer's" }).click();
   await card.waitFor({ state: "hidden" });
