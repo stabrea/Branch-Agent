@@ -48,6 +48,8 @@ test("the words say the change once: the ordinary reason is not repeated after t
 test("a settings question whose words do not name the change keeps saying what it is about (Mac mini's E2 review)", async (t) => {
   const unknown = await paused(t, { name: "settings.change", arguments: JSON.stringify({ changes: [{ setting: "no-such.thing", value: "on" }] }) });
   assert.match(unknown.question, /no-such\.thing/, unknown.question);
+  assert.match(unknown.question, /"no-such\.thing" is not a setting Branch can change this way/, "said as what it is (Q50 LOW)");
+  assert.doesNotMatch(unknown.question, /already as asked/);
   const undo = await paused(t, { name: "settings.undo", arguments: JSON.stringify({ record: "3f1c0a52-0000-4000-8000-000000000001" }) });
   assert.match(undo.question, /3f1c0a52/, undo.question);
 });

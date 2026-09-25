@@ -214,7 +214,10 @@ export function settingsPreview(store: Store, tool: string, args: unknown, conte
   // A pinned setting is stepped over when the change is saved, so it is shown staying as it is.
   const shown = (change: Change): string => change.pinned
     ? `${change.name}, ${change.label}: stays ${String(change.from)} (pinned)` : saidWhy(change);
-  const text = (changes.length ? changes.map(shown).join("; ") : "every setting is already as asked").slice(0, 600);
+  // Mac mini's Q50 LOW: a setting Branch does not have, or a value it cannot take, is said as such (the first sentence of
+  // the refusal), never "already as asked".
+  const nots = refused.map((why) => why.split(/(?<=\.)\s/)[0]!.replace(/\.$/, ""));
+  const text = ([...changes.map(shown), ...nots].join("; ") || "every setting is already as asked").slice(0, 600);
   // Dogfood E2 (Mac mini's review): the words name the call whole only when every setting asked for is among them.
   return { text, named: changes.length > 0 && !refused.length };
 }
