@@ -92,15 +92,22 @@ export function draw() {
   return html;
 }
 
+/* A refusal while re-reading is said once, not on every redraw, and the list it was for is drawn empty. */
+const said = new Set();
+function sayOnce(error) {
+  if (!said.has(error.message)) { said.add(error.message); toast(error.message); }
+  return {};
+}
+
 /* After a draw: re-read what the tab shows from the engine, and draw again only if it changed. */
 export async function after() {
   const tab = S.tabs.inbox || "needs";
   let changed = false;
-  const fresh = (await api("policy").catch(() => ({}))).waiting ?? [];
+  const fresh = (await api("policy").catch(sayOnce)).waiting ?? [];
   const key = (list) => list.map((q) => q.sessionId + q.fingerprint).join();
   if (key(fresh) !== key(asks)) { asks = fresh; changed = true; }
   if (tab === "needs") {
-    const requests = (await api("self-development/requests").catch(() => ({}))).requests ?? [];
+    const requests = (await api("self-development/requests").catch(sayOnce)).requests ?? [];
     if (JSON.stringify(requests) !== JSON.stringify(changeRequests)) { changeRequests = requests; changed = true; }
   }
   if (tab === "history" && !chain) {

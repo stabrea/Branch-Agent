@@ -31,7 +31,7 @@ function liveRow(r, i) {
   const session = E.sessions.find((s) => (s.sessionId ?? s.id) === r.sessionId);
   const who = trunk ? av(trunk, 30) : av({ kind: "main" }, 30);
   const name = trunk?.name ?? E.state?.identity?.name ?? "";
-  const pill = waiting ? `<span class="pill work"><i></i>Waiting for them</span>` : `<span class="pill ok"><i></i>Working</span>`;
+  const pill = waiting ? `<span class="pill work"><i></i>Needs you</span>` : `<span class="pill ok"><i></i>Working</span>`;
   return `<div class="run6 ${waiting ? "wait6" : ""}"><div class="run-h">${person()}${pill}</div>
     <div class="run-b">${who}<span class="grow"><b>${esc(name)}</b><span>${esc(firstLine(session?.opening) || firstLine(r.prompt))}</span>${r.model ? `<small>${esc(r.model)}</small>` : ""}</span></div>
     <div class="acts"><button class="btn sm" type="button" data-act="run-watch" data-i="${i}">${EYE}Watch</button><button class="btn ghost sm" type="button" data-act="toast">Ask to join</button></div></div>`;
