@@ -7,6 +7,7 @@ installDeviceHeaders();
 // Wave mac3 (commands): the command list is shown in the chosen language.
 import { applyLanguage, fromEnglish, t } from "/i18n.js";
 import { taskWhen, taskWords } from "/task-state.js"; // Q51
+import { editing } from "/same-card.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 /* One notice area, one timer. A second notice inside the six seconds has to cancel the first
@@ -2669,7 +2670,8 @@ function renderCollab() {
   const container = $("collab-container");
   if (!collab || !state) return;
   collab.showProfileBadge(state, { el, api, toast, refresh }); // household-followups
-  if (!container) return;
+  // The workflows and the waiting line stay here; while the owner types in one of them, the 3 s refresh leaves it be.
+  if (!container || editing(container)) return;
   container.replaceChildren(collab.showCollab(state, { el, api, toast, refresh }));
 }
 setInterval(() => {

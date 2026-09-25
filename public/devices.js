@@ -12,6 +12,7 @@
 import { api } from "/app.js";
 import { formatDate, t } from "/i18n.js";
 import { segmented, dropdown } from "/control-makers.js";
+import { drawnFrom, swapCard } from "/same-card.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english : word; };
@@ -323,10 +324,9 @@ async function draw() {
   drawing = (async () => {
     try {
       const { node, view } = await buildCard();
-      const old = $("devices-card");
-      if (old) old.replaceWith(node); else document.body.append(node);
-      const paired = pairedCard(view), before = $("paired-devices-card");
-      if (before) before.replaceWith(paired); else document.body.append(paired);
+      // Q207: a card drawn from the same view, looking the same, is left as it is.
+      swapCard($("devices-card"), drawnFrom(node, [view, invite]));
+      swapCard($("paired-devices-card"), drawnFrom(pairedCard(view), view));
       picker(view);
     } catch { /* the window stays as it was; the next draw tries again */ }
   })().finally(() => { drawing = null; });
