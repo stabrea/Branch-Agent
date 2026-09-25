@@ -73,4 +73,8 @@ test("steps whose first sentence read badly have words of their own (Mac mini's 
   assert.equal(describeToolCall("troubleshoot.run", {}), "Running a failed command again to find out why");
   assert.equal(describeToolCall("desktop.click", { name: "Save" }), "Pressing “Save” on screen");
   assert.equal(describeToolCall("procedures.replay", {}), "Repeating a saved recipe");
+  // With the argument names the tools really take (Mac mini's re-check).
+  assert.equal(describeToolCall("desktop.key", { window: "Mail", chord: "cmd+q" }), "Pressing cmd+q on screen");
+  assert.equal(describeToolCall("desktop.open", { app: "Terminal" }), "Opening Terminal");
+  assert.equal(describeToolCall("desktop.clipboard", { action: "write", text: "" }), "Putting text on the clipboard");
 });

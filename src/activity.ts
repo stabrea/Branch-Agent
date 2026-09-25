@@ -189,9 +189,10 @@ export function describeToolCall(name: string, args: unknown, plain?: string | n
     case "desktop.windows": return "Working with the open windows";
     case "desktop.click": case "computer.press": return `Pressing ${a.name ? `“${short(a.name)}”` : "something"} on screen`;
     case "desktop.type": case "computer.type": case "desktop.shared.type": return "Typing on screen";
-    case "desktop.key": case "desktop.shared.key": return `Pressing ${a.key ? short(a.key) : "a key"} on screen`;
-    case "desktop.open": case "desktop.shared.open": return `Opening ${short(a.program ?? a.name ?? a.path ?? "a program")}`;
-    case "desktop.clipboard": return a.text ? "Putting text on the clipboard" : "Reading the clipboard";
+    // Mac mini's re-check: the argument names these tools really take (chord; app or path; action).
+    case "desktop.key": case "desktop.shared.key": return `Pressing ${a.chord ? short(a.chord) : "a key"} on screen`;
+    case "desktop.open": case "desktop.shared.open": return `Opening ${short(a.app ?? a.path ?? "a program")}`;
+    case "desktop.clipboard": return a.action === "write" ? "Putting text on the clipboard" : "Reading the clipboard";
     case "procedures.propose": return "Writing down a recipe to repeat later";
     case "procedures.verify": return "Trying a recipe to check it works";
     case "procedures.replay": return "Repeating a saved recipe";
