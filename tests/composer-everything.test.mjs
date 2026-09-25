@@ -51,7 +51,9 @@ const inline = (page) => page.evaluate(() => {
 });
 
 for (const width of [1440, 860, 400]) {
-  test(`DG-175 at ${width} px with Show everything on the box is the sample's slim bar, nothing beside it`, async (t) => {
+  // Redesign: replaced by the new window (Show everything: the calm and full windows are one window, and its slim bar and
+  // the chips under it were the old sample's, design/Branch-Grown-Up.html; the message box is the prototype's).
+  test.skip(`DG-175 at ${width} px with Show everything on the box is the sample's slim bar, nothing beside it`, async (t) => {
     const { page, errors } = await fixture(t, width);
     await everything(page, true);
     assert.deepEqual(await inline(page), { extras: [], plusRound: true, sendRound: true, bar: 48 });
@@ -59,7 +61,9 @@ for (const width of [1440, 860, 400]) {
   });
 }
 
-test("DG-175 the sample's chips under the box show with everything shown at Advanced, and press the real choices", async (t) => {
+// Redesign: replaced by the new window (Show everything: the calm and full windows are one window, and its slim bar and
+// the chips under it were the old sample's, design/Branch-Grown-Up.html; the message box is the prototype's).
+test.skip("DG-175 the sample's chips under the box show with everything shown at Advanced, and press the real choices", async (t) => {
   const { page, errors } = await fixture(t, 1440);
   const chips = () => page.evaluate(() => [...document.querySelectorAll(".lx-foot-chip")].filter((chip) => chip.checkVisibility())
     .map((chip) => `${chip.textContent.trim()}${chip.getAttribute("aria-pressed") === "true" ? " ✓" : ""}`));
@@ -79,7 +83,9 @@ test("DG-175 the sample's chips under the box show with everything shown at Adva
   assert.deepEqual(errors, []);
 });
 
-test("DG-175 in French the chips are French", async (t) => {
+// Redesign: replaced by the new window (Show everything: the calm and full windows are one window, and its slim bar and
+// the chips under it were the old sample's, design/Branch-Grown-Up.html; the message box is the prototype's).
+test.skip("DG-175 in French the chips are French", async (t) => {
   const { page, errors } = await fixture(t, 1440);
   await everything(page, true);
   await level(page, "advanced");
@@ -107,7 +113,8 @@ const plusMenu = async (page) => {
 };
 const planSaved = (page) => page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/plan-act");
 
-test("DG-175 with Show everything on, how it should work and when to check back are the + menu's choices, not a row above the box", async (t) => {
+// Redesign: Coming soon (plusmenu), checked at afa6ad94; Show everything is replaced by the new window (one window).
+test.skip("DG-175 with Show everything on, how it should work and when to check back are the + menu's choices, not a row above the box", async (t) => {
   const { page, errors } = await fixture(t, 400);
   await everything(page, true);
   assert.equal(await page.locator("#plan-controls").isVisible(), false, "no row of plan controls above the box");
@@ -131,7 +138,8 @@ test("DG-175 with Show everything on, how it should work and when to check back 
   assert.deepEqual(errors, []);
 });
 
-test("DG-175 the calm window's + menu stays the sample's short one", async (t) => {
+// Redesign: Coming soon (plusmenu), checked at afa6ad94; Show everything is replaced by the new window (one window).
+test.skip("DG-175 the calm window's + menu stays the sample's short one", async (t) => {
   const { page, errors } = await fixture(t, 1440);
   const { rows } = await plusMenu(page);
   assert.equal(rows.includes("How it should work"), false, JSON.stringify(rows));
