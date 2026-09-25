@@ -807,8 +807,11 @@ body:not(.lx-settings-searching) :is(#chatgpt-card, #model-probe-card)[data-sg-b
 }
 
 /* ---------- DG-192: Updates & about, as the sample draws it ---------- */
-/* Updating by itself: its section's heading already names it, and a choice saves as it is picked (DG-025). */
-#comfort-updates-card > .settings-card-title {
+/* Updating by itself: its section's heading already names it and says what it is, so the card's own title, lead and
+   the label over its choices stay for search and screen readers only (dogfood F9). A choice saves as it is picked (DG-025). */
+#comfort-updates-card > .settings-card-title,
+#comfort-updates-card > .settings-card-title + .subtle,
+#comfort-updates-card .choice-cards > legend {
   position: absolute;
   width: 1px;
   height: 1px;

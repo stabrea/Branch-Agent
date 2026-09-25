@@ -79,6 +79,21 @@ test("DG-192 Updates shows Branch Agent and its version in a browser; the deskto
   assert.deepEqual(errors, []);
 });
 
+test("dogfood F9: Updates & about fills its version rows in a browser and says each thing once", async (t) => {
+  const { page, errors } = await fixture(t);
+  await openAbout(page);
+  assert.match(await page.locator("#updates-build-version").textContent(), /^\d+\.\d+\.\d+/, "the installed version is shown");
+  assert.equal(await page.locator("#updates-build-commit").textContent(), "not recorded", "a browser does not know the commit, and says so");
+  const drawn = await page.evaluate((words) => [...document.querySelectorAll("body *")]
+    .filter((el) => !el.childElementCount && el.textContent.trim() === words && el.getBoundingClientRect().height > 1).length,
+  "Whether Branch looks for new versions on its own, and whether it installs them.");
+  assert.equal(drawn, 1, "the section says it once");
+  const choices = page.locator("#comfort-updates-card .choice-cards > legend");
+  assert.equal(await choices.textContent(), "Updates", "the choices keep their name for a screen reader");
+  assert.equal(await choices.evaluate((legend) => legend.getBoundingClientRect().height <= 1), true, "and no fourth Updates heading is drawn");
+  assert.deepEqual(errors, []);
+});
+
 test("DG-192 Updating by itself saves as it is picked, with no Save button, and the keeper's acorn turns", async (t) => {
   const { page, errors } = await fixture(t);
   await openAbout(page);
