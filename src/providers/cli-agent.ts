@@ -162,10 +162,28 @@ export class ProgramSignInError extends Error { override name = "ProgramSignInEr
 // NAS's review (p202): only the program's own words about its sign-in, never a task's text that quotes another
 // program ("Authentication failed" from git, "not logged into any GitHub hosts" from gh).
 const signInWords = /not logged in\b|please run \/login|(?:log|sign) ?in again|invalid api key|oauth token (?:has )?expired/i;
-/** What a program said about itself when it stopped: its error stream, and its output only when that is one short line of words. */
+/**
+ * The errors a program reports about itself in its JSON output, never an answer's text (NAS c6feb33: Claude Code says
+ * it is signed out as `{"is_error":true,"result":"… Please run /login"}` on stdout; Codex as an `error` or
+ * `turn.failed` event).
+ */
+function programErrors(stdout: string): string[] {
+  const said: string[] = [];
+  for (const line of stdout.split("\n").slice(0, 400)) {
+    let value: unknown;
+    try { value = JSON.parse(line.trim()); } catch { continue; }
+    if (!value || typeof value !== "object") continue;
+    const item = value as { is_error?: unknown; result?: unknown; type?: unknown; message?: unknown; error?: { message?: unknown } };
+    if (item.is_error === true && typeof item.result === "string") said.push(item.result);
+    if (item.type === "error" && typeof item.message === "string") said.push(item.message);
+    if (item.type === "turn.failed" && typeof item.error?.message === "string") said.push(item.error.message);
+  }
+  return said;
+}
+/** What a program said about itself when it stopped: its error stream, its own reported errors, and a short plain line. */
 const selfWords = (outcome: { stdout: string; stderr: string }): string => {
   const out = outcome.stdout.trim();
-  return `${outcome.stderr}\n${out.length < 300 && !/^[[{]/.test(out) && !out.includes("\n") ? out : ""}`;
+  return [outcome.stderr, ...programErrors(out), out.length < 300 && !/^[[{]/.test(out) && !out.includes("\n") ? out : ""].join("\n");
 };
 // ---- end mac6/accounts ----
 

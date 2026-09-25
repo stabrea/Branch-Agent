@@ -568,3 +568,28 @@ test("P21 with own plans on, a plan whose program is signed out rests and the ne
   assert.equal((await app.runtime.run({ prompt: "again" })).output, `from ${third}`, "a new call skips the resting plan too");
   assert.ok(service.statesOf(POOL).get(second).restUntil > 0, "the signed-out plan rests");
 });
+
+// NAS's adversarial c6feb33: the Accounts switch saved off while the picked plan is answering; through the real
+// settings hook, so the re-read is the one the app makes.
+test("P22 switching Accounts off during a call stops the work moving to another own plan", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner, service } = fx;
+  const seen = [];
+  const spawn = async (row, prompt, signal, limits, home) => {
+    const who = home ? home.path.split(/[\/]/).pop() : "primary";
+    seen.push(who);
+    if (who === "primary") { setMode(service, { mode: "off" }); return limited; }
+    return answer(`from ${who}`);
+  };
+  registerCliAgent(app.runtime.models, { id: "claude-code" }, {}, spawn);
+  app.runtime.models.configure(owner, { activePreset: POOL });
+  service.deps.spawnAgent = spawn;
+  setMode(service, { mode: "on" });
+  await addAccount(service, { pool: POOL, label: "Second" });
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  updatePool(service, { pool: POOL, ownPlans: true });
+  const session = app.store.createSession(owner);
+  const run = await app.runtime.run({ prompt: "hello", sessionId: session });
+  assert.deepEqual(seen, ["primary"], `no other plan was asked (${seen.join(", ")})`);
+  assert.notEqual(run.output, "from Second");
+});

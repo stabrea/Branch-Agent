@@ -112,7 +112,10 @@ export class AccountsService {
 
   /** The saved pool as the connection may use it now: ChatGPT's first account only while it is signed in. */
   private usablePool(pool: string): Pool | null {
-    const found = this.pool(pool);
+    const saved = this.pool(pool);
+    // NAS's adversarial (c6feb33): with the Accounts switch off, one key or sign-in per connection (docs/configuration.md),
+    // so nothing moves between accounts, whatever the pool still says; read again on every call and mid-call.
+    const found = saved && !this.on() ? { ...saved, autoSwitch: false, ownPlans: false } : saved;
     if (!found || found.kind !== "chatgpt" || this.legacySignedIn) return found;
     return { ...found, accounts: found.accounts.map((account) => account.id === primaryAccount ? { ...account, disabled: true } : account) };
   }

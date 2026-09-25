@@ -71,11 +71,13 @@ for (const off of [{ autoSwitch: false }, { ownPlans: false }]) {
       return { content: `from ${id}`, toolCalls: [] };
     } });
     const provider = new AccountPoolProvider(plan("original"), {
-      owner: "local", pool: "chatgpt", model: "gpt-6-sol", settings: () => saved, states: new Map(), cursor: { value: 0 },
+      // NAS c6feb33: a fresh copy on every read, as the real settings hook parses one, so the re-read itself is tested.
+      owner: "local", pool: "chatgpt", model: "gpt-6-sol", settings: () => structuredClone(saved), states: new Map(), cursor: { value: 0 },
       providerFor: async (id) => plan(id), capReached: () => false, record: () => {}, personIsNotOwner: () => false,
       sessionChoice: (session) => choices.get(session) ?? null, rememberChoice: (session, id) => choices.set(session, id), now: () => Date.parse(at),
     });
-    await assert.rejects(withAccountCall({ sessionId: "s1" }, () => provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal })));
+    await assert.rejects(withAccountCall({ sessionId: "s1" }, () => provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal })),
+      Object.keys(off)[0] === "autoSwitch" ? /The account "one" has reached its plan limit/ : /./);
     assert.deepEqual(asked, ["one"], "no other plan was asked");
     assert.equal(choices.get("s1"), "one", "the pick stays");
   });
@@ -90,6 +92,10 @@ test("a program counts as signed out only by its own words, never by a task's te
     return provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal }).then(() => null, (error) => error.name);
   };
   assert.equal(await stopped({ stderr: "Not logged in · Please run /login" }), "ProgramSignInError");
+  // Claude Code's own JSON result when it is signed out, and Codex's error event (NAS c6feb33).
+  assert.equal(await stopped({ stdout: JSON.stringify({ type: "result", is_error: true, result: "Invalid API key · Please run /login" }) }), "ProgramSignInError");
+  assert.equal(await stopped({ stdout: `${JSON.stringify({ type: "thread.started" })}
+${JSON.stringify({ type: "error", message: "Not logged in. Please run /login" })}` }), "ProgramSignInError");
   assert.equal(await stopped({ stdout: "Invalid API key · Please run /login" }), "ProgramSignInError", "a one-line plain answer about itself");
   assert.notEqual(await stopped({ stdout: JSON.stringify({ result: "git push said: Authentication failed for origin" }) }), "ProgramSignInError");
   assert.notEqual(await stopped({ stdout: '{"type":"item","text":"You are not logged into any GitHub hosts. Run gh auth login"}' }), "ProgramSignInError");

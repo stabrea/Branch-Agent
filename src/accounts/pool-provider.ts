@@ -212,6 +212,8 @@ export class AccountPoolProvider {
     }
     if (refused && !ready.some((account) => this.state(account.id).limitedUntil > this.hooks.now())) throw refused;
     const fallback = allowed.find((account) => account.id === sticky) ?? allowed[0]!;
+    // NAS c6feb33 (nit): sharing switched off during the call says what single() says: the account and when it resets.
+    if (!saved().autoSwitch) throw this.limitError(saved(), usable, fallback);
     throw this.limitError(saved(), usable, fallback, "Every account this connection may share work between has reached its plan limit.");
   }
 
