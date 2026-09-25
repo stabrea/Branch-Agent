@@ -77,7 +77,8 @@ function composer() {
     <textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch">${esc(draft)}</textarea>
     ${chips()}
     <button class="c-btn" type="button" aria-label="Dictate into the box" data-act="dict">${ic("mic")}</button><button class="c-btn" type="button" aria-label="Talk live with voice" data-act="voice">${ic("wave")}</button>
-    <button class="c-btn send" id="send" type="submit" aria-label="Send" ${C.sending ? "disabled" : ""}>${ic("up")}</button></form></div>`;
+    ${!draft.trim() && (C.sending || liveRun()) ? `<button class="c-btn send stop" id="send" type="button" aria-label="Stop" data-act="stop-run">${ic("stop")}</button>`
+      : `<button class="c-btn send" id="send" type="submit" aria-label="Send" ${C.sending ? "disabled" : ""}>${ic("up")}</button>`}</form></div>`;
 }
 
 /* The words of the message being sent, so the side panel can follow a new conversation's first task before its id is known. */
@@ -199,6 +200,21 @@ async function answer(el, decision, extra = {}) {
   else await openConversation(q.sessionId);
 }
 
+/* The task this conversation is running now; before a new conversation has its id, the one its first message started. */
+const LIVE = ["running", "queued", "waiting", "needs_input"];
+const liveRun = () => (E.state?.runs ?? []).filter((r) => LIVE.includes(r.status) && (C.sessionId ? r.sessionId === C.sessionId : C.sending && r.prompt === C.prompt))
+  .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+
+/* Stop (the prototype puts it in Send's place while the conversation works): POST /api/runs/<id>/cancel. */
+async function stopRun() {
+  let run = liveRun();
+  if (!run) { await refresh().catch((error) => toast(error.message)); run = liveRun(); }
+  if (!run) return;
+  try { await api(`runs/${encodeURIComponent(run.id)}/cancel`, {}); } catch (error) { toast(error.message); }
+  await refresh().catch((error) => toast(error.message));
+  renderNow();
+}
+
 const busy = (id) => (E.state?.runs ?? []).some((r) => r.sessionId === id && ["running", "queued", "waiting"].includes(r.status));
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -233,14 +249,21 @@ export function init() {
   initBeside();
   initMessages({ state: () => C, sendText: (words) => send(words), reopen: openConversation });
   onRender(drawPane);
-  markLive(["ask", "send", "side"]);
+  markLive(["ask", "send", "side", "stop-run"]);
+  on("stop-run", () => stopRun());
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
   /* Live once the engine scopes a standing yes to one Trunk (PR #285); until then features.js keeps it greyed. */
   on("ask-always", (el) => { if (el.dataset.trunk) answer(el, "allow", { remember: "always", trunk: el.dataset.trunk }); });
   on("side", () => document.getElementById("app").classList.toggle("side-open"));
   document.addEventListener("submit", (e) => { if (e.target.id === "composer") { e.preventDefault(); send(); } });
   document.addEventListener("keydown", (e) => { if (e.target.id === "prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
-  document.addEventListener("input", (e) => { if (e.target.id === "prompt") S.drafts[C.sessionId ?? "new"] = e.target.value; });
+  document.addEventListener("input", (e) => {
+    if (e.target.id !== "prompt") return;
+    S.drafts[C.sessionId ?? "new"] = e.target.value;
+    // Stop holds Send's place only while the box is empty: typing gives Send back, clearing the box brings Stop again.
+    const stopNow = !e.target.value.trim() && (C.sending || !!liveRun());
+    if (stopNow !== ($("#send")?.dataset.act === "stop-run")) renderNow();
+  });
   setInterval(async () => {
     if (S.view !== "chat" || !C.sessionId || C.sending) return;
     const before = JSON.stringify(C.waiting);
