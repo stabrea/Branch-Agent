@@ -113,7 +113,7 @@ const TRANSLATED = ["docs-3.js", "docs-memory-2.js", "learn.js", "collab.js", "o
   "activity-log.js", "diagnostics.js", "model-profiles.js", "mcp-workbench.js", "charts.js", "markdown.js",
   "sandbox-remote.js", "flows.js", "labels-ui.js", "flow-editor.js", "context-files.js", "knowledge.js", "media.js", "misc.js",
   "tool-catalog.js", "usage.js", "voice-live.js", "automations.js", "browser.js", "deployment.js", "mcp.js",
-  "approvals.js", "documents.js", "memory-tidy.js", "self-improving.js"];
+  "approvals.js", "documents.js", "memory-tidy.js", "self-improving.js", "restore-held.js"];
 
 /** The keys page scripts use must exist in both languages, and French must really be French. */
 test("every key a page script looks up is in English and in French", async () => {

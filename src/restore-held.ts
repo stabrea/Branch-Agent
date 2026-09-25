@@ -2,7 +2,8 @@ import { z } from "zod";
 import { audit } from "./audit.js";
 import { restoreHeldKey, type HeldRow } from "./backup.js";
 import { recordedWrite } from "./settings-kit/recorded-write.js";
-import { specFor } from "./settings-kit/catalogue.js";
+import { secretShaped, specFor } from "./settings-kit/catalogue.js";
+import { credentialInUrl, redactLeaksIn } from "./leak-guard.js";
 import type { Store } from "./store.js";
 
 /**
@@ -24,7 +25,44 @@ const restoredByTheOwner = { writer: "owner-in-window", source: "import", detail
 
 /** A model account is only half of where the owner's words go without its connection, so the two are one group. */
 const groupOf = (id: string): string => (id === "model-connections" ? "accounts" : id);
-export interface HeldGroup { group: string; ids: string[] }
+/** One held row as the owner is shown it (Q239): whose it is, its plain Settings name when it has one, and its fields. */
+export interface HeldDetail {
+  id: string;
+  /** Set when the row is a household person's rather than the owner's. */
+  person?: string;
+  name?: string; nameT?: string;
+  fields: { field: string; value: string }[];
+  /** How many more fields the row has than are shown. */
+  more: number;
+}
+export interface HeldGroup { group: string; ids: string[]; details: HeldDetail[] }
+
+/** Q239 (NAS 881666e): a field name the app treats as a secret (the settings kit's own rule, plus a passcode). */
+const secretName = new RegExp(`${secretShaped.source}|passcode`, "i");
+const maxFieldsShown = 20;
+const maxValueShown = 120;
+/**
+ * Q239 (NAS 9368030, 881666e): every field of a held row, as the file has it, so a yes is never a blind one. Nothing is
+ * picked by name; each value goes through the app's own scrubber, a field named like a secret is hidden, an address
+ * that carries a sign-in is hidden, and a long value or a long list says what was cut.
+ */
+function fieldsOf(data: string, scrub: (text: string) => string): { fields: HeldDetail["fields"]; more: number } {
+  let parsed: unknown;
+  try { parsed = JSON.parse(data); } catch { return { fields: [{ field: "(value)", value: "(not readable)" }], more: 0 }; }
+  const all: HeldDetail["fields"] = [];
+  const walk = (value: unknown, path: string, depth: number): void => {
+    if (value !== null && typeof value === "object" && depth < 4) {
+      const entries = Array.isArray(value) ? value.map((inner, at) => [`[${at}]`, inner] as const) : Object.entries(value);
+      for (const [key, inner] of entries) walk(inner, path ? (key.startsWith("[") ? `${path}${key}` : `${path}.${key}`) : key, depth + 1);
+      return;
+    }
+    const text = typeof value === "string" ? value : JSON.stringify(value) ?? "";
+    const shown = secretName.test(path) ? "(hidden)" : credentialInUrl(text) ? "(hidden: the address carries a sign-in)" : scrub(text);
+    all.push({ field: path || "(value)", value: shown.length > maxValueShown ? `${shown.slice(0, maxValueShown)}… (${shown.length - maxValueShown} more characters)` : shown });
+  };
+  walk(parsed, "", 0);
+  return { fields: all.slice(0, maxFieldsShown), more: Math.max(0, all.length - maxFieldsShown) };
+}
 
 export class RestoreHeld {
   constructor(private readonly store: Store) {}
@@ -55,9 +93,20 @@ export class RestoreHeld {
   }
   /** What is waiting, grouped as the owner answers it. */
   groups(): HeldGroup[] {
-    const groups = new Map<string, Set<string>>();
-    for (const row of this.read().rows) groups.set(groupOf(row.id), (groups.get(groupOf(row.id)) ?? new Set()).add(row.id));
-    return [...groups].map(([group, ids]) => ({ group, ids: [...ids].sort() }));
+    const rows = this.read().rows;
+    const scrub = (text: string): string => redactLeaksIn(this.store.secrets.scrubber.deep(text)).value;
+    const groups = new Map<string, typeof rows>();
+    for (const row of rows) groups.set(groupOf(row.id), [...(groups.get(groupOf(row.id)) ?? []), row]);
+    return [...groups].map(([group, held]) => {
+      // Q239 (NAS 881666e): one detail per owner and id, so a household person's row is shown as well as the owner's.
+      const sorted = [...held].sort((a, b) => a.id.localeCompare(b.id) || a.owner.localeCompare(b.owner));
+      const details = sorted.map((row): HeldDetail => {
+        const spec = specFor(row.id);
+        return { id: row.id, ...(row.owner !== this.owner ? { person: row.owner } : {}),
+          ...(spec ? { name: spec.name, nameT: spec.t } : {}), ...fieldsOf(row.data, scrub) };
+      });
+      return { group, ids: [...new Set(sorted.map((row) => row.id))], details };
+    });
   }
   /** The owner's own list, from the owner's own window. */
   list(): { held: HeldGroup[] } {

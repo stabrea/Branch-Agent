@@ -1960,6 +1960,18 @@
             <h2 data-t="settings.card.backup">Backup</h2>
             <p>Save everything this app knows (conversations, memory, skills, schedules, settings) to one file. Secrets stay on this device and are not included. To bring a backup back, install Branch Agent fresh and run <code>branch restore &lt;file&gt;</code>.</p>
             <button id="backup-run" type="button" data-t="action.save-a-backup-file">Save a backup file</button>
+            <!-- Q230 part 3: what a restore is waiting to hear about (public/restore-held.js). Shown only when something waits. -->
+            <div id="restore-held" class="restore-held" hidden>
+              <h3 data-t="restoreHeld.title">A restore is waiting for your answer</h3>
+              <p data-t="restoreHeld.about">These came from a backup file, but each can change who Branch talks to, what it runs or how careful it is, so each waits for your answer. Until you answer, this computer's own stay.</p>
+              <ul id="restore-held-list" class="card-list"></ul>
+              <div class="input-row">
+                <button id="restore-held-use-all" type="button" data-t="restoreHeld.useAll">Use all from the backup</button>
+                <button id="restore-held-keep-all" type="button" class="secondary" data-t="restoreHeld.keepAll">Keep all of this computer's</button>
+              </div>
+              <div id="restore-held-confirm"></div>
+              <p id="restore-held-status" role="status"></p>
+            </div>
           </section>
           <section id="snapshots-card" class="card">
             <h2 data-t="settings.card.workspace-snapshots">Workspace snapshots</h2>
@@ -2308,6 +2320,7 @@
     <script src="/control-makers.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/activity-log.js" type="module"></script>
+    <script src="/restore-held.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
