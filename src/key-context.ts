@@ -109,6 +109,13 @@ function lentAlong(store: EventReader, runId: string): string | null {
   return null;
 }
 
+/** Q226: the same rule for a stop, in words about stopping. */
+export const otherKeysStopRefusal =
+  "A short-lived key can only stop tasks it started itself. Stop this one in the app window.";
+/** Q226: whether the short-lived key behind this request may stop the task `runId`: only one it started, as with answering. */
+export function keyStopRefusal(store: EventReader, runId: string): string | null {
+  return keyAnswerRefusal(store, runId) ? otherKeysStopRefusal : null;
+}
 export const otherKeysQuestionRefusal =
   "A short-lived key can only answer questions from tasks it started itself. Answer this one in the app window.";
 /**

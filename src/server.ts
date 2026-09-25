@@ -175,7 +175,7 @@ import { People } from "./people/index.js";
 import { peopleEnabled } from "./people/settings.js";
 import { interopMode } from "./interop/settings.js";
 import { requireBoundSession } from "./people/access.js";
-import { keyAnswerRefusal, runOrigin, shortLivedKeyMark } from "./key-context.js";
+import { keyAnswerRefusal, keyStopRefusal, runOrigin, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
@@ -1565,8 +1565,21 @@ async function api(
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.store.profiles.scope())
       throw new HttpError(404, "Run not found");
-    if (request.method === "POST" && match[2] === "cancel")
-      return { cancelled: app.runtime.cancel(run.id) };
+    if (request.method === "POST" && match[2] === "cancel") {
+      // Q221, Q226 (NAS 39e8973, 9ec0d3a): a short-lived key stops only a task it started, working or waiting, as it answers one.
+      const keyRefusal = keyStopRefusal(app.store, run.id);
+      if (keyRefusal) throw new HttpError(401, keyRefusal);
+      if (app.runtime.cancel(run.id)) return { cancelled: true };
+      // Dogfood F8: a task waiting for an answer, or cut off by a restart, is stopped too, and its question goes with it.
+      if (run.status !== "needs_input" && run.status !== "interrupted") return { cancelled: false };
+      // Q222: by the task, so a question with no fingerprint never takes another task's question with it.
+      app.runtime.approvals.dropFor(run.sessionId, run.id);
+      // Q229 (NAS d157ab3): a plan waiting for the owner's yes, or stopped at a check-back, goes with its task, so a
+      // later "ok" in the conversation never starts a plan the owner stopped.
+      if (app.runtime.orchestration.plan(run.sessionId)?.runId === run.id) app.runtime.orchestration.clearPlan(run.sessionId);
+      app.store.finish(run.id, "cancelled", run.output);
+      return { cancelled: true };
+    }
     if (request.method === "POST" && match[2] === "resume")
       return app.runtime.resume(run.id);
     // Steering a task that is working, and editing or approving the plan it is waiting on.
@@ -3988,6 +4001,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   app.scheduler.start();
   // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
   if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
+    settleLostQuestions(app); // dogfood F8, before recoverOnStart asks its own questions
     void app.neverBreak.recoverOnStart(options.dataDir).catch((error: unknown) => console.error(`Could not pick up interrupted work: ${errorText(error)}`));
     void app.neverBreak.telegram.connect().then((why) => { if (why && !/switched off/.test(why)) console.log(why); });
   }
@@ -4022,6 +4036,34 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       await stopServer(app, server);
     },
   };
+}
+/** What a stop leaves a task waiting on: the last of these events says which question it was. */
+const askedKinds = new Set(["policy.ask", "user.ask", "attention.needed", "plan.awaiting_approval", "folder.trust_needed", "web.challenge"]);
+export const lostQuestionNote = "Branch restarted before you answered its question. Continue it to be asked again, or stop it.";
+/**
+ * Dogfood F8: an approval question is held in memory, so a task left waiting on one when Branch stopped could never be
+ * answered again ("Nothing … is waiting"), could not be stopped, and held every update. On a real start each such task
+ * is marked as cut off, with the note the window shows: the owner carries it on (it asks again) or stops it. A question
+ * that outlives a restart (one the owner's next message answers, a plan, a check after a restart) is left alone.
+ */
+function settleLostQuestions(app: Branch): void {
+  const waiting = app.store.sqlite.prepare("SELECT id FROM tasks WHERE status='needs_input'").all() as { id: unknown }[];
+  for (const row of waiting) {
+    const run = app.store.run(String(row.id));
+    if (!run) continue;
+    // Every question also writes "attention.needed" after it; that one is a question of its own only after a restart.
+    const asked = app.store.events(run.id)
+      .filter((event) => askedKinds.has(event.kind) && (event.kind !== "attention.needed" || event.data.afterRestart === true)).at(-1);
+    if (asked?.kind !== "policy.ask" || app.runtime.approvals.waiting(run.sessionId).some((question) => question.runId === run.id)) continue;
+    app.store.finish(run.id, "interrupted", run.output);
+    // The call it asked about never ran, so carrying on repeats it without a check first (src/runtime.ts resumeNote).
+    // Q223: only when the question was about that call's own tool. The network wall asks about a site after its
+    // command has already run, under the command's id, and that command did run.
+    const call = typeof asked.data.id === "string"
+      ? app.store.events(run.id).find((event) => event.kind === "tool.started" && event.data.id === asked.data.id) : undefined;
+    if (call && call.data.name === asked.data.name) app.store.event(run.id, "run.call_not_run", { id: asked.data.id });
+    app.store.event(run.id, "run.can_continue", { note: lostQuestionNote });
+  }
 }
 /** Records whether a version that has just replaced another one came up healthy the first time (dogfood F6: the program's own checks). */
 async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {

@@ -6077,6 +6077,7 @@
   "terminal.keys.line2": "Échap, puis 1-5 (ou Alt+1 à Alt+5) : Conversation, Boîte de réception, Automatisations, Bibliothèque, Personnaliser · Ctrl+K ou / : trouver n'importe quoi",
   "trunks.rail.here": "Troncs ici",
   "attention.continue": "Reprendre là où elle s’est arrêtée",
+  "attention.stop": "L’arrêter",
   "vault-autofill.managers.title": "Où Branch lit les identifiants enregistrés",
   "vault-autofill.managers.note": "Branch ne vous montre jamais un mot de passe, ni à l’assistant. Il remplit un élément à la fois, seulement ceux que vous listez.",
   "vault-autofill.managers.keychain": "Le trousseau de votre Mac",
