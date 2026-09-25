@@ -16,7 +16,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, addPolicyRule, evaluatePolicy, isReadOnlyPermission, presetRules, readPolicy, savePolicy } from "../dist/index.js";
-import { policyForMode } from "../dist/conversation-mode.js";
+import { looserThan, policyForMode } from "../dist/conversation-mode.js";
+import { z } from "zod";
 import { changesFor } from "../dist/settings-kit/changes.js";
 import { presets } from "../dist/settings-kit/presets.js";
 import { settingsKitApi } from "../dist/settings-kit/api.js";
@@ -318,4 +319,41 @@ test("Careful asks before every change and before web lookups, and moving to it 
   for (const tool of ["files.write", "files.delete", "web.search", "web.fetch", "browser.navigate", "shell.execute"])
     assert.equal(answer(tool), "ask", `${tool} is asked about under Careful`);
   assert.equal(answer("files.read"), "allow", "reading on this computer is free");
+});
+
+test("Careful is saved in a shape an older build reads, so a rollback keeps every rule (Q235, NAS 6512883)", async (t) => {
+  const { app, owner } = await fixture(t);
+  addPolicyRule(app.store, owner, { tool: "files.delete", match: "*", decision: "deny", remember: "always" });
+  savePolicy(app.store, owner, { preset: "careful" });
+  addPolicyRule(app.store, owner, { tool: "web.fetch", match: "https://example.com/*", decision: "allow", remember: "always" });
+  const saved = app.store.get("settings", owner, "policy").data;
+  assert.equal(saved.preset, "custom", "the saved row never carries a preset name an older build may not know");
+  // The reader of the builds before Careful: the same strict object, with the five names they knew.
+  const olderReader = z.object({ preset: z.enum(["off", "ask-before-changes", "workspace", "read-only", "custom"]),
+    rules: z.array(z.any()), limits: z.any(), unmatchedCommands: z.enum(["ask", "allow"]) }).strict();
+  const older = olderReader.safeParse(saved);
+  assert.ok(older.success, "an older build reads it without falling back to no rules");
+  assert.deepEqual(older.data.rules, readPolicy(app.store, owner).rules, "and keeps every rule: the owner's refusal, Careful's lines and the standing yes");
+  assert.equal(readPolicy(app.store, owner).preset, "careful", "this build still calls it Careful, standing answers and all");
+  savePolicy(app.store, owner, { preset: "workspace" });
+  assert.equal(app.store.get("settings", owner, "policy").data.preset, "workspace");
+  assert.equal(readPolicy(app.store, owner).preset, "workspace");
+});
+
+test("a hand-made list is Careful only when it holds every line of Careful and no other preset's (Q235)", async (t) => {
+  const { app, owner } = await fixture(t);
+  const careful = presetRules("careful");
+  savePolicy(app.store, owner, { rules: careful.slice(1) });
+  assert.equal(readPolicy(app.store, owner).preset, "custom", "one of Careful's lines missing is not Careful");
+  savePolicy(app.store, owner, { rules: [...careful, ...presetRules("read-only")] });
+  assert.equal(readPolicy(app.store, owner).preset, "custom", "with Read only's refusal in it, it is not Careful either");
+  savePolicy(app.store, owner, { rules: careful });
+  assert.equal(readPolicy(app.store, owner).preset, "careful");
+});
+
+test("Careful ranks with Ask before changes: a conversation mode looser than asking is looser than Careful (Q235)", () => {
+  assert.equal(looserThan("ask", "careful"), false);
+  assert.equal(looserThan("plan", "careful"), false);
+  assert.equal(looserThan("auto", "careful"), true);
+  assert.equal(looserThan("full", "careful"), true);
 });
