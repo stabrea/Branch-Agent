@@ -5,6 +5,7 @@ import type { LoopKind } from "./loops.js";
 import { offSentence, quoteLine, type AutonomyPart } from "./settings.js";
 import { addSubgoal, saveSubgoals, subgoalsOf } from "./subgoals.js";
 import { catalogue } from "./blueprints.js";
+import { conversationModeSettings, readConversationMode, type ConversationMode } from "../conversation-mode.js";
 
 /**
  * R17-B: what `/loop`, `/heartbeat`, `/subgoal`, `/bg`, `/handoff`, `/suggestions` and `/blueprint`
@@ -69,6 +70,19 @@ const subgoal: Handler = async (call) => {
 const background = new WeakMap<object, Set<string>>();
 const maxBackground = 3;
 
+/**
+ * Redesign security review: how much a /bg task may do. It is held to the conversation it was started from; with none,
+ * a task started from the window takes the owner's choice for a new conversation, as a message sent there does. Left
+ * out, it would follow the owner's rules alone, which can be looser than the conversation the owner is looking at.
+ */
+function backgroundMode(call: Call): ConversationMode | null {
+  const { store, owner } = call.host.runtime;
+  const held = readConversationMode(store, owner, call.sessionId)?.mode;
+  if (held) return held;
+  const chosen = call.surface === "window" ? conversationModeSettings(store, owner).newConversation : "follow";
+  return chosen === "follow" ? null : chosen;
+}
+
 const bg: Handler = async (call) => {
   const autonomy = reach(call, "session-commands");
   if (typeof autonomy === "string") return say(autonomy);
@@ -81,9 +95,11 @@ const bg: Handler = async (call) => {
   background.set(runtime, working);
   if (working.size >= maxBackground) return say(`${maxBackground} background tasks are already working; wait for one to finish.`);
   let sessionId = "", runId = "";
+  const mode = backgroundMode(call);
   // A separate conversation, not awaited: this one stays free. It is a task like any the owner starts.
   await new Promise<void>((resolve) => {
     void runtime.run({ prompt, source: "owner", onTextDelta: () => undefined, ...(call.permissions ? { permissions: call.permissions } : {}),
+      ...(mode ? { conversationMode: mode } : {}),
       onStarted: (run) => { sessionId = run.sessionId; runId = run.id; working.add(run.id); resolve(); } })
       .catch(() => undefined).finally(() => { working.delete(runId); resolve(); });
   });
