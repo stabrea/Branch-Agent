@@ -153,11 +153,16 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   // NAS 23e7382: which chat accounts count as the owner for `/platform`, read before the sender list is.
   "reach-platform-settings",
   // NAS f30facf: where the owner's words and records are sent: the trace export's endpoint and the memory service.
-  "trace_export", "memory-provider"];
+  "trace_export", "memory-provider",
+  // NAS 2a15d6b: the month's spending limit and pause, and how a skill with findings is handled (block → review).
+  "usage_budget", "skill-scan"];
 /** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
 const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:",
   // NAS f30facf: each outside service the assistant may call, by its address.
-  "openapi-service:"];
+  "openapi-service:",
+  // NAS 2a15d6b: every ask part, its switch and its settings (Hindsight's address and the secret it sends, analytics'
+  // `sendTo`, the answer engine, nodes and runtimes): each reaches past this computer or says where words go.
+  "asks-"];
 /**
  * NAS dfb2136: naming the ids by hand kept missing some, so every setting the catalogue itself marks as taking a
  * protection away or reaching further (a field whose guard is not "plain") is held too, unless it stays here. Read at

@@ -223,7 +223,9 @@ test("every setting the catalogue marks as a guard or as reaching further waits 
 
 // NAS f30facf: where the owner's words and records are sent waits for the owner's yes too.
 test("the trace export, the memory service and each outside service wait for the owner's yes (NAS f30facf)", async (t) => {
-  const sent = ["trace_export", "memory-provider", "openapi-service:weather"];
+  const sent = ["trace_export", "memory-provider", "openapi-service:weather",
+    // NAS 2a15d6b: Hindsight's switch and settings, analytics, another ask part, the budget, and the skill scan.
+    "asks-hindsight", "asks-hindsight-settings", "asks-analytics-settings", "asks-app-server", "usage_budget", "skill-scan"];
   for (const id of sent) assert.equal(heldForTheOwner(id) && !staysOnThisComputer(id), true, `${id} is held`);
   const { app, owner, setting } = await fixture(t);
   for (const id of sent) app.store.save("settings", owner, id, { mine: id });
