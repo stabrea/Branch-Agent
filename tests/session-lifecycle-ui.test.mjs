@@ -87,7 +87,7 @@ async function exportFile(f) {
 }
 
 /* Redesign: a conversation is exported from its own More menu (data-act="chatmenu" › "Export conversation",
-   data-act="export-conv", live at 4460a085), which saves the engine's JSON archive of it. */
+   data-act="export-conv", live at ef021c57), which saves the engine's JSON archive of it. */
 test("saved conversations export as a JSON file (the new window)", async (t) => {
   const f = await fixture(t);
   await openConversation(f.page, f.sourceId);

@@ -556,7 +556,7 @@ test.skip("D3 the Activity screen shows the live feed and stops it when you leav
 
 /* ---------- D4: the month view, the forecast and the cost columns ---------- */
 
-// Redesign: Coming soon (Settings › Data & usage: the report, rep15 and repopen15), checked at 4460a085.
+// Redesign: Coming soon (Settings › Data & usage: the report, rep15 and repopen15), checked at ef021c57.
 test.skip("D4 the month card's numbers come from the ledger and the forecast says about", async (t) => {
   const { page, api, errors } = await onPage(t, { provider: answersTheQuestion });
   /* A model with a price on file, so there is money to add up at all. */
@@ -788,7 +788,7 @@ test("G1 a standing rule that says go ahead is listed beside the conversation's 
   assert.deepEqual(after.standing.map((entry) => entry.rule.tool), ["files.read"]);
 });
 
-// Redesign: replaced by the new window (the side panel is live at 4460a085 but has no allowed list, which is not in the
+// Redesign: replaced by the new window (the side panel is live at ef021c57 but has no allowed list, which is not in the
 // prototype's panel; the card's "Yes, for this conversation" and the sentence under each yes are not in the design's card).
 test.skip("G1 the context pane lists a grant and the approval card says what a yes leaves behind", async (t) => {
   const { page, errors } = await onPage(t, { provider: writesAFile("gated.txt") });
@@ -898,7 +898,7 @@ test.skip("G4 the conversation title has a label picker that puts a label on wha
 const markdownReply = "## What I did\n\nI read **two** files and found `answer = 42`.\n\n- one\n- two\n";
 const scripted = { name: "scripted", async complete() { return { content: markdownReply, toolCalls: [] }; } };
 
-// Redesign: Coming soon (inspect, "Look inside the last reply" in the conversation's More menu), checked at 4460a085; the old
+// Redesign: Coming soon (inspect, "Look inside the last reply" in the conversation's More menu), checked at ef021c57; the old
 // Runs page's cards are replaced by the new window (Inbox › History).
 test.skip("G5 the Activity screen and the inspector render a reply as markdown, never as markup", async (t) => {
   const { page, errors } = await onPage(t, { provider: scripted });
@@ -920,7 +920,7 @@ test.skip("G5 the Activity screen and the inspector render a reply as markdown, 
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at 4460a085.
+// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at ef021c57.
 test.skip("G5 Appearance is written in French when French is chosen", async (t) => {
   const { page, errors } = await onPage(t);
   await openSettingFor(page, "#appearance-language");

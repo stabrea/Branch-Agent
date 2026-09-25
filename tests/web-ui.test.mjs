@@ -285,7 +285,7 @@ test("U3 an approval question appears in the conversation and the answer reaches
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (ask-always, "Always allow"), checked at 4460a085; "Yes, just now", "Yes, for this conversation"
+// Redesign: Coming soon (ask-always, "Always allow"), checked at ef021c57; "Yes, just now", "Yes, for this conversation"
 // and "Before I go ahead" are replaced by the new card (the action's verb, Always allow, Don’t allow).
 test.skip("U3 an approval question appears in the conversation and the answer reaches the policy route", async (t) => {
   let asked = 0;
@@ -448,7 +448,7 @@ test("U6 the shell fits a 400 pixel window with the new rows on screen", async (
   assert.ok(overflow <= 1, `no sideways scrolling at 400 px (overflow ${overflow})`);
 });
 
-// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at 4460a085.
+// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at ef021c57.
 test.skip("U7 switching the language changes a visible label and English stays the fallback", async (t) => {
   const { page, server, errors } = await fixture(t);
   for (const path of ["/locales/en.json", "/locales/fr.json"]) {
@@ -481,7 +481,7 @@ test.skip("U7 switching the language changes a visible label and English stays t
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at 4460a085; /i18n.js is the
+// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at ef021c57; /i18n.js is the
 // old window's module.
 test.skip("U7 dates and numbers follow the chosen language", async (t) => {
   const { page } = await fixture(t);

@@ -71,7 +71,7 @@ test("B14 no visible word in the new window is a raw locale key, in the conversa
   assert.deepEqual(raw, [], "every shown word is a word, not a key");
 });
 
-// Redesign: Coming soon (voice, and the Language select sw:lang in Settings › Appearance), checked at 4460a085.
+// Redesign: Coming soon (voice, and the Language select sw:lang in Settings › Appearance), checked at ef021c57.
 test.skip("B14 no visible word in the window is a raw locale key, and the Talk button follows the language", async (t) => {
   const page = await openApp(t);
   const talk = page.locator("#voice-talk");
@@ -85,7 +85,7 @@ test.skip("B14 no visible word in the window is a raw locale key, and the Talk b
   assert.equal(await talk.textContent(), "Talk");
 });
 
-// Redesign: Coming soon (Settings › Voice: every control, and the Language select sw:lang), checked at 4460a085.
+// Redesign: Coming soon (Settings › Voice: every control, and the Language select sw:lang), checked at ef021c57.
 // NAS 703fb96: the line under Talk was English only, and the wake word's and dictation's status lines kept the old
 // language after a switch. Each is written again in the new language, and nothing the owner typed is touched.
 test.skip("B14 the voice status lines follow the language: under Talk, the wake word and dictation", async (t) => {

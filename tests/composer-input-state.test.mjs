@@ -192,7 +192,7 @@ test("the model chip opens a real model picker without leaving the conversation"
 
 /* Redesign: the + menu is the prototype's POPS.plusmenu (public/app/chat/plus.js). "Temporary conversation" is a switch
    in it (#pm-temp) that the next new conversation carries (POST /api/run temporary); "Ask me questions first" (#pm-ask,
-   sw:askqs) is Coming soon, checked at 4460a085, so only Temporary is checked here. The calm/full split is replaced by
+   sw:askqs) is Coming soon, checked at ef021c57, so only Temporary is checked here. The calm/full split is replaced by
    the new window (one window), so the full variant stays skipped. */
 test("the plus menu changes the real conversation choices in the calm window (the new window)", async (t) => {
   const page = await fixture(t);
@@ -228,7 +228,7 @@ for (const everything of [false, true]) {
   });
 }
 
-// Redesign: Coming soon (sw:askqs, "Ask me questions first" in the + menu), checked at 4460a085.
+// Redesign: Coming soon (sw:askqs, "Ask me questions first" in the + menu), checked at ef021c57.
 test.skip("a refresh that began before Ask first changed cannot put the old choice back", async (t) => {
   const page = await fixture(t);
   let captured, release;
