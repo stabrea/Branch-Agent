@@ -3,10 +3,13 @@
 //
 // A few things can only exist after Branch was closed on them (a task it can continue, a goal it was driving) or be filed
 // from a chat app (a request to change Branch itself), so the run has three steps against a FRESH data folder:
-//   1. engine running:  PORT=<port> TOKEN=<hex> node design/redesign/tools/verify-places.cjs prepare
+//   1. engine running:  PORT=<port> TOKEN=<hex> DATA=<data folder> node design/redesign/tools/verify-places.cjs prepare
 //   2. engine stopped:  node design/redesign/tools/verify-places.cjs seed <data folder>
-//   3. engine running:  PORT=<port> TOKEN=<hex> node design/redesign/tools/verify-places.cjs
-// Step 1 writes verify-places.json into the data folder named by DATA (or the current folder); steps 2 and 3 read it.
+//   3. engine running:  PORT=<port> TOKEN=<hex> DATA=<data folder> node design/redesign/tools/verify-places.cjs
+// Step 1 makes real tasks and goals through the engine and writes verify-places.json into the data folder; step 2 edits
+// only what an API cannot make: it marks two finished tasks "interrupted" (what the engine does at start to a task that
+// was running when it closed), one "needs_input", the two goals "working" (Branch closed while driving them), and files
+// one request to change Branch as a chat app's /improve would. Step 3 does the rest through the engine's routes.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -38,6 +41,7 @@ async function settled(sessionId) {
 async function prepare() {
   const cut = [];
   for (const prompt of ["First task Branch will be closed on", "Second task Branch will be closed on"]) cut.push((await post("run", { prompt })).id);
+  const waiting = (await post("run", { prompt: "A task that stops to ask you" })).id;
   await post("goal-undo/settings", { goal: "on", snapshots: "off" });
   const goals = [];
   for (const objective of ["Write a haiku about oak trees", "List three colours"]) {
@@ -45,7 +49,7 @@ async function prepare() {
     await settled(g.sessionId);
     goals.push(g.sessionId);
   }
-  fs.writeFileSync(NOTE, JSON.stringify({ cut, goals }, null, 2));
+  fs.writeFileSync(NOTE, JSON.stringify({ cut, waiting, goals }, null, 2));
   console.log("prepared:", NOTE);
 }
 
@@ -54,7 +58,10 @@ function seed(dir) {
   const { DatabaseSync } = require("node:sqlite");
   const note = JSON.parse(fs.readFileSync(path.join(dir, "verify-places.json"), "utf8"));
   const db = new DatabaseSync(path.join(dir, "branch.sqlite"));
+  // What the engine itself does at start to a task that was running when Branch closed (src/store.ts).
   for (const id of note.cut) db.prepare("UPDATE tasks SET status='interrupted' WHERE id=?").run(id);
+  // A task that stopped to ask the owner, so Team › Live now has a row to draw.
+  db.prepare("UPDATE tasks SET status='needs_input' WHERE id=?").run(note.waiting);
   for (const sid of note.goals) {
     const row = db.prepare("SELECT data FROM settings WHERE id=?").get(`goal:${sid}`);
     const goal = JSON.parse(String(row.data));
@@ -314,6 +321,17 @@ async function team(page) {
   await page.click('[data-act="p-open-team"][data-v="groups"]');
   await sleep(500);
   check("p-open-team: opens Team on the Groups tab", await page.locator('[data-act="ptab"][data-place="team"][data-v="groups"][aria-selected="true"]').count() === 1);
+  await act(page, "ptab", { place: "team", v: "live" });
+  await sleep(600);
+  const st = await get("state");
+  const profiles = await get("profiles");
+  const person = profiles.profiles.find((p) => p.id === profiles.active)?.name || profiles.roleLabels.owner.label;
+  const live = st.runs.filter((r) => r.status === "running" || r.status === "needs_input");
+  const rows = await page.locator(".run6").count();
+  const liveText = await page.locator(".runs6").first().textContent();
+  check("team live: one row per task working or waiting (state.runs)", rows === live.length && rows > 0, String(rows));
+  check("team live: the person here and This computer · Branch <version>", liveText.includes(person) && liveText.includes(`This computer · Branch ${st.version}`));
+  check("team live: the task's own words, no raw id and no made-up label", liveText.includes("A task that stops to ask you") && !/[0-9a-f]{8}-[0-9a-f]{4}-/.test(liveText) && !liveText.includes("Task"));
   await act(page, "ptab", { place: "team", v: "people" });
   check("team-invite stays greyed", await page.locator('[data-act="team-invite"][aria-disabled="true"]').count() === 1);
   await act(page, "view", { v: "overview" });
