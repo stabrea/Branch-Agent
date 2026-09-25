@@ -81,3 +81,13 @@ export async function healthReport(app: Branch, options: { probeProvider?: boole
   items.push(checkChannels(app), checkSchedules(app), checkAttention(app));
   return { ok: items.every((i) => i.ok), checkedAt: new Date().toISOString(), items };
 }
+
+/**
+ * Dogfood F6: whether a version that has just been installed started cleanly. Only the checks about the program
+ * itself count. A question waiting for the owner, a schedule the update's own restart cut off, a channel message
+ * that gave up, or Ollama's last problem is the owner's to-do, not a sign the new version is broken, so none of
+ * them may offer to put back the saved work from before the update.
+ */
+const startChecks = new Set(["Saved data", "Workspace folder", "Device key", "Models", "ChatGPT account"]);
+export const startedCleanly = (report: HealthReport): boolean =>
+  report.items.filter((i) => startChecks.has(i.name)).every((i) => i.ok);

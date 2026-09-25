@@ -24,6 +24,7 @@ import { createBranch } from "../dist/index.js";
 import { doctorFix, doctorText } from "../dist/doctor-fix.js";
 import { backupsToPrune, formatCopiesToPrune, writeUpdateBackup, listUpdateBackups, readUpdateBackup, recordFirstStart, readFirstStart, backupFileName } from "../dist/install/update-backup.js";
 import { Updater } from "../dist/desktop/updater.js";
+import { healthReport, startedCleanly } from "../dist/health.js";
 
 const run = promisify(execFile);
 const windows = process.platform === "win32";
@@ -527,6 +528,35 @@ test("a version that did not come up cleanly is remembered, so the update screen
   assert.deepEqual(await recordFirstStart(root, "0.9.0", false), first, "a later start of the same version changes nothing");
   const second = await recordFirstStart(root, "1.0.0", false);
   assert.deepEqual([second.version, second.previousVersion, second.healthy], ["1.0.0", "0.9.0", false]);
+});
+
+// Dogfood F6: after every install, Settings > General said the new version "did not start cleanly" and offered to
+// put back the saved work from before it. It had started; the owner only had questions waiting and schedules the
+// update's own restart had cut off, and the whole doctor report was taken as the version's health.
+test("F6 a new version with the owner's to-dos waiting still started cleanly, and no way back is offered", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
+  const dataDir = join(root, "data");
+  const app = await branchIn(t, root);
+  await mkdir(dataDir, { recursive: true });
+  await recordFirstStart(dataDir, "0.0.1-before", true);
+  const asked = app.store.createRun(app.runtime.owner, "change a setting");
+  app.store.finish(asked.id, "needs_input", "May I change it?");
+  app.store.save("schedules", app.runtime.owner, randomUUID(), { prompt: "Water the tomatoes", status: "interrupted" });
+  const doctor = await healthReport(app);
+  assert.equal(doctor.ok, false, "the doctor still lists the owner's to-dos");
+  const server = await startServer(app, { dataDir, port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const check = await readFirstStart(dataDir);
+  assert.deepEqual([check.version, check.previousVersion, check.healthy], [app.version, "0.0.1-before", true],
+    "a question waiting and an interrupted schedule are not a broken start");
+});
+
+test("F6 a start is unclean only when the program's own checks fail", () => {
+  const report = (failing) => ({ ok: false, checkedAt: new Date().toISOString(), items: ["Saved data", "Workspace folder", "Device key", "Models", "ChatGPT account", "Models on this computer", "Channels", "Schedules", "Tasks waiting for you"].map((name) => ({ name, ok: name !== failing, summary: "" })) });
+  for (const name of ["Saved data", "Workspace folder", "Device key", "Models", "ChatGPT account"])
+    assert.equal(startedCleanly(report(name)), false, `${name} failing is a broken start`);
+  for (const name of ["Models on this computer", "Channels", "Schedules", "Tasks waiting for you"])
+    assert.equal(startedCleanly(report(name)), true, `${name} failing is the owner's to-do, not a broken start`);
 });
 
 test("putting back a safety copy replaces what is there; an ordinary restore still refuses to", async (t) => {

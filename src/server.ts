@@ -33,7 +33,7 @@ import { readAttachSettings, saveAttachSettings } from "./integrations/browser-a
 import { refusedHosts } from "./integrations/desktop-config.js";
 import { draftFromRuns, testSkill } from "./skill-authoring.js";
 import { suggestSkills } from "./skill-suggest.js";
-import { healthReport } from "./health.js";
+import { healthReport, startedCleanly } from "./health.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
@@ -3910,10 +3910,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     },
   };
 }
-/** Records whether a version that has just replaced another one came up healthy the first time. */
+/** Records whether a version that has just replaced another one came up healthy the first time (dogfood F6: the program's own checks). */
 async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
   if ((await readFirstStart(dataDir))?.version === app.version) return;
-  await recordFirstStart(dataDir, app.version, (await healthReport(app)).ok);
+  await recordFirstStart(dataDir, app.version, startedCleanly(await healthReport(app)));
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
