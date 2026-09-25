@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
 import { memoryAgent } from "./trunks/memory-scope.js"; // FQ-routing.isolated-agents
+import { mixtureProviderName } from "./model-savings/mixture.js"; // NAS cc72768
 import { trunkFilesHome } from "./trunks/file-root.js"; // Q114
 import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
@@ -241,12 +242,19 @@ export function picturesNote(images?: ImagePart[]): string {
   const names = images.map((image, at) => image.name || `picture ${at + 1}`);
   return `\n\n[attached ${images.length === 1 ? "picture" : "pictures"}: ${names.join(", ")}]`;
 }
+/**
+ * NAS cc72768: connections whose `model` is not the model writing. A mixture is priced as its priciest member
+ * (every member would be told that name), an installed program is named by its command, and the Codex app-server
+ * by what it is; "configured" and "demo" stand in where no model was named (src/providers.ts `defaultPreset`).
+ */
+const namesNoModel = (preset: Pick<ModelPreset, "model"> & { provider?: { name: string } }): boolean =>
+  ["configured", "demo"].includes(preset.model) || preset.provider?.name === mixtureProviderName
+  || /^(cli-agent|app-server|retired):/.test(preset.provider?.name ?? "");
 /** Dogfood B18: the first system message, with the line that says which model and connection are answering. */
-export function withModelIdentity(messages: Message[], preset: Pick<ModelPreset, "name" | "model">): Message[] {
+export function withModelIdentity(messages: Message[], preset: Pick<ModelPreset, "name" | "model"> & { provider?: { name: string } }): Message[] {
   const first = messages[0];
   if (first?.role !== "system") return messages;
-  // "configured" and "demo" stand in where no model was named (src/providers.ts `defaultPreset`): the connection only.
-  const who = ["configured", "demo"].includes(preset.model)
+  const who = namesNoModel(preset)
     ? `The connection answering now is "${preset.name}".`
     : `The model answering now is ${preset.model}, through the connection "${preset.name}".`;
   const line = `\n\n${who} If asked which model you are, say so.`;
@@ -2233,7 +2241,8 @@ ${run.output.slice(0, 6000)}`;
         : undefined;
       const preset = route.candidates[route.index]!;
       try {
-        return await this.complete(run, withModelIdentity(messages, preset), context, preset, route.reasoning, emit, undefined, firstReply.capMs);
+        // NAS cc72768: an isolated grader is given its instructions and nothing else (src/evaluation-honesty.ts).
+        return await this.complete(run, context.isolated ? messages : withModelIdentity(messages, preset), context, preset, route.reasoning, emit, undefined, firstReply.capMs);
       } catch (error) {
         const ceiling = this.replyCeilings.get(run.id) ?? baseReplyCeiling;
         if (isOutOfRoomThinking(error) && ceiling < maxReplyCeiling && !context.signal.aborted) {

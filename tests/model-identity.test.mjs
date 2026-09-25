@@ -44,3 +44,27 @@ test("a task tells the model its name, and a fallback is told its own", async (t
     ["backup", "The model answering now is gpt-6-luna, through the connection \"Backup\". If asked which model you are, say so."],
   ]);
 });
+
+// NAS cc72768: a mixture's model is its priciest member's price name, an installed program's is its command, and the
+// Codex app-server's is what it is, so none is given as the model's name. An isolated grader gets no line at all.
+test("connections whose model is not the one writing name only the connection", () => {
+  const messages = [{ role: "system", content: "Be useful." }];
+  for (const [provider, model] of [["mixture", "gpt-4o"], ["cli-agent:claude", "claude"], ["app-server:codex", "codex app-server"], ["retired:old", "old-1"]])
+    assert.equal(withModelIdentity(messages, { name: "Mine", model, provider: { name: provider } })[0].content,
+      "Be useful.\n\nThe connection answering now is \"Mine\". If asked which model you are, say so.", `${provider} names no model`);
+  assert.match(withModelIdentity(messages, { name: "Mine", model: "gpt-6-sol", provider: { name: "chatgpt" } })[0].content, /model answering now is gpt-6-sol/);
+});
+
+test("an isolated grader is given its instructions and nothing else", async (t) => {
+  const firsts = [];
+  const provider = { name: "scripted", async complete(request) { firsts.push(request.messages[0].content); return { content: "PASS", toolCalls: [] }; } };
+  const root = await mkdtemp(join(tmpdir(), "branch-model-identity-grader-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    presets: [{ id: "main", name: "Main", provider, model: "gpt-6-sol" }] });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  await app.runtime.run({ prompt: "Grade this answer.", isolated: true });
+  assert.ok(firsts.length >= 1, "control: the grader was asked");
+  assert.ok(firsts.every((content) => !/answering now/.test(content)), "no model line in a grader's instructions");
+  await app.runtime.run({ prompt: "which model are you?" });
+  assert.match(firsts.at(-1), /model answering now is gpt-6-sol/, "control: an ordinary task still gets it");
+});
