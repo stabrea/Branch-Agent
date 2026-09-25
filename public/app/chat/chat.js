@@ -14,6 +14,9 @@ import { attached, takePending, initPlus } from "./plus.js";
 import { findBar, applyFind, initFind } from "./find.js";
 import { initToolsHub } from "./toolshub.js";
 import { initDictate } from "./dictate.js";
+import { dockRow, initBg } from "./bg.js";
+import { mediaRows, initMedia } from "./media.js";
+import { besideWrap, rosterButton, initBeside } from "./beside.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -27,11 +30,11 @@ export function head() {
     ${av({ kind: "main" }, 32)}<div class="who"><b>${esc(title())}</b><small class="${working ? "attn" : ""}">${working ? "<i></i>Working" : ""}</small></div>
     <span class="tb-grow"></span>
     <button class="icon-btn" type="button" aria-label="Side panel: Activity, Plan, Files, Memory, Browser, Terminal (Ctrl+Shift+K)" data-act="pane" data-p="activity">${ic("sidebar")}</button>
-    <button class="icon-btn" type="button" aria-label="Find in this conversation (Ctrl+F)" data-tip="Find in this conversation" data-act="find-open">${ic("search")}</button>
+    ${rosterButton()}<button class="icon-btn" type="button" aria-label="Find in this conversation (Ctrl+F)" data-tip="Find in this conversation" data-act="find-open">${ic("search")}</button>
     <button class="icon-btn" type="button" aria-label="More for this conversation" data-act="chatmenu">${ic("more")}</button></div>`;
 }
 
-function user(m) { return `<div class="u">${esc(m.content)}</div>`; }
+function user(m) { return `<div class="u">${esc(m.content)}</div>${mediaRows(m)}`; }
 function bot(m, first) {
   return `<div class="b"><div class="gut">${first ? av({ kind: "main" }, 28) : ""}</div><div><div class="txt">${text(m.content)}</div></div></div>`;
 }
@@ -67,7 +70,7 @@ function thread() {
 
 function composer() {
   const draft = S.drafts[C.sessionId ?? "new"] ?? "";
-  return `<div class="dock"><div id="attached">${attached()}</div><form class="composer" id="composer" data-form="composer">
+  return `<div class="dock"><div id="attached">${attached()}</div>${dockRow()}<form class="composer" id="composer" data-form="composer">
     <button class="c-btn" type="button" aria-label="Attach, mention a Trunk, skills, Temporary" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="Tools: connectors, skills, plugins and command-line tools" data-tip="Tools" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
     <textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch">${esc(draft)}</textarea>
     ${chips()}
@@ -80,7 +83,7 @@ export const sendingPrompt = () => (C.sending && !C.sessionId ? C.prompt : null)
 
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
-  return `${narrowHead}${findBar()}<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>${composer()}`;
+  return `${narrowHead}${findBar()}${besideWrap(`<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
 }
 export function after(main) {
   /* Newest at the bottom stays in view only while the reader is at the bottom; someone reading back keeps their place. */
@@ -219,6 +222,9 @@ export function init() {
   initFind();
   initToolsHub();
   initDictate();
+  initBg();
+  initMedia();
+  initBeside();
   onRender(drawPane);
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
