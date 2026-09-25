@@ -10,6 +10,7 @@ import { markLive } from "../core/features.js";
 import { text } from "./markdown.js";
 import { chips, loadChips, initChips } from "./chips.js";
 import { drawPane, initPane } from "./pane.js";
+import { attached, takePending, initPlus } from "./plus.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -63,7 +64,7 @@ function thread() {
 
 function composer() {
   const draft = S.drafts[C.sessionId ?? "new"] ?? "";
-  return `<div class="dock"><form class="composer" id="composer" data-form="composer">
+  return `<div class="dock"><div id="attached">${attached()}</div><form class="composer" id="composer" data-form="composer">
     <button class="c-btn" type="button" aria-label="Attach, mention a Trunk, skills, Temporary" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="Tools: connectors, skills, plugins and command-line tools" data-tip="Tools" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
     <textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch">${esc(draft)}</textarea>
     ${chips()}
@@ -108,7 +109,8 @@ function watchThinking(on) {
   if (!on) return;
   thinkTimer = setInterval(async () => {
     const live = await api("activity").catch(() => []);
-    const mine = (Array.isArray(live) ? live : []).find((a) => a.sessionId === C.sessionId) ?? (C.sessionId ? null : live[0]);
+    // Before a new conversation has its id, only the task this message started counts, found by its own words.
+    const mine = (Array.isArray(live) ? live : []).find((a) => (C.sessionId ? a.sessionId === C.sessionId : a.prompt === C.prompt));
     if ((mine?.thinking ?? "") !== C.thinking) { C.thinking = mine?.thinking ?? ""; render(); }
   }, 1000);
 }
@@ -122,12 +124,13 @@ async function send() {
   const prompt = (box?.value ?? "").trim();
   if (!prompt || C.sending) return;
   C.messages.push({ role: "user", content: prompt });
+  C.prompt = prompt;
   S.drafts[C.sessionId ?? "new"] = "";
   C.sending = true;
   watchThinking(true);
   renderNow();
   try {
-    const run = await api("run", { prompt, ...(C.sessionId ? { sessionId: C.sessionId } : {}) });
+    const run = await api("run", { prompt, ...(C.sessionId ? { sessionId: C.sessionId } : {}), ...takePending(!C.sessionId) });
     C.sessionId = run.sessionId;
     S.chat = run.sessionId;
     C.messages = (await api("sessions/" + run.sessionId)).messages ?? C.messages;
@@ -182,6 +185,7 @@ async function follow(id) {
 export function init() {
   initChips();
   initPane();
+  initPlus();
   onRender(drawPane);
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
