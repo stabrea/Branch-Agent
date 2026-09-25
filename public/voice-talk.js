@@ -69,11 +69,12 @@ globalThis.branchStopSpeaking = function branchStopSpeaking() {
 
 /* ---------- hold to talk ---------- */
 
+/* NAS 703fb96: the line under Talk, in the owner's language (it was English only). */
 const statusFor = {
-  idle: "Hold the Talk button and speak",
-  listening: "Listening… let go when you are done",
-  thinking: "Working on your answer",
-  speaking: "Reading the answer aloud — press Talk to stop",
+  idle: "voice.talkStatus.idle",
+  listening: "voice.talkStatus.listening",
+  thinking: "voice.talkStatus.thinking",
+  speaking: "voice.talkStatus.speaking",
 };
 let state = "idle";
 let recorder = null;
@@ -84,7 +85,7 @@ function show(next) {
   state = next;
   const row = $("voice-talk-status");
   if (!row) return;
-  row.textContent = statusFor[state];
+  row.textContent = t(statusFor[state]);
   row.hidden = state === "idle";
   const button = $("voice-talk");
   if (button) button.textContent = state === "speaking" ? t("voice.talkStop") : t("voice.talkStart");

@@ -33,12 +33,22 @@ function show(state) {
   const blocked = state?.canDictate === false;
   $("dictation-how").classList.toggle("warn", blocked);
   // Whether the microphone is open this moment, read from the listener itself and never guessed.
+  shown = { state, mine };
+  sayOpen();
+  $("dictation-refusal").textContent = state?.refusal ?? "";
+}
+/* NAS 703fb96: the line is written in words, so it is written again when the language changes (only the line). */
+let shown = null;
+function sayOpen() {
   const line = $("dictation-open");
+  if (!line || !shown) return;
+  const { state, mine } = shown;
+  const blocked = state?.canDictate === false;
   line.textContent = !mine ? "" : blocked ? t("settings.dictation.cannot")
     : state?.open ? t("settings.dictation.open") : t("settings.dictation.closed");
   line.classList.toggle("warn", Boolean(state?.open) || blocked);
-  $("dictation-refusal").textContent = state?.refusal ?? "";
 }
+document.addEventListener("branch-language", sayOpen);
 
 async function load() {
   const signedIn = document.getElementById("workspace");
