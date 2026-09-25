@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { finishSetupFromHistory } from "./onboarding.js"; // dogfood B15
 import { currentTaskRun, currentTool } from "./task-scope.js"; // mac7/walk-rules
 import { allowAll, byFullAddress, WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { existsSync, readdirSync, rmSync } from "node:fs";
@@ -509,6 +510,7 @@ export async function createBranch(options: {
     options.reliability,
     options.clock,
   );
+  finishSetupFromHistory(store, runtime.owner); // dogfood B15: an update never brings the first-run card back
   const decisions = new JevDecisions(store, runtime.owner, options.jev?.runner);
   registerJevDecisions(registry, decisions);
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
