@@ -2675,3 +2675,8 @@ body.pet-dock15 .dock>.petbox{position:absolute;left:calc(50% - min(430px,50% - 
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 :root[data-still] *{animation:none!important}
+
+/* area: computer & browser stage, and terminal */
+.desk7 > .shot7{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+.dk-win > .shot7{flex:1;min-height:0;width:100%;object-fit:contain;object-position:top center;display:block;background:#fff}
+.term7{display:grid;gap:10px}

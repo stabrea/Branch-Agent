@@ -1,0 +1,192 @@
+/* The full-size view of the computer or browser a conversation's task works in (design doc A.5, the prototype's stageHTML
+   and renderStage7), with only what the engine really has:
+   - the screen is the newest picture the conversation's tasks took: the browser's from GET /api/panels/work (its
+     `browser.picture`), the computer's from the conversation's own desktop.screenshot results; each picture's bytes come
+     from GET /api/artifacts/file. With no picture the prototype's own "Nothing open" is shown. A picture is not a live
+     stream, so the chip says "Now", never "Live".
+   - the steps are the task's plan (GET /api/runs/<id>/plan); showing the screen at an earlier step needs recorded frames
+     with their pictures, which the engine does not hand the window, so those chips stay greyed.
+   - Stop is POST /api/runs/<id>/cancel. Take over stays greyed (separate security review).
+   Which view is open, picture in picture and the side conversation are window state only. */
+
+import { $, esc, applyCss, onRender } from "../core/dom.js";
+import { ic, av, toast, app, closePop } from "../core/ui.js";
+import { S, E, refresh } from "../core/state.js";
+import { api, token } from "../core/api.js";
+import { on } from "../core/actions.js";
+import { markLive, greyOut } from "../core/features.js";
+import { work, loadWork } from "./terminal.js";
+
+const G = { kind: null, pip: null, dock: true, sid: null, messages: [], plan: null, at: 0 };
+const SHOT = new Map(); // picture path → its bytes as a blob: address ("" while loading or after the engine refused it)
+const STOPPABLE = new Set(["running", "needs_input", "interrupted"]);
+
+const name = () => E.state?.identity?.name ?? "";
+const runsHere = () => (E.state?.runs ?? []).filter((r) => S.chat && r.sessionId === S.chat)
+  .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+const working = () => runsHere().some((r) => r.status === "running");
+
+function parsed(text) {
+  try { return JSON.parse(text); } catch { return null; } // a result that is not JSON names no picture
+}
+
+/* The newest picture a desktop.screenshot call in this conversation kept ({ok, result: {path}} in its tool message). */
+function desktopPicture() {
+  const calls = new Set(G.messages.flatMap((m) => m.toolCalls ?? []).filter((c) => c.name === "desktop.screenshot").map((c) => c.id));
+  const found = G.messages.filter((m) => m.role === "tool" && calls.has(m.toolCallId)).map((m) => parsed(m.content)?.result?.path).filter(Boolean);
+  return found.at(-1) ?? "";
+}
+const picturePath = (kind) => (kind === "browser" ? work(G.sid)?.browser?.picture ?? "" : desktopPicture());
+/* The page the picture was taken on: the address of the last browser.screenshot step, which took that picture. */
+const pageUrl = () => work(G.sid)?.browser?.entries?.filter((e) => e.tool === "browser.screenshot" && /^https?:\/\//.test(e.what)).at(-1)?.what ?? "";
+
+/* The picture's bytes through the artifacts route, signed like every other request. Each picture is kept under its own
+   path, so one view never shows the other's picture; a picture neither view names any more is let go. */
+async function fetchShot(path) {
+  SHOT.set(path, "");
+  try {
+    const headers = token.get() ? { authorization: "Bearer " + token.get() } : {};
+    const response = await fetch("/api/artifacts/file?path=" + encodeURIComponent(path), { cache: "no-store", headers });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || String(response.status));
+    const url = URL.createObjectURL(await response.blob());
+    if (SHOT.has(path)) SHOT.set(path, url); else URL.revokeObjectURL(url);
+  } catch (error) {
+    toast(error.message);
+  }
+  drawStage();
+}
+function shotUrl(path) {
+  if (!path) return "";
+  const wanted = new Set([picturePath("browser"), picturePath("computer")]);
+  for (const [kept, url] of SHOT) if (!wanted.has(kept)) { if (url) URL.revokeObjectURL(url); SHOT.delete(kept); }
+  if (!SHOT.has(path)) fetchShot(path);
+  return SHOT.get(path) ?? "";
+}
+
+/* The screen: the picture as it was taken, or the prototype's own empty page. */
+function screen(kind) {
+  const url = shotUrl(picturePath(kind));
+  if (url && kind === "computer") return `<div class="desk7"><img class="shot7" src="${esc(url)}" alt="${esc(name())}"></div>`;
+  const address = kind === "browser" && url ? pageUrl() : "";
+  const page = url ? `<img class="shot7" src="${esc(url)}" alt="${esc(address)}">`
+    : `<div class="dk-app blank7">${ic("globe")}<b>Nothing open</b><small>${esc(name())} hasn’t opened a page in this conversation.</small></div>`;
+  const bar = address ? `<div class="dk-url">${ic("lock", "s")}${esc(address)}</div>` : "";
+  return `<div class="desk7 brfull7"><div class="dk-win br7">${bar}${page}</div></div>`;
+}
+
+function top(kind, steps) {
+  const run = runsHere()[0], now = steps.findIndex((s) => s.status === "working");
+  const title = kind === "browser" ? `${esc(name())}’s browser` : `${esc(name())}’s computer`;
+  const pill = working() ? `<span class="pill work"><i></i>Working${now >= 0 ? ` · step ${now + 1} of ${steps.length}` : ""}</span>` : '<span class="pill idle"><i></i>Idle</span>';
+  const ctl = run && STOPPABLE.has(run.status) ? `<button class="btn pri sm" type="button" data-act="takeover" data-id="${esc(run.id)}">Take over</button><button class="btn ghost sm" type="button" data-act="stage-stop" data-id="${esc(run.id)}">Stop</button>` : "";
+  const sw = [["computer", "monitor", "Computer"], ["browser", "globe", "Browser"]].map(([v, i, l]) => `<button type="button" data-act="stage" data-v="${v}" aria-pressed="${kind === v}">${ic(i, "s")}${l}</button>`).join("");
+  return `<div class="st7-top"><button class="st7-back" type="button" data-act="stage-close">${ic("back", "s")}${esc(name())}</button>
+    <span class="st7-title"><b>${title}</b></span>${pill}<span class="tb-grow"></span>${ctl}
+    <span class="st7-sw" role="group" aria-label="Show">${sw}</span>
+    <button class="icon-btn" type="button" aria-label="Shrink to a small window" data-tip="Picture in picture" data-act="stage-pip">${ic("layers")}</button>
+    <button class="icon-btn" type="button" aria-label="${G.dock ? "Hide" : "Show"} the conversation" data-tip="${G.dock ? "Full screen" : "Show the conversation"}" data-act="stage-dock" aria-pressed="${G.dock}">${ic("panel")}</button></div>`;
+}
+
+const STEP = { done: "done", working: "now", failed: "", waiting: "" };
+function dock(steps) {
+  const plan = steps.length ? `<ul class="dk7-plan">${steps.map((s) => { const c = STEP[s.status] ?? ""; return `<li class="${c}">${ic(c === "done" ? "check" : c === "now" ? "spin" : "info", c === "now" ? "s spin" : "s")}${esc(s.title)}</li>`; }).join("")}</ul>` : "";
+  const said = G.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.content).slice(-3)
+    .map((m) => `<div class="dk7-m ${m.role === "user" ? "me7" : ""}">${esc(String(m.content).slice(0, 180))}</div>`).join("");
+  return `<aside class="st7-dock" aria-label="The conversation"><div class="dk7-h">${av({ kind: "main" }, 28)}<b>${esc(name())}</b></div>${plan}<div class="dk7-msgs">${said}</div></aside>`;
+}
+
+function stageHTML(kind) {
+  const steps = G.plan?.steps ?? [];
+  const chips = steps.map((s, i) => `<button type="button" class="st7-chip ${STEP[s.status] ?? ""}" data-act="stage-step" data-v="${i}"><em>${i + 1}</em>${esc(s.title)}</button>`).join("");
+  return `${top(kind, steps)}<div class="st7-body ${G.dock ? "" : "nodock"}"><div class="st7-wrap"><div class="st7-screen"><div class="st7-scale">${screen(kind)}</div></div></div>${G.dock ? dock(steps) : ""}</div>
+    ${steps.length ? `<div class="st7-steps">${chips}<button type="button" class="st7-chip live7" data-act="stage-step" data-v="live">Now</button></div>` : ""}`;
+}
+
+function pipHTML() {
+  const kind = G.pip.kind;
+  return `<div class="pip7-screen" data-act="stage" data-v="${kind}" role="button" aria-label="Open full size"><div class="st7-scale">${screen(kind)}</div></div><div class="pip7-bar"><span>${esc(name())}${kind === "browser" ? " · browser" : ""}</span><button type="button" data-act="stage" data-v="${kind}" aria-label="Open full size">${ic("up", "s")}</button><button type="button" data-act="pip-x" aria-label="Close the small window">${ic("x", "s")}</button></div>`;
+}
+
+/* The screen is drawn at 1280 × 800 and scaled to fit, as the prototype's fitStage does. */
+function fit(root) {
+  for (const scr of root.querySelectorAll(".st7-screen,.pip7-screen")) {
+    const wrap = scr.classList.contains("st7-screen") ? scr.parentElement : null;
+    let w = scr.clientWidth;
+    if (wrap) { w = Math.max(240, Math.min(wrap.clientWidth - 36, (wrap.clientHeight - 36) * 1.6)); scr.style.width = w + "px"; scr.style.height = w / 1.6 + "px"; }
+    const s = scr.querySelector(".st7-scale");
+    if (s) s.style.transform = `scale(${w / 1280})`;
+  }
+}
+
+/* One region each for the full-size view and the small window, made once and removed when closed. */
+function region(id, cls, show, html) {
+  let el = document.getElementById(id);
+  if (!show) { el?.remove(); return; }
+  if (!el) { el = Object.assign(document.createElement("div"), { id, className: cls }); app()?.appendChild(el); }
+  el.innerHTML = html();
+  applyCss(el);
+  greyOut(el);
+  fit(el);
+}
+
+export function drawStage() {
+  const here = S.view === "chat" && !!S.chat;
+  if (G.pip && G.pip.chat !== S.chat) G.pip = null;
+  if (!here) G.kind = null;
+  region("stage7", "stage7", here && !!G.kind, () => stageHTML(G.kind));
+  $("#stage7")?.setAttribute("role", "region");
+  $("#stage7")?.setAttribute("aria-label", "Full-size view");
+  region("pip7", "pip7", here && !G.kind && !!G.pip, pipHTML);
+  if (here && (G.kind || G.pip)) load();
+}
+
+/* The conversation's messages and its newest task's plan, read again at most every two seconds. */
+async function load() {
+  const sid = S.chat;
+  loadWork(sid);
+  if (sid === G.sid && Date.now() - G.at < 2000) return;
+  G.at = Date.now();
+  const newest = runsHere()[0];
+  try {
+    const [session, planned] = await Promise.all([api(`sessions/${encodeURIComponent(sid)}`), newest ? api(`runs/${encodeURIComponent(newest.id)}/plan`) : null]);
+    const next = { sid, messages: session?.messages ?? [], plan: planned?.plan ?? null, said: "" };
+    const same = JSON.stringify([G.sid, G.messages, G.plan]) === JSON.stringify([next.sid, next.messages, next.plan]);
+    Object.assign(G, next);
+    if (!same && S.chat === sid) drawStage();
+  } catch (error) {
+    // Said once, not again every two seconds while the engine keeps refusing for the same reason.
+    if (error.message !== G.said) toast(error.message);
+    G.said = error.message;
+  }
+}
+
+async function stop(el) {
+  try {
+    await api(`runs/${encodeURIComponent(el.dataset.id)}/cancel`, {});
+    G.kind = null;
+    await refresh();
+  } catch (error) { toast(error.message); }
+  drawStage();
+}
+
+/* Opens the full-size view (from the side panel's Browser tab or the view's own switch). */
+export function openStage(kind) {
+  G.kind = kind === "browser" ? "browser" : "computer";
+  G.pip = null;
+  closePop();
+  drawStage();
+}
+
+export function initStage() {
+  markLive(["stage", "stage-close", "stage-dock", "stage-pip", "pip-x", "stage-stop"]);
+  on("stage", (el) => openStage(el.dataset.v));
+  on("stage-close", () => { G.kind = null; drawStage(); });
+  on("stage-pip", () => { G.pip = { kind: G.kind, chat: S.chat }; G.kind = null; drawStage(); });
+  on("pip-x", () => { G.pip = null; drawStage(); });
+  on("stage-dock", () => { G.dock = !G.dock; drawStage(); });
+  on("stage-stop", (el) => stop(el));
+  onRender(drawStage);
+  // Before the window's own Escape (which closes a menu or dialog first), as the prototype listens.
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && G.kind && !document.querySelector(".dlg, .pop")) { G.kind = null; drawStage(); } }, true);
+  window.addEventListener("resize", () => { for (const id of ["stage7", "pip7"]) { const el = document.getElementById(id); if (el) fit(el); } });
+}
