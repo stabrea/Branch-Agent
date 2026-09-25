@@ -363,9 +363,9 @@ test("a live conversation whose window closes its socket cleanly ends, and holds
 /* ---------- the page: public/voice-live.js in node, as the desktop window runs it ---------- */
 
 /** The browser pieces voice-live.js touches, as in the desktop: the stand-in key, and a socket that never opens. */
-function desktopPage(t, server) {
+function desktopPage(t, server, { socketOpens = false } = {}) {
   const saved = {};
-  for (const name of ["document", "location", "sessionStorage", "localStorage", "fetch", "WebSocket", "toast"])
+  for (const name of ["document", "location", "sessionStorage", "localStorage", "fetch", "WebSocket", "toast", "navigator", "AudioContext", "AudioWorkletNode"])
     saved[name] = Object.getOwnPropertyDescriptor(globalThis, name);
   t.after(() => {
     for (const [name, descriptor] of Object.entries(saved)) {
@@ -376,7 +376,7 @@ function desktopPage(t, server) {
   const realFetch = globalThis.fetch;
   const button = { dataset: {}, hidden: true, title: "", textContent: "", addEventListener() {} };
   const elements = { "voice-live": button, "voice-live-status": { hidden: true, textContent: "" } };
-  const page = { button, toasts: [], sockets: [] };
+  const page = { button, toasts: [], sockets: [], microphone: { refuse: false, opened: 0, closed: 0 } };
   const set = (name, value) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   set("document", {
     readyState: "complete", documentElement: {},
@@ -392,18 +392,29 @@ function desktopPage(t, server) {
     const own = String(path).startsWith("/api/");
     return realFetch(new URL(String(path), server.url), own ? { ...rest, headers: signedHeaders(rest.headers ?? {}, server.token) } : rest);
   });
-  // The window's socket does not get through: it fails, then closes, a moment after it is made.
+  // The window's socket does not get through: it fails, then closes, a moment after it is made. With `socketOpens`
+  // it opens instead and records what the page sends and whether it closed it (Q217).
   set("WebSocket", class extends EventTarget {
     constructor(url, protocols) {
       super();
       this.readyState = 0;
       page.sockets.push({ url, protocols });
-      setTimeout(() => { this.readyState = 3; this.dispatchEvent(new Event("error")); this.dispatchEvent(new Event("close")); }, 5);
+      if (socketOpens) { page.sent = []; page.closed = false; setTimeout(() => { this.readyState = 1; this.dispatchEvent(new Event("open")); }, 5); }
+      else setTimeout(() => { this.readyState = 3; this.dispatchEvent(new Event("error")); this.dispatchEvent(new Event("close")); }, 5);
     }
-    send() { throw new Error("This socket is not open"); }
-    close() { this.readyState = 3; }
+    send(data) { if (this.readyState !== 1) throw new Error("This socket is not open"); page.sent.push(String(data)); }
+    close() { this.readyState = 3; page.closed = true; }
   });
   set("toast", (message) => page.toasts.push(message));
+  // Q217: a stand-in microphone the page opens first; `refuse` is the person saying no to it.
+  set("navigator", { mediaDevices: { getUserMedia: async () => {
+    if (page.microphone.refuse) throw new Error("Permission denied");
+    page.microphone.opened++;
+    return { getTracks: () => [{ stop: () => { page.microphone.closed++; } }] };
+  } } });
+  set("AudioContext", class { constructor() { this.audioWorklet = { addModule: async () => undefined }; }
+    createMediaStreamSource() { return { connect() {} }; } createAnalyser() { return {}; } async close() {} });
+  set("AudioWorkletNode", class { constructor() { this.port = {}; } });
   return page;
 }
 
@@ -431,5 +442,32 @@ test("when the live socket never opens, the page stops the task it made and says
   assert.equal(en["voiceLive.neverConnected"], "The live conversation could not connect, so it was stopped.");
   assert.deepEqual(page.toasts, [en["voiceLive.neverConnected"]], "the owner is told why, in the window's language");
   assert.ok(fr["voiceLive.neverConnected"] && fr["voiceLive.neverConnected"] !== en["voiceLive.neverConnected"], "and it is in French too");
+  assert.equal(globalThis.branchLiveState(), "idle", "Talk live is ready to be pressed again");
+  assert.equal(page.microphone.opened, 0, "the microphone is never asked for before the conversation is open");
+});
+
+// Q217 (NAS 99233cc): the microphone is asked for only once the conversation is under way (the rule p2-voice-ui pins),
+// so a refusal must end that conversation and its task itself: Talk live is still idle, and end() does nothing then.
+test("when the microphone is refused, the page ends the conversation and stops its task", async (t) => {
+  const { app, server } = await served(t);
+  livePreset(app, "ws://127.0.0.1:9/realtime");
+  app.live.connectWaitMs = 10 * 60_000; // only the page can end it within this test
+  const page = desktopPage(t, server, { socketOpens: true });
+  page.microphone.refuse = true;
+  const { initLanguage } = await import("../public/i18n.js");
+  await initLanguage();
+  // The page loads once per process; when an earlier case loaded it, its button is already offered.
+  const first = !globalThis.branchLive;
+  await import("../public/voice-live.js");
+  if (first) await until(() => page.button.hidden === false, "Talk live offered in the desktop window");
+  await globalThis.branchLive.press();
+  const [runId] = liveTasks(app);
+  assert.equal(liveTasks(app).length, 1, "control: the press made its task and opened its socket");
+  assert.deepEqual(page.sent.map((data) => JSON.parse(data).live), ["start", "stop"], "the conversation is told to stop");
+  assert.equal(page.closed, true, "and its socket is closed");
+  assert.equal(app.store.run(runId).status, "cancelled", "the task the press made is stopped");
+  assert.equal(busyTaskCount(app.store), 0, "so it holds no update");
+  assert.equal(runningTaskCount(app.store), 0, "and no quit question");
+  assert.ok(page.toasts.some((message) => /Permission denied/.test(message)), "the owner is told why");
   assert.equal(globalThis.branchLiveState(), "idle", "Talk live is ready to be pressed again");
 });

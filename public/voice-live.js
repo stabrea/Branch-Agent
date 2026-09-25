@@ -130,7 +130,17 @@ async function begin() {
     throw new Error(t("voiceLive.neverConnected"));
   }
   socket.send(JSON.stringify({ live: "start" }));
-  microphone = await openMicrophone((bytes) => { if (socket?.readyState === 1) socket.send(bytes); });
+  try {
+    microphone = await openMicrophone((bytes) => { if (socket?.readyState === 1) socket.send(bytes); });
+  } catch (error) {
+    // Q217 (NAS 99233cc): the microphone is only asked for once the conversation is under way, so a refusal ends that
+    // conversation and its task here. Nothing else would, because Talk live is still idle and end() does nothing then.
+    try { socket.send(JSON.stringify({ live: "stop" })); } catch { /* already gone */ }
+    try { socket.close(); } catch { /* already gone */ }
+    socket = null;
+    await stopTask(opened.runId);
+    throw error;
+  }
   show("listening-live");
 }
 /** The task's socket once it is open; fails if it cannot be made, or errors or closes before it opens. */
