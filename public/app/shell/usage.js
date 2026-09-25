@@ -74,7 +74,7 @@ function countDown(el) {
   tick();
 }
 async function checkLimits() {
-  if (document.querySelector(".ckpt-q")) return;
+  if (!E.state || document.querySelector(".ckpt-q")) return; // nothing is asked before sign-in
   const g = await api("usage/glance").catch(() => null);
   if (!g?.available || g.settings?.saveProgress !== "ask" || !g.running) return;
   const seen = offered(), c = (g.crossings ?? []).find((x) => !seen.includes(x.key));
