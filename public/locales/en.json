@@ -1354,6 +1354,7 @@
   "composer.noModel": "Connect a model",
   "composer.manageModels": "Manage models…",
   "composer.modelForConversation": "Model for this conversation",
+  "composer.thinkingUsual": "The usual ({level})",
   "composer.practiceModel": "Practice",
   "composer.placeholder": "Ask Branch to do something…",
   "composer.send": "Send",

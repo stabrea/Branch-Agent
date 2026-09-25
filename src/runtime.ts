@@ -344,6 +344,8 @@ export interface RunOptions {
   verify?: boolean;
   /** Redesign phase 1: the mode a conversation started here is given (src/conversation-mode.ts). */
   conversationMode?: ConversationMode;
+  /** Dogfood B26: the thinking level a conversation begun by this message keeps (the model menu before a first message). */
+  conversationReasoning?: ReasoningEffort;
   /** The `traceparent` header of the request that asked for this task, so one trace crosses agents. */
   traceparent?: string | null;
   /** Internal: the working style of the specialist carrying out this run. */
@@ -1043,6 +1045,9 @@ ${run.output.slice(0, 6000)}`;
     const run = this.store.createRun(this.owner, options.prompt, options.sessionId, options.temporary ?? false);
     // Redesign phase 1: only a conversation begun here is given a mode; one that exists keeps what it had.
     if (!options.sessionId && options.conversationMode) this.startMode(run.sessionId, options.conversationMode);
+    // Dogfood B26: the level picked before the first message is this conversation's own, as one picked in it would be.
+    if (!options.sessionId && options.conversationReasoning)
+      this.models.configureSession(this.owner, run.sessionId, { reasoning: options.conversationReasoning });
     return run;
   }
   /** Redesign phase 1: a new conversation's mode; Plan also means "Show me the plan first". */
