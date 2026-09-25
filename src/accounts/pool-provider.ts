@@ -16,8 +16,8 @@ import type { Account, Pool } from "./settings.js";
  * Sign-in accounts: the account is the conversation's choice, else the owner's default. When it
  * reaches its plan limit Branch stops and says so, naming the others; it moves on by itself only
  * when the owner turned on "share work between accounts", and then only to an account the owner
- * marked "kept separate" — never between the owner's own plans (mac7/account-pooling, `rotationSet`;
- * see docs/configuration.md for why).
+ * marked "kept separate", and between the owner's own plans only with the owner's second switch, own plans, on
+ * (owner decision 2026-09-24; then in the list's order, never to spread work). See docs/configuration.md for why.
  */
 export interface PoolHooks {
   owner: string;
@@ -60,6 +60,8 @@ export class EveryKeyRestingError extends ProviderHttpError {
   }
 }
 
+/** NAS's own-plans review: the switch lives under sharing, so a record with sharing off never moves between own plans. */
+const ownPlansOn = (pool: Pool): boolean => pool.autoSwitch && pool.ownPlans;
 /** Refusals that come from a program's own plan limit (see src/providers/cli-agent.ts). */
 const isLimit = (error: unknown): boolean =>
   httpFailure(error)?.status === 429 || (error instanceof Error && error.name === "ProgramLimitError");
@@ -174,24 +176,36 @@ export class AccountPoolProvider {
     // NAS 204 (own plans): the owner's switch moves work on only when a plan reaches its limit, never to spread it, so
     // the plans are tried in a fixed order: the conversation's pick, the owner's default, then the list's own order.
     const open = allowed.filter((account) => this.why(account) === null);
-    const ready = pool.ownPlans ? inOrder(open, [sticky, pool.defaultAccount]) : smartOrder(open, this.hooks.states);
+    const own = ownPlansOn(pool);
+    const ready = own ? inOrder(open, [sticky, pool.defaultAccount]) : smartOrder(open, this.hooks.states);
     // A conversation's own plan, once picked, is never replaced by Branch: were it overwritten by a
     // kept-separate account, the next limit would move the work on to the owner's default plan. With the owner's
-    // own-plans switch on, a pick that reached its limit is replaced by the plan that answered, so later turns stay.
-    const pickLimited = !!sticky && this.why(usable.find((account) => account.id === sticky) ?? usable[0]!) !== null;
-    const keepPick = usable.some((account) => account.id === sticky && !account.keptSeparate) && !(pool.ownPlans && pickLimited);
+    // own-plans switch on, a pick that is at its limit is replaced by the plan that answered, so later turns stay.
+    // NAS's review: whether it is at its limit is asked when a plan answers, so the turn that finds the limit replaces it.
+    const picked = usable.find((account) => account.id === sticky && !account.keptSeparate);
+    const keepPick = (): boolean => !!picked && !(own && this.why(picked) !== null);
     const first = ready.findIndex((account) => account.id === sticky);
     if (first > 0) ready.unshift(...ready.splice(first, 1));
+    let refused: unknown = null;
     for (const account of ready) {
       try {
         const completion = await this.attempt(account, request, call);
-        if (call?.sessionId && account.id !== sticky && !keepPick) this.hooks.rememberChoice(call.sessionId, account.id);
+        if (call?.sessionId && account.id !== sticky && !keepPick()) this.hooks.rememberChoice(call.sessionId, account.id);
         return completion;
       } catch (error) {
-        if (!isLimit(error) || request.signal.aborted) throw error;
-        this.markLimited(account, error, call);
+        if (request.signal.aborted) throw error;
+        if (isLimit(error)) { this.markLimited(account, error, call); continue; }
+        // NAS's review: with own plans on, a plan whose sign-in is refused (expired, signed out) rests and the next of
+        // the owner's own plans is tried, rather than every call failing on it until the limited default resets.
+        const failure = own ? failureFor(error, this.hooks.now()) : null;
+        if (failure?.reason !== "refused") throw error;
+        rest(this.state(account.id), failure, this.hooks.model);
+        this.state(account.id).lastError = "its sign-in was refused";
+        call?.note?.("model.account_resting", { pool: this.hooks.pool, account: account.id, label: account.label, reason: failure.reason, until: new Date(failure.untilMs).toISOString() });
+        refused = error;
       }
     }
+    if (refused && !ready.some((account) => this.state(account.id).limitedUntil > this.hooks.now())) throw refused;
     const fallback = allowed.find((account) => account.id === sticky) ?? allowed[0]!;
     throw this.limitError(pool, usable, fallback, "Every account this connection may share work between has reached its plan limit.");
   }
@@ -203,8 +217,8 @@ export class AccountPoolProvider {
    * moves it on, or points it, to a second of the owner's own plans.
    */
   private mayShare(pool: Pool, usable: Account[], current: string | null): Account[] {
-    const allowed = rotationSet(pool.kind, usable, pool.defaultAccount, current, pool.ownPlans);
-    if (pool.ownPlans || !usable.some((account) => account.id === current && account.keptSeparate)) return allowed;
+    const allowed = rotationSet(pool.kind, usable, pool.defaultAccount, current, ownPlansOn(pool));
+    if (ownPlansOn(pool) || !usable.some((account) => account.id === current && account.keptSeparate)) return allowed;
     const own = allowed.find((account) => !account.keptSeparate);
     const otherOwnLimited = usable.some((account) => !account.keptSeparate && account.id !== own?.id
       && this.state(account.id).limitedUntil > this.hooks.now());

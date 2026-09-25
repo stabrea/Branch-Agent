@@ -95,7 +95,7 @@ export function applyPoolingRule(settings: AccountsSettings): { settings: Accoun
     const own = pool.accounts.filter((account) => !account.keptSeparate);
     if (pool.kind === "api-key" || !pool.autoSwitch || own.length < 2) return pool;
     stopped.push(pool.pool);
-    return { ...pool, autoSwitch: false, defaultAccount: pool.defaultAccount ?? pool.accounts[0]!.id };
+    return { ...pool, autoSwitch: false, ownPlans: false, defaultAccount: pool.defaultAccount ?? pool.accounts[0]!.id };
   });
   const notices = [...new Set([...settings.poolingNotices, ...stopped])];
   return { settings: { ...settings, pools, poolingRule: poolingRuleVersion, poolingNotices: notices }, stopped };
