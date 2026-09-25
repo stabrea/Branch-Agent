@@ -3,7 +3,7 @@
    export writes the engine's own copy of the conversation (GET /api/sessions/<id>/export) to a file. */
 
 import { esc, renderNow } from "../core/dom.js";
-import { openPop, closePop, openDlg, mi, toast } from "../core/ui.js";
+import { openPop, closePop, openDlg, mi, toast, ic } from "../core/ui.js";
 import { S } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
@@ -53,10 +53,21 @@ async function exportConversation() {
   } catch (error) { toast(error.message); }
 }
 
+/* Which computer you are talking to: this one, and the other computers and phones the engine knows (GET /api/devices).
+   Talking to another one, renaming and adding stay greyed until the window can. */
+async function openMachines(el) {
+  const known = (await api("devices").catch(() => null))?.devices ?? [];
+  const row = (act, v, name, status, on, dot) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${on}" data-act="${act}" data-v="${esc(v)}"><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(name)}</span><span class="mi-s"><span class="dot ${dot}"></span> ${esc(status)}</span></span></button>`;
+  const rows = row("machine-here", "here", "This computer", "Connected", true, "") + known.map((d) => row("machine", d.id, d.name ?? d.id, d.connected ? "Connected" : "Offline", false, d.connected ? "" : "off")).join("");
+  openPop(el, `<div class="ph">Talk to the assistant on…</div>${rows}<hr>${mi("addcomp", "plus", "Add a computer or phone…")}`);
+}
+
 const typing = (e) => e.target.closest?.("input, textarea, select, [contenteditable]");
 
 export function initExtras() {
-  markLive(["gwpop", "gwpop-mode", "shortcuts", "chatmenu", "export-conv"]);
+  markLive(["gwpop", "gwpop-mode", "shortcuts", "chatmenu", "export-conv", "machines", "machine-here"]);
+  on("machines", (el) => openMachines(el));
+  on("machine-here", () => closePop());
   on("gwpop", (el) => openGateway(el));
   on("gwpop-mode", (el) => setGateway(el.dataset.v));
   on("shortcuts", () => showShortcuts());
