@@ -43,7 +43,7 @@ function updatePop(plan) {
 }
 
 /* ---------- the save-progress offer ---------- */
-const OFFERED = "branch.saveProgressOffered";
+const OFFERED = "branch-save-progress-asked"; // the key the old window kept, so a window asked about there is not asked again
 function offered() {
   try { return JSON.parse(localStorage.getItem(OFFERED) ?? "[]"); } catch (error) { console.warn(error.message); return []; }
 }
