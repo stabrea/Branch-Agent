@@ -1171,6 +1171,9 @@ ${run.output.slice(0, 6000)}`;
       // technical text stays in the events and the log, where it belongs.
       output = this.plainEnding(run, error);
       if (error instanceof NeedsInputError) {
+        // Dogfood B21: the assistant's own question sat only in the banner at the top; it is its message, under the
+        // last one, where the owner reads and answers.
+        if (error.spoken && run.sessionId) this.store.message(run.sessionId, { role: "assistant", content: this.hideSecrets(error.question) });
         // The asking call is named, so a record reader never takes another call still open for the one that asked.
         this.store.event(run.id, "attention.needed", { question: error.question, ...(error.callId ? { callId: error.callId } : {}) });
         this.notifyEvent("approval.needed", { runId: run.id, sessionId: run.sessionId, question: error.question });
