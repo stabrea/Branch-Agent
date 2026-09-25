@@ -515,7 +515,27 @@ test("D3 the event stream needs the key, filters by kind and carries on from the
   assert.ok(new Set([...everything.matchAll(/^event: (.+)$/gm)].map((m) => m[1])).size > 3, "more than one kind arrives");
 });
 
-// Redesign: Coming soon (pane, the side panel's Activity), checked at afa6ad94.
+/* Redesign: the Activity screen is the side panel's Activity tab beside the task's conversation (public/app/chat/pane.js,
+   design doc 4.6): each tool the task used, in plain words, gone when you leave the conversation. The old Runs page's
+   event feed card is replaced by it. */
+test("D3 the Activity screen shows the live feed and stops it when you leave (the new window)", async (t) => {
+  const { page, api, errors } = await onPage(t, { provider: writesAFile("live.txt") });
+  const run = (await api("POST", "/api/run", { prompt: "write it" })).body;
+  await page.reload();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator(`#side [data-act="chat"][data-id="${run.sessionId}"]`).click();
+  await page.locator('[data-act="pane"][data-p="activity"]').first().click();
+  await page.locator("#pane .tl li").first().waitFor({ timeout: 25000 });
+  const words = (await page.locator("#pane .tl li span").allTextContents()).map((line) => line.trim());
+  assert.ok(words.some((line) => /files\.write|live\.txt/i.test(line)), `a tool step arrived: ${words.join(" | ")}`);
+  assert.ok(words.every((line) => !/^(run|model|tool|policy)\./.test(line)),
+    `each line opens with plain words, not an event name: ${words.join(" | ")}`);
+  await page.locator('#side [data-act="view"][data-v="inbox"]').click();
+  await page.locator("#pane").waitFor({ state: "hidden" });
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the old Runs page's event feed card); ported above.
 test.skip("D3 the Activity screen shows the live feed and stops it when you leave", async (t) => {
   const { page, api, errors } = await onPage(t, { provider: writesAFile("live.txt") });
   await openPlace(page, "runs");
@@ -768,8 +788,8 @@ test("G1 a standing rule that says go ahead is listed beside the conversation's 
   assert.deepEqual(after.standing.map((entry) => entry.rule.tool), ["files.read"]);
 });
 
-// Redesign: Coming soon (pane, the side panel's allowed list), checked at afa6ad94; the card's "Yes, for this
-// conversation" is replaced by the new card (the action's verb, Always allow, Don’t allow).
+// Redesign: replaced by the new window (the side panel is live at 4460a085 but has no allowed list, which is not in the
+// prototype's panel; the card's "Yes, for this conversation" and the sentence under each yes are not in the design's card).
 test.skip("G1 the context pane lists a grant and the approval card says what a yes leaves behind", async (t) => {
   const { page, errors } = await onPage(t, { provider: writesAFile("gated.txt") });
   await page.evaluate(async (token) => {
@@ -878,7 +898,8 @@ test.skip("G4 the conversation title has a label picker that puts a label on wha
 const markdownReply = "## What I did\n\nI read **two** files and found `answer = 42`.\n\n- one\n- two\n";
 const scripted = { name: "scripted", async complete() { return { content: markdownReply, toolCalls: [] }; } };
 
-// Redesign: Coming soon (pane, Activity; chatmenu, "Look inside the last reply"), checked at afa6ad94.
+// Redesign: Coming soon (inspect, "Look inside the last reply" in the conversation's More menu), checked at 4460a085; the old
+// Runs page's cards are replaced by the new window (Inbox › History).
 test.skip("G5 the Activity screen and the inspector render a reply as markdown, never as markup", async (t) => {
   const { page, errors } = await onPage(t, { provider: scripted });
   await page.locator("#prompt").fill("do the thing");
