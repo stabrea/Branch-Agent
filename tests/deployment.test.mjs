@@ -617,10 +617,16 @@ async function openBranch(t) {
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   return { root, app, server, dataDir: join(root, "data") };
 }
-/** The real `branch <command>` in another process, with the same saved work the open Branch holds. */
-function branchCli(dataDir, root, args) {
-  const env = { ...process.env, BRANCH_DATA_DIR: dataDir, BRANCH_WORKSPACE: join(root, "workspace") };
-  delete env.FORCE_TTY;
+/**
+ * The real `branch <command>` in another process, with the same saved work the open Branch holds.
+ * Its home is a folder of the test's own and it is given no display, so it reads nothing of the
+ * person running the tests.
+ */
+async function branchCli(dataDir, root, args) {
+  const home = join(root, "home");
+  await mkdir(home, { recursive: true });
+  const env = { ...process.env, HOME: home, BRANCH_DATA_DIR: dataDir, BRANCH_WORKSPACE: join(root, "workspace") };
+  for (const name of ["FORCE_TTY", "DISPLAY", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"]) delete env[name];
   return new Promise((resolve) => execFile(process.execPath, ["dist/cli.js", ...args], { env, timeout: 120_000 },
     (error, stdout, stderr) => resolve({ code: error ? error.code ?? 1 : 0, stdout, stderr })));
 }
@@ -696,6 +702,7 @@ test("B4 a command that would write to the same saved work still refuses, and sa
   assert.equal(refused.code, 1);
   assert.match(refused.stderr, /Branch is already open and using the work saved in /);
   assert.match(refused.stderr, /branch doctor, branch token, branch trace, branch schedule/);
+  assert.match(refused.stderr, /from any terminal: branch status, branch doctor/, "status is named among the ones that work");
   assert.match(refused.stderr, /needs that Branch closed first/);
   // The terminal's own writers are refused over the running Branch too, not quietly allowed.
   const themed = await branchCli(dataDir, root, ["theme", "dark"]);
@@ -727,7 +734,7 @@ test("B4 the terminal door runs the commands that only look, and refuses the res
   const { readOnlyTerminalCommands } = await import("../dist/terminal-cli.js");
   assert.deepEqual([...readOnlyTerminalCommands].sort(), [
     "automations", "channels", "customize", "household", "inbox", "library", "mcp", "memory",
-    "overview", "places", "projects", "sessions", "settings", "skills", "snapshots", "tools", "usage", "version",
+    "overview", "places", "projects", "sessions", "settings", "skills", "snapshots", "status", "tools", "usage", "version",
   ], "the list of terminal commands a second terminal may run is pinned; changing it is deliberate");
 
   const ask = (query) => fetch(`${server.url}/api/terminal?${query}`, { headers: { authorization: `Bearer ${server.token}` } });
@@ -747,4 +754,100 @@ test("B4 the terminal door runs the commands that only look, and refuses the res
     assert.match(said, /is not one of the terminal commands that only look/);
     assert.match(said, /needs that Branch closed first/);
   }
+});
+
+/**
+ * `branch status` only reads, so beside the open Branch it asks that Branch through the same door
+ * as the places that only look, instead of being refused. It prints the very lines, and the same
+ * --json shape, it prints with nothing running: both come from one function. The door stays this
+ * computer's own key's alone, because status shows every working task's words and every question.
+ */
+const statusKeys = ["approvalPreset", "approvals", "health", "running", "waitingForYou"];
+const healthKeys = ["checkedAt", "items", "ok"];
+
+test("B4 branch status works beside the open Branch, in the same lines and --json shape", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-b4-"));
+  const dataDir = join(root, "data");
+  const asked = [];
+  // Opened as the app window opens it: the whole Branch, then its door announced as the app's.
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir, provider: {
+    name: "scripted", async complete(request) { asked.push(request); return { content: "ok", toolCalls: [] }; } } });
+  const server = await startServer(app, { dataDir, port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  // One task working and one question waiting, both in the Branch that is open.
+  const owner = app.runtime.owner;
+  const working = app.store.createRun(owner, "tidy the garden notes");
+  const question = "Which evening suits you, Friday or Saturday?";
+  const waiting = app.store.finish(app.store.createRun(owner, "book a table").id, "needs_input", question);
+  assert.equal(app.store.run(working.id).status, "running", "the task is still working when the terminal asks");
+
+  const plain = await branchCli(dataDir, root, ["status"]);
+  assert.equal(plain.code, 0, plain.stderr);
+  assert.doesNotMatch(plain.stderr, /already open/);
+  assert.match(plain.stdout, /^When to check with me: \S+/m);
+  assert.match(plain.stdout, /^Working now:$/m);
+  assert.ok(plain.stdout.includes(`\n  ${working.id} — tidy the garden notes\n`), plain.stdout);
+  assert.ok(plain.stdout.includes(`\n  waiting for you: ${waiting.id} — ${question}\n`), plain.stdout);
+  assert.match(plain.stdout, /^(Everything checks out\.|Some checks need attention:)$/m);
+  assert.match(plain.stdout, /^ {2}(ok|x ) Saved data: /m);
+
+  const json = await branchCli(dataDir, root, ["status", "--json"]);
+  assert.equal(json.code, 0, json.stderr);
+  const said = JSON.parse(json.stdout);
+  assert.deepEqual(Object.keys(said).sort(), statusKeys);
+  assert.deepEqual(Object.keys(said.health).sort(), healthKeys);
+  assert.deepEqual(said.running.map((run) => [run.id, run.prompt]), [[working.id, "tidy the garden notes"]]);
+  assert.deepEqual(said.waitingForYou.map((run) => [run.id, run.question]), [[waiting.id, question]]);
+  assert.ok(said.health.items.some((check) => check.name === "Saved data"), "the health summary came back");
+  // The health summary only looks: nothing was sent to the model to fill it in.
+  assert.equal(asked.length, 0, "status asked the model something");
+});
+
+test("B4 the terminal door gives status to this computer's own key alone, whatever the query says", async (t) => {
+  const { app, server } = await openBranch(t);
+  const { householdRefusalFor } = await import("../dist/household-routes.js");
+  const ask = (key) => fetch(`${server.url}/api/terminal?command=status&json=1&locale=en_GB.UTF-8`, {
+    headers: { authorization: `Bearer ${key}` } }).then(async (response) => ({ status: response.status, body: await response.json() }));
+  const owner = await ask(server.token);
+  assert.equal(owner.status, 200, JSON.stringify(owner.body));
+  assert.deepEqual(Object.keys(JSON.parse(owner.body.lines.join("\n"))).sort(), statusKeys);
+
+  // A script's short-lived key, for looking or for starting tasks, is refused before status runs.
+  for (const scope of ["read", "run"]) {
+    const key = app.sessionTokens.create(app.runtime.owner, { name: "script", scope, minutes: 5 }).token;
+    const refused = await ask(key);
+    assert.equal(refused.status, 401, scope);
+    assert.match(refused.body.error, /A short-lived key cannot read/, scope);
+  }
+  // So is the window while it is switched to somebody else's household profile.
+  const call = (path, body) => fetch(server.url + path, { method: "POST", headers: {
+    authorization: `Bearer ${server.token}`, origin: server.url, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const sam = await (await call("/api/profiles", { name: "Sam", pin: "2468" })).json();
+  assert.equal((await call("/api/profiles/switch", { profileId: sam.id, pin: "2468" })).status, 200);
+  const household = await ask(server.token);
+  assert.equal(household.status, 400);
+  assert.equal(household.body.error, householdRefusalFor("/api/terminal"));
+  assert.equal((await call("/api/profiles/switch", { profileId: null })).status, 200);
+  assert.equal((await ask(server.token)).status, 200, "switched back, the owner reads it again");
+});
+
+test("B4 with nothing running, branch status opens the saved work itself, as before", async (t) => {
+  const root = await scratch(t, "branch-b4-");
+  const dataDir = join(root, "data");
+  const plain = await branchCli(dataDir, root, ["status"]);
+  assert.equal(plain.code, 0, plain.stderr);
+  assert.match(plain.stdout, /^When to check with me: \S+/m);
+  assert.match(plain.stdout, /^Nothing is working right now\.$/m);
+  assert.match(plain.stdout, /^(Everything checks out\.|Some checks need attention:)$/m);
+  assert.match(plain.stdout, /^ {2}(ok|x ) Saved data: /m);
+
+  const json = await branchCli(dataDir, root, ["status", "--json"]);
+  assert.equal(json.code, 0, json.stderr);
+  const said = JSON.parse(json.stdout);
+  assert.deepEqual(Object.keys(said).sort(), statusKeys);
+  assert.deepEqual(Object.keys(said.health).sort(), healthKeys);
+  assert.deepEqual([said.running, said.waitingForYou], [[], []]);
+  // Nothing was open, so this terminal made and read the saved work itself.
+  assert.equal(await readRunning(dataDir), null);
+  assert.ok((await stat(join(dataDir, "branch.sqlite"))).isFile());
 });

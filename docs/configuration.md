@@ -7415,7 +7415,9 @@ branch token revoke <id>
 work at a time, so a second `branch` used to stop with "Branch is already open" — which made
 `branch token create` unreachable at exactly the moment a script needs a key. These now go through
 the Branch that is already running, by the same door and the same local key the app window uses, as
-`branch schedule` always did: `branch doctor` (the health checks; `--fix` and `--repair` still need
+`branch schedule` always did: `branch status` (the tasks working now, the questions waiting and the
+health summary, in the same lines and `--json` shape as with nothing running; the health summary
+never asks the model anything), `branch doctor` (the health checks; `--fix` and `--repair` still need
 the app closed), `branch trace <task id>`, `branch token create|list|revoke`, and every terminal
 place that only looks — `memory`, `usage`, `sessions`, `inbox`, `library`, `settings`, `places`,
 `tools`, `skills`, `projects`, `snapshots`, `channels`, `mcp`, `customize`, `automations`. With
@@ -7424,7 +7426,7 @@ work — `backup`, `restore`, `security audit`, `activity verify`, `theme`, `mod
 `permissions`, `chat`, `run` — still refuses while a Branch is open, and the refusal now names the
 commands that do work and says to close that Branch first. Routes: `GET|POST /api/tokens`,
 `POST /api/tokens/<id>/revoke`, `GET /api/runs/<id>/trace`, `GET /api/terminal?command=<name>&arg=…`.
-The keys and the terminal's places are the owner's alone at this computer: a household profile is
+The keys, the terminal's places and `status` are the owner's alone at this computer: a household profile is
 refused, and a short-lived key can neither read the list of keys nor make or take one back, so no key
 can renew itself. A task's trace is an ordinary read, like the `inspect` and `monitor` views beside
 it. The terminal sends its own `LANG`/`LC_*` with the request, so "follow the computer" reads the
