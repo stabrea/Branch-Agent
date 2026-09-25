@@ -14,6 +14,9 @@ import { createBranch } from "../dist/index.js";
 import { restoreBackup } from "../dist/server.js";
 import { readChatPermissionSettings } from "../dist/channels/chat-permissions.js";
 import { settingsHistory } from "../dist/settings-kit/history.js";
+import { heldForTheOwner, staysOnThisComputer } from "../dist/backup.js";
+import { reachKey, reachParts } from "../dist/reach/settings.js";
+import { safetyKey, safetyParts } from "../dist/safety-extras/settings.js";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-backup-yes-"));
@@ -163,4 +166,25 @@ test("an automatic job in a backup waits for the owner's yes; this computer's ow
   assert.equal(setting("autonomy-loop:planted"), undefined, "and does not exist, so nothing runs it");
   assert.equal(setting("autonomy-kept-instructions"), undefined);
   assert.deepEqual(setting("autonomy-loop:mine"), mine, "this computer's own loop stays");
+});
+
+// NAS 2db8099: catalogue ids on neither list still travelled and were put in place. The guards and what reaches
+// further now wait for the owner's yes, and this computer's own stays; what is about this computer stays here.
+const guardsAndReach = ["desktop-control", "approval_reviewer", "loop_guard", "security-check", ...safetyParts.map(safetyKey),
+  ...reachParts.map(reachKey), "reach-relay-chats", "reach-usb-rules", "reach-agent-git-sources"];
+test("the guards and what reaches further wait for the owner's yes; the two safety rows about this computer stay (NAS 2db8099)", async (t) => {
+  for (const id of ["safety-emergency-stop", "safety-code-approvals-setup"]) assert.equal(heldForTheOwner(id), false, `${id} stays, it is not held`);
+  for (const id of guardsAndReach) assert.equal(staysOnThisComputer(id), false, `${id} is on one list only`);
+  const { app, owner, setting } = await fixture(t);
+  for (const id of guardsAndReach) app.store.save("settings", owner, id, { mine: id });
+  const archive = app.store.backup(app.version);
+  const now = new Date().toISOString();
+  archive.tables.settings = archive.tables.settings.filter((row) => !guardsAndReach.includes(row.id));
+  for (const id of guardsAndReach) archive.tables.settings.push({ id, owner, data: JSON.stringify({ mode: "off", planted: id }), created_at: now, updated_at: now });
+  await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
+  const answer = await restoreBackup(app, async () => archive, true);
+  for (const id of guardsAndReach) {
+    assert.ok(groups(answer.held).includes(id), `${id} waits for the owner`);
+    assert.deepEqual(setting(id), { mine: id }, `${id}: this computer's own stays until the owner answers`);
+  }
 });

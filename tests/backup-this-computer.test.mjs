@@ -30,8 +30,8 @@ const keys = [...thisComputerSettings, "devices-book", "remote-agent:helper"];
 
 test("the list is what Q168 A names, and devices-book stays too (named once, with the #186 fix's sign-ins)", () => {
   assert.deepEqual([...thisComputerSettings].sort(), ["comfort-update-failed", "folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode",
-    "keychain-entries", "os-sandbox", "reach-remote-trunks-keys", "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup",
-    "safety-emergency-stop", "secret-commands"]);
+    "keychain-entries", "listen-address", "os-sandbox", "reach-machine-name", "reach-relay-seen", "reach-relay-settings", "reach-remote-trunks-keys",
+    "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup", "safety-emergency-stop", "secret-commands"]);
   assert.equal(staysOnThisComputer("devices-book"), true);
   assert.equal(thisComputerSettings.includes("devices-book"), false, "one list names it, not two");
 });
@@ -107,4 +107,18 @@ test("an emergency stop pressed here stays pressed through a replacing restore; 
   const after = stopState(app.store, owner);
   assert.equal(after.engaged, true);
   assert.deepEqual([after.network, after.tools], [true, ["shell.execute"]]);
+});
+
+// NAS 2db8099: where the door listens, this computer's name, and its place at a relay (its id there and the envelopes
+// it has already taken) are about this computer: never in a backup, never planted, and kept by a replace.
+test("where this computer listens, its name, and its place at a relay stay on it (NAS 2db8099)", async (t) => {
+  const { app, owner, setting } = await fixture(t);
+  const here = ["listen-address", "reach-machine-name", "reach-relay-settings", "reach-relay-seen"];
+  for (const key of here) app.store.save("settings", owner, key, { mine: key });
+  const archive = app.store.backup(app.version);
+  for (const key of here) assert.ok(!archive.tables.settings.some((row) => row.id === key), `${key} is not in the backup`);
+  const now = new Date().toISOString();
+  for (const key of here) archive.tables.settings.push({ id: key, owner, data: JSON.stringify({ planted: key }), created_at: now, updated_at: now });
+  await restoreBackup(app, async () => archive, true);
+  for (const key of here) assert.deepEqual(setting(key), { mine: key }, `${key}: this computer's own stays`);
 });

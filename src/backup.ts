@@ -4,6 +4,8 @@ import { z } from "zod";
 import { ensureFlyTables, flyTables } from "./fly-core/state.js";
 import { dropIndex } from "./fly-core/fast-index.js";
 import { ensureContractTable } from "./self-development-contract.js";
+import { reachKey, reachParts } from "./reach/settings.js";
+import { safetyKey, safetyParts } from "./safety-extras/settings.js";
 
 /**
  * Whole-application backup: every table that holds the person's state, as plain rows, so it can be
@@ -93,6 +95,10 @@ export const thisComputerSettings: readonly string[] = [
   "os-sandbox", "safety-emergency-stop", "safety-code-approvals-setup",
   // Q193 (NAS a870cea): which release failed to install on this computer, so update by itself skips it here only.
   "comfort-update-failed",
+  // NAS 2db8099's unclassified ids: where this computer's door listens (a file may never open it to the network),
+  // this computer's name among the others, and its place at a chat relay: its id there, and the envelopes it has
+  // already taken, whose older list would let one be taken twice.
+  "listen-address", "reach-machine-name", "reach-relay-settings", "reach-relay-seen",
 ];
 /** The restore's own list of rows waiting for the owner's yes (src/restore-held.ts): about this computer, so it stays too. */
 export const restoreHeldKey = "restore-held";
@@ -115,7 +121,13 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   "chat-permissions",
   // What works by itself, and how much of it: standing instructions every automatic turn reads, and its limits. The
   // agent market's index addresses, and whether the password book fills sign-ins.
-  "autonomy-limits", "autonomy-kept-instructions", "interop-market-indexes", "vault-autofill"];
+  "autonomy-limits", "autonomy-kept-instructions", "interop-market-indexes", "vault-autofill",
+  // NAS 2db8099's unclassified ids. The checks that stand between a task and the owner's yes: the second look before
+  // an approval, the repeated-step guard, the security check and each safety part, so an older file cannot switch
+  // one off. What reaches further than this computer, or acts by itself: the screen and keyboard, each reach part's
+  // switch, the chats a relay may bring, the USB rules that start a task, and the git sources the assistant shares to.
+  "desktop-control", "approval_reviewer", "loop_guard", "security-check", ...safetyParts.map(safetyKey), ...reachParts.map(reachKey),
+  "reach-relay-chats", "reach-usb-rules", "reach-agent-git-sources"];
 /** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
 const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:"];
 export const heldForTheOwner = (id: string): boolean => heldSettings.includes(id) || heldPrefixes.some((start) => id.startsWith(start));
