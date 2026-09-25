@@ -40,13 +40,17 @@ function waitingCount() {
   return (Array.isArray(a) ? a.length : a?.count ?? 0) + (E.state?.trunkWaiting?.length ?? 0);
 }
 
+/* A conversation with a task still going (E.state.runs) reads Working in its row, as the conversation header does. */
+const runningIn = (id) => (E.state?.runs ?? []).some((r) => r.sessionId === id && ["running", "queued"].includes(r.status));
+
 function row(s) {
   const id = sessionId(s);
   const trunk = trunkFor(s);
-  return `<button class="row" type="button" data-act="chat" data-id="${esc(id)}" aria-current="${S.chat === id}">
+  const busy = runningIn(id);
+  return `<button class="row" type="button" data-act="chat" data-id="${esc(id)}" aria-current="${S.chat === id}"${busy ? ' data-running="true"' : ""}>
     <span class="avw">${av(trunk ?? { kind: "main" }, 40)}</span>
     <b><span class="ellip14">${esc(sessionTitle(s))}</span></b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
-    <p>${esc(s.lastMessage ?? "")}</p></button>`;
+    ${busy ? '<p class="attn">Working</p>' : `<p>${esc(s.lastMessage ?? "")}</p>`}</button>`;
 }
 
 /* Typing in search asks the engine for words inside conversations after a short pause; the box keeps focus and caret. */
