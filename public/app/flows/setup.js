@@ -64,13 +64,15 @@ function models(o) {
   return `<h2 tabindex="-1">Which models should answer?</h2><p>Found on this computer:</p><div class="rows">${modelRows(o)}</div><div class="acts" data-css="margin-top:10px"><button class="btn sm" type="button" data-act="addacct">${ic("plus", "s")}Add another account</button><button class="btn sm" type="button" data-act="ob-test">Say hello to test it</button></div><div id="ob-test-out">${testOut(o)}</div>`;
 }
 
+/* Auto lets workspace changes go ahead and keeps a standing yes per website (src/conversation-mode.ts), which loosens
+   the default Ask first, so it has its own act name and stays greyed until it is reviewed. */
 function yours(o) {
   const look = document.documentElement.dataset.theme || "system";
   const looks = [["system", mac() ? "Match Mac" : "Match Windows"], ["light", "Light"], ["dark", "Dark"]];
   const asks = [["auto", "spark", "Auto", "Branch decides what’s safe and only asks about risky things."], ["ask", "shield", "Ask first", "Always asks before changing files, running commands or using the internet."], ["plan", "list15", "Plan first", "Writes a plan and waits for your OK before doing anything."]];
   return `<h2 tabindex="-1">Make it yours</h2><p>Two quick choices. Both can change any time in Settings.</p>
     <div class="ob-q15"><b>How it looks</b><div class="ob-pick15">${looks.map(([v, l]) => `<button type="button" class="ob-card15 look-${v}" data-act="ob15" data-k="look" data-v="${v}" ${pressed(look === v)}><span class="ob-sw15"><i></i><i></i><i></i></span>${l}</button>`).join("")}</div></div>
-    <div class="ob-q15"><b>How much it asks</b><div class="ob-pick15 col15x">${asks.map(([v, i, l, s]) => `<button type="button" class="ob-row15" data-act="ob15" data-k="asks" data-v="${v}" ${pressed(o.asks === v)}><span class="ico-tile">${ic(i, "s")}</span><span><b>${l}</b><small>${s}</small></span></button>`).join("")}</div><p class="hint" data-css="margin:6px 0 0">Full access stays off until you turn it on yourself.</p></div>`;
+    <div class="ob-q15"><b>How much it asks</b><div class="ob-pick15 col15x">${asks.map(([v, i, l, s]) => `<button type="button" class="ob-row15" data-act="${v === "auto" ? "ob15-auto" : "ob15"}" data-k="asks" data-v="${v}" ${pressed(o.asks === v)}><span class="ico-tile">${ic(i, "s")}</span><span><b>${l}</b><small>${s}</small></span></button>`).join("")}</div><p class="hint" data-css="margin:6px 0 0">Full access stays off until you turn it on yourself.</p></div>`;
 }
 
 function trunks(o) {

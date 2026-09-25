@@ -77,6 +77,12 @@ export async function startFirst() {
 const go = (i) => { F.step = i === 2 ? 3 : i; draw(); };
 const close = () => { F.step = null; draw(); };
 
+/* Practice first: the old window's demo door, which finishes the first run with the engine (POST /api/onboarding). */
+async function practice() {
+  try { await api("onboarding", { done: true }); } catch (error) { toast(error.message); return; }
+  go(3);
+}
+
 /* The two recommendations: each is sent only when its switch differs from what the engine has. */
 async function recommend() {
   const gw = $("#fr-gw")?.checked, upd = $("#fr-upd")?.checked;
@@ -115,7 +121,7 @@ export function init() {
   markLive(["firstrun", "fr-next", "fr-skip", "fr-tour", "fr-way", "fr-recs", "fr-tmpl", "welcome-x"]);
   on("firstrun", () => startFirst());
   on("fr-next", () => go(F.step + 1));
-  on("fr-way", () => go(3));
+  on("fr-way", () => practice());
   on("fr-skip", () => close());
   on("fr-tour", () => { close(); run("tour"); });
   on("fr-recs", () => recommend());

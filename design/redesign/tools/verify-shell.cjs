@@ -196,14 +196,18 @@ async function firstRun(page) {
   await page.click('.first [data-act="fr-next"]');
   check("fr-next", await page.isVisible("text=How should Branch think?"), "next screen");
   await page.click('.first [data-act="fr-way"]');
-  check("fr-way (practice)", await page.isVisible("text=Connect your accounts"), "Practice first goes on to the accounts the engine has");
+  const done = await until(async () => (await api("state")).onboarding.done === true);
+  check("fr-way (practice)", !!done && !!(await page.waitForSelector("text=Connect your accounts", { timeout: 5000 }).catch(() => null)), "GET /api/state onboarding.done=true; goes on to the accounts the engine has");
   await page.click('.first [data-act="fr-next"]');
   await page.click('.first [data-act="fr-next"]');
   await page.check("#fr-gw");
+  await page.check("#fr-upd");
   await page.click('.first [data-act="fr-recs"]');
   const gw = await until(async () => (await api("never-break")).mode === "on");
-  check("fr-recs", !!gw, "GET /api/never-break mode=on");
+  const upd = await until(async () => (await api("comfort")).values.notify.autoUpdate === "install");
+  check("fr-recs", !!gw && !!upd, "GET /api/never-break mode=on; GET /api/comfort values.notify.autoUpdate=install");
   await api("never-break", { mode: "off" });
+  await api("comfort", { card: "notify", values: { autoUpdate: "off" } });
   await page.click('.first [data-act="fr-tmpl"][data-i="2"]');
   const made = await until(async () => (await api("trunks")).trunks.some((t) => t.name === "Researcher"));
   const allSet = await page.waitForSelector("text=All set.", { timeout: 15000 }).catch(() => null);
@@ -227,7 +231,8 @@ async function setupLook(page) {
   const plan = await until(async () => (await api("conversation-mode/settings")).settings.newConversation === "plan");
   await page.click('[data-act="ob15"][data-k="look"][data-v="light"]');
   const light = await until(async () => (await api("state")).preferences.appearance === "daylight");
-  check("ob15", !!plan && !!light, "GET /api/conversation-mode/settings newConversation=plan; GET /api/state preferences.appearance=daylight");
+  check("ob15-auto (greyed)", (await page.getAttribute('[data-act="ob15-auto"]', "aria-disabled")) === "true", "Auto, which loosens approvals, stays greyed (security)");
+  check("ob15", !!plan && !!light,"GET /api/conversation-mode/settings newConversation=plan; GET /api/state preferences.appearance=daylight");
   await page.click('[data-act="ob-close"]');
 }
 
