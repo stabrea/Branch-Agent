@@ -12,7 +12,7 @@ import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { askerOf, runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
 import { personalHold } from "./personal/guard.js"; // R17-C integration review
-import { settingsHold, settingsPreview } from "./settings-kit/tools.js";
+import { settingsHold, settingsPreview, settingsToolNames } from "./settings-kit/tools.js";
 import { conversationCarrier, outsideSourceOf, type OutsideSource } from "./outside-origin.js"; // mac7/outside-resume
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
@@ -3102,7 +3102,10 @@ ${run.output.slice(0, 6000)}`;
     // A saved password or key can end up inside a command the assistant wants to run. The question
     // is shown on screen and kept in memory, so take the secrets back out here, once, for everyone.
     const label = this.hideSecrets(about.label), target = this.hideSecrets(about.target);
-    const question = about.question ? this.hideSecrets(about.question) : approvalQuestion(label, target);
+    // Dogfood E2: a change to Branch's own settings already says each setting's before and after in words (Q50), so
+    // the question leaves out the same change written as setting ids ("workspace-editor.mode → on").
+    const said = (settingsToolNames as readonly string[]).includes(about.tool);
+    const question = about.question ? this.hideSecrets(about.question) : approvalQuestion(label, said ? "" : target);
     const sessionId = this.sessionOf(context);
     // A conversation can genuinely stop on more than one thing at once, so the question joins the
     // list rather than taking the place of whatever was already there. Only when the list is full
