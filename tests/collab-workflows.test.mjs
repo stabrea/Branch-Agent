@@ -327,6 +327,23 @@ test("the owner's yes can be kept as a standing rule, and one workflow's yes sta
     "the standing rule covers the next workflow too");
 });
 
+// Q219 (NAS 6b600b4): with the approval rules full and only the owner's refusals and questions to make room with, an
+// "always" given to carry a workflow on is not kept: the workflow still carries on, and the answer says so.
+test("with the approval rules full, a workflow's always holds for that workflow only, and the answer says so", async (t) => {
+  const { app, call } = await served(t);
+  const own = Array.from({ length: 299 }, (_, i) => ({ tool: `helper.t${i}`, match: "*", decision: "deny", remember: "always" }));
+  savePolicy(app.store, "local", { rules: [{ tool: "memory.put", decision: "ask" }, ...own] });
+  const full = readPolicy(app.store, "local").rules;
+  assert.equal(full.length, 300);
+  const first = keepsANote(app, "First");
+  await app.workflows.run("local", first.id);
+  const carried = await call(`/api/workflows/${first.id}/resume`, { remember: "always" });
+  assert.equal(carried.body.status, "completed", "it holds for this workflow");
+  assert.match(carried.body.standingNote ?? "", /rules are full \(300\)/);
+  assert.deepEqual(readPolicy(app.store, "local").rules, full, "no rule was saved, and none of the owner's was dropped");
+  assert.equal((await app.workflows.run("local", keepsANote(app, "Second").id)).status, "waiting_approval", "the next one still asks");
+});
+
 test("a yes remembered for one workflow only does not cover the next one", async (t) => {
   const { app, call } = await served(t);
   savePolicy(app.store, "local", { rules: [{ tool: "memory.put", decision: "ask" }] });
