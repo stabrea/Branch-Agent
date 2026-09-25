@@ -10,7 +10,13 @@ import { startServer } from "../dist/server.js";
 
 async function fixture(t, viewport = { width: 1440, height: 950 }, { everything = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-composer-parity-"));
-  const provider = { name: "sample-model", async complete() { return { content: "Done.", toolCalls: [] }; } };
+  /* Writes a file when a task is asked to "write <name>" (so a question can arrive while someone types), else answers. */
+  const provider = { name: "sample-model", async complete(request) {
+    const last = request.messages.at(-1);
+    const named = last?.role === "user" && /^write (\S+)/.exec(String(last.content));
+    return named ? { content: "", toolCalls: [{ id: `w${Date.now()}`, name: "files.write", arguments: JSON.stringify({ path: named[1], content: "x" }) }] }
+      : { content: "Done.", toolCalls: [] };
+  } };
   const app = await createBranch({
     workspace: join(root, "workspace"),
     dataDir: join(root, "data"),
@@ -64,7 +70,7 @@ async function newShape(page) {
     return {
       form: box("#composer"), plus: box('#composer [data-act="plusmenu"]'), prompt: box("#prompt"), mode: box('#composer [data-act="modemenu2"]'),
       model: box('#composer [data-act="modelmenu2"]'), send: box("#send"),
-      modelWords: document.querySelector('#composer [data-act="modelmenu2"]')?.textContent.trim() ?? "",
+      modelWords: document.querySelector('#composer [data-act="modelmenu2"] .lbl')?.textContent.trim() ?? "",
       viewportWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth,
     };
   });
@@ -137,39 +143,74 @@ for (const everything of [false, true]) {
   });
 }
 
-// Redesign: Coming soon (modelmenu2), checked at afa6ad94.
-test.skip("the model chip opens a real model picker without leaving the conversation", async (t) => {
+/* Redesign: the model chip is [data-act="modelmenu2"] (public/app/chat/chips.js), its menu the prototype's
+   POPS.modelmenu2: "Which model answers", one row per connection (name, then model), the Thinking row when the model
+   takes one, and "Accounts and order…" (the old "Manage models…" and "Workspace default" rows are replaced by the new
+   window). What each pick chose is read from the engine; what the chip says is checked last. */
+test("the model chip opens a real model picker without leaving the conversation", async (t) => {
   const page = await fixture(t);
-  await page.locator("#lx-model-chip").click();
-  const menu = page.locator("#lx-model-menu");
+  const chip = page.locator('#composer [data-act="modelmenu2"]');
+  const menu = page.locator("#app > .pop");
+  const rows = () => menu.locator('[data-act="pick-model"]').evaluateAll((nodes) => nodes.map((n) => `${n.querySelector(".mi-t").textContent.trim()} · ${n.querySelector(".mi-s").textContent.trim()}`));
+  const said = [];
+  await chip.click();
   await menu.waitFor({ state: "visible" });
-  assert.deepEqual(await menu.locator('[role="menuitemradio"]').allInnerTexts(), [
-    "Default connection · configured", "Alternate connection · other-model",
-  ]);
-  assert.equal(await menu.getByRole("menuitem", { name: "Manage models…" }).isVisible(), true);
-  await menu.locator('[role="menuitemradio"]').first().click();
-  await menu.waitFor({ state: "hidden" });
-  assert.equal(await page.locator("#workspace").isVisible(), true);
-  assert.equal(await page.locator("#lx-model-chip").innerText(), "configured");
+  assert.deepEqual(await rows(), ["Default connection · configured", "Alternate connection · other-model"]);
+  assert.equal(await menu.getByRole("menuitem", { name: /Accounts and order/ }).isVisible(), true);
+  await menu.locator('[data-act="pick-model"]').first().click();
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#conversation").isVisible(), true, "the conversation is still what is shown");
+  said.push((await chip.locator(".lbl").innerText()).trim());
   await page.locator("#prompt").fill("Start a conversation");
   await page.locator("#send").click();
-  await page.locator(".message.assistant").waitFor({ timeout: 30_000 });
-  await page.locator("#lx-model-chip").click();
-  assert.deepEqual(await menu.locator('[role="menuitemradio"]').allInnerTexts(), [
-    "Workspace default", "Default connection · configured", "Alternate connection · other-model",
-  ]);
-  await menu.locator('[role="menuitemradio"]').nth(2).click();
-  await menu.waitFor({ state: "hidden" });
-  await page.waitForFunction(() => document.querySelector("#lx-model-chip")?.textContent.trim() === "other-model");
+  await page.locator("#conversation .b .txt").waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => !document.getElementById("send").disabled);
+  const sessionId = await page.locator('#side [data-act="chat"][aria-current="true"]').getAttribute("data-id");
+  const model = () => page.evaluate(async (id) => (await (await fetch(`/api/sessions/${id}/model`, {
+    headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } })).json()).preset, sessionId);
+  await chip.click();
+  await menu.waitFor({ state: "visible" });
+  assert.deepEqual(await rows(), ["Default connection · configured", "Alternate connection · other-model"]);
+  await menu.locator('[data-act="pick-model"]').nth(1).click();
+  await page.waitForFunction(async (id) => (await (await fetch(`/api/sessions/${id}/model`, {
+    headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } })).json()).preset === "alternate", sessionId, { timeout: 10_000 });
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(4_000);
-  assert.equal(await page.locator("#lx-model-chip").innerText(), "other-model", "refresh keeps this conversation's model");
-  await page.locator("#lx-model-chip").click();
-  await menu.locator('[role="menuitemradio"]').first().click();
-  await menu.waitFor({ state: "hidden" });
-  await page.waitForFunction(() => document.querySelector("#lx-model-chip")?.textContent.trim() === "configured");
+  assert.equal(await model(), "alternate", "refresh keeps this conversation's model");
+  said.push((await chip.locator(".lbl").innerText()).trim());
+  await chip.click();
+  await menu.locator('[data-act="pick-model"]').first().click();
+  await page.waitForFunction(async (id) => (await (await fetch(`/api/sessions/${id}/model`, {
+    headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token") } })).json()).preset === "default", sessionId, { timeout: 10_000 });
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(600);
+  said.push((await chip.locator(".lbl").innerText()).trim());
+  assert.deepEqual(said, ["configured", "other-model", "configured"], "the chip names the model, not the connection");
 });
 
-// Redesign: Coming soon (plusmenu), checked at afa6ad94; the calm/full split is replaced by the new window (one window).
+/* Redesign: the + menu is the prototype's POPS.plusmenu (public/app/chat/plus.js). "Temporary conversation" is a switch
+   in it (#pm-temp) that the next new conversation carries (POST /api/run temporary); "Ask me questions first" (#pm-ask,
+   sw:askqs) is Coming soon, checked at 4460a085, so only Temporary is checked here. The calm/full split is replaced by
+   the new window (one window), so the full variant stays skipped. */
+test("the plus menu changes the real conversation choices in the calm window (the new window)", async (t) => {
+  const page = await fixture(t);
+  const plus = page.locator('#composer [data-act="plusmenu"]');
+  const menu = page.locator("#app > .pop");
+  await plus.click();
+  await menu.waitFor({ state: "visible" });
+  assert.equal(await menu.locator("#pm-ask").getAttribute("aria-disabled"), "true", "control: Ask me questions first is still greyed");
+  await menu.getByRole("checkbox", { name: "Temporary conversation", exact: true }).check();
+  await page.keyboard.press("Escape");
+  await plus.click();
+  assert.equal(await menu.getByRole("checkbox", { name: "Temporary conversation", exact: true }).isChecked(), true, "the menu shows the real choice");
+  await page.keyboard.press("Escape");
+  const sent = page.waitForRequest((request) => request.url().endsWith("/api/run"));
+  await page.locator("#prompt").fill("Forget this afterwards");
+  await page.locator("#send").click();
+  assert.equal((await sent).postDataJSON().temporary, true, "the new conversation is started as a temporary one");
+});
+
+// Redesign: replaced by the new window (the calm and full windows are one window); the calm variant is ported above.
 for (const everything of [false, true]) {
   test.skip(`the plus menu changes the real conversation choices in the ${everything ? "full" : "calm"} window`, async (t) => {
     const page = await fixture(t, undefined, { everything });
@@ -185,7 +226,7 @@ for (const everything of [false, true]) {
   });
 }
 
-// Redesign: Coming soon (plusmenu, where "Ask me questions first" lives), checked at afa6ad94.
+// Redesign: Coming soon (sw:askqs, "Ask me questions first" in the + menu), checked at 4460a085.
 test.skip("a refresh that began before Ask first changed cannot put the old choice back", async (t) => {
   const page = await fixture(t);
   let captured, release;
@@ -210,8 +251,8 @@ test.skip("a refresh that began before Ask first changed cannot put the old choi
   assert.equal(await page.locator("#ask-first-toggle").isChecked(), true, "the stale refresh cannot overwrite the new choice");
 });
 
-/* Redesign: the new window redraws an open conversation every four seconds (it re-reads the questions waiting) and on
-   every engine event, so a conversation is open while typing. */
+/* Redesign: the new window draws an open conversation again when the questions waiting change (it looks every four
+   seconds), so a question arriving from another task while someone types is the redraw here. */
 test("typing, focus and selection survive the three-second redraw", async (t) => {
   const page = await fixture(t);
   const run = page.app.store.createRun("local", "Earlier");
@@ -229,6 +270,8 @@ test("typing, focus and selection survive the three-second redraw", async (t) =>
   const typed = "Compare the three supplier quotes and flag delivery";
   await prompt.fill(typed);
   await prompt.evaluate((node) => node.setSelectionRange(8, 16));
+  await page.evaluate(async () => { await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token"), "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) }); });
+  await page.app.runtime.run({ prompt: "write elsewhere.txt" });
   await page.waitForTimeout(7_000);
   assert.ok(await page.evaluate(() => globalThis.__draws) > 0, "control: the conversation was drawn again meanwhile");
   assert.equal(await prompt.inputValue(), typed);
