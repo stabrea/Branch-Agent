@@ -42,16 +42,35 @@ export function noteFailedInstall(store: Store, owner: string, tag: string, now 
 }
 
 /**
- * Integration review: every task still at work in this house, whoever started it, including one
- * paused on a question (swapping the program would lose it). Counted in full, not from a recent list.
+ * Dogfood F4: how long a question holds an update. The Updates card said "5 tasks are working" for five old
+ * conversations waiting hours for an answer; the owner's rule is that a question left for hours does not hold one.
  */
-export function busyTaskCount(store: Pick<Store, "sqlite">): number {
-  const row = store.sqlite.prepare("SELECT COUNT(*) AS n FROM tasks WHERE status IN ('running','needs_input')").get();
-  return Number(row?.n ?? 0);
+export const questionHoldsUpdateMs = 60 * 60 * 1000;
+export interface BusyTasks {
+  /** Tasks working now. */
+  working: number;
+  /** Tasks stopped on a question asked within the last hour: swapping the program would lose it, so they wait too. */
+  asking: number;
+}
+/**
+ * Integration review: every task still at work in this house, whoever started it, counted in full, not from a recent
+ * list. Dogfood F4: a task stopped on its question counts only while the question is newer than an hour.
+ */
+export function busyTasks(store: Pick<Store, "sqlite">, now = Date.now()): BusyTasks {
+  const count = (sql: string, ...args: string[]): number => Number(store.sqlite.prepare(sql).get(...args)?.n ?? 0);
+  return {
+    working: count("SELECT COUNT(*) AS n FROM tasks WHERE status='running'"),
+    asking: count("SELECT COUNT(*) AS n FROM tasks WHERE status='needs_input' AND updated_at >= ?", new Date(now - questionHoldsUpdateMs).toISOString()),
+  };
+}
+/** The tasks that hold an update: those working, and those whose question is still fresh. */
+export function busyTaskCount(store: Pick<Store, "sqlite">, now = Date.now()): number {
+  const busy = busyTasks(store, now);
+  return busy.working + busy.asking;
 }
 
 export interface PlanFacts {
-  /** Tasks still working or waiting for an answer; an install never starts while one is. */
+  /** Tasks still working, or waiting on a question asked within the hour (dogfood F4); an install never starts while one is. */
   busyTasks: number;
   /** What the updater last said: "available" means a newer version is known. */
   updaterPhase?: string | undefined;

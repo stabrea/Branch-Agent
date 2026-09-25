@@ -10,7 +10,7 @@ import {
   shortcutDefaults, statusItems, type ComfortCard,
 } from "./settings.js";
 import { checkCertificate, validateNetwork, type OutboundNetwork } from "./network.js";
-import { busyTaskCount, noteFailedInstall, noteUpdateCheck, updatePlan } from "./auto-update.js";
+import { busyTaskCount, busyTasks as countBusy, noteFailedInstall, noteUpdateCheck, updatePlan } from "./auto-update.js";
 import { sensitiveBrowserTools } from "./browser-safety.js";
 import { byCard, inCatalogue, recordedWrite } from "../settings-kit/recorded-write.js"; // Q48
 
@@ -142,9 +142,11 @@ function plan(app: ComfortApp, body: unknown) {
   if (input.checked) noteUpdateCheck(store, owner);
   // A failed install is remembered, and said once, so the automatic path does not try that release again by itself.
   const tell = input.failedTag ? noteFailedInstall(store, owner, input.failedTag) : false;
-  const busyTasks = busyTaskCount(store);
+  // Dogfood F4: the window words working tasks and waiting questions apart.
+  const { working: workingTasks, asking: askingTasks } = countBusy(store);
+  const busyTasks = workingTasks + askingTasks;
   // The Update button asks this too: tasks working now are offered a wait before anything closes.
-  return { ...updatePlan(store, owner, { busyTasks, updaterPhase: input.updaterPhase, updaterTag: input.updaterTag }), busyTasks,
+  return { ...updatePlan(store, owner, { busyTasks, updaterPhase: input.updaterPhase, updaterTag: input.updaterTag }), busyTasks, workingTasks, askingTasks,
     ...(tell ? { failed: "The newest version did not install here, so Branch will not try it again by itself. It tries the next one as soon as it lands; Update in Settings tries this one again now." } : {}) };
 }
 
