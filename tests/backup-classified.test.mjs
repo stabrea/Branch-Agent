@@ -29,7 +29,7 @@ function scan() {
       if (m[2] !== undefined) ids.add(m[2]);
       else if (m[3] !== undefined) prefixes.add(m[3]);
       else if (consts.has(m[4])) ids.add(consts.get(m[4]));
-      else computed.add(`src/${file.slice(src.length)}: ${m[4]}`);
+      else computed.add(`src/${file.slice(src.length).replaceAll("\\", "/")}: ${m[4]}`); // the same names on Windows
     }
   }
   return { ids, prefixes, computed };
