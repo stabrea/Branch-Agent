@@ -93,8 +93,10 @@ function paintModelMenu(menu, close) {
  */
 function thinkingWord(models, active) {
   const select = $("session-reasoning");
-  const level = !$("model-controls")?.hidden && select?.value ? select.value : active?.reasoning;
   const preset = models?.presets?.find((one) => one.id === (active?.presetId ?? active?.id));
+  // In a conversation the server's own answer (`session.effective`); before one, the level a new one starts at.
+  const inConversation = !$("model-controls")?.hidden;
+  const level = inConversation && select?.value ? select.value : inConversation ? active?.reasoning : preset?.startsAt ?? active?.reasoning;
   if (!level || !preset?.thinking?.levels?.includes(level)) return "";
   // The short word ("Balanced"), not the list's longer wording for a model that thinks by budget, or the note on
   // a level the model does not take: the chip is a name, and it is cut at its width (NAS 62efb38).

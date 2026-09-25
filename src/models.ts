@@ -252,6 +252,9 @@ export class ModelRouter {
       presets: [...this.presets.values()].map(preset => ({
         id: preset.id, name: preset.name, provider: preset.provider.name, model: preset.model,
         reasoning: preset.reasoning ?? null,
+        // Dogfood B17 (NAS d660ff8): the level a new conversation on this connection starts at, worked out as `plan` does
+        // for the first reply (this connection's own default, then Settings › Models › Thinking, then the model's own).
+        startsAt: effortFor(this.store, owner, preset.id) ?? settings.reasoning ?? preset.reasoning ?? null,
         // phase2/accounts (#22): the thinking levels this model really takes (src/thinking-levels.ts).
         thinking: thinkingLevels(preset.provider.name, preset.model),
         local: presetRunsLocally(preset),
