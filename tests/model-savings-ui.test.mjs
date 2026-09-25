@@ -151,7 +151,7 @@ test("the French words are real, and the cards fit at 400 px", async (t) => {
 
 /** Settings › Data & usage, opened as a person opens it (DG-101: the chart lives there now, not under a meter). */
 async function openDataAndUsage(page) {
-  await page.keyboard.press("Control+Comma");
+  await page.keyboard.press("ControlOrMeta+Comma");
   await page.locator("#settings-window").waitFor({ state: "visible" });
   await page.locator('.lx-settings-link[data-page="data"]').click();
   await page.locator("#usage-left-card").waitFor({ state: "attached" });
