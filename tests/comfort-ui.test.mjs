@@ -267,7 +267,9 @@ test("R17-S15 on a Mac: Cmd+B folds the side list as shipped, and Control+B is a
   });
   const folds = () => page.evaluate(() => globalThis.__folds);
   let before = await folds();
-  await page.keyboard.press("ControlOrMeta+b");
+  // The Control key itself, on purpose, in all three presses: on a Mac it is not the shortcut key, and ControlOrMeta
+  // would press Cmd here (a6a9c148 swapped them; this test is the one that must press Control).
+  await page.keyboard.press("Control+b");
   assert.equal(await folds(), before, "Control+B moves the cursor on a Mac; it does not fold the list");
   await page.keyboard.press("Meta+b");
   assert.equal(await folds(), before + 1, "Cmd+B does");
@@ -276,7 +278,7 @@ test("R17-S15 on a Mac: Cmd+B folds the side list as shipped, and Control+B is a
   assert.equal(await page.locator("#comfort-sideList").inputValue(), "Cmd+B", "shown as the key it is");
   for (let tries = 0; tries < 5 && await page.locator("#comfort-sideList").inputValue() !== "Control+B"; tries++) {
     await page.locator("#comfort-sideList").focus();
-    await page.keyboard.press("ControlOrMeta+b");
+    await page.keyboard.press("Control+b");
   }
   assert.equal(await page.locator("#comfort-sideList").inputValue(), "Control+B");
   await page.locator("#comfort-keys-card").getByRole("button", { name: "Save", exact: true }).click();
@@ -287,7 +289,7 @@ test("R17-S15 on a Mac: Cmd+B folds the side list as shipped, and Control+B is a
   before = await folds();
   await page.keyboard.press("Meta+b");
   assert.equal(await folds(), before, "Cmd+B no longer folds it");
-  await page.keyboard.press("ControlOrMeta+b");
+  await page.keyboard.press("Control+b");
   assert.equal(await folds(), before + 1, "the owner's Control+B does");
   assert.deepEqual(errors, []);
 });
