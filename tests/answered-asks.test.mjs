@@ -235,3 +235,35 @@ test("a \"Yes, just now\" is used only by a task for whoever asked: not the owne
   const again = await underShortLivedKey(() => f.app.runtime.run({ prompt: "write r.txt", sessionId: keyed.sessionId }), { keyId: "room-key" });
   assert.equal(again.status, "completed", "the key's own next turn still uses the yes it was given");
 });
+
+// NAS bd6cf44: the window said "It carries on" when nothing did, and no test reached the carry-on's catch.
+test("the answer says what it did to the task: carrying on, still waiting, or settled", async (t) => {
+  const f = await fixture(t);
+  t.after(() => discardTemp(f.root));
+  const ask = async (prompt, decision = "allow") => {
+    const run = await f.app.runtime.run({ prompt });
+    const asked = f.app.runtime.approvals.questionFor(run.sessionId);
+    return { run, answer: () => f.call("policy/approve", { sessionId: run.sessionId, decision, remember: "never", fingerprint: asked.fingerprint, carryOn: true }) };
+  };
+  const one = await ask("write w1.txt");
+  assert.equal((await one.answer()).body.task, "carrying-on");
+  const older = await ask("write w2.txt");
+  f.app.store.finish(f.app.store.createRun(f.app.runtime.owner, "tidy my notes", older.run.sessionId).id, "needs_input", "Shall I?");
+  assert.equal((await older.answer()).body.task, "still-waiting", "a newer task there: nothing started, and it says so");
+  const no = await ask("write w3.txt", "deny");
+  assert.equal((await no.answer()).body.task, "settled");
+});
+
+test("a carry-on refused as it starts leaves the task waiting and writes down why (the monthly budget)", async (t) => {
+  const f = await fixture(t);
+  t.after(() => discardTemp(f.root));
+  const first = await f.app.runtime.run({ prompt: "write b.txt" });
+  const asked = f.app.runtime.approvals.questionFor(first.sessionId);
+  f.app.store.save("settings", f.app.runtime.owner, "usage_budget", { pauseAtBudget: true, maxMonthlyTokens: 0 });
+  assert.equal((await f.call("policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true })).status, 200);
+  assert.ok(await settled(() => f.app.store.events(first.id).some((event) => event.kind === "run.carry_on_refused")), "why is written down");
+  const refused = f.app.store.events(first.id).find((event) => event.kind === "run.carry_on_refused");
+  assert.match(String(refused.data.reason), /budget/i);
+  assert.equal(f.app.store.run(first.id).status, "needs_input", "the task still waits, not marked done");
+  assert.equal(f.runsIn(first.sessionId).length, 1, "nothing ran");
+});

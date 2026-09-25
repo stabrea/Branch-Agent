@@ -918,9 +918,11 @@ export const carryOnWords = "Yes, go ahead.";
  * chat's or a schedule's task, which carries on from where it came) ends its wait. A task with another question
  * still waiting is left for that one.
  */
-function settleAsked(app: Branch, asked: { runId: string; sessionId: string; source: string }, decision: "allow" | "deny"): void {
+/** What an answer did to the task that asked (NAS bd6cf44): the window says so, rather than always "it carries on". */
+type Settled = "carrying-on" | "still-waiting" | "settled";
+function settleAsked(app: Branch, asked: { runId: string; sessionId: string; source: string }, decision: "allow" | "deny"): Settled {
   const run = app.store.run(asked.runId);
-  if (!run || run.status !== "needs_input" || app.runtime.approvals.waiting(asked.sessionId).length) return;
+  if (!run || run.status !== "needs_input" || app.runtime.approvals.waiting(asked.sessionId).length) return "still-waiting";
   // Only the owner's own task, answered by the owner at the window: never a key's (it records source "owner" too,
   // and a carry-on would lose its key mark), a household person's, or one that came from elsewhere (NAS 618407c).
   const origin = runOrigin(app.store, run.id);
@@ -932,16 +934,20 @@ function settleAsked(app: Branch, asked: { runId: string; sessionId: string; sou
     // and the owner answers the plan, then carries on. So too for an agreed plan stopped at a check-back (NAS dead082):
     // its "go ahead" would clear the next step. Only the plan's own task asking carries on (pausePlan keeps its runId).
     const plan = app.runtime.orchestration.plan(run.sessionId);
-    if (plan && (!plan.approved || (plan.waitingOnOwner && plan.runId !== run.id))) return;
+    if (plan && (!plan.approved || (plan.waitingOnOwner && plan.runId !== run.id))) return "still-waiting";
     // NAS 166fbe3: only the conversation's newest task carries on. A newer one there may have stopped on its own
     // question (`user.ask` takes the owner's next message as the answer), and "Yes, go ahead." would answer it.
-    if (app.store.newestIn(run.owner, run.sessionId)?.id !== run.id) return;
+    if (app.store.newestIn(run.owner, run.sessionId)?.id !== run.id) return "still-waiting";
     // The conversation busy with another task: the carry-on is not started, and this task keeps waiting (the one-time
     // yes is still there for the owner's next message), rather than being marked done with its work undone.
-    void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined }).catch(() => undefined);
-    return;
+    // A carry-on refused as it starts (the monthly budget, the owner's inlet filter, a closing app) leaves the task waiting
+    // and writes down why, where the task's own record shows it (NAS bd6cf44).
+    void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined })
+      .catch((error: unknown) => app.store.event(run.id, "run.carry_on_refused", { reason: errorText(error).slice(0, 300) }));
+    return "carrying-on";
   }
   app.store.finish(run.id, decision === "allow" ? "completed" : "cancelled", run.output);
+  return "settled";
 }
 function attention(app: Branch) {
   type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; canContinue?: true; who?: string; room?: string; open?: string };
@@ -1801,7 +1807,7 @@ async function api(
     if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
       throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
     const answered = app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
-    if (asked && input.carryOn) settleAsked(app, asked, input.decision);
+    if (asked && input.carryOn) return { ...answered, task: settleAsked(app, asked, input.decision) };
     return answered;
   }
   if (request.method === "GET" && path === "/api/governance")
