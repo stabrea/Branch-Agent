@@ -56,7 +56,8 @@ function fieldsOf(data: string, scrub: (text: string) => string): { fields: Held
       for (const [key, inner] of entries) walk(inner, path ? (key.startsWith("[") ? `${path}${key}` : `${path}.${key}`) : key, depth + 1);
       return;
     }
-    const text = typeof value === "string" ? value : JSON.stringify(value) ?? "";
+    // A value deeper than the walk is shown as JSON; a secret-named key inside it is hidden too (NAS ab36b62).
+    const text = typeof value === "string" ? value : JSON.stringify(value, (key, inner) => (key && secretName.test(key) ? "(hidden)" : inner)) ?? "";
     const shown = secretName.test(path) ? "(hidden)" : credentialInUrl(text) ? "(hidden: the address carries a sign-in)" : scrub(text);
     all.push({ field: path || "(value)", value: shown.length > maxValueShown ? `${shown.slice(0, maxValueShown)}… (${shown.length - maxValueShown} more characters)` : shown });
   };

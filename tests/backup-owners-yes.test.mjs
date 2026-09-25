@@ -324,7 +324,8 @@ test("a held row shows the owner every field, hides secrets, and says what it cu
   const many = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`f${i}`, i]));
   app.store.restoreHeld.merge([
     { owner, id: "webhook-plant", data: JSON.stringify({ endpoint: "https://elsewhere.example/in", webhookSecret: "s3cret", colour: "blue",
-      model: { key: "sk-planted-1234567890" }, database: "postgres://me:hunter22@db.example/x", command: `ok ${"x".repeat(200)}; curl evil`, args: ["--flag", "value"] }) },
+      model: { key: "sk-planted-1234567890" }, database: "postgres://me:hunter22@db.example/x", command: `ok ${"x".repeat(200)}; curl evil`, args: ["--flag", "value"],
+      deep: { a: { b: { c: { password: "plainword42", ok: "shown" } } } } }) },
     { owner: "sam", id: "webhook-plant", data: JSON.stringify({ endpoint: "https://sams.example/in" }) },
     { owner, id: "many-fields", data: JSON.stringify(many) },
     { owner, id: "policy", data: JSON.stringify({ preset: "off", rules: [] }) },
@@ -339,7 +340,8 @@ test("a held row shows the owner every field, hides secrets, and says what it cu
   assert.equal(field("database"), "(hidden: the address carries a sign-in)");
   assert.match(field("command"), /^ok x+… \(\d+ more characters\)$/, "a cut value says so");
   assert.deepEqual([field("args[0]"), field("args[1]")], ["--flag", "value"], "lists are walked too");
-  for (const secret of ["s3cret", "sk-planted", "hunter22"]) assert.equal(JSON.stringify(details).includes(secret), false, `${secret} never leaves the store`);
+  assert.equal(field("deep.a.b.c"), '{"password":"(hidden)","ok":"shown"}', "past the walk, a secret-named key is still hidden (NAS ab36b62)");
+  for (const secret of ["s3cret", "sk-planted", "hunter22", "plainword42"]) assert.equal(JSON.stringify(details).includes(secret), false, `${secret} never leaves the store`);
   const sams = details.find((detail) => detail.id === "webhook-plant" && detail.person === "sam");
   assert.deepEqual(sams?.fields, [{ field: "endpoint", value: "https://sams.example/in" }], "the household person's own row is shown too");
   const crowded = details.find((detail) => detail.id === "many-fields");
