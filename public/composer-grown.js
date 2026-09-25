@@ -87,13 +87,18 @@ function paintModelMenu(menu, close) {
     element("hr", "lx-menu-rule"), manage);
 }
 
-/** The conversation's own thinking level, in the chip beside the model when it is not the workspace's default. */
-function thinkingWord() {
+/**
+ * The thinking level in use, in the chip beside the model: the conversation's own, or else the one it runs on by
+ * default (dogfood B17: "gpt-6-sol" alone did not say it thinks at Balanced). Only a level the model takes is named.
+ */
+function thinkingWord(models, active) {
   const select = $("session-reasoning");
-  if ($("model-controls")?.hidden || !select?.value) return "";
+  const level = !$("model-controls")?.hidden && select?.value ? select.value : active?.reasoning;
+  const preset = models?.presets?.find((one) => one.id === (active?.presetId ?? active?.id));
+  if (!level || !preset?.thinking?.levels?.includes(level)) return "";
   // The short word ("Balanced"), not the list's longer wording for a model that thinks by budget, or the note on
   // a level the model does not take: the chip is a name, and it is cut at its width (NAS 62efb38).
-  return say(`thinking.effort.${select.value}`, select.selectedOptions[0]?.textContent.trim() ?? "");
+  return say(`thinking.effort.${level}`, level);
 }
 
 function installModelPicker() {
@@ -120,7 +125,7 @@ function installModelPicker() {
   const sync = () => {
     const active = activeModel(models, session);
     const practice = active?.provider === "offline-demo-fixture";
-    const thinking = practice ? "" : thinkingWord();
+    const thinking = practice ? "" : thinkingWord(models, active);
     name.textContent = (practice ? say("composer.practiceModel", "Practice") : active?.model || say("composer.noModel", "Connect a model"))
       + (thinking ? ` · ${thinking}` : "");
     chip.setAttribute("aria-label", `${say("composer.changeModel", "Change the model")}: ${name.textContent}`);
