@@ -9,6 +9,7 @@ import { greyOut, markLive } from "../core/features.js";
 import { head as chatHead, openConversation, startConversation } from "../chat/chat.js";
 import { initExtras } from "./extras.js";
 import { initUsage } from "./usage.js";
+import { api } from "../core/api.js";
 
 const WIDE = matchMedia("(min-width: 761px)");
 const PLACES = [["overview", "home", "Overview"], ["inbox", "inbox", "Inbox"], ["automations", "clock", "Automations"],
@@ -38,9 +39,31 @@ function row(s) {
     <p>${esc(s.lastMessage ?? "")}</p></button>`;
 }
 
+/* Search matches a conversation's title, its Trunk's name, or words inside it (GET /api/search, read as the person types). */
+const found = { q: "", ids: new Set() };
+let searchTimer;
+function searchInside(q) {
+  clearTimeout(searchTimer);
+  if (!q.trim()) { found.q = ""; found.ids = new Set(); return; }
+  searchTimer = setTimeout(async () => {
+    const answer = await api("search?q=" + encodeURIComponent(q.trim())).catch(() => null);
+    const ids = (answer?.results ?? []).filter((r) => r.kind === "conversation").map((r) => String(r.link ?? "").split("/").pop());
+    if (q !== query) return;
+    Object.assign(found, { q, ids: new Set(ids) });
+    const box = $("#side-q"), typing = document.activeElement === box, from = box?.selectionStart, to = box?.selectionEnd;
+    renderNow();
+    if (typing) { const again = $("#side-q"); again?.focus(); again?.setSelectionRange(from, to); }
+  }, 200);
+}
+function matches(s, q) {
+  if (!q) return true;
+  const trunk = E.trunks.find((t) => t.id === s.trunkId || t.id === s.trunk?.id);
+  return sessionTitle(s).toLowerCase().includes(q) || (trunk?.name ?? "").toLowerCase().includes(q) || (found.q === query && found.ids.has(sessionId(s)));
+}
+
 function list() {
   const q = query.toLowerCase();
-  const rows = E.sessions.filter((s) => !q || sessionTitle(s).toLowerCase().includes(q));
+  const rows = E.sessions.filter((s) => matches(s, q));
   const pinned = rows.filter((s) => s.pinned);
   const recent = rows.filter((s) => !s.pinned);
   return `<nav class="list" aria-label="Conversations">
@@ -112,7 +135,7 @@ export function initShell() {
   on("theme-flip", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
   on("side-toggle", () => { document.getElementById("app").classList.toggle("side-hidden"); renderNow(); });
   on("guide", (el) => openPop(el, mi("tour", "spark", "Take the tour", "2 min") + mi("whatsnew", "star", "What’s new")));
-  document.addEventListener("input", (e) => { if (e.target.id === "side-q") { query = e.target.value; const pos = e.target.selectionStart; renderNow(); const box = $("#side-q"); box?.focus(); box?.setSelectionRange(pos, pos); } });
+  document.addEventListener("input", (e) => { if (e.target.id === "side-q") { query = e.target.value; searchInside(query); const pos = e.target.selectionStart; renderNow(); const box = $("#side-q"); box?.focus(); box?.setSelectionRange(pos, pos); } });
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#side-q")?.focus(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") { e.preventDefault(); startConversation(); }
