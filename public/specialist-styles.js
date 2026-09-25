@@ -31,9 +31,11 @@ function apply(chosen) {
   } catch { /* half-typed JSON is the person's business; the choice goes in when it parses */ }
 }
 
+let listening = false;
 async function start() {
   const select = $("specialist-style");
-  if (!select) return;
+  // Dogfood B23: before sign-in there is no key to read them with; sign-in calls branchSpecialistStylesReady.
+  if (!select || !sessionStorage.getItem("branch-token")) return;
   try {
     const { styles } = await api("specialist-styles");
     select.replaceChildren();
@@ -44,8 +46,10 @@ async function start() {
       select.append(option);
     }
     describe(styles, select.value);
-    select.addEventListener("change", () => { describe(styles, select.value); apply(select.value); });
+    if (!listening) select.addEventListener("change", () => { describe(styles, select.value); apply(select.value); });
+    listening = true;
   } catch { $("specialist-style-note").textContent = t("specialists.status.stylesUnreadable"); }
 }
 
+globalThis.branchSpecialistStylesReady = () => void start();
 void start();
