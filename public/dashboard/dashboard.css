@@ -1,0 +1,350 @@
+/* The owner's dashboard (public/dashboard): one glass pane over the oak, like the window, with the
+   window's own pieces from layout.css (chips, rows, tabs, buttons) and only the layout added here.
+   Every colour is a token from public/tokens.css, which public/dashboard/look.js fills with the
+   owner's KeepOak theme; tests/dashboard.test.mjs fails if a colour is written down in this file. */
+
+body.db {
+  min-height: 100vh;
+  padding: var(--pane-gap);
+  background: var(--ground);
+  background-image: none;
+  color: var(--text);
+  font-family: var(--body);
+  overflow-x: hidden;
+}
+/* layout.css holds the window's panes back until layout.js has run; this page has no layout.js. */
+body.db > main.db-pane {
+  opacity: 1;
+  animation: none;
+}
+.db-pane {
+  position: relative;
+  z-index: 1;
+  max-width: 1760px;
+  min-height: calc(100vh - 2 * var(--pane-gap));
+  margin: 0 auto;
+  padding: 16px 22px 28px;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--pane-r);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- the head, the map and the title ---------- */
+.db-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.db-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  font-family: var(--display);
+  font-stretch: 76%;
+  font-size: 19px;
+  font-weight: 720;
+}
+.db-brand .brand-icon img {
+  width: 26px;
+  height: 26px;
+}
+.db-spacer {
+  flex: 1 1 auto;
+}
+.db-head-meta {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.db-head a.lx-button,
+.db-card a.lx-button {
+  width: auto;
+  text-decoration: none;
+}
+.db-lockbanner {
+  margin: 12px 0 0;
+  border: 1px solid var(--bad);
+  border-radius: 12px;
+}
+.db-map {
+  display: flex;
+  gap: 2px;
+  margin: 14px 0 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.db-map a.lx-tab {
+  text-decoration: none;
+}
+.db-map a.lx-tab[aria-current="page"] {
+  border-bottom-color: var(--copper);
+  color: var(--text);
+  font-weight: 640;
+}
+.db-intro {
+  margin: 20px 0 16px;
+}
+.db-message {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 12px;
+  background: var(--warn-tint);
+  color: var(--text);
+}
+
+/* ---------- the areas: one column on a phone, up to four on a wall ---------- */
+.db-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.db-area {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.db-stack {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .db-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1400px) {
+  .db-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .db-area-wide {
+    grid-column: span 2;
+  }
+}
+@media (min-width: 2200px) {
+  body.db {
+    font-size: 18px;
+  }
+  .db-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ---------- a card, as on every place in the window ---------- */
+.db .db-card {
+  display: grid;
+  gap: 10px;
+  justify-items: stretch;
+  min-width: 0;
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--well);
+}
+.db .db-card > h2 {
+  margin: 0;
+  font-family: var(--body);
+  font-stretch: normal;
+  font-size: 16px;
+  font-weight: 640;
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+.db .db-card > h2 + p {
+  margin: -4px 0 2px;
+}
+.db .db-card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.db .db-card > a.lx-button,
+.db .db-card > button {
+  justify-self: start;
+}
+.db-narrow {
+  max-width: 560px;
+}
+.db-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.db-quiet {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.db-facts {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 13.5px;
+}
+.db-facts dt {
+  color: var(--text-3);
+}
+.db-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.db .lx-list {
+  margin: 0;
+}
+.db .lx-row-words strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.db .empty-state {
+  padding: 14px 16px;
+}
+.db-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.db-input-row input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+.db-controls-row .lx-button:disabled {
+  cursor: not-allowed;
+}
+.db-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---------- meters and money ---------- */
+.db-meter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+.db-meter {
+  grid-column: 1 / -1;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+.db-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ok);
+}
+.db-meter[data-level="warn"] > span {
+  background: var(--warn);
+}
+.db-meter[data-level="bad"] > span {
+  background: var(--bad);
+}
+.db-figure {
+  font-family: var(--display);
+  font-stretch: 76%;
+  font-size: 30px;
+  font-weight: 720;
+  line-height: 1.05;
+}
+.db-bars {
+  display: grid;
+  gap: 8px;
+}
+.db-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 12px;
+  font-size: 13px;
+}
+.db-bar-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.db-bar-amount {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.db-bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+}
+.db-bar-1 { background: var(--series-1); }
+.db-bar-2 { background: var(--series-2); }
+.db-bar-3 { background: var(--series-3); }
+.db-bar-4 { background: var(--series-4); }
+.db-bar-5 { background: var(--series-5); }
+.db-bar-6 { background: var(--series-6); }
+.db-bar-7 { background: var(--series-7); }
+.db-bar-8 { background: var(--series-8); }
+
+/* ---------- activity ---------- */
+.db-filters {
+  flex-wrap: wrap;
+  justify-self: start;
+  max-width: 100%;
+}
+.db-step[data-kind="tool.failed"],
+.db-step[data-kind="delivery.failed"] {
+  border-color: var(--bad);
+}
+.db-step[data-kind="policy.ask"] {
+  border-color: var(--warn);
+}
+.db .db-steps .lx-empty {
+  text-align: left;
+}
+
+/* ---------- a phone ---------- */
+@media (max-width: 560px) {
+  body.db {
+    padding: 0;
+  }
+  .db-pane {
+    min-height: 100vh;
+    padding: 12px 14px 22px;
+    border: 0;
+    border-radius: 0;
+  }
+  .db-head-meta {
+    order: 5;
+    flex-basis: 100%;
+  }
+  .db-figure {
+    font-size: 26px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .db-meter > span {
+    transition: none;
+  }
+}
+
+/* Wave mac3 (commands): the answer to a typed command keeps its lines but never scrolls the page sideways. */
+.db-command-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0.5rem 0 0;
+  color: var(--text);
+}

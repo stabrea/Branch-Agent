@@ -468,92 +468,37 @@ async function staticFile(
   response: ServerResponse,
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
-    // phase2/delight: the corner (acorn and pet), achievements and your own background.
-    "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
-    "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
+    // The window (public/index.html, public/app.css; its modules and art under /app/ and /art/ are served by exact file).
     "/": ["index.html", "text/html; charset=utf-8"],
-    "/app.js": ["app.js", "text/javascript; charset=utf-8"],
-    "/app.css": ["app.css", "text/css; charset=utf-8"], // redesign: the new window's one stylesheet
-    // mac2/desktop-ui: this computer's own permission switches, and the Keychain list on a Mac.
-    // Wave 8: the composer's live-conversation button and everything behind it.
-    // Help in the app: the owner's handbook, opened in the pane on the right.
-    // FQ-collaboration: the seek-to-comment hook, for a media player screen to wire in.
-    // FQ-surfaces.playback: an inline player for a sound or video file attached to a message.
-    // Bucket 17: the video programs card and the speech plug-ins card.
-    // Bucket 21: the "Building on Branch" and "Flows as files" cards.
-    // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
-    // Wave 9: what it noticed by itself, and the refresh that shows its cost first.
-    // Wave mac5 (local models): the one-click block inside the same card.
-    // mac7/clean-uninstall: the danger zone at the bottom of Settings.
-    // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
-    // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
-    "/pair": ["pair.html", "text/html; charset=utf-8"],
-    "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
-    "/pair.css": ["pair.css", "text/css; charset=utf-8"],
-    // Wave mac3: the owner's dashboard, and the card in Customize → Channels that switches it on.
-    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
-    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
-    // Wave mac3 (commands): the message box's / menu and the commands card.
-    // Bucket 13 (mac4): the task recordings card and the "is Branch keeping up" card.
-    // mac4/bucket-20: the cards for talking to other agents and tools, and ways of working.
-    // Bucket 15: the add-ons card (Customize → Plugins).
-    // phase2/shell: faces, the Trunks strip, the studio, pairing, Overview and People
-    // Wave 7: written-down experiments, under the evaluation card.
-    // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
-    // Batch 20 (wave 7): flows drawn as boxes and arrows under Procedures, and the suggested
-    // better versions of a skill under Skills.
-    // Wave 9: the advisor switch and the two debate bounds.
-    // FQ-collaboration.unified-search: the palette's fetch of GET /api/search, kept out of shell.js.
-    // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
-    // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
-    // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
-    // Wave 8: the Lockdown switch and the shape branched conversations make.
-    // Wave mac2: bringing your chats and memory over from another assistant.
-    // Wave mac2 (guards): the card that asks whether a folder is trusted.
-    // mac3/never-break: the Keep running card and the Telegram setup card.
-    // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
-    // phase2/accounts: thinking levels per model, the Accounts page, the agent files editor.
-    // mac7/connect: the Set up panel for each chat app.
-    // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
-    // Wave mac3 (tool-safety): the card for the second look before an approval.
-    // Wave mac3 (os-sandbox): the card for the wall around programs.
-    // App shell (wave 2): tokens, layout, appearance.
-    "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
-    // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
-    // R17-S-A (understandable settings): the settings kit, descriptions on every control, and first-run offers.
-    // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
-    // mac3/security-check: the security self-check card.
-    // bucket 12: saved prompts (Automations › Procedures) and the skill install record (Customize › Skills).
-    // bucket 19: the page people sign in on, and the owner's card for it (Settings, General).
-    "/people": ["people.html", "text/html; charset=utf-8"],
-    "/people.js": ["people.js", "text/javascript; charset=utf-8"],
-    "/people.css": ["people.css", "text/css; charset=utf-8"],
-    // mac2/fly-core-2: the learning core's card.
-    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
-    // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
-    // mac3/mobile integration: a phone paired in its browser sends its own secret on every request.
-    // Wave 7: what a conversation is allowed to do right now, and the observability screens.
-    // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
-    // Wave 8: artifacts out of a reply, charts drawn in the page, the flow editor, reports, the
-    // to-do list, the log view and the page a local page of the owner's own can include.
-    // The small box a page of the owner's own can include. Nothing on this page imports it.
-    // phase2/everywhere: the window at phone and tablet widths
-    // batch1/controls: single control factory (switches, segmented, dropdowns).
-    // phase2/settings: Settings grown up (groups, levels, search over every setting).
-    // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
-    // phase2/panels: the side panel's tabs, resizable panes, see-through message box, hide anything.
-    // FQ-surfaces.panes: compare topics side by side (public/topic-panes.js).
-    // batch1/controls: switch, segmented, and glass dropdown styling.
-    "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
-    "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
+    "/app.css": ["app.css", "text/css; charset=utf-8"],
+    "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
+    "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
+    "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
+    // The installable web app: its manifest, icons and service worker.
     "/manifest.webmanifest": ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
     "/service-worker.js": ["service-worker.js", "text/javascript; charset=utf-8"],
     "/assets/icon-192.png": ["assets/icon-192.png", "image/png"],
     "/assets/icon-512.png": ["assets/icon-512.png", "image/png"],
     "/assets/icon.svg": ["assets/icon.svg", "image/svg+xml"],
-    "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
-    "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
-    "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
+    "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
+    "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
+    // Pairing a phone in its browser (src/remote), and the page people sign in on (bucket 19); both use the shared tokens.
+    "/pair": ["pair.html", "text/html; charset=utf-8"],
+    "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
+    "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    "/people": ["people.html", "text/html; charset=utf-8"],
+    "/people.js": ["people.js", "text/javascript; charset=utf-8"],
+    "/people.css": ["people.css", "text/css; charset=utf-8"],
+    "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
+    "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
+    "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
+    // Wave mac3: the owner's dashboard (its other files are served by isDashboardFile) and the card that switches it on.
+    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
+    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
+    // One theme's colours under Branch's token names; the engine reads it too (src/terminal-theme.ts, src/achievements.ts).
+    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    // Wave 8: the small box a page of the owner's own can include; served only while the owner has switched it on.
+    "/widget.js": ["widget.js", "text/javascript; charset=utf-8"],
   };
   const asset = Object.hasOwn(assets, path) ? assets[path] : windowFiles().get(path);
   if (!asset) return false;
