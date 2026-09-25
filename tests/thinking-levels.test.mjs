@@ -157,7 +157,9 @@ test("K5 dogfood B9: the model chip carries the thinking level, chosen from its 
   await page.evaluate(() => globalThis.branchRefreshSessionModel());
   await page.waitForFunction(() => document.querySelectorAll("#session-reasoning option").length === 4);
   assert.equal(await page.locator("#model-controls").isVisible(), false, "the row of labelled selects is not drawn");
-  assert.doesNotMatch(await page.locator("#lx-model-chip").innerText(), /·/, "at the workspace's own level the chip names only the model");
+  // Dogfood B17 (the owner): the chip names the level even when it is the default, here the workspace's Thorough.
+  assert.equal((await page.locator("#lx-model-chip").innerText()).trim(), "claude-sonnet-4-5 · Thorough",
+    "at the workspace's own level the chip names that level too");
   const balanced = await page.locator('#session-reasoning option[value="medium"]').innerText();
   await page.locator("#lx-model-chip").click();
   const menu = page.locator("#lx-model-menu");
@@ -170,5 +172,10 @@ test("K5 dogfood B9: the model chip carries the thinking level, chosen from its 
   await page.waitForFunction(() => /· Balanced$/.test(document.getElementById("lx-model-chip")?.innerText.trim() ?? ""));
   assert.equal((await page.locator("#lx-model-chip").innerText()).trim(), "claude-sonnet-4-5 · Balanced",
     "the chip says the model and the short word for how hard it thinks (NAS 62efb38)");
+  // A model that takes no level is never named with one, whatever the default is.
+  await call(`/api/sessions/${sessionId}/model`, { preset: "think-local", reasoning: null });
+  await page.evaluate(() => globalThis.branchRefreshSessionModel());
+  await page.waitForFunction(() => /^llama3\.1:8b/.test(document.getElementById("lx-model-chip")?.innerText.trim() ?? ""));
+  assert.equal((await page.locator("#lx-model-chip").innerText()).trim(), "llama3.1:8b", "no level for a model that takes none");
   assert.deepEqual(errors, []);
 });
