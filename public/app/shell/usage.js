@@ -39,8 +39,22 @@ function updatePop(plan) {
   return `<div class="pt">Branch ${esc(version)}</div><p class="pp">${esc(plan?.reason ?? "")}</p>${mi("install", "check", "Install when nothing is running")}${mi("closepop", "clock", "Remind me tomorrow")}`;
 }
 
+function taskRow(r) {
+  const icon = r.status === "running" ? "spin" : r.status === "needs_input" ? "alert" : "clock";
+  const iconClass = icon === "spin" ? " spin" : "";
+  const name = esc(r.prompt?.split("\n")[0]?.slice(0, 40) || "Task");
+  const status = esc(r.status || "");
+  return `<div class="mi" role="menuitem"><span class="ico">${icon === "spin" ? '<svg class="i s spin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 1 10 10"/></svg>' : icon === "alert" ? '<svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l10 18H2l10-18z" fill="none" stroke="currentColor" stroke-width="2"/><text x="12" y="16" text-anchor="middle" fill="currentColor">!</text></svg>' : '<svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2"/></svg>'}</span><span><span class="mi-t">${name}</span><span class="mi-s">${status}</span></span></div>`;
+}
+
+function tasksPop(activity) {
+  const running = (activity?.runs ?? []).filter(r => r.status === "running" || r.status === "needs_input") || [];
+  return `<div class="ph">Running in the background</div>${running.length ? running.map(taskRow).join("") : '<p class="hint" style="margin:8px 6px;font-size:12px">Nothing running.</p>'}<hr>${mi("bg-new", "plus", "Start something in the background", "<kbd>/bg</kbd>")}`;
+}
+
 export function initUsage() {
-  markLive(["usagepop", "updmenu"]);
+  markLive(["usagepop", "updmenu", "tasks10"]);
   on("updmenu", async (el) => openPop(el, updatePop(await api("comfort/update-plan", {}).catch(() => null)), { right: true }));
   on("usagepop", async (el) => openPop(el, popHTML(await api("usage/glance").catch(() => null)), { right: true }));
+  on("tasks10", async (el) => openPop(el, tasksPop(await api("activity").catch(() => null)), { right: true }));
 }

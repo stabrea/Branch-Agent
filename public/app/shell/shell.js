@@ -119,6 +119,17 @@ export function drawShell() {
   paint($("#tbActions"), titleActions());
   paint($("#side"), side());
   paint($("#statusbar"), status());
+
+  // Draw offline banner if disconnected
+  const main = $("#main");
+  if (!link.up && main) {
+    const banner = document.createElement("div");
+    banner.className = "offline-banner";
+    banner.setAttribute("data-css", "background:var(--bad-tint);color:var(--bad);border-bottom:1px solid var(--bad);padding:12px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100");
+    banner.innerHTML = `<svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 7v5M12 16h.01" stroke-width="2" stroke-linecap="round"/></svg><span><b>Branch is not connected.</b> Nothing new can happen until the connection returns.</span>`;
+    main.insertAdjacentElement("afterbegin", banner);
+  }
+
   for (const region of [header, $("#side"), $("#statusbar")]) greyOut(region);
 }
 
