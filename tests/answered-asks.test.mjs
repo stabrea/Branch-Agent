@@ -149,6 +149,32 @@ test("with a plan waiting for the owner in that conversation, a yes carries noth
   assert.equal(f.app.store.run(first.id).status, "needs_input", "and the task still waits");
 });
 
+// NAS 166fbe3: an older card's yes carried on in a conversation whose newer task had stopped on `user.ask` ("Shall I
+// empty notes.txt?"), so "Yes, go ahead." answered a question the owner never answered.
+test("a yes to an older task's card carries nothing on when a newer task in that conversation waits on its own question", async (t) => {
+  const f = await fixture(t);
+  t.after(() => discardTemp(f.root));
+  const first = await f.app.runtime.run({ prompt: "write n.txt" });
+  const asked = f.app.runtime.approvals.questionFor(first.sessionId);
+  const newer = f.app.store.createRun(f.app.runtime.owner, "tidy my notes", first.sessionId);
+  f.app.store.finish(newer.id, "needs_input", "Shall I empty notes.txt? Everything in it will be lost.");
+  assert.equal((await f.call("policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true })).status, 200);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(f.runsIn(first.sessionId).length, 2, "nothing carried on");
+  assert.equal(f.app.store.run(newer.id).status, "needs_input", "the newer question still waits for the owner's own answer");
+  assert.equal(f.app.store.run(first.id).status, "needs_input", "and the older task still waits");
+});
+
+test("the conversation's newest task still carries on after a hundred newer tasks in other conversations", async (t) => {
+  const f = await fixture(t);
+  t.after(() => discardTemp(f.root));
+  const first = await f.app.runtime.run({ prompt: "write h.txt" });
+  const asked = f.app.runtime.approvals.questionFor(first.sessionId);
+  for (let i = 0; i < 101; i++) f.app.store.createRun(f.app.runtime.owner, `elsewhere ${i}`);
+  assert.equal((await f.call("policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true })).status, 200);
+  assert.ok(await settled(() => existsSync(join(f.root, "workspace", "h.txt"))), "it carried on and wrote the file");
+});
+
 // NAS dead082 (the check-back half of 06a9508): an agreed plan stopped at a check-back is still approved, so an older
 // card's yes, carried on as "Yes, go ahead.", cleared the next step with no go-ahead, and the call it answered never ran.
 test("with an agreed plan stopped at a check-back, an older card's yes carries nothing on; the plan's own task still does", async (t) => {
@@ -176,12 +202,13 @@ test("with an agreed plan stopped at a check-back, an older card's yes carries n
 });
 
 test("with the conversation busy, a yes leaves the task waiting rather than marking it done (NAS 06a9508)", async (t) => {
+  // NAS 166fbe3: released before the fixture closes (which waits for the held run), so a regression goes red, not hangs.
+  hold.release = null;
+  t.after(() => hold.release?.());
   const f = await fixture(t);
   t.after(() => discardTemp(f.root));
   const first = await f.app.runtime.run({ prompt: "write q.txt" });
   const asked = f.app.runtime.approvals.questionFor(first.sessionId);
-  hold.release = null;
-  t.after(() => hold.release?.());
   const busy = f.app.runtime.run({ prompt: "hold", sessionId: first.sessionId });
   for (let i = 0; i < 100 && !hold.release; i++) await new Promise((r) => setTimeout(r, 20));
   assert.ok(hold.release, "control: the conversation is busy");

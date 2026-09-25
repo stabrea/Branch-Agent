@@ -933,6 +933,9 @@ function settleAsked(app: Branch, asked: { runId: string; sessionId: string; sou
     // its "go ahead" would clear the next step. Only the plan's own task asking carries on (pausePlan keeps its runId).
     const plan = app.runtime.orchestration.plan(run.sessionId);
     if (plan && (!plan.approved || (plan.waitingOnOwner && plan.runId !== run.id))) return;
+    // NAS 166fbe3: only the conversation's newest task carries on. A newer one there may have stopped on its own
+    // question (`user.ask` takes the owner's next message as the answer), and "Yes, go ahead." would answer it.
+    if (app.store.newestIn(run.owner, run.sessionId)?.id !== run.id) return;
     // The conversation busy with another task: the carry-on is not started, and this task keeps waiting (the one-time
     // yes is still there for the owner's next message), rather than being marked done with its work undone.
     void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined }).catch(() => undefined);
