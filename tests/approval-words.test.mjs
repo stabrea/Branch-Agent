@@ -39,3 +39,15 @@ test("steps the owner met as tool names say what they do", () => {
   assert.equal(describeToolCall("settings.loosen", {}), "Making Branch less careful in its own settings");
   assert.equal(describeToolCall("tools.search", { query: "x" }), "Looking for the right tool");
 });
+
+test("the words say the change once: the ordinary reason is not repeated after them (Mac mini's E2 review)", async (t) => {
+  const ask = await paused(t, { name: "settings.change", arguments: JSON.stringify({ changes: [{ setting: "fly-core.mode", value: "on" }] }) });
+  assert.doesNotMatch(ask.question, /Branch asks before it changes its own settings/, ask.question);
+});
+
+test("a settings question whose words do not name the change keeps saying what it is about (Mac mini's E2 review)", async (t) => {
+  const unknown = await paused(t, { name: "settings.change", arguments: JSON.stringify({ changes: [{ setting: "no-such.thing", value: "on" }] }) });
+  assert.match(unknown.question, /no-such\.thing/, unknown.question);
+  const undo = await paused(t, { name: "settings.undo", arguments: JSON.stringify({ record: "3f1c0a52-0000-4000-8000-000000000001" }) });
+  assert.match(undo.question, /3f1c0a52/, undo.question);
+});
