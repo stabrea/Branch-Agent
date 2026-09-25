@@ -34,6 +34,14 @@ export async function api(path, body, method, signal) {
   return data;
 }
 
+/* POST raw bytes (a recording, a file) with their own content type; answers the engine's JSON or throws its words. */
+export async function apiBytes(path, blob) {
+  const response = await fetch("/api/" + path, { method: "POST", cache: "no-store", headers: { ...headers(false), "content-type": blob.type || "application/octet-stream" }, body: blob });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw Object.assign(new Error(data.error || String(response.status)), { status: response.status });
+  return data;
+}
+
 /* Server-sent events over fetch (EventSource cannot carry the header). Calls onEvent(kind, payload) until stopped. */
 export function stream(kinds, onEvent) {
   const controller = new AbortController();

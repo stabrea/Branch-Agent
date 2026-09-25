@@ -13,6 +13,7 @@ import { drawPane, initPane } from "./pane.js";
 import { attached, takePending, initPlus } from "./plus.js";
 import { findBar, applyFind, initFind } from "./find.js";
 import { initToolsHub } from "./toolshub.js";
+import { initDictate } from "./dictate.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -191,6 +192,7 @@ export function init() {
   initPlus();
   initFind();
   initToolsHub();
+  initDictate();
   onRender(drawPane);
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
