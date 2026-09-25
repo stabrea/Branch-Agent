@@ -77,7 +77,7 @@ import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
 import { profileScope, type Profile } from "./profiles.js"; // household-followups
 import { memoryScope } from "./memory.js";
-import { parseSessionSummary, summaryText } from "./session-summary.js";
+import { parseSessionSummary, summaryText, type SessionSummary } from "./session-summary.js";
 import { chatEngineSettings, condenseMessages, earlierTurns, shouldCondense, standaloneQuestion } from "./chat-engine.js"; // w911 (A0847)
 import {
   CheckError, StallError, LocalModelSilentError, localFirstReplyGraceMs, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
@@ -241,6 +241,16 @@ export const contextLimit = unknownContextWindow;
 /** Toolboxes the model is always shown, before the guess at what this task needs. */
 const alwaysOpenGroups = ["core", "files"] as const;
 const tooLong = "This conversation has grown too long to continue. Start a new conversation and mention what matters from this one.";
+/** What a task says when the connection it moved to after a failure cannot hold the conversation. */
+const notAnswering = (failed: ModelPreset, next: ModelPreset): string =>
+  `${failed.name} is not answering, and ${next.name} can't hold this conversation. Try again once ${failed.name} is back.`;
+/**
+ * A request Branch does not send because it is larger than the connection it would go to can hold.
+ * It never reached that connection, so it is not written down as the connection's failure.
+ */
+class TooLongError extends BudgetError {}
+/** Whether a request is past its working size, where older tool results start to be shrunk. */
+const pastWorking = (budget: ContextBudget): boolean => budget.headroom < budget.limit - budget.working;
 /** What is written into the conversation in place of the picture itself; the bytes are never stored. */
 export function picturesNote(images?: ImagePart[]): string {
   if (!images?.length) return "";
@@ -258,19 +268,52 @@ export function attachmentsNote(attachments?: AttachmentRef[]): string {
   return `\n\n[attached ${attachments.length === 1 ? "file" : "files"}: ${names.join(", ")}]`;
 }
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
-/**
- * The request that asks for a fold's summary, cut so it fits the window of the connection writing it
- * with room kept for the answer. Every character cut shortens the estimate's text by at least one, so
- * one cut is enough; the few spare characters cover rounding and a split character pair.
- */
-function summaryRequest(previous: string, transcript: string, window: number): Message[] {
-  const ask = (text: string): Message[] => [
-    { role: "system", content: compactionInstructions },
-    { role: "user", content: (previous ? previous + "\n\n" : "") + text },
-  ];
-  const over = estimateTokens({ messages: ask(transcript), tools: [] }) - (window - answerReserve);
-  return over > 0 ? ask(transcript.slice(0, Math.max(0, transcript.length - over * 4 - 8))) : ask(transcript);
+/** One folded message as the summary request shows it. */
+const foldLine = (m: Message): string => `${m.role}: ${m.content}${m.toolCalls ? " [requested tools: " + m.toolCalls.map((c) => c.name).join(", ") + "]" : ""}`;
+/** The most characters of transcript one fold's summary request is sent. */
+const foldTranscriptChars = 60000;
+/** The request that asks for a fold's summary. */
+const summaryAsk = (previous: string, transcript: string): Message[] => [
+  { role: "system", content: compactionInstructions },
+  { role: "user", content: (previous ? previous + "\n\n" : "") + transcript },
+];
+/** How many of the folded messages (`lines`) a fold reads: those that begin within the first `foldTranscriptChars` characters. */
+function foldCoverage(lines: string[]): number {
+  let at = 0, count = 0;
+  for (const line of lines) {
+    if (at >= foldTranscriptChars) break;
+    at += line.length + 1;
+    count++;
+  }
+  return count;
 }
+/**
+ * How many whole messages from `start` (at most up to `until`) one summary request to a connection
+ * with this window carries after `prior`, the summary so far, with room kept for the answer. The text
+ * of a request grows by exactly each line's own encoded length, and two for the line break between.
+ */
+function carriedFrom(prior: string, lines: string[], start: number, until: number, window: number): number {
+  const room = window - answerReserve;
+  let encoded = JSON.stringify({ messages: summaryAsk(prior, ""), tools: [] }).length, count = 0;
+  for (let at = start; at < until; at++) {
+    encoded += JSON.stringify(lines[at]).length - 2 + (count ? 2 : 0);
+    if (Math.ceil(encoded / 4) > room) break;
+    count++;
+  }
+  return count;
+}
+/**
+ * Where a fold that read only the first `count` messages of `split` ends: at the stored turn of the
+ * person's that starts what stays, so no tool exchange is cut in two. `split.from` when that leaves
+ * fewer than two messages to drop.
+ */
+function foldEnd(messages: Message[], ids: (number | null)[], split: { from: number; to: number }, count: number): number {
+  let end = Math.min(split.from + count, split.to);
+  while (end > split.from && (ids[end] === null || messages[end]!.role !== "user")) end--;
+  return end - split.from >= 2 ? end : split.from;
+}
+/** What reading a fold's part came to: its summary, how far it got, and who wrote it. */
+interface FoldReading { summary: string; structured: SessionSummary | null; read: number; all: boolean; requests: number; writers: string[] }
 const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
 /** Range of stored, non-system messages to summarise, leaving at least `compactionKeep` recent ones and never splitting a tool exchange. */
 export function compactionSplit(messages: Message[], ids: (number | null)[], keep = compactionKeep): { from: number; to: number } | null {
@@ -1550,7 +1593,9 @@ ${run.output.slice(0, 6000)}`;
       // ── mac7/r17-d: @ mentions once, and the task's checklist and folder rules fresh every round (src/coding/). ──
       const notes = this.coding ? await this.coding.roundNotes(run, context, round).catch((): RoundNotes => ({})) : {} as RoundNotes;
       if (notes.once) { messages.push(notes.once); ids.push(null); }
-      const completion = await this.completeWithRetries(run, notes.every ? [...messages, notes.every] : messages, context, route, preview);
+      const sent = (): Message[] => (notes.every ? [...messages, notes.every] : messages);
+      const completion = await this.completeWithRetries(run, sent(), context, route, preview,
+        async (failed) => { await this.fitContext(run, messages, ids, context, route, failed); return sent(); });
       const filterModels = [this.provider.name, ...namesOf(route.candidates[route.index])];
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
@@ -2177,10 +2222,19 @@ ${run.output.slice(0, 6000)}`;
   }
   /**
    * How many tokens one request to this connection may hold: the owner's figure when they set one
-   * (R17-S08), else the window its model really has, 20,000 when Branch does not know it.
+   * (R17-S08), else the window its model really has, 20,000 when Branch does not know it. This is
+   * the ceiling: a request past it is refused as too long.
    */
   contextWindow(preset: ModelPreset): number {
     return knobs.contextWindow(this.store, this.owner, modelWindow(preset).tokens);
+  }
+  /**
+   * The size folding and shrinking keep a request to: the built-in 20,000, or the window when that
+   * is smaller (a model on this computer loaded with less). A larger window does not raise it, so a
+   * long task spends what it always has; the owner's own figure raises both, as their call to make.
+   */
+  private workingSize(preset: ModelPreset): number {
+    return knobs.contextWindow(this.store, this.owner, Math.min(contextLimit, modelWindow(preset).tokens));
   }
   /** What this round costs and what is left, so compaction can be decided on the conversation alone. */
   private budgetOf(messages: Message[], context: ToolContext, preset: ModelPreset): ContextBudget {
@@ -2188,60 +2242,124 @@ ${run.output.slice(0, 6000)}`;
     // R17-048: with the card on, the service's own count of the last request can only raise the figure.
     return savings.withReported(this.store, this.owner, context.runId, contextBudget({
       limit: this.contextWindow(preset), // the window of the connection this round goes to
+      working: this.workingSize(preset),
       system: estimateTokens(plain.filter((message) => message.role === "system")),
       catalog: catalogTokens(this.toolsFor(context)),
       messages: estimateTokens(plain),
       reserve: answerReserve,
     }));
   }
-  /** Keeps the working context under the limit: compaction first, then shrinking older tool results. */
-  private async fitContext(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute): Promise<void> {
+  /**
+   * Keeps a request to its working size: compaction first, then shrinking older tool results. Only a
+   * request past the connection's window is refused. `failed` is set when the conversation is fitted
+   * to the connection a task moved to after `failed` stopped answering.
+   */
+  private async fitContext(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, failed?: ModelPreset): Promise<void> {
     // After a fall-back to another connection, rounds are fitted to that one's window.
     const preset = route.candidates[route.index]!;
     const before = this.budgetOf(messages, context, preset);
     this.store.event(run.id, "context.budget", { ...before });
-    await this.maybeCompact(run, messages, ids, context, route, before);
-    if (this.budgetOf(messages, context, preset).headroom >= 0) return;
+    await this.maybeCompact(run, messages, ids, context, route, before, failed);
+    if (!pastWorking(this.budgetOf(messages, context, preset))) return;
     const shrunk = shrinkToolResults(messages, 4);
     const after = this.budgetOf(messages, context, preset);
     this.store.event(run.id, "context.shrunk", { shrunkResults: shrunk, estimatedBefore: before.messages, estimatedAfter: after.messages });
-    if (after.headroom < 0) throw new BudgetError(tooLong);
+    if (after.headroom < 0) throw new TooLongError(failed ? notAnswering(failed, preset) : tooLong);
+  }
+  /**
+   * The owner's own figure can put the working size above everything one task may spend. The fold
+   * then also comes before the conversation outgrows what this task can still spend on one request:
+   * every round is charged in full, and a long conversation otherwise left every new task out of
+   * tokens at once. Without the owner's figure the working size is never that large.
+   */
+  private spendableThreshold(budget: ContextBudget, context: ToolContext): number {
+    const own = knobs.ownContextWindow(this.store, this.owner);
+    return own !== null && own > context.budget.limits.maxTokens
+      ? derivedCompactionThreshold(budget.catalog, context.budget.remaining(), budget.reserve)
+      : Number.POSITIVE_INFINITY;
   }
   /**
    * When the working context grows past the threshold, older stored turns are summarised by the
    * model into a handoff note and replaced in place; recent turns and anything from this run stay.
+   * A fold that could not read all it reads (`readForFold`) replaces only the turns it read.
    */
-  private async maybeCompact(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, budget: ContextBudget): Promise<void> {
+  private async maybeCompact(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, budget: ContextBudget, failed?: ModelPreset): Promise<void> {
     const before = budget.messages;
     // R17-S08: the owner may switch folding off, or fold at a share of the room of their own choosing.
     const threshold = knobs.compactionThresholdFor(this.store, this.owner, budget);
     if (threshold === null) return;
-    // Every round is charged in full against the task's tokens, so the fold also comes before the
-    // conversation outgrows what this task can still spend on one request. Without this, a window
-    // larger than that left a long conversation unfolded and every new task out of tokens at once.
-    budget = { ...budget, threshold: Math.min(threshold, derivedCompactionThreshold(budget.catalog, context.budget.remaining(), budget.reserve)) };
-    if (before <= budget.threshold && budget.headroom >= 0) return;
+    budget = { ...budget, threshold: Math.min(threshold, this.spendableThreshold(budget, context)) };
+    if (before <= budget.threshold && !pastWorking(budget)) return;
     const split = compactionSplit(messages, ids, knobs.keepRecent(this.store, this.owner));
     if (!split) return;
-    this.store.event(run.id, "context.compacting", { estimatedBefore: before, threshold: budget.threshold }); // R17-049
-    const preset = this.sideJobPreset(this.owner, run.sessionId, route.candidates[route.index]!); // R17-S11
-    const transcript = messages.slice(split.from, split.to).map((m) => `${m.role}: ${m.content}${m.toolCalls ? " [requested tools: " + m.toolCalls.map((c) => c.name).join(", ") + "]" : ""}`).join("\n").slice(0, 60000);
     const previous = messages.slice(1, split.from).filter((m) => m.role === "system").map((m) => m.content).join("\n");
-    const summariser = summaryRequest(previous, transcript, this.contextWindow(preset));
-    const reply = (await this.complete(run, summariser, { ...context, permissions: new Set() }, preset, null)).content.trim().slice(0, 6000);
-    const structured = parseSessionSummary(reply);
-    const summary = structured ? summaryText(structured) : reply;
-    const throughId = ids[split.to - 1]!;
-    this.store.saveSessionSummary(context.owner, run.sessionId, structured, summary);
-    this.store.saveCompaction(run.sessionId, throughId, summary);
-    const kept = this.keepAfterCompaction(run.sessionId, messages, ids, split);
-    messages.splice(1, messages.length - 1, summaryMessage(summary), ...kept.messages);
+    const lines = messages.slice(split.from, split.to).map(foldLine);
+    const reading = await this.readForFold(run, context, route, failed, previous, lines, { estimatedBefore: before, threshold: budget.threshold });
+    const folded = { from: split.from, to: reading?.all ? split.to : foldEnd(messages, ids, split, reading?.read ?? 0) };
+    if (!reading || folded.to <= folded.from) return;
+    const throughId = ids[folded.to - 1]!;
+    this.store.saveSessionSummary(context.owner, run.sessionId, reading.structured, reading.summary);
+    this.store.saveCompaction(run.sessionId, throughId, reading.summary);
+    const kept = this.keepAfterCompaction(run.sessionId, messages, ids, folded);
+    messages.splice(1, messages.length - 1, summaryMessage(reading.summary), ...kept.messages);
     ids.splice(1, ids.length - 1, null, ...kept.ids);
     this.store.event(run.id, "context.compacted", {
-      droppedMessages: split.to - split.from - kept.pinned, keptMessages: kept.messages.length, summaryChars: summary.length,
-      pinnedKept: kept.pinned, structured: structured !== null, threshold: budget.threshold,
+      droppedMessages: folded.to - folded.from - kept.pinned, keptMessages: kept.messages.length, summaryChars: reading.summary.length,
+      pinnedKept: kept.pinned, structured: reading.structured !== null, threshold: budget.threshold,
       estimatedBefore: before, estimatedAfter: estimateTokens(messages.map(textOnly)), throughMessageId: throughId,
+      summaryRequests: reading.requests, writers: reading.writers, ...(reading.all ? {} : { readMessages: reading.read, ofMessages: lines.length }),
     });
+  }
+  /**
+   * Reads the part a fold summarises, as much of it as a fold has always read: the messages that
+   * begin within its first `foldTranscriptChars` characters. A writer whose window holds that in one
+   * request is sent exactly what a fold has always sent; a smaller one is sent it in several requests
+   * of whole messages, each building on the summary so far. Null when nothing could be sent.
+   */
+  private async readForFold(run: Run, context: ToolContext, route: ModelRoute, failed: ModelPreset | undefined, previous: string,
+    lines: string[], note: Record<string, number>): Promise<FoldReading | null> {
+    const cover = foldCoverage(lines);
+    let prior = previous, read = 0, requests = 0, reply = "";
+    const writers: string[] = [];
+    while (read < cover) {
+      const next = this.nextFoldRequest(run, route, failed, prior, lines, read, cover);
+      if (!next) break;
+      if (!requests) this.store.event(run.id, "context.compacting", { ...note, writer: next.preset.id, ...next.note }); // R17-049
+      reply = (await this.complete(run, summaryAsk(prior, next.transcript), { ...context, permissions: new Set() }, next.preset, null)).content.trim().slice(0, 6000);
+      requests++; read = next.through;
+      if (!writers.includes(next.preset.id)) writers.push(next.preset.id);
+      const parsed = parseSessionSummary(reply);
+      prior = summaryMessage(parsed ? summaryText(parsed) : reply).content;
+    }
+    if (!requests) return null;
+    const structured = parseSessionSummary(reply);
+    return { summary: structured ? summaryText(structured) : reply, structured, read, all: read >= cover, requests, writers };
+  }
+  /**
+   * The next request of a fold: who writes it and what it carries. The side-job connection (R17-S11)
+   * writes it, never the connection that has just stopped answering. The connection this round goes
+   * to takes over when the side-job one can carry none of what is left, or less new text than the
+   * summary it would have to read again. A first request that can hold everything a fold reads is
+   * sent it exactly as a fold has always sent it.
+   */
+  private nextFoldRequest(run: Run, route: ModelRoute, failed: ModelPreset | undefined, prior: string, lines: string[], read: number, cover: number):
+    { preset: ModelPreset; transcript: string; through: number; note: { writerBecause?: string } } | null {
+    const current = route.candidates[route.index]!;
+    const chosen = this.sideJobPreset(this.owner, run.sessionId, current); // R17-S11
+    const whole = lines.join("\n").slice(0, foldTranscriptChars);
+    let because: string | undefined;
+    for (const preset of chosen.id === current.id ? [current] : [chosen, current]) {
+      const note = because ? { writerBecause: because } : {};
+      if (preset.id === failed?.id) { because = "the connection chosen for side jobs is the one that stopped answering"; continue; }
+      const window = this.contextWindow(preset);
+      if (read === 0 && estimateTokens({ messages: summaryAsk(prior, whole), tools: [] }) <= window - answerReserve)
+        return { preset, transcript: whole, through: lines.length, note };
+      const count = carriedFrom(prior, lines, read, cover, window);
+      const transcript = lines.slice(read, read + count).join("\n");
+      if (count > 0 && (preset === current || transcript.length >= prior.length)) return { preset, transcript, through: read + count, note };
+      because = "the connection chosen for side jobs cannot hold enough of it";
+    }
+    return null;
   }
   /** Everything that stays in front of the model after a fold: pinned older turns, then recent ones. */
   private keepAfterCompaction(sessionId: string, messages: Message[], ids: (number | null)[], split: { from: number; to: number }) {
@@ -2264,10 +2382,14 @@ ${run.output.slice(0, 6000)}`;
     context: ToolContext,
     route: ModelRoute,
     onTextDelta?: (text: string) => void,
+    refit?: (failed: ModelPreset) => Promise<Message[]>,
   ): Promise<Completion> {
     let stalls = 0;
     const firstReply: LocalFirstReply = { started: Date.now(), retried: false }; // hardening-3
+    let fittedTo = route.index;
     for (let retriesUsed = 0; ; retriesUsed++) {
+      // A connection moved to after a failure is asked only once the conversation fits its own window.
+      if (refit && route.index !== fittedTo) { messages = await refit(route.candidates[fittedTo]!); fittedTo = route.index; }
       let observedText = false;
       const emit = onTextDelta
         ? (text: string) => {
@@ -2279,6 +2401,7 @@ ${run.output.slice(0, 6000)}`;
       try {
         return await this.complete(run, messages, context, preset, route.reasoning, emit, undefined, firstReply.capMs);
       } catch (error) {
+        if (error instanceof TooLongError) throw error; // never sent, so not the connection's failure
         const ceiling = this.replyCeilings.get(run.id) ?? baseReplyCeiling;
         if (isOutOfRoomThinking(error) && ceiling < maxReplyCeiling && !context.signal.aborted) {
           this.replyCeilings.set(run.id, ceiling * 2);
@@ -2397,7 +2520,7 @@ ${run.output.slice(0, 6000)}`;
     if (context.trunkKeys && isSignInConnection(preset)) throw new Error(trunkSignInRefusal);
     const tools = this.toolsFor(context);
     const input = estimateTokens({ messages, tools });
-    if (input > this.contextWindow(preset)) throw new BudgetError(tooLong); // judged against the connection being called
+    if (input > this.contextWindow(preset)) throw new TooLongError(tooLong); // judged against the connection being called
     // The same question asked twice. The kept answer is looked for before anything is charged or
     // written down as an attempt, so a round that never reached the provider really does cost
     // nothing — in the inspector and in the figures alike. The step count still applies, so a task

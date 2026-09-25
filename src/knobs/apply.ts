@@ -15,7 +15,12 @@ type Reader = Pick<Store, "get">;
 
 /** R17-S08: the room one request has. */
 export function contextWindow(store: Reader, owner: string, builtIn: number): number {
-  return readKnobs(store, owner, "compaction").contextWindowTokens ?? builtIn;
+  return ownContextWindow(store, owner) ?? builtIn;
+}
+
+/** R17-S08: the owner's own figure for the room one request has, or null when it is left to Branch. */
+export function ownContextWindow(store: Reader, owner: string): number | null {
+  return readKnobs(store, owner, "compaction").contextWindowTokens;
 }
 
 /** R17-S08: whether to fold now, and at what size; `null` means leave the conversation as it is. */
@@ -23,7 +28,8 @@ export function compactionThresholdFor(store: Reader, owner: string, budget: Con
   const knobs = readKnobs(store, owner, "compaction");
   if (!knobs.autoCompact) return null;
   if (knobs.compactAtPercent === null) return budget.threshold;
-  return Math.max(1000, Math.floor(budget.limit * knobs.compactAtPercent / 100));
+  // A share of the size a request is kept to, which a larger window does not raise.
+  return Math.max(1000, Math.floor(budget.working * knobs.compactAtPercent / 100));
 }
 
 /** R17-S08: how many recent messages stay word for word. */

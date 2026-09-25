@@ -386,8 +386,10 @@ export function derivedCompactionThreshold(catalog: number, limit: number, reser
 }
 
 export interface ContextBudget {
-  /** The most this request may weigh. */
+  /** The most this request may weigh: the window of the connection it goes to. */
   limit: number;
+  /** The size folding and shrinking keep the request to; never more than `limit`. */
+  working: number;
   /** The share the instructions take inside `messages`. */
   system: number;
   /** The share the tool catalog takes. */
@@ -396,22 +398,24 @@ export interface ContextBudget {
   messages: number;
   /** Room held back for the answer. */
   reserve: number;
-  /** What the conversation may reach before it is compacted. */
+  /** What the conversation may reach before it is compacted, worked out from `working`. */
   threshold: number;
-  /** What is still free; negative means the request no longer fits. */
+  /** What is still free under `limit`; negative means the request no longer fits. */
   headroom: number;
 }
 
 /** One round's accounting: what the limit is, where it went, and what is left. */
-export function contextBudget(input: { limit: number; system: number; catalog: number; messages: number; reserve?: number }): ContextBudget {
+export function contextBudget(input: { limit: number; working?: number; system: number; catalog: number; messages: number; reserve?: number }): ContextBudget {
   const reserve = input.reserve ?? answerReserve;
+  const working = Math.min(input.working ?? input.limit, input.limit);
   return {
     limit: input.limit,
+    working,
     system: input.system,
     catalog: input.catalog,
     messages: input.messages,
     reserve,
-    threshold: derivedCompactionThreshold(input.catalog, input.limit, reserve),
+    threshold: derivedCompactionThreshold(input.catalog, working, reserve),
     headroom: input.limit - input.catalog - input.messages,
   };
 }
