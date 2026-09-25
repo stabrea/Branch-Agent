@@ -1485,7 +1485,7 @@ ${run.output.slice(0, 6000)}`;
     // mac7/speed: the owner's figure, or the launch one (12; 40 for work on the project's files). A planned task gets more on top.
     const ceiling = knobs.maxModelRounds(this.store, this.owner, this.reliability, coding);
     for (let round = 0; round < conductor.maxRounds(ceiling); round++) {
-      // With no step left for the next question to the model, the task ends as one out of rounds does.
+      // With no step left for the next question to the model, the task ends with the step limit's sentences, unasked.
       if (context.budget.steps >= context.budget.limits.maxSteps) return await this.outOfRounds(run, context, messages, route, context.budget.limits.maxSteps, "steps");
       catalog.nextRound();
       if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
@@ -1569,7 +1569,7 @@ ${run.output.slice(0, 6000)}`;
         const settled = await Promise.allSettled(group.map((call) => this.oneCall(run, context, call)));
         for (const [at, outcome] of settled.entries()) {
           if (outcome.status === "rejected") {
-            // A call that found no step left ends the task with its best answer too, not the budget's bare words.
+            // A call that found no step left ends the task with the sentences too, not the budget's bare words.
             if (outOfSteps(context, outcome.reason)) return await this.outOfRounds(run, context, messages, route, context.budget.limits.maxSteps, "steps");
             throw outcome.reason;
           }
@@ -1639,12 +1639,13 @@ ${run.output.slice(0, 6000)}`;
    * finished, because that is what happened.
    *
    * A task that has used every step it may take (`by` "steps": each question to the model and each
-   * tool call is one) ends the same way, and the sentences name that limit instead.
+   * tool call is one) ends with the sentences too, naming that limit instead. It is not asked the one
+   * last question: that question would be one more step than the task may take.
    */
   private async outOfRounds(run: Run, context: ToolContext, messages: Message[], route: ModelRoute, limit: number, by: "rounds" | "steps" = "rounds"): Promise<never> {
     const trouble = this.whatItDid(run.id);
     let best = "";
-    try {
+    if (by === "rounds") try {
       best = (await this.lastWord(run, context, route, messages)).trim();
     } catch { /* a task that cannot even be asked still gets the sentences below */ }
     this.store.event(run.id, "rounds.exhausted", { limit, by, answered: Boolean(best), trouble });

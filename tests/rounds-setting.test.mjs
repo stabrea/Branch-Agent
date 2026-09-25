@@ -3,8 +3,9 @@
  * answer it has. It is the owner's own knob (limits.maxModelRounds), and Branch's own settings tools
  * find it by plain words and change that same knob with the owner's yes. Work on the project's files
  * gets 40 rounds while the owner has set no figure; the owner's figure, once set, wins for every task.
- * A task that runs out, of rounds or of steps, ends with its best answer and says which limit it met,
- * where to raise it, and that Branch can raise the round limit once the owner says yes.
+ * A task that runs out of rounds ends with its best answer; one that runs out of steps is not asked again,
+ * since that question would be one step too many. Either way it says which limit it met, where to raise
+ * it, and that Branch can raise the round limit once the owner says yes.
  *
  * Everything runs on its own data folder with a scripted model; the owner's own Branch is never touched.
  */
@@ -33,9 +34,10 @@ async function fixture(t) {
   const workspace = join(root, "workspace");
   await mkdir(join(workspace, "src"), { recursive: true });
   await writeFile(join(workspace, "src", "sum.js"), "export const sum = (xs) => xs.reduce((a, b) => a + b, 0);\n");
-  const script = { change: null, asked: 0, perRound: 1, turn: 0 };
+  const script = { change: null, asked: 0, perRound: 1, turn: 0, calls: 0, lastWords: 0 };
   const provider = { name: "scripted", async complete(request) {
-    if (lastWordAsked(request)) return { content: "Here is what I found so far.", toolCalls: [] };
+    script.calls += 1;
+    if (lastWordAsked(request)) { script.lastWords += 1; return { content: "Here is what I found so far.", toolCalls: [] }; }
     if (script.change) return script.asked++ === 0
       ? { content: "", toolCalls: [{ id: "change-call", name: "settings.change", arguments: JSON.stringify({ changes: [script.change] }) }] }
       : { content: "Changed it.", toolCalls: [] };
@@ -163,7 +165,7 @@ test("out of rounds, the task names the round limit, where to raise it, and that
   assert.match(french, /dès que vous aurez dit oui/);
 });
 
-test("a task that runs out of steps ends with its best answer and names the step limit, even part-way through a round", async (t) => {
+test("a task that runs out of steps names the step limit without asking the model again, even part-way through a round", async (t) => {
   const { app, owner, script, loop } = await fixture(t);
   await saveLook(app.store, owner, { language: "en" });
   // One step for each question to the model and one for each tool call. Three calls a round: the second
@@ -173,15 +175,17 @@ test("a task that runs out of steps ends with its best answer and names the step
   const { run, note } = await loop(plainTask);
   assert.equal(run.status, "budget_exceeded", "it is still recorded as having stopped at a limit");
   assert.doesNotMatch(run.output, /^Step budget exhausted/, "never the budget's bare words");
-  assert.match(run.output, /^Here is what I found so far\./);
-  assert.match(run.output, /this task has taken as many steps as one task may \(6\)/);
+  assert.match(run.output, /^I stopped here: this task has taken as many steps as one task may \(6\)/);
   assert.match(run.output, /"Most steps in one task" in Settings, under Permissions/);
-  assert.deepEqual([note?.by, note?.limit, note?.answered], ["steps", 6, true]);
+  assert.deepEqual([note?.by, note?.limit, note?.answered], ["steps", 6, false]);
+  // The last question would be a seventh step: the model is asked only the two rounds' questions.
+  assert.deepEqual([script.calls, script.lastWords], [2, 0], "a step limit is never passed to ask for a last answer");
   // Between rounds as well: one call a round uses the last step on a call, and the next round has none.
   script.perRound = 1;
+  script.calls = 0;
   saveKnobs(app.store, owner, "limits", { maxSteps: 4, maxModelRounds: 40 });
   const between = await loop(plainTask);
-  assert.match(between.run.output, /^Here is what I found so far\./);
-  assert.match(between.run.output, /as many steps as one task may \(4\)/);
+  assert.match(between.run.output, /^I stopped here: this task has taken as many steps as one task may \(4\)/);
   assert.equal(between.note?.by, "steps");
+  assert.deepEqual([script.calls, script.lastWords], [2, 0], "two rounds of two steps, and no question after them");
 });
