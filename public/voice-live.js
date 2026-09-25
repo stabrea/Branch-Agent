@@ -121,17 +121,37 @@ async function begin() {
   // app takes the same one, so what is said and what is typed afterwards stay in one thread.
   globalThis.branchAdoptSession?.(opened.sessionId);
   const url = new URL(`/api/runs/${opened.runId}/ws`, location.href).href.replace(/^http/, "ws");
-  socket = new WebSocket(url, ["bearer", token()]);
-  socket.binaryType = "arraybuffer";
-  socket.addEventListener("message", (event) => receive(event.data));
-  socket.addEventListener("close", () => end("The connection closed"));
-  await new Promise((done, failed) => {
-    socket.addEventListener("open", done, { once: true });
-    socket.addEventListener("error", () => failed(new Error("The connection could not be opened")), { once: true });
-  });
+  try {
+    socket = await openSocket(url);
+  } catch {
+    // The socket never opened, so nothing on it can end the task this press made. The page stops that
+    // task itself, the way Stop does, and says why, rather than leaving it working until Branch restarts.
+    await stopTask(opened.runId);
+    throw new Error(t("voiceLive.neverConnected"));
+  }
   socket.send(JSON.stringify({ live: "start" }));
   microphone = await openMicrophone((bytes) => { if (socket?.readyState === 1) socket.send(bytes); });
   show("listening-live");
+}
+/** The task's socket once it is open; fails if it cannot be made, or errors or closes before it opens. */
+function openSocket(url) {
+  return new Promise((done, failed) => {
+    const opening = new WebSocket(url, ["bearer", token()]);
+    opening.binaryType = "arraybuffer";
+    opening.addEventListener("message", (event) => receive(event.data));
+    opening.addEventListener("close", () => end("The connection closed"));
+    opening.addEventListener("open", () => done(opening), { once: true });
+    opening.addEventListener("error", () => failed(new Error("The connection could not be opened")), { once: true });
+    opening.addEventListener("close", () => failed(new Error("The connection closed")), { once: true });
+  });
+}
+/** Stops the task a press made, through the same route as Stop. If this fails, the server's own wait ends it. */
+async function stopTask(runId) {
+  try {
+    await fetch(`/api/runs/${runId}/cancel`, {
+      method: "POST", headers: { authorization: "Bearer " + token(), "content-type": "application/json" }, body: "{}",
+    });
+  } catch { /* the server stops it after its wait */ }
 }
 
 function receive(data) {
