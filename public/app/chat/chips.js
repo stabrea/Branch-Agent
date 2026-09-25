@@ -1,7 +1,7 @@
 /* The composer's two chips and their menus, 1:1 with the prototype's: which model answers and how long it thinks, and how
    much it may do. A conversation's own choice is kept with it (POST /api/sessions/<id>/model, POST /api/conversation-mode);
    before a conversation exists, the choice is what new ones start with (POST /api/models, POST
-   /api/conversation-mode/settings). Lockdown is the engine's own switch (POST /api/lockdown). */
+   /api/conversation-mode/settings). Lockdown is the engine's own switch (POST /api/lockdown, on and off; see approvals.js). */
 
 import { esc, applyCss } from "../core/dom.js";
 import { ic, openPop, closePop, mi, toast } from "../core/ui.js";
@@ -10,6 +10,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
+import { setLockdown, initApprovals } from "./approvals.js";
 
 const PMODES = [["auto", "Auto", "Branch decides what’s safe and only asks about risky things.", "spark"], ["ask", "Ask first", "Always asks before changing files, running commands or using the internet.", "shield"], ["plan", "Plan first", "Writes a plan and waits for your OK before doing anything.", "plan"], ["full", "Full access", "Does anything on this computer without asking: files, commands, the internet.", "unlock"]];
 const M = { sid: undefined, model: null, mode: null, at: 0, pending: null };
@@ -114,9 +115,8 @@ async function setMode(v) {
   } catch (error) { toast(error.message); }
 }
 
-async function setLockdown(on) {
-  try { await api("lockdown", { on }); } catch (error) { toast(error.message); }
-  await refresh().catch(() => {});
+async function switchLockdown(on) {
+  await setLockdown(on);
   M.sid = undefined;
   await loadChips();
   reopen("modemenu2", modeMenu);
@@ -129,7 +129,8 @@ export function initChips() {
   on("pick-model", (el) => saveModel({ preset: el.dataset.v }));
   on("pick-think", (el) => saveModel({ reasoning: el.dataset.v }));
   on("set-mode", (el) => setMode(el.dataset.v));
-  document.addEventListener("change", (e) => { if (e.target.id === "pm-lock2") setLockdown(e.target.checked); });
+  initApprovals();
+  document.addEventListener("change", (e) => { if (e.target.id === "pm-lock2") switchLockdown(e.target.checked); });
   /* Shift+Tab in the message box moves to the next mode it may pick, in the menu's order; the cursor stays put. */
   document.addEventListener("keydown", (e) => {
     if (e.target.id !== "prompt" || e.key !== "Tab" || !e.shiftKey || document.querySelector(".slash6")) return;

@@ -1,10 +1,13 @@
 /* The status bar's version popover says what the engine plans to do about updates (POST /api/comfort/update-plan);
    installing goes through the desktop app's updater, so Install stays greyed here. Its usage popover is 1:1 with the
    prototype's "What each connection has left": one row per connection from GET /api/usage/glance, a bar only where the service gave a limit, and the engine's own sentence when it gave none.
-   Accounts are shown side by side, never added together. */
+   Accounts are shown side by side, never added together.
+   Near a limit (a window the service measured at 95% used) while tasks run, and only while the owner leaves the offer on
+   (GET /api/usage/glance settings.saveProgress "ask"), the prototype's save-progress offer: Save progress asks every
+   running task to write down where it is (POST /api/usage/save-progress), Not now dismisses it. Each window is offered once. */
 
 import { esc } from "../core/dom.js";
-import { openPop, mi } from "../core/ui.js";
+import { openPop, mi, toast, app } from "../core/ui.js";
 import { E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
@@ -39,8 +42,66 @@ function updatePop(plan) {
   return `<div class="pt">Branch ${esc(version)}</div><p class="pp">${esc(plan?.reason ?? "")}</p>${mi("install", "check", "Install when nothing is running")}${mi("closepop", "clock", "Remind me tomorrow")}`;
 }
 
+/* ---------- the save-progress offer ---------- */
+const OFFERED = "branch-save-progress-asked"; // the key the old window kept, so a window asked about there is not asked again
+function offered() {
+  try { return JSON.parse(localStorage.getItem(OFFERED) ?? "[]"); } catch (error) { console.warn(error.message); return []; }
+}
+function remember(key) {
+  try { localStorage.setItem(OFFERED, JSON.stringify([...offered(), key].slice(-50))); } catch (error) { console.warn(error.message); }
+}
+/* "as of just now" only when the window was read in the last 90 seconds, the engine's own cut-off for those words. */
+function fresh(g, key) {
+  const [connection, , id] = key.split("|");
+  const w = g.rows?.find((r) => r.connection === connection)?.windows?.find((x) => x.id === id);
+  return w?.measuredAt ? Date.now() - Date.parse(w.measuredAt) < 90_000 : false;
+}
+function offerHTML(c, justNow) {
+  return `<svg class="ck-ring" width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--line-2)" stroke-width="3"/><circle class="ck-arc" cx="18" cy="18" r="15" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-dasharray="94.2" stroke-dashoffset="0" transform="rotate(-90 18 18)"/><text x="18" y="22" text-anchor="middle" class="ck-n">5</text></svg>
+    <div class="grow"><b>Almost out on ${esc(c.connectionName)}. Ask running tasks to save their progress?</b><small>${esc(String(c.percentUsed))}% of this window is used. ${justNow ? "Measured, as of just now." : "Measured."} Nothing is paused.</small></div>
+    <button class="btn pri sm" type="button" data-act="ckpt-save">Save progress</button><button class="btn ghost sm" type="button" data-act="ckpt-no">Not now</button>`;
+}
+/* The prototype's five-second ring: the offer goes away by itself when it runs out. */
+function countDown(el) {
+  const t0 = Date.now(), total = 5000;
+  const tick = () => {
+    if (!el.isConnected) return;
+    const left = Math.max(0, total - (Date.now() - t0));
+    el.querySelector(".ck-arc").setAttribute("stroke-dashoffset", String(94.2 * (1 - left / total)));
+    el.querySelector(".ck-n").textContent = String(Math.ceil(left / 1000));
+    if (left <= 0) el.remove(); else setTimeout(tick, 100);
+  };
+  tick();
+}
+async function checkLimits() {
+  if (!E.state || document.querySelector(".ckpt-q")) return; // nothing is asked before sign-in
+  const g = await api("usage/glance").catch(() => null);
+  if (!g?.available || g.settings?.saveProgress !== "ask" || !g.running) return;
+  const seen = offered(), c = (g.crossings ?? []).find((x) => !seen.includes(x.key));
+  if (!c) return;
+  remember(c.key);
+  const el = document.createElement("div");
+  el.className = "ckpt-q";
+  el.setAttribute("role", "alertdialog");
+  el.setAttribute("aria-label", "Save progress?");
+  el.innerHTML = offerHTML(c, fresh(g, c.key));
+  app().appendChild(el);
+  countDown(el);
+}
+async function saveProgress() {
+  document.querySelector(".ckpt-q")?.remove();
+  try {
+    const { asked } = await api("usage/save-progress", {});
+    toast(`Asked ${asked} running task${asked === 1 ? "" : "s"} to save progress. Nothing was paused.`);
+  } catch (error) { toast(error.message); }
+}
+
 export function initUsage() {
-  markLive(["usagepop", "updmenu"]);
+  markLive(["usagepop", "updmenu", "ckpt-save", "ckpt-no"]);
+  on("ckpt-save", saveProgress);
+  on("ckpt-no", () => document.querySelector(".ckpt-q")?.remove());
+  checkLimits();
+  setInterval(checkLimits, 20000);
   on("updmenu", async (el) => openPop(el, updatePop(await api("comfort/update-plan", {}).catch(() => null)), { right: true }));
   on("usagepop", async (el) => openPop(el, popHTML(await api("usage/glance").catch(() => null)), { right: true }));
 }
