@@ -71,6 +71,30 @@ export async function remoteHead(run: Run, repo: string): Promise<string> {
 }
 
 /**
+ * Dogfood F5: where the running change stands against the main line's newest one, read from the history alone (the
+ * commits without their files: under 2 MB for the whole line, and only what is new after that) in the updater's own
+ * folder. "behind": the newest change includes the running one, so it is newer. "ahead": the running change already
+ * includes it (a train or a canary built ahead of the main line). "apart": neither includes the other. "unknown": the
+ * history could not be read, and the build's own never-go-back step (neverBack) still decides.
+ */
+export type DevStanding = "behind" | "ahead" | "apart" | "unknown";
+export async function devStanding(run: Run, historyDir: string, repo: string, running: string, head: string): Promise<DevStanding> {
+  const cwd = historyDir, timeoutMs = 30_000;
+  const has = (commit: string) => run("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd, timeoutMs }).then(() => true, () => false);
+  const includes = (older: string, newer: string) =>
+    run("git", ["merge-base", "--is-ancestor", older, newer], { cwd, timeoutMs }).then(() => true, () => false);
+  if (!(await lstat(historyDir).then(() => true, () => false)))
+    await run("git", ["init", "--quiet", "--bare", historyDir], { timeoutMs }).catch(() => undefined);
+  for (const commit of [head, running])
+    if (!(await has(commit)))
+      await run("git", [...quietGit, "fetch", "--quiet", "--filter=tree:0", "--no-tags", `https://github.com/${repo}.git`, commit], { cwd, timeoutMs: minutes(5) })
+        .catch(() => undefined);
+  if (!(await has(head)) || !(await has(running))) return "unknown";
+  if (await includes(running, head)) return "behind";
+  return (await includes(head, running)) ? "ahead" : "apart";
+}
+
+/**
  * Clones Branch afresh into `sourceDir`, which must not exist yet, at exactly `commit`, and builds the release
  * download from it. Returns the download's path and the version it was stamped with. A failure leaves the installed
  * app untouched. Nothing is reused from an earlier build: `sourceDir` sits in the updater's own folder, which the

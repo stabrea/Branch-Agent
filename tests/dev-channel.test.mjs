@@ -31,12 +31,27 @@ async function folders(t) {
  * A git and npm that answer like the real ones, write what a real build writes, and record every call.
  * `running`: whether the clone knows the running change ("here"), learns it by fetching it ("fetched"), or never ("gone").
  * `shared`: what merge-base answers (the running change when the offered one contains it), or null for a failed check.
+ * `standing` (dogfood F5): what the check's history folder says: "behind", "ahead", "apart", or "unreadable". Its calls
+ * go to `history`, so `calls` stays the build's own.
  */
-function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, failOn = null, tamper = false, running = "here", shared = OLD, stampless = false } = {}) {
-  const calls = [];
+function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, failOn = null, tamper = false, running = "here", shared = OLD, stampless = false, standing = "behind" } = {}) {
+  const calls = [], history = [], inHistory = new Set();
   let knows = running === "here";
   const run = async (file, args, options) => {
     const line = [file, ...args.filter((arg) => !arg.startsWith("credential.helper") && !arg.startsWith("core.askPass") && arg !== "-c")].join(" ");
+    if (line.startsWith("git init") || options.cwd === join(where.scratchDir, "dev-history")) {
+      history.push(line);
+      if (standing === "unreadable" && !line.startsWith("git init")) throw new Error(`${line} did not finish.`);
+      // A new history folder knows no change until it is fetched.
+      if (line.startsWith("git fetch")) inHistory.add(args.at(-1));
+      if (line.startsWith("git cat-file") && !inHistory.has(args.at(-1).replace("^{commit}", ""))) throw new Error("git cat-file did not finish.");
+      if (line.startsWith("git merge-base --is-ancestor")) {
+        const [older, newer] = args.slice(-2);
+        const yes = standing === "behind" ? older === OLD && newer === head : standing === "ahead" && older === head && newer === OLD;
+        if (!yes) throw new Error("git merge-base did not finish.");
+      }
+      return "";
+    }
     calls.push(line);
     if (args[0] === "--version") { if (missing.includes(file)) throw new Error("not found"); return "1.0"; }
     if (failOn && line.includes(failOn)) throw new Error(`${failOn} did not finish.`);
@@ -65,7 +80,7 @@ function fakeTools(where, { missing = [], head = NEW, headAfterReset = head, fai
     }
     return "";
   };
-  return { run, calls };
+  return { run, calls, history };
 }
 /** Unpacking the built zip: the app folder with the package identity inside the download. */
 const extract = async (archive, into) => {
@@ -98,6 +113,26 @@ test("Dev offers the newest merged change when it is not the one running, read w
   const same = await updater(where, fakeTools(where, { head: OLD })).check();
   assert.equal(same.phase, "current");
   assert.equal(same.message, "You have the newest Dev build (change bbbbbbb).");
+});
+
+// Dogfood F5: Legion ran a build ahead of the main line, and "Check for updates" still called the main line's older head
+// "a newer Dev build" that could be installed. The check now reads the history, as the build's never-go-back step does.
+test("F5 a copy ahead of the main line is told so, and the older head is not offered", async (t) => {
+  const where = await folders(t), tools = fakeTools(where, { standing: "ahead" });
+  const status = await updater(where, tools).check();
+  assert.equal(status.phase, "current", status.message);
+  assert.equal(status.message, "You are ahead of the main line: this copy (change bbbbbbb) already includes its newest change (aaaaaaa).");
+  assert.equal(status.release.available, false);
+  assert.ok(tools.history.includes(`git fetch --quiet --filter=tree:0 --no-tags https://github.com/${repo}.git ${NEW}`), tools.history.join("\n"));
+  assert.ok(tools.history.includes(`git merge-base --is-ancestor ${NEW} ${OLD}`), "the history decides, not the ids differing");
+  assert.equal(building(tools.calls).length, 0, "a check builds nothing");
+  const apart = await updater(where, fakeTools(where, { standing: "apart" })).check();
+  assert.equal(apart.phase, "current");
+  assert.match(apart.message, /does not include this copy's change \(bbbbbbb\), so installing it would go back/);
+  const behind = await updater(where, fakeTools(where)).check();
+  assert.equal(behind.phase, "available", "the main line's head that includes this copy is still offered");
+  const unreadable = await updater(where, fakeTools(where, { standing: "unreadable" })).check();
+  assert.equal(unreadable.phase, "available", "without the history, the build's own never-go-back step still decides");
 });
 
 /* The Update button names KeepOak/Branch-Agent, which does not exist until the move, and git cannot fall back on a
