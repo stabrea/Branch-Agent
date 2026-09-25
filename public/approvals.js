@@ -94,6 +94,7 @@ function renderWaiting() {
       if (remember === "always" && question.source !== "owner") continue;
       if (remember === "always" && question.noStanding) continue; // Q59: Ask first and Plan keep no standing yes
       if (remember === "always" && question.noAlways) continue;
+      if (remember === "always" && document.documentElement.dataset.household === "on") continue; // Q182: the owner's to give
       if (question.onceOnly && remember !== "never") continue;
       const button = el("button", label);
       button.type = "button";
