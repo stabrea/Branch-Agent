@@ -2,8 +2,9 @@
 
 import { esc } from "../core/dom.js";
 import { S, E } from "../core/state.js";
-import { ic, av } from "../core/ui.js";
+import { ic, av, mi, openPop, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { on } from "../core/actions.js";
 import { tabBar } from "./parts.js";
 
 const tabs = [["live", "Live now"], ["people", "People"], ["groups", "Groups"],
@@ -21,12 +22,33 @@ function liveTab() {
 }
 
 function peopleTab() {
-  let html = `<div class="runs6"><div class="run6"><div class="run-h">${av({kind: "main"}, 30)}<span class="grow"><b>You</b><small>This computer · Branch ${E.state?.version || "0.19.4"}</small></span></div></div></div>`;
+  const profiles = E.profiles?.profiles ?? [];
+  const owner = E.profiles?.roleLabels?.owner?.label || "You";
+  let html = `<div class="runs6">`;
+
+  // Show owner/current user
+  html += `<div class="run6"><div class="run-h">${av({kind: "main"}, 30)}<span class="grow"><b>${owner}</b><small>This computer · Branch ${E.state?.version || "0.19.4"}</small></span></div></div>`;
+
+  // Show other profiles
+  profiles.forEach((p) => {
+    html += `<div class="run6"><div class="run-h">${av({name: p.name}, 30)}<span class="grow"><b>${esc(p.name || "")}</b><small>${esc(p.device || "")} · ${p.role || "User"}</small></span></div></div>`;
+  });
+
+  html += `<div class="run6"><div class="acts"><button class="btn pri" type="button" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Invite someone</button></div></div>`;
+  html += `</div>`;
   return html;
 }
 
+function groupsTab() {
+  return `<div class="sec"><p class="hint">Groups aren't set up yet.</p><div class="acts"><button class="btn pri sm" type="button" data-act="toast" data-msg="Coming soon.">New group</button></div></div>`;
+}
+
+function sharedTab() {
+  return `<div class="sec"><p class="hint">Nothing shared yet.</p><div class="acts"><button class="btn pri sm" type="button" data-act="share10"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 12 0"/><path d="M4 18a12 12 0 0 1 16 0"/><circle cx="12" cy="6" r="3"/></svg>Share</button></div></div>`;
+}
+
 function otherTab(label) {
-  return `<div class="runs6"></div>`;
+  return `<div class="sec"><p class="hint">Coming soon.</p></div>`;
 }
 
 export function draw() {
@@ -43,6 +65,10 @@ export function draw() {
     html += liveTab();
   } else if (tab === "people") {
     html += peopleTab();
+  } else if (tab === "groups") {
+    html += groupsTab();
+  } else if (tab === "shared") {
+    html += sharedTab();
   } else {
     html += otherTab(tab);
   }
@@ -52,5 +78,11 @@ export function draw() {
 }
 
 export function init() {
-  markLive(["ptab"]);
+  on("p-invite", (el) => {
+    openPop(el, `<div class="ph">Invite someone</div><p>They'll see your conversations and Trunks.</p><div class="fld"><label><span>Their name</span><input type="text" placeholder="First name" autocomplete="off"></label></div><div class="acts"><button class="btn pri" type="button" data-act="p-inv-go">Send invite</button><button class="btn ghost" type="button" data-act="closepop">Cancel</button></div>`, { right: true });
+  });
+  on("share10", (el) => {
+    openPop(el, `<div class="ph">Share</div><p>Choose what to share with who.</p><p class="hint">Coming soon.</p>`, { right: true });
+  });
+  markLive(["ptab", "p-invite", "share10"]);
 }
