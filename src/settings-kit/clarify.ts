@@ -1,13 +1,16 @@
 import type { Store } from "../store.js";
+import { dictionary } from "../terminal-words.js";
+import { settingPhrases, type SettingPhrase } from "./phrases.js"; // dogfood B20
 import { settingsCatalogue, type FieldSpec, type SettingSpec } from "./catalogue.js";
 import { acceptValue, changesFor, currentValue, type Value } from "./changes.js";
 
 /**
  * Q50: a settings request in the owner's own words ("turn the wake word on", "switch off the
  * board") is matched against the catalogue before anything is planned. When the words fit more
- * than one setting, or none, the answer is one question for the owner and no plan at all. When they
- * fit exactly one, the answer is the exact before and after `changesFor` works out, with anything
- * already as asked left out.
+ * than one setting, the answer is one question for the owner and no plan at all. When they fit
+ * exactly one, the answer is the exact before and after `changesFor` works out, with anything
+ * already as asked left out. Dogfood B20: words that fit none are never answered with a question
+ * that has nothing to choose from (`unmatched`, below).
  */
 
 /**
@@ -108,18 +111,20 @@ export function valueFor(field: FieldSpec, value: unknown): Value | undefined {
 
 export interface Candidate { spec: SettingSpec; field: FieldSpec }
 
-/** Every field whose name, label or key holds each naming word; a value narrows it to fields that can hold it. */
+/**
+ * Every field whose name, label, key or words in the window hold each naming word, and every field a phrase people use
+ * for it names (dogfood B20, src/settings-kit/phrases.ts); a value narrows it to fields that can hold it.
+ */
 export function candidatesFor(request: string, value?: unknown): Candidate[] {
   const words = namingWords(request);
   if (!words.length) return [];
-  const all = settingsCatalogue.flatMap((spec) => spec.fields.map((field) => ({ spec, field })));
-  const named = all.filter(({ spec, field }) => {
-    const known = new Set(wordsOf(`${spec.key} ${spec.name} ${field.label} ${field.field}`).map(stem));
-    return words.every((word) => known.has(word));
-  });
-  if (value === undefined || named.length < 2) return named;
-  const holding = named.filter(({ field }) => valueFor(field, value) !== undefined);
-  return holding.length ? holding : named;
+  const all = everyField();
+  const named = all.filter((one) => words.every((word) => knownWords(one).has(word)));
+  const phrased = phrasedFor(request, all);
+  // A phrase that holds every naming word is the closer reading ("computer use" is the screen and keyboard, not every
+  // setting with "computer" in its name); otherwise the settings phrases name come first, then those the names fit.
+  const exact = phrased.found.length > 0 && words.every((word) => phrased.holds.has(word));
+  return narrowed(exact ? phrased.found : [...new Set([...phrased.found, ...named])], value);
 }
 
 const idOf = ({ spec, field }: Candidate): string => `${spec.key}.${field.field}`;
@@ -132,7 +137,6 @@ function listed(names: string[]): string {
 
 /** One question for the owner, naming what the words could mean. */
 export function questionFor(request: string, found: readonly Candidate[]): string {
-  if (!found.length) return `I could not find a setting that matches "${request.slice(0, 80)}". Which setting do you mean?`;
   const shown = found.slice(0, 5).map(nameOf);
   if (found.length > shown.length) return `That could be ${found.length} settings, such as ${listed(shown)}. Which one do you mean?`;
   return `That could be more than one setting. Do you mean ${listed(shown)}?`;
@@ -141,7 +145,6 @@ export function questionFor(request: string, found: readonly Candidate[]): strin
 /** The one question for a request that says not to: nothing is planned until the owner says what they want. */
 function negatedQuestion(store: Store, owner: string, found: readonly Candidate[]): string {
   const said = "Your words say not to, so nothing is planned.";
-  if (!found.length) return `${said} Which setting do you mean, and what should it be?`;
   if (found.length === 1) {
     const [only] = found as [Candidate];
     return `${said} Should "${nameOf(only)}" change from ${String(currentValue(store, owner, only.spec, only.field))}, and to what?`;
@@ -154,15 +157,19 @@ type Preview = { setting: string; name: string; label: string; from: Value; to: 
 export type Clarified =
   | { status: "ask"; question: string; choices: Choice[]; planned: false }
   | { status: "ready"; setting: string; preview: Preview[]; useTool: "settings.change" | "settings.loosen" }
-  | { status: "unchanged"; setting: string; note: string; refused: string[] };
+  | { status: "unchanged"; setting: string; note: string; refused: string[] }
+  | { status: "elsewhere"; setting: string; where: string; note: string; planned: false }
+  | { status: "none"; note: string; planned: false };
 
 /**
- * What a request in the owner's words comes to: one question when it fits several settings or none
- * (nothing is planned then), otherwise the exact change for the one setting it fits.
+ * What a request in the owner's words comes to: one question when it fits several settings (nothing
+ * is planned then), otherwise the exact change for the one setting it fits. Words that fit none are
+ * answered by `unmatched` below, which never plans either.
  */
 export function clarifyRequest(store: Store, owner: string, input: { request: string; value?: Value | undefined }): Clarified {
   const asked = input.value ?? spokenValue(input.request);
   const found = candidatesFor(input.request, asked);
+  if (!found.length) return unmatched(store, owner, input.request, asked);
   const choices = (list: readonly Candidate[]): Choice[] => list.slice(0, 20)
     .map((one) => ({ setting: idOf(one), name: nameOf(one), value: currentValue(store, owner, one.spec, one.field) }));
   if (negated(input.request)) return { status: "ask", question: negatedQuestion(store, owner, found), choices: choices(found), planned: false };
@@ -178,4 +185,125 @@ export function clarifyRequest(store: Store, owner: string, input: { request: st
   const preview = changes.map((change) => ({ setting: change.id, name: change.name, label: change.label, from: change.from, to: change.to,
     lessCareful: change.loosens, pinned: change.pinned }));
   return { status: "ready", setting, preview, useTool: preview.some((one) => one.lessCareful) ? "settings.loosen" : "settings.change" };
+}
+
+/* ---------- dogfood B20: words that fit no setting, and whether a request is about settings at all ---------- */
+
+let fields: Candidate[] | undefined;
+/** Every field in the catalogue, made once, so one field is the same object everywhere below. */
+function everyField(): Candidate[] {
+  return fields ??= settingsCatalogue.flatMap((spec) => spec.fields.map((field) => ({ spec, field })));
+}
+
+const known = new Map<Candidate, Set<string>>();
+/**
+ * The words a field is known by: its key, name, label and field, and the words the window shows for its name and label
+ * (the English of its `t` keys, which for a few cards differ from the name here: "How Branch gets your attention").
+ */
+function knownWords(one: Candidate): Set<string> {
+  let words = known.get(one);
+  if (!words) {
+    const shown = dictionary("en");
+    words = new Set(wordsOf(`${one.spec.key} ${one.spec.name} ${one.field.label} ${one.field.field} ${shown[one.spec.t] ?? ""} ${shown[one.field.t] ?? ""}`).map(stem));
+    known.set(one, words);
+  }
+  return words;
+}
+
+/** A value narrows several fields to those that can hold it; one field, or none that can, is left as it is. */
+function narrowed(found: Candidate[], value: unknown): Candidate[] {
+  if (value === undefined || found.length < 2) return found;
+  const holding = found.filter(({ field }) => valueFor(field, value) !== undefined);
+  return holding.length ? holding : found;
+}
+
+/** Plain stemmed words with a space at each end, so a phrase is only ever found as whole words. */
+const phraseOf = (text: string): string => ` ${wordsOf(text).map(stem).join(" ")} `;
+
+/** The phrases people use for a setting (src/settings-kit/phrases.ts) that these words say. */
+function saidFor(text: string): SettingPhrase[] {
+  const said = phraseOf(text);
+  return settingPhrases.filter((entry) => entry.says.some((phrase) => said.includes(phraseOf(phrase))));
+}
+
+/** The fields that the phrases these words say name, and the naming words those phrases hold. */
+function phrasedFor(text: string, all: readonly Candidate[]): { found: Candidate[]; holds: Set<string> } {
+  const said = phraseOf(text);
+  const hits = settingPhrases.flatMap((entry) => entry.says.filter((phrase) => said.includes(phraseOf(phrase))).map((phrase) => ({ entry, phrase })));
+  return { found: [...new Set(hits.flatMap(({ entry }) => all.filter((one) => idOf(one) === entry.setting)))],
+    holds: new Set(hits.flatMap(({ phrase }) => namingWords(phrase))) };
+}
+
+type OwnersOwn = NonNullable<SettingPhrase["owners"]>;
+/** A setting only the owner changes, at its own card, that these words name. */
+export function ownersOwnFor(text: string): OwnersOwn | undefined {
+  return saidFor(text).find((entry) => entry.owners)?.owners;
+}
+/** What Branch says about such a setting: who changes it, and where. */
+export const ownersOwnNote = (own: OwnersOwn): string =>
+  `"${own.name}" is changed only by the owner, in ${own.place} (${own.choices}). Branch cannot change it from a conversation, and settings.list does not list it.`;
+
+/** A word held by more fields than this picks none of them out: "mode" is held by more than half the catalogue. */
+const tellingAt = 8;
+let holders: Map<string, number> | undefined;
+/** Whether a word tells settings apart: some field holds it, and only a few do. */
+function telling(word: string): boolean {
+  if (!holders) {
+    holders = new Map();
+    for (const one of everyField()) for (const held of knownWords(one)) holders.set(held, (holders.get(held) ?? 0) + 1);
+  }
+  const count = holders.get(word) ?? 0;
+  return count > 0 && count <= tellingAt;
+}
+
+/** The fields that share the most telling words with the request, and how many they share (none when no word is shared). */
+function nearest(request: string, value?: unknown): { found: Candidate[]; shared: number } {
+  const words = namingWords(request).filter(telling);
+  const scored = everyField().map((one) => ({ one, shared: words.filter((word) => knownWords(one).has(word)).length }));
+  const shared = Math.max(0, ...scored.map((entry) => entry.shared));
+  return { found: shared ? narrowed(scored.filter((entry) => entry.shared === shared).map((entry) => entry.one), value) : [], shared };
+}
+
+/** One question naming the settings nearest to the words, when no setting holds all of them. */
+function nearQuestion(near: readonly Candidate[]): string {
+  const shown = near.slice(0, 5).map(nameOf);
+  if (near.length > shown.length) return `No setting is called exactly that. It could be ${near.length} settings, such as ${listed(shown)}. Which one do you mean?`;
+  return `No setting is called exactly that. Do you mean ${listed(shown)}?`;
+}
+
+/**
+ * Dogfood B20: words that name no setting in the catalogue. The answer is never "which setting do you mean?" with
+ * nothing to choose from. A setting only the owner changes is named, with where it is; otherwise the settings nearest
+ * to the words are offered in one question (a near guess is only ever asked about, never planned); otherwise the
+ * answer says plainly that there is no such setting. Nothing is planned in any of them.
+ */
+function unmatched(store: Store, owner: string, request: string, value: unknown): Clarified {
+  const own = ownersOwnFor(request);
+  if (own) return { status: "elsewhere", setting: own.name, where: own.where, note: ownersOwnNote(own), planned: false };
+  const near = nearest(request, value).found, saysNot = negated(request), quoted = `"${request.slice(0, 80)}"`;
+  if (!near.length) return { status: "none", planned: false, note: `${saysNot ? "Your words say not to, so nothing is planned. " : ""}${namingWords(request).length
+    ? `No setting Branch can change matches ${quoted}, and settings.list will not find one either.`
+    : `The words ${quoted} name no setting: pass the words for the setting itself, as the owner said them (such as "the wake word").`} Nothing was changed.` };
+  const choices = near.slice(0, 20).map((one) => ({ setting: idOf(one), name: nameOf(one), value: currentValue(store, owner, one.spec, one.field) }));
+  return { status: "ask", question: saysNot ? negatedQuestion(store, owner, near) : nearQuestion(near), choices, planned: false };
+}
+
+/** Words that name Branch's settings outright. */
+const settingsNamed = new Set(["setting", "settings", "preference", "preferences"]);
+/**
+ * Dogfood B20: whether these words are about Branch's own settings, so a task can start with the settings tools in reach
+ * rather than searching for them. They name settings outright, say a phrase people use for one, or turn on or off
+ * something the catalogue names. "Turn on the lights" and "switch to the other branch" are not.
+ */
+export function talksAboutSettings(text: string): boolean {
+  const words = wordsOf(text);
+  if (words.some((word) => settingsNamed.has(word)) || saidFor(text).length) return true;
+  const turning = (["turn", "switch", "toggle"].some((verb) => words.includes(verb)) && (words.includes("on") || words.includes("off")))
+    || ["enable", "disable", "activate", "deactivate"].some((verb) => words.includes(verb));
+  return turning && (candidatesFor(text).length > 0 || nearest(text).shared >= 2);
+}
+
+/** A settings.list search as words: split at spaces, filler taken out, crudely stemmed. Each is still found inside a row's text. */
+export function listWords(search: string): string[] {
+  return [...new Set(search.toLowerCase().split(/\s+/).filter((word) => word && !filler.has(word)).map(stem))];
 }

@@ -1,7 +1,8 @@
 /**
  * Q50: a settings request in the owner's own words is matched before anything is planned. Words that
- * fit several settings, or none, come back as one question and no plan; words that fit exactly one
- * come back as the exact before and after, with anything already as asked left out.
+ * fit several settings come back as one question and no plan; words that fit exactly one come back as
+ * the exact before and after, with anything already as asked left out. Dogfood B20: words that fit
+ * none come back as a plain answer, never a question with nothing to choose from, and no plan either.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -44,17 +45,17 @@ test("two ambiguous phrasings each come back as one question, with nothing plann
   assert.deepEqual(await values(), before);
 });
 
-test("a request that fits no setting asks which one is meant and lists none", async (t) => {
+test("dogfood B20: a request that fits no setting says so plainly, never asking which one with nothing to choose from", async (t) => {
   const { find, values } = await fixture(t);
   const before = await values();
   const none = await find({ request: "turn on the flux capacitor" });
-  assert.equal(none.status, "ask");
+  assert.equal(none.status, "none");
   assert.equal(none.planned, false);
-  assert.deepEqual(none.choices, []);
-  assert.match(none.question, /could not find a setting.*flux capacitor.*Which setting do you mean\?/);
+  assert.equal(none.question, undefined, "there is nothing to choose from, so there is no question");
+  assert.match(none.note, /No setting Branch can change matches "turn on the flux capacitor"/);
   const empty = await find({ request: "turn it on" });
-  assert.equal(empty.status, "ask");
-  assert.deepEqual(empty.choices, []);
+  assert.equal(empty.status, "none");
+  assert.match(empty.note, /name no setting: pass the words for the setting itself/);
   assert.deepEqual(await values(), before);
 });
 
@@ -137,14 +138,9 @@ test("a request that says not to is never planned as a change, for loosening set
     "not your screen and keyboard, turn it on",
     "doesnt need the wake word on",
     "don't turn off the learning",
-    "n'active pas le mot de réveil",
-    "ne mets jamais l'écran",
-    "n'allume plus la caméra",
     "no wake word on please",
     "Your screen and keyboard on? No.",
     "stop your screen and keyboard on",
-    "non, allume l'écran et le clavier",
-    "arrête d'allumer le mot de réveil",
     "Arrêter : your screen and keyboard on",
     "STOP turning on the wake word",
     "hold on, turn on A relay that holds your chat app accounts",
@@ -154,11 +150,15 @@ test("a request that says not to is never planned as a change, for loosening set
     "nope, turn on your screen and keyboard",
     "nah turn on the wake word",
     "never mind, turn on the wake word",
-    "annule, allume l'écran",
-    "attends, allume le mot de réveil",
-    "pas maintenant, allume l'écran",
   ];
   for (const request of phrasings) assertAsksOnly(await find({ request }), request);
+  // Dogfood B20: words that say not to and name no setting Branch knows are answered plainly, with nothing planned.
+  for (const request of ["n'active pas le mot de réveil", "ne mets jamais l'écran", "n'allume plus la caméra", "non, allume l'écran et le clavier",
+    "arrête d'allumer le mot de réveil", "annule, allume l'écran", "attends, allume le mot de réveil", "pas maintenant, allume l'écran"]) {
+    const answer = await find({ request });
+    assert.deepEqual([answer.status, answer.planned, answer.preview, answer.useTool], ["none", false, undefined, undefined], `${request}: ${JSON.stringify(answer)}`);
+    assert.match(answer.note, /say not to/, request);
+  }
   assertAsksOnly(await find({ request: "don't turn on Your screen and keyboard", value: "on" }), "a said value does not override the not");
   assert.equal((await find({ request: "turn on notes with rewriting" })).status, "ready", "notes is not a negation");
   const label = "When to check with me A command no rule mentions";

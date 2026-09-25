@@ -7,6 +7,8 @@ import { settingsCatalogue, specFor, type FieldSpec, type SettingSpec } from "./
 import { applyWithPins, changesFor, currentValue, holdable, loosens, type Change, type Proposal, type Value, type Writer } from "./changes.js";
 import { pinnedIds } from "./pins.js";
 import type { ChangeOrigin } from "./history.js";
+import { listWords, ownersOwnFor, ownersOwnNote, talksAboutSettings } from "./clarify.js"; // dogfood A5, B20
+import type { PreloadedTool } from "../tool-loading.js";
 import { planUndo, undoSettingsChange, whySetting } from "./undo.js"; // Q49
 import { lockedDown } from "../lockdown.js";
 import { clarifyRequest } from "./clarify.js";
@@ -17,11 +19,14 @@ import { clarifyRequest } from "./clarify.js";
  * change and does it only on the owner's yes.
  *
  *   - `settings.find` takes the owner's own words ("turn the wake word on") and, before anything is
- *     planned, either asks one question — when the words fit several settings or none — or gives the
- *     exact before and after for the one setting they fit, leaving out what is already as asked (Q50).
+ *     planned, either asks one question — when the words fit several settings — or gives the exact
+ *     before and after for the one setting they fit, leaving out what is already as asked (Q50). Words
+ *     that fit none name the settings nearest to them in one question, say where a setting only the
+ *     owner changes lives, or say plainly there is no such setting (dogfood B20).
  *   - `settings.list` reads the catalogue (src/settings-kit/catalogue.ts): every switch, choice and
  *     number the owner can change, with what it is set to now. Nothing else in the settings table —
- *     connections, keys, people, Lockdown — is ever listed or changed here.
+ *     connections, keys, people, Lockdown — is ever listed or changed here. A search gives the few
+ *     rows that fit best, each without what only repeats the obvious (dogfood A5).
  *   - `settings.change` makes ordinary changes. The runtime asks the owner first, whatever the rules
  *     say (`settingsHold`); "yes for this conversation" is remembered like any other answer.
  *   - `settings.loosen` is the only way to make a change that leaves Branch less careful or lets it
@@ -77,6 +82,20 @@ function ownerIsHere(store: Store, context: ToolContext): boolean {
   try { ownerHere(store, context); return true; } catch { return false; }
 }
 
+/** Why the settings tools are there from the first round, in the words the run inspector shows beside them. */
+const preloadReason = "the request is about Branch's own settings, so finding and changing one needs no search first";
+
+/**
+ * Dogfood B20: a request about Branch's own settings starts with settings.find and settings.change in reach, so
+ * finding the setting is one call rather than a search for the tools first. Only for the owner, in a conversation
+ * they started (nobody else can use them), and only tools this task is allowed. It changes what is shown, not what
+ * is asked: every change still goes to the owner (settingsHold).
+ */
+export function settingsPreload(store: Store, context: ToolContext, words: string, available: readonly string[]): PreloadedTool[] {
+  if (!talksAboutSettings(words) || !ownerIsHere(store, context)) return [];
+  return ["settings.find", "settings.change"].filter((name) => available.includes(name)).map((name) => ({ name, reason: preloadReason }));
+}
+
 type Shown = string | number | boolean;
 function choicesOf(field: FieldSpec): Shown[] | { min: number; max: number } {
   if (field.kind.type === "switch") return ["off", "when-needed", "on"];
@@ -112,18 +131,52 @@ const ListSchema = z.object({
 }).strict();
 type ListInput = z.infer<typeof ListSchema>;
 
-/** The catalogue, filtered: every word of `search` must appear in the setting's name, label, key or place. */
-export function listSettings(store: Store, owner: string, input: ListInput): { total: number; shown: Row[]; nextOffset: number | null } {
-  const words = (input.search ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+/** How many rows a search shows unless it asks for more: the few that fit, not a page of the catalogue (dogfood A5). */
+const searchLimit = 8;
+
+/** A row as it is sent, without what only repeats the obvious: how it starts when it is still so, not pinned, no less careful way. */
+type Listed = Omit<Row, "startsAs" | "lessCareful" | "pinned"> & Partial<Pick<Row, "startsAs" | "lessCareful" | "pinned">>;
+function compact(one: Row): Listed {
+  const { startsAs, lessCareful, pinned, ...rest } = one;
+  return { ...rest, ...(startsAs !== one.value ? { startsAs } : {}), ...(lessCareful ? { lessCareful } : {}), ...(pinned ? { pinned } : {}) };
+}
+
+/**
+ * Dogfood A5: the rows a search fits, best first, by the words each holds in its setting's name, label, key or place.
+ * A row fits by holding a word that tells rows apart. A word most rows hold ("mode" ends every switch's name) only
+ * breaks ties, and when no word tells rows apart every word must be held, so "dark mode" finds nothing rather than
+ * every switch. The sort is stable: rows that score the same keep the catalogue's order.
+ */
+function searched(rows: Row[], words: readonly string[]): Row[] {
+  if (!words.length) return rows;
+  const texts = new Map(rows.map((one) => [one, `${one.setting} ${one.name} ${one.label} ${one.where}`.toLowerCase()]));
+  const holds = (one: Row, word: string): boolean => texts.get(one)!.includes(word);
+  const telling = new Set(words.filter((word) => {
+    const count = rows.filter((one) => holds(one, word)).length;
+    return count > 0 && count <= rows.length / 4;
+  }));
+  const fits = (one: Row): boolean => telling.size ? [...telling].some((word) => holds(one, word)) : words.every((word) => holds(one, word));
+  const score = (one: Row): number => words.reduce((sum, word) => sum + (holds(one, word) ? (telling.has(word) ? 2 : 1) : 0), 0);
+  return rows.filter(fits).map((one) => ({ one, score: score(one) })).sort((a, b) => b.score - a.score).map(({ one }) => one);
+}
+
+/**
+ * The catalogue, filtered. Dogfood A5: a search gives the rows that fit, best first (`searched`), and shows the few
+ * that fit unless a limit says otherwise. A row leaves out what only repeats the obvious and keeps everything
+ * settings.change needs.
+ */
+export function listSettings(store: Store, owner: string, input: ListInput): { total: number; shown: Listed[]; nextOffset: number | null; note?: string } {
+  const words = listWords(input.search ?? "");
   const pinned = pinnedIds(store, store.profiles?.ownerName ?? owner); // the same scope as changesFor
-  const rows = settingsCatalogue.flatMap((spec) => spec.fields.map((field) => row(store, owner, spec, field, pinned)))
-    .filter((one) => words.every((word) => `${one.setting} ${one.name} ${one.label} ${one.where}`.toLowerCase().includes(word)))
+  const rows = searched(settingsCatalogue.flatMap((spec) => spec.fields.map((field) => row(store, owner, spec, field, pinned))), words)
     .filter((one) => !input.onlyOff || one.value === "off" || one.value === false)
     .filter((one) => !input.onlyChanged || one.value !== one.startsAs);
-  const offset = input.offset ?? 0, limit = input.limit ?? 80;
-  const shown = rows.slice(offset, offset + limit);
+  const offset = input.offset ?? 0, limit = input.limit ?? (words.length ? searchLimit : 80);
+  const shown = rows.slice(offset, offset + limit).map(compact);
   const end = offset + shown.length;
-  return { total: rows.length, shown, nextOffset: end < rows.length ? end : null };
+  // A setting only the owner changes is not in the catalogue, so a search for it says where it is instead (dogfood B20).
+  const own = ownersOwnFor(input.search ?? "");
+  return { total: rows.length, shown, nextOffset: end < rows.length ? end : null, ...(own ? { note: ownersOwnNote(own) } : {}) };
 }
 
 const FindSchema = z.object({
@@ -273,21 +326,22 @@ function undoTool(store: Store, writers: () => Record<string, Writer>) {
 export function registerSettingsTools(registry: ToolRegistry, store: Store, writers: () => Record<string, Writer>): void {
   registry.register({
     name: "settings.find", permission: "settings.read",
-    description: "Before changing a setting the owner described in their own words, pass those words as request (and the value, if they said one). If it returns status \"ask\", ask the owner exactly that one question and change nothing until they answer. If it returns \"ready\", show the owner the preview (each setting from → to) and then call the tool it names. If it returns \"unchanged\", say so and change nothing.",
+    // Dogfood B20: a description reaches the model cut at 200 characters (maxToolDescriptionChars), so all of it says what to do.
+    description: "First step for any request about Branch's own settings: pass the owner's words (and value, if said). Then \"ask\": ask its one question; \"ready\": call useTool with the preview; else tell the owner.",
     parameters: FindSchema,
     target: () => "Branch's own settings",
     execute: async (input: FindInput, context: ToolContext) => { ownerHere(store, context); return clarifyRequest(store, context.owner, input); },
   });
   registry.register({
     name: "settings.list", permission: "settings.read",
-    description: "List Branch's own settings — every switch (off, when-needed, on), yes/no, choice and number the owner can change — with what each is set to now, how it starts, and which way is less careful. Search by words, or ask only for what is off or what was changed. Returns up to 80 rows; pass nextOffset as offset with the same filters to continue, until nextOffset is null. Use it to answer questions about Branch's settings and to suggest ones that would help; never change anything without asking.",
+    description: "Branch's own settings and what each is set to now, for broad questions. For one the owner names, call settings.find instead. A search returns the best few; onlyOff and onlyChanged filter.",
     parameters: ListSchema,
     target: () => "Branch's own settings",
     execute: async (input: ListInput, context: ToolContext) => { ownerHere(store, context); return listSettings(store, context.owner, input); },
   });
   registry.register({
     name: "settings.change", permission: "settings.write",
-    description: "Change some of Branch's own settings, by the names settings.list gives (for example wake-word.mode to \"on\"). When the owner described the setting in their own words, call settings.find first and ask its question if it has one. The owner is asked first; a change that makes Branch less careful is asked about every time, and the owner's yes makes it.",
+    description: "Change some of Branch's own settings, by the names settings.find or settings.list give (for example wake-word.mode to \"on\"). When the owner described the setting in their own words, call settings.find first and ask its question if it has one. The owner is asked first; a change that makes Branch less careful is asked about every time, and the owner's yes makes it.",
     parameters: ChangeSchema,
     target: (input: ChangeInput) => describe(input),
     execute: changeTool(false, store, writers),
