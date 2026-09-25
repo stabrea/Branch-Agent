@@ -2276,15 +2276,19 @@ $("chat-form").addEventListener("submit", async (event) => {
     const files = globalThis.branchAttachedFiles?.() ?? [];
     /* Redesign phase 1: a conversation begun here starts in the mode its chip shows (public/conversation-mode.js). */
     const startMode = sessionId ? null : globalThis.branchConversationMode?.pending() ?? null;
+    /* Dogfood B26: the thinking level picked in the model menu before this first message (public/composer-grown.js). */
+    const startReasoning = sessionId ? null : globalThis.branchPendingReasoning?.get() ?? null;
     const run = await api("run", {
       prompt,
       ...(sessionId ? { sessionId } : {}),
       ...(startMode ? { mode: startMode } : {}),
+      ...(startReasoning ? { reasoning: startReasoning } : {}),
       ...(startingTemporary ? { temporary: true } : {}),
       ...(pictures.length ? { images: pictures } : {}),
       ...(files.length ? { attachments: files } : {}),
     });
     globalThis.branchAttachmentsClear?.();
+    if (startReasoning) globalThis.branchPendingReasoning?.clear();
     if (!sessionId) currentTemporary = startingTemporary;
     sessionId = run.sessionId;
     // FQ-surfaces.playback: the redraw below matches these clips to the message the server saved.

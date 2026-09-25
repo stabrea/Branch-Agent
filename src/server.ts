@@ -1889,6 +1889,7 @@ async function api(
       ...(input.plan !== undefined ? { plan: input.plan } : {}),
       ...(input.verify !== undefined ? { verify: input.verify } : {}),
       ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
+      ...(input.reasoning && !input.sessionId ? { conversationReasoning: input.reasoning } : {}),
       onUserMessageId: (id) => { userMessageId = id; },
     });
     return userMessageId !== undefined ? { ...run, userMessageId } : run;

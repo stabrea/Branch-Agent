@@ -73,6 +73,35 @@ function menuSection(id, key, fallback, close) {
   })];
 }
 
+/*
+ * Dogfood B26 (Legion 2f2da94): before a first message there is no conversation to keep a level, so the one picked here
+ * is held in the page, shown on the chip, and sent with the first message, which gives it to the conversation it starts.
+ */
+let pendingReasoning = null;
+let picker = { models: null, active: null, sync: () => {} };
+globalThis.branchPendingReasoning = {
+  get: () => pendingReasoning,
+  clear: () => { pendingReasoning = null; picker.sync(); },
+};
+function pendingThinking(close) {
+  if (!$("model-controls")?.hidden) return [];
+  const preset = picker.models?.presets?.find((one) => one.id === (picker.active?.presetId ?? picker.active?.id));
+  const levels = preset?.thinking?.levels ?? [];
+  if (levels.length < 2) return [];
+  const heading = element("p", "lx-more-head", say("field.thinking", "Thinking"));
+  heading.dataset.t = "field.thinking";
+  const usual = preset.startsAt ? say(`thinking.effort.${preset.startsAt}`, preset.startsAt) : "";
+  const choice = (value, text) => {
+    const row = menuButton(text, "menuitemradio");
+    row.setAttribute("aria-checked", String(pendingReasoning === value));
+    row.addEventListener("click", () => { pendingReasoning = value; picker.sync(); close(); });
+    return row;
+  };
+  return [element("hr", "lx-menu-rule"), heading,
+    choice(null, say("composer.thinkingUsual", "The usual ({level})").replace("{level}", usual || say("thinking.level.default", "Model's own default"))),
+    ...levels.map((level) => choice(level, say(`thinking.effort.${level}`, level)))];
+}
+
 function paintModelMenu(menu, close) {
   const select = $("model-controls")?.hidden ? $("models-active") : $("session-model");
   if (!select) return;
@@ -83,6 +112,7 @@ function paintModelMenu(menu, close) {
   manage.addEventListener("click", () => { close(); globalThis.branchLayout?.go("settings:models"); });
   menu.replaceChildren(heading, ...[...select.options].map((option) => modelChoice(option, select, close)),
     ...menuSection("session-reasoning", "field.thinking", "Thinking", close),
+    ...pendingThinking(close),
     ...menuSection("session-skill", "field.pinned-skill", "Pinned skill", close),
     element("hr", "lx-menu-rule"), manage);
 }
@@ -96,7 +126,8 @@ function thinkingWord(models, active) {
   const preset = models?.presets?.find((one) => one.id === (active?.presetId ?? active?.id));
   // In a conversation the server's own answer (`session.effective`); before one, the level a new one starts at.
   const inConversation = !$("model-controls")?.hidden;
-  const level = inConversation && select?.value ? select.value : inConversation ? active?.reasoning : preset?.startsAt ?? active?.reasoning;
+  const level = inConversation && select?.value ? select.value : inConversation ? active?.reasoning
+    : pendingReasoning ?? preset?.startsAt ?? active?.reasoning;
   if (!level || !preset?.thinking?.levels?.includes(level)) return "";
   // The short word ("Balanced"), not the list's longer wording for a model that thinks by budget, or the note on
   // a level the model does not take: the chip is a name, and it is cut at its width (NAS 62efb38).
@@ -126,9 +157,12 @@ function installModelPicker() {
   $("send")?.before(wrap);
   const sync = () => {
     const active = activeModel(models, session);
+    picker = { models, active, sync };
     const practice = active?.provider === "offline-demo-fixture";
     const thinking = practice ? "" : thinkingWord(models, active);
-    name.textContent = (practice ? say("composer.practiceModel", "Practice") : active?.model || say("composer.noModel", "Connect a model"))
+    // Dogfood B25: the model's own name ("GPT-6 Sol") where the catalogue has one, else its id.
+    const preset = models?.presets?.find((one) => one.id === (active?.presetId ?? active?.id));
+    name.textContent = (practice ? say("composer.practiceModel", "Practice") : preset?.modelName || active?.model || say("composer.noModel", "Connect a model"))
       + (thinking ? ` · ${thinking}` : "");
     chip.setAttribute("aria-label", `${say("composer.changeModel", "Change the model")}: ${name.textContent}`);
   };

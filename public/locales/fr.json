@@ -1355,6 +1355,7 @@
   "composer.noModel": "Connecter un modèle",
   "composer.manageModels": "Gérer les modèles…",
   "composer.modelForConversation": "Modèle pour cette conversation",
+  "composer.thinkingUsual": "Habituel ({level})",
   "composer.practiceModel": "Essai",
   "composer.placeholder": "Demandez quelque chose à Branch…",
   "composer.send": "Envoyer",
