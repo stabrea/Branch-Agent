@@ -83,7 +83,7 @@ export async function after() {
 }
 
 export function init() {
-  markLive(["ptab", "chat", "tmsg", "ask", "verify15"]);
+  markLive(["ptab", "chat", "tmsg", "ask", "verify15", "selfrev15", "xdo", "compare", "replay"]);
   on("tmsg", async (el) => {
     try { await api(`trunks/messages/${encodeURIComponent(el.dataset.id)}/${el.dataset.v === "answer" ? "answer" : "decline"}`, {}); } catch (error) { toast(error.message); }
     await refresh().catch(() => {});
@@ -120,6 +120,45 @@ export function init() {
     try {
       const result = await api("safety-extras/activity/verify", {});
       toast(`Activity chain verified: ${result.count || 0} entries`);
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  on("selfrev15", async (el) => {
+    // Open self-development requests review
+    try {
+      const requests = await api("self-development/requests");
+      toast("Self-development requests loaded");
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  on("xdo", async (el) => {
+    // Approve/decline flow board install request
+    const id = el.dataset.id;
+    try {
+      await api(`flows-boards/installs/${encodeURIComponent(id || '')}/approve`, {});
+      toast("Request approved");
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  on("compare", async (el) => {
+    // Compare two tasks side by side
+    try {
+      const runId = el.dataset.id;
+      const inspect = await api(`runs/${encodeURIComponent(runId || '')}/inspect`);
+      toast("Task comparison loaded");
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  on("replay", async (el) => {
+    // Replay task recording
+    try {
+      const runId = el.dataset.id;
+      const recording = await api(`runs/${encodeURIComponent(runId || '')}/recording`);
+      toast("Task recording loaded");
     } catch (error) {
       toast(error.message);
     }

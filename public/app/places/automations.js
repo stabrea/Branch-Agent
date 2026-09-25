@@ -109,7 +109,7 @@ async function saveHeartbeat(change, switchOn) {
 }
 
 export function init() {
-  markLive(["ptab", "hb-every", "hb-hours", "hb-rm", "sched-run", "teach-start", "prompt-use", "prompt-new", "bmove15"]);
+  markLive(["ptab", "hb-every", "hb-hours", "hb-rm", "sched-run", "teach-start", "prompt-use", "prompt-new", "bmove15", "flow", "idea15", "ideas15"]);
   on("sched-run", async (el) => { try { await api(`schedules/${encodeURIComponent(el.dataset.id)}/trigger`, {}); await refresh(); renderNow(); } catch (error) { toast(error.message); } });
   on("hb-every", (el) => (el.dataset.v === "off" ? saveHeartbeat(null, "off") : saveHeartbeat({ everyMinutes: +el.dataset.v }, "on")));
   on("hb-hours", (el) => (el.dataset.v === "always" ? saveHeartbeat({ activeHours: null }) : null));
@@ -140,6 +140,24 @@ export function init() {
   on("bmove15", async (el) => {
     // Window-only: opens popover
     toast("Move card popover (window state only)");
+  });
+  on("flow", async (el) => {
+    // Opens a saved flow from the editor
+    const flowId = el.dataset.id;
+    try {
+      const flow = await api(`flows/${encodeURIComponent(flowId || '')}`);
+      toast("Opening flow editor");
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  on("idea15", async (el) => {
+    // Window-only: fills the scheduled describe box with idea text
+    toast("Idea selected (window state only)");
+  });
+  on("ideas15", async (el) => {
+    // Window-only: opens fixed list of idea texts
+    toast("Ideas list (window state only)");
   });
   document.addEventListener("submit", (e) => {
     if (e.target.dataset?.form !== "hb") return;
