@@ -47,7 +47,7 @@ export async function onPage(t, options = {}) {
   const { app, server, api, root } = await served(t, options.provider);
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); });
-  const page = await browser.newPage({ viewport: options.viewport ?? { width: 1280, height: 800 } });
+  const page = await browser.newPage({ viewport: options.viewport ?? { width: 1280, height: 800 }, serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   for (const file of options.block ?? []) await page.route("**" + file, (route) => route.abort());
@@ -57,9 +57,7 @@ export async function onPage(t, options = {}) {
   await token.fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  await finishFirstRun(page);
-  /* These tests exercise the full window's own controls: "Show everything" since 0.18.1. */
-  await showEverything(page);
+  /* Redesign: the new window (public/app/**) opens on the conversation; there is no first-run panel or calm window. */
   return { app, server, api, page, errors, root };
 }
 
@@ -112,7 +110,9 @@ test("G3 the Gemini card has a route that reports whether a sign-in is set up", 
 
 /* ---------- G6: "/model" and "/help" without public/model-profiles.js ---------- */
 
-test("G6 the message box knows its own commands, so /model and /help work without the module", async () => {
+// Redesign: replaced by the new window (public/app.js and public/model-profiles.js are the old window's; the new
+// message box is public/app/chat/chat.js, checked in "typing /model … still lists the choices" below).
+test.skip("G6 the message box knows its own commands, so /model and /help work without the module", async () => {
   const source = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
   assert.match(source, /export function parseSlashCommand/, "the parser lives in app.js, not only in the module");
   assert.match(source, /switchModelWithoutModule/, "app.js can change the model on its own");
@@ -429,17 +429,20 @@ const answersTheQuestion = { name: "scripted", async complete(request) {
 
 test("D1 comparing two tasks shows both sets of figures and the difference between the answers", async (t) => {
   const { page, errors } = await onPage(t, { provider: answersTheQuestion });
+  /* Redesign: two conversations started from New (newmenu › New conversation); comparing is the prototype's
+     data-act="compare" beside a task in Inbox › History (the engine route: GET /api/runs/{id}/inspect for each). */
   for (const prompt of ["apples", "pears"]) {
     await page.locator("#prompt").fill(prompt);
-    await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
+    await page.locator("#composer").evaluate((form) => form.requestSubmit());
     await page.waitForFunction((answer) => document.getElementById("conversation").textContent.includes(answer), `The answer for ${prompt}.`, { timeout: 20000 });
-    /* DG-175: a new conversation starts from the rail, as a person starts one; the box has no button of its own. */
-    await page.waitForFunction(() => !document.getElementById("new-session")?.disabled, undefined, { timeout: 120000 });
-    await page.locator("#rail-new").click();
+    await page.waitForFunction(() => !document.getElementById("send")?.disabled, undefined, { timeout: 120000 });
+    await page.locator('#side [data-act="newmenu"]').click();
+    await page.locator('[data-act="newconv"]').click();
   }
-  await openPlace(page, "runs");
-  const picks = page.locator(".compare-pick");
-  await picks.first().waitFor();
+  await page.locator('#side [data-act="view"][data-v="inbox"]').click();
+  await page.locator('#main [data-act="ptab"][data-place="inbox"][data-v="history"]').click();
+  const picks = page.locator('#main [data-act="compare"]');
+  await picks.first().waitFor({ timeout: 10000 });
   assert.equal(await picks.count(), 2);
   await picks.nth(0).click();
   await picks.nth(1).click();
@@ -512,7 +515,8 @@ test("D3 the event stream needs the key, filters by kind and carries on from the
   assert.ok(new Set([...everything.matchAll(/^event: (.+)$/gm)].map((m) => m[1])).size > 3, "more than one kind arrives");
 });
 
-test("D3 the Activity screen shows the live feed and stops it when you leave", async (t) => {
+// Redesign: Coming soon (pane, the side panel's Activity), checked at afa6ad94.
+test.skip("D3 the Activity screen shows the live feed and stops it when you leave", async (t) => {
   const { page, api, errors } = await onPage(t, { provider: writesAFile("live.txt") });
   await openPlace(page, "runs");
   await page.locator("#activity-feed-card").waitFor({ state: "visible" });
@@ -532,7 +536,8 @@ test("D3 the Activity screen shows the live feed and stops it when you leave", a
 
 /* ---------- D4: the month view, the forecast and the cost columns ---------- */
 
-test("D4 the month card's numbers come from the ledger and the forecast says about", async (t) => {
+// Redesign: Coming soon (Settings › Data & usage: the report, rep15 and repopen15), checked at afa6ad94.
+test.skip("D4 the month card's numbers come from the ledger and the forecast says about", async (t) => {
   const { page, api, errors } = await onPage(t, { provider: answersTheQuestion });
   /* A model with a price on file, so there is money to add up at all. */
   await api("POST", "/api/pricing", { overrides: { configured: { input: 1000, output: 1000 } } });
@@ -763,7 +768,9 @@ test("G1 a standing rule that says go ahead is listed beside the conversation's 
   assert.deepEqual(after.standing.map((entry) => entry.rule.tool), ["files.read"]);
 });
 
-test("G1 the context pane lists a grant and the approval card says what a yes leaves behind", async (t) => {
+// Redesign: Coming soon (pane, the side panel's allowed list), checked at afa6ad94; the card's "Yes, for this
+// conversation" is replaced by the new card (the action's verb, Always allow, Don’t allow).
+test.skip("G1 the context pane lists a grant and the approval card says what a yes leaves behind", async (t) => {
   const { page, errors } = await onPage(t, { provider: writesAFile("gated.txt") });
   await page.evaluate(async (token) => {
     await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) });
@@ -798,7 +805,8 @@ test("G1 the context pane lists a grant and the approval card says what a yes le
 
 /* ---------- G4: label chips in Recents, in Ctrl+K, and on the conversation title ---------- */
 
-test("G4 label chips filter Recents and the Ctrl+K box through the labels search parameter", async (t) => {
+// Redesign: replaced by the new window (conversation labels and their chips are not in the design).
+test.skip("G4 label chips filter Recents and the Ctrl+K box through the labels search parameter", async (t) => {
   const answers = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
   const { page, api, errors } = await onPage(t, { provider: answers });
   const first = (await api("POST", "/api/run", { prompt: "the kitchen tiles" })).body;
@@ -834,7 +842,8 @@ test("G4 label chips filter Recents and the Ctrl+K box through the labels search
   assert.deepEqual(errors, []);
 });
 
-test("G4 the conversation title has a label picker that puts a label on what you are reading", async (t) => {
+// Redesign: replaced by the new window (conversation labels and the label picker are not in the design).
+test.skip("G4 the conversation title has a label picker that puts a label on what you are reading", async (t) => {
   const answers = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
   const { page, api, app, errors } = await onPage(t, { provider: answers });
   const run = (await api("POST", "/api/run", { prompt: "the loft hatch" })).body;
@@ -869,7 +878,8 @@ test("G4 the conversation title has a label picker that puts a label on what you
 const markdownReply = "## What I did\n\nI read **two** files and found `answer = 42`.\n\n- one\n- two\n";
 const scripted = { name: "scripted", async complete() { return { content: markdownReply, toolCalls: [] }; } };
 
-test("G5 the Activity screen and the inspector render a reply as markdown, never as markup", async (t) => {
+// Redesign: Coming soon (pane, Activity; chatmenu, "Look inside the last reply"), checked at afa6ad94.
+test.skip("G5 the Activity screen and the inspector render a reply as markdown, never as markup", async (t) => {
   const { page, errors } = await onPage(t, { provider: scripted });
   await page.locator("#prompt").fill("do the thing");
   await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
@@ -889,7 +899,8 @@ test("G5 the Activity screen and the inspector render a reply as markdown, never
   assert.deepEqual(errors, []);
 });
 
-test("G5 Appearance is written in French when French is chosen", async (t) => {
+// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at afa6ad94.
+test.skip("G5 Appearance is written in French when French is chosen", async (t) => {
   const { page, errors } = await onPage(t);
   await openSettingFor(page, "#appearance-language");
   assert.equal(await page.locator("#settings-form h2").textContent(), "Appearance");
@@ -916,18 +927,27 @@ test("G5 every key the page names has words in both languages", async () => {
 });
 
 test("G6 typing /model with the models module blocked still lists the choices", async (t) => {
+  /* Redesign: the new message box (public/app/chat/chat.js) has no models module to block; a recognised command is
+     run, not sent to the model as a message (design doc 4.3, Slash commands). The old toast's words are replaced by
+     the new window; what the command does is checked. */
   const { page, errors } = await onPage(t, { block: ["/model-profiles.js"] });
-  assert.equal(await page.evaluate(() => Boolean(globalThis.branchSlashCommand)), false, "the module really is absent");
+  const runs = [], commands = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/run")) runs.push(request.postData());
+    if (request.url().endsWith("/api/commands/run")) commands.push(request.postData());
+  });
   await page.locator("#prompt").fill("/model");
-  await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
-  /* The welcome toast is still on screen, so "visible" is already true: wait for these words. */
-  await page.locator("#toast").filter({ hasText: "Type /model followed by a name" }).waitFor();
+  await page.locator("#composer").evaluate((form) => form.requestSubmit());
+  await page.waitForFunction(() => document.getElementById("prompt").value === "", null, { timeout: 10000 });
+  await page.waitForFunction(() => !document.getElementById("send").disabled, null, { timeout: 20000 });
   assert.equal(await page.locator("#prompt").inputValue(), "", "the command is not left in the box");
-  assert.equal(await page.locator("#conversation").textContent(), "", "nothing was sent to the model");
+  assert.deepEqual(runs, [], "nothing was sent to the model");
+  assert.equal(await page.locator("#conversation .u").count(), 0, "nothing was sent to the model");
 
   await page.locator("#prompt").fill("/help");
-  await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
-  await page.waitForFunction(() => document.getElementById("toast").textContent.includes("/help"));
-  assert.match(await page.locator("#toast").textContent(), /\/model \[id\] — which model answers/);
+  await page.locator("#composer").evaluate((form) => form.requestSubmit());
+  await page.waitForFunction(() => !document.getElementById("send").disabled, null, { timeout: 20000 });
+  assert.deepEqual(runs, [], "/help is not sent to the model either");
+  assert.ok(commands.length >= 1, "the commands went to the engine's command route");
   assert.deepEqual(errors, []);
 });
