@@ -112,10 +112,13 @@ async function verifyNetworkBoundary(electron, page) {
 test(
   "native desktop authenticates locally, completes work, persists appearance, and hides to tray",
   { timeout: 360000 },
-  async () => {
+  async (t) => {
     const { home, options } = await desktopOptions();
     const electron = await _electron.launch(options);
     const child = electron.process();
+    // The trunk's Windows runs after R18 and R19: when this test ran out of time its app was never closed, so the
+    // shard waited on it until the job's hour was up. Running out of time now ends each app it started.
+    t.signal.addEventListener("abort", () => child.kill(), { once: true });
     let url;
     try {
       const page = await electron.firstWindow();
@@ -153,9 +156,13 @@ test(
     assert.equal(child.exitCode, 0);
     await assert.rejects(fetch(url, { signal: AbortSignal.timeout(2000) }));
     const restarted = await _electron.launch(options);
+    t.signal.addEventListener("abort", () => restarted.process().kill(), { once: true });
     try {
+      // Each step says so, so a run that stops here shows where.
       const page = await restarted.firstWindow();
+      console.log("Desktop restart: window open");
       await connected(page);
+      console.log("Desktop restart: connected");
       assert.equal(
         await page.locator("html").getAttribute("data-theme"),
         "daylight",
