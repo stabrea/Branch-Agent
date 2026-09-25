@@ -1560,20 +1560,27 @@ for (const [id, key] of [["identity-name", "name"], ["identity-instructions", "i
 }
 /* Dogfood B2/B3: a step says what was done and what came of it, like Claude Code's tool lines, never only which tool
    was used ("Used settings change" when nothing changed). The words come from the call and its result. */
-const stepArgs = (call) => { try { return JSON.parse(call.arguments || "{}"); } catch { return {}; } };
-const quoted = (value) => `“${String(value).slice(0, 60)}”`;
+// NAS's B2 review: arguments that are not a plain object (a model may send "null" or 5) read as none, never as a crash.
+const stepArgs = (call) => {
+  try { const value = JSON.parse(call.arguments || "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
+  catch { return {}; }
+};
+const asList = (value) => (Array.isArray(value) ? value : []);
+const quoted = (value) => `“${String(value ?? "").slice(0, 60)}”`;
+const command = (a) => `\`${[a.executable, ...asList(a.args)].filter((part) => part !== undefined).join(" ").slice(0, 80)}\``;
 const stepPhrases = {
-  "files.read": (a) => `Read ${a.path ?? "a file"}`, "files.write": (a) => `Wrote ${a.path ?? "a file"}`,
-  "files.edit": (a) => `Edited ${a.path ?? "a file"}`, "files.glob": (a) => `Listed files${a.pattern ? ` matching ${a.pattern}` : ""}`,
-  "files.grep": (a) => `Searched files for ${quoted(a.pattern ?? a.query ?? "")}`, "files.search": (a) => `Searched files for ${quoted(a.query ?? "")}`,
-  "shell.execute": (a) => `Ran \`${[a.executable, ...(a.args ?? [])].join(" ").slice(0, 80)}\``,
-  "device.run": (a) => `Ran \`${[a.executable, ...(a.args ?? [])].join(" ").slice(0, 80)}\` on ${a.device ? a.device : "a paired device"}`,
-  "settings.list": () => "Looked through the settings", "settings.find": (a) => `Looked for the setting for ${quoted(a.request ?? a.query ?? "")}`,
-  "settings.change": (a) => `Asked to change ${(a.changes ?? []).length} setting(s)`, "settings.loosen": (a) => `Asked to change ${(a.changes ?? []).length} setting(s)`,
-  "tools.search": (a) => `Looked for a tool to ${quoted(a.query ?? "")}`, "tools.describe": () => "Read how a tool works",
-  "tools.open": (a) => `Opened the ${(a.groups ?? []).join(", ") || "requested"} tools`, "checklist.write": () => "Updated its checklist",
-  "web.search": (a) => `Searched the web for ${quoted(a.query ?? "")}`, "web.fetch": (a) => `Read ${a.url ?? "a web page"}`,
-  "memory.search": (a) => `Searched memory for ${quoted(a.query ?? "")}`, "memory.put": () => "Saved something to memory",
+  "files.read": (a) => t("steps.read", { what: a.path ?? t("steps.a-file") }), "files.write": (a) => t("steps.wrote", { what: a.path ?? t("steps.a-file") }),
+  "files.edit": (a) => t("steps.edited", { what: a.path ?? t("steps.a-file") }),
+  "files.glob": (a) => (a.pattern ? t("steps.listed-matching", { pattern: a.pattern }) : t("steps.listed")),
+  "files.grep": (a) => t("steps.searched-files", { q: quoted(a.pattern ?? a.query) }), "files.search": (a) => t("steps.searched-files", { q: quoted(a.query) }),
+  "shell.execute": (a) => t("steps.ran", { command: command(a) }),
+  "device.run": (a) => t("steps.ran-on", { command: command(a), device: a.device || t("steps.a-paired-device") }),
+  "settings.list": () => t("steps.settings-list"), "settings.find": (a) => t("steps.settings-find", { q: quoted(a.request ?? a.query) }),
+  "settings.change": (a) => t("steps.settings-change", { count: asList(a.changes).length }), "settings.loosen": (a) => t("steps.settings-change", { count: asList(a.changes).length }),
+  "tools.search": (a) => t("steps.tools-search", { q: quoted(a.query) }), "tools.describe": () => t("steps.tools-describe"),
+  "tools.open": (a) => t("steps.tools-open", { groups: asList(a.groups).join(", ") || t("steps.requested") }), "checklist.write": () => t("steps.checklist"),
+  "web.search": (a) => t("steps.web-search", { q: quoted(a.query) }), "web.fetch": (a) => t("steps.read", { what: a.url ?? t("steps.a-web-page") }),
+  "memory.search": (a) => t("steps.memory-search", { q: quoted(a.query) }), "memory.put": () => t("steps.memory-put"),
 };
 function stepPhrase(call) {
   const phrase = stepPhrases[call.name];
@@ -1581,21 +1588,30 @@ function stepPhrase(call) {
   const words = call.name.replace(/[._]/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
-/** What came of one call: null while it is not known, otherwise whether it worked and, briefly, what it said. */
+/**
+ * What came of one call: null while it is not known, otherwise whether it worked (true, false, or null for a practice
+ * run) and, briefly, what it said. NAS's B2 review: a practice run's result and a command that was stopped or could not
+ * start (status other than completed, no exit code) used to read "done".
+ */
 function stepOutcome(call, result) {
   if (!result) return null;
-  if (result.ok === false) return { ok: false, words: `didn't work: ${String(result.error ?? "").slice(0, 140)}` };
-  const value = result.result ?? {};
-  if (Array.isArray(value.changed)) return { ok: value.changed.length > 0, words: value.changed.length ? `changed ${value.changed.length}` : "nothing changed" };
-  if (typeof value.exitCode === "number") return { ok: value.exitCode === 0, words: value.exitCode === 0 ? "finished" : `failed (exit ${value.exitCode})` };
-  return { ok: true, words: "done" };
+  if (result.ok === false) return { ok: false, words: t("steps.didnt-work", { why: String(result.error ?? "").slice(0, 140) }) };
+  if (result.simulated) return { ok: null, words: t("steps.practice") };
+  const value = result.result && typeof result.result === "object" ? result.result : {};
+  if (Array.isArray(value.changed)) return { ok: value.changed.length > 0, words: value.changed.length ? t("steps.changed", { count: value.changed.length }) : t("steps.nothing-changed") };
+  if ("exitCode" in value) {
+    if (typeof value.exitCode === "number" && value.exitCode !== 0) return { ok: false, words: t("steps.failed-exit", { code: value.exitCode }) };
+    if (value.exitCode === 0 && (value.status ?? "completed") === "completed") return { ok: true, words: t("steps.finished") };
+    return { ok: false, words: t("steps.stopped", { why: String(value.status ?? "failed").replace(/_/g, " ") }) };
+  }
+  return { ok: true, words: t("steps.done") };
 }
 function stepLabel(calls, results = {}) {
   const outcomes = calls.map((call) => stepOutcome(call, results[call.id]));
-  const failed = outcomes.filter((one) => one && !one.ok).length;
+  const failed = outcomes.filter((one) => one && one.ok === false).length;
   if (calls.length === 1) return outcomes[0] ? `${stepPhrase(calls[0])} · ${outcomes[0].words}` : stepPhrase(calls[0]);
-  const shown = [...new Set(calls.map(stepPhrase))].slice(0, 2).join("; ");
-  return `${calls.length} steps: ${shown}${calls.length > 2 ? "…" : ""}${failed ? ` · ${failed} didn't work` : ""}`;
+  const shown = [...new Set(calls.map(stepPhrase))].slice(0, 2).join("; ") + (calls.length > 2 ? "…" : "");
+  return t("steps.count", { count: calls.length, shown }) + (failed ? ` · ${t("steps.some-failed", { count: failed })}` : "");
 }
 /** A tool step is one quiet row in the flow that opens, not a card of its own. */
 function toolStep(content, calls, source) {
@@ -1612,7 +1628,8 @@ function toolStep(content, calls, source) {
     const outcome = stepOutcome(call, results[call.id]);
     const line = el("div", undefined, "step-line");
     if (outcome) line.dataset.ok = String(outcome.ok);
-    line.append(el("strong", `${outcome ? (outcome.ok ? "✓ " : "✗ ") : ""}${stepPhrase(call)}`),
+    const mark = !outcome ? "" : outcome.ok === true ? "✓ " : outcome.ok === false ? "✗ " : "◌ ";
+    line.append(el("strong", `${mark}${stepPhrase(call)}`),
       el("span", outcome ? outcome.words : ""), el("code", `${call.name} ${call.arguments.slice(0, 160)}`));
     body.append(line);
   }
@@ -1910,7 +1927,12 @@ function renderConversation(value, status) {
       // A long result is clipped, so it no longer reads as JSON; how it starts still says whether it worked.
       const error = /^\{"ok":false,"error":"((?:[^"\\]|\\.)*)/.exec(source.content);
       if (error) results[source.toolCallId] = { ok: false, error: error[1].replace(/\\(.)/g, "$1") };
-      else if (source.content.startsWith('{"ok":true')) results[source.toolCallId] = { ok: true, result: {} };
+      else if (source.content.startsWith('{"ok":true')) {
+        // What a clipped result still says at its start: a practice run, or a command's status and exit code.
+        const exit = /"exitCode":(-?\d+|null)/.exec(source.content), status = /"status":"(\w+)"/.exec(source.content);
+        const result = exit ? { exitCode: exit[1] === "null" ? null : Number(exit[1]), status: status?.[1] } : {};
+        results[source.toolCallId] = { ok: true, simulated: /^\{"ok":true,"simulated":true/.test(source.content), result };
+      }
     }
   }
   for (const source of value.messages) {
