@@ -241,6 +241,17 @@ export function picturesNote(images?: ImagePart[]): string {
   const names = images.map((image, at) => image.name || `picture ${at + 1}`);
   return `\n\n[attached ${images.length === 1 ? "picture" : "pictures"}: ${names.join(", ")}]`;
 }
+/** Dogfood B18: the first system message, with the line that says which model and connection are answering. */
+export function withModelIdentity(messages: Message[], preset: Pick<ModelPreset, "name" | "model">): Message[] {
+  const first = messages[0];
+  if (first?.role !== "system") return messages;
+  // "configured" and "demo" stand in where no model was named (src/providers.ts `defaultPreset`): the connection only.
+  const who = ["configured", "demo"].includes(preset.model)
+    ? `The connection answering now is "${preset.name}".`
+    : `The model answering now is ${preset.model}, through the connection "${preset.name}".`;
+  const line = `\n\n${who} If asked which model you are, say so.`;
+  return [{ ...first, content: first.content + line }, ...messages.slice(1)];
+}
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
 const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
 /** Range of stored, non-system messages to summarise, leaving at least `compactionKeep` recent ones and never splitting a tool exchange. */
@@ -2198,6 +2209,11 @@ ${run.output.slice(0, 6000)}`;
       pinned: pinnedMessages.length,
     };
   }
+  /**
+   * Dogfood B18: asked "which model are you?", GPT-6 Sol said it had no reliable view of its name. Each attempt tells
+   * the model which connection is answering (a fallback is told its own), as one line at the end of the first system
+   * message, so the line changes only when the model does.
+   */
   private async completeWithRetries(
     run: Run,
     messages: Message[],
@@ -2217,7 +2233,7 @@ ${run.output.slice(0, 6000)}`;
         : undefined;
       const preset = route.candidates[route.index]!;
       try {
-        return await this.complete(run, messages, context, preset, route.reasoning, emit, undefined, firstReply.capMs);
+        return await this.complete(run, withModelIdentity(messages, preset), context, preset, route.reasoning, emit, undefined, firstReply.capMs);
       } catch (error) {
         const ceiling = this.replyCeilings.get(run.id) ?? baseReplyCeiling;
         if (isOutOfRoomThinking(error) && ceiling < maxReplyCeiling && !context.signal.aborted) {
