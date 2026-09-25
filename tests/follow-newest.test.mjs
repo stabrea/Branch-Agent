@@ -7,8 +7,8 @@
  *
  * Redesign: the new window (public/app/chat/chat.js). The conversation scrolls in #scroll; the person's messages are
  * #conversation > .u and the replies #conversation > .b (the question card sits in one too); a conversation is opened
- * from its row in the sidebar list. The window draws the open conversation again every few seconds and on every
- * answer, which is where "more arriving" happens now. The old window's internal follow flag
+ * from its row in the sidebar list. The window draws the open conversation again on every answer and whenever the
+ * person causes a redraw, which is where "more arriving" happens now. The old window's internal follow flag
  * (globalThis.branchFollowNewest) is replaced by the new window: what it stood for is checked by where the view is.
  */
 import test from "node:test";
@@ -56,8 +56,14 @@ async function scrollUp(page) {
   for (let i = 0; i < 20 && await top(page) > 0; i += 1) await page.mouse.wheel(0, -2000);
 }
 const row = (page, words) => page.locator('#side [data-act="chat"]').filter({ hasText: words });
-/* The open conversation is drawn again every four seconds (it re-reads the questions waiting): wait for one. */
-const redrawn = (page) => page.waitForTimeout(4500);
+/* A redraw of the open conversation, as the person causes one (switching light or dark draws the window again), with a
+   control that the conversation really was drawn again. */
+async function redrawn(page) {
+  await page.evaluate(() => { globalThis.__draws = 0; new MutationObserver(() => globalThis.__draws++).observe(document.getElementById("main"), { childList: true }); });
+  await page.locator('#tbActions [data-act="theme-flip"]').click();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.ok(await page.evaluate(() => globalThis.__draws) > 0, "control: the conversation was drawn again");
+}
 
 test("B4 the question a task stops on sits under the conversation, where the work is", async (t) => {
   let asked = 0;
