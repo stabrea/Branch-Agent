@@ -49,7 +49,7 @@ async function fixture(t, { provider, onboarded = false, width = 1440, height = 
      covers Ask first). */
   saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ reducedMotion: "reduce", viewport: { width, height } });
+  const context = await browser.newContext({ reducedMotion: "reduce", viewport: { width, height }, serviceWorkers: "block" });
   t.after(async () => {
     await context.close();
     await browser.close();
@@ -70,7 +70,6 @@ async function fixture(t, { provider, onboarded = false, width = 1440, height = 
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  await page.locator("body.lx-ready").waitFor({ state: "attached" });
   return { page, server, call, errors, app };
 }
 const visible = (page, selector) => page.locator(selector).first().isVisible();
@@ -107,7 +106,9 @@ async function shown(page, selectors) {
   return out;
 }
 
-test("the calm window is the default: one box, Send, New conversation, Recents, Settings and More", async (t) => {
+// Redesign: replaced by the new window (the calm window, its More menu and the "What do you want done?" greeting; the
+// redesign is one window, design/redesign/prototype.html).
+test.skip("the calm window is the default: one box, Send, New conversation, Recents, Settings and More", async (t) => {
   const f = await fixture(t, { onboarded: true });
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.everything), "off");
   const hidden = await shown(f.page, HIDDEN_WHEN_CALM);
@@ -122,7 +123,8 @@ test("the calm window is the default: one box, Send, New conversation, Recents, 
   assert.deepEqual(f.errors, []);
 });
 
-test("conversation history is built only when requested and closes with Escape", async (t) => {
+// Redesign: replaced by the new window (the Ctrl+K "Conversation history" dialog; Ctrl+K is the sidebar search).
+test.skip("conversation history is built only when requested and closes with Escape", async (t) => {
   const f = await fixture(t, { onboarded: true, width: 390, height: 844 });
   assert.equal(await f.page.locator("#saved-conversations").count(), 0);
   await f.page.keyboard.press("ControlOrMeta+k");
@@ -145,7 +147,8 @@ test("conversation history is built only when requested and closes with Escape",
   assert.deepEqual(f.errors, []);
 });
 
-test("More reaches what the calm window hides, by pressing the real control", async (t) => {
+// Redesign: replaced by the new window (the calm window's More menu).
+test.skip("More reaches what the calm window hides, by pressing the real control", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#lx-more").click();
   await f.page.locator("#lx-more-menu").waitFor({ state: "visible" });
@@ -167,7 +170,8 @@ test("More reaches what the calm window hides, by pressing the real control", as
   assert.deepEqual(f.errors, []);
 });
 
-test("Show everything brings the full window back, and is remembered for this person", async (t) => {
+// Redesign: replaced by the new window (Show everything: the calm and full windows are one window).
+test.skip("Show everything brings the full window back, and is remembered for this person", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await openSettingFor(f.page, "#appearance-everything");
   await f.page.locator("#appearance-everything").check();
@@ -204,7 +208,8 @@ test("Show everything brings the full window back, and is remembered for this pe
   assert.deepEqual(f.errors, []);
 });
 
-test("the activity panel slides in while a task runs and away when it finishes", async (t) => {
+// Redesign: Coming soon (pane, the side panel: Activity), checked at afa6ad94.
+test.skip("the activity panel slides in while a task runs and away when it finishes", async (t) => {
   const model = slowModel();
   t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
   const f = await fixture(t, { provider: model.provider, onboarded: true });
@@ -221,7 +226,9 @@ test("the activity panel slides in while a task runs and away when it finishes",
   assert.deepEqual(f.errors, []);
 });
 
-test("first run is one screen of choices with no tick boxes, and trying it takes one click", async (t) => {
+// Redesign: replaced by the new window (the one-screen first run and "Try it without an account"; setup is the
+// eleven-step Set up Branch, design doc 6.1).
+test.skip("first run is one screen of choices with no tick boxes, and trying it takes one click", async (t) => {
   const f = await fixture(t);
   await f.page.locator("#first-run").waitFor({ state: "visible" });
   assert.equal(await f.page.locator('#first-run input[type="checkbox"]').count(), 0, "no tick boxes on first run");
@@ -235,7 +242,8 @@ test("first run is one screen of choices with no tick boxes, and trying it takes
   assert.deepEqual(f.errors, []);
 });
 
-test("with no model, the window says so exactly once, and says nothing about its link to Branch", async (t) => {
+// Redesign: replaced by the new window (the demo notice, "Branch stopped responding" and its Restart are not in the design).
+test.skip("with no model, the window says so exactly once, and says nothing about its link to Branch", async (t) => {
   const f = await fixture(t);
   await f.page.getByRole("button", { name: /Try it without an account/ }).click();
   await f.page.locator("#first-run").waitFor({ state: "hidden" });
@@ -281,12 +289,18 @@ test("with no model, the window says so exactly once, and says nothing about its
   assert.deepEqual(f.errors, []);
 });
 
+/* Redesign: on a phone the new window's list is behind "Show conversations" (data-act="side"), where More was. */
 test("the calm window fits a phone: no sideways scroll, More and Send in reach", async (t) => {
   const f = await fixture(t, { onboarded: true, width: 390, height: 844 });
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  for (const selector of ["#prompt", "#send", "#lx-more"]) assert.equal(await visible(f.page, selector), true, selector);
-  const box = await f.page.locator("#lx-more").boundingBox();
+  const more = '#main [data-act="side"]';
+  for (const selector of ["#prompt", "#send", more]) assert.equal(await visible(f.page, selector), true, selector);
+  const box = await f.page.locator(more).boundingBox();
   assert.ok(box.x + box.width <= 390, "More is inside the screen");
+  for (const selector of ["#prompt", "#send"]) {
+    const b = await f.page.locator(selector).boundingBox();
+    assert.ok(b.x >= 0 && b.x + b.width <= 390, `${selector} is inside the screen`);
+  }
   assert.deepEqual(f.errors, []);
 });
 
@@ -310,7 +324,30 @@ function askingModel() {
   return { provider, release: () => release() };
 }
 
-test("calm: an approval question, its answers, the waiting banner and Inbox all show; a yes it carries shows while work runs", async (t) => {
+/* Redesign: the new card is the action's verb (once), "Always allow" and "Don’t allow"; the waiting count is on Inbox in
+   the sidebar. The yes "for this conversation" and the side panel's "What is allowed right now" are checked in the
+   original below, skipped until the side panel is live. */
+test("calm: an approval question, its answers and Inbox all show (the new window)", async (t) => {
+  const model = askingModel();
+  t.after(() => model.release());
+  const f = await fixture(t, { provider: model.provider, onboarded: true });
+  await f.call("/api/policy", { preset: "ask-before-changes" });
+  await f.page.locator("#prompt").fill("write a note for me");
+  await f.page.locator("#send").click();
+  const card = f.page.locator("#live-ask");
+  await card.waitFor({ state: "visible", timeout: 20000 });
+  assert.equal(await card.locator(".btn.pri").isVisible(), true, "the action's own verb");
+  for (const name of [/^Always allow/, /^Don’t allow$/])
+    assert.equal(await card.getByRole("button", { name }).isVisible(), true, String(name));
+  await f.page.locator('#side [data-act="view"][data-v="inbox"] .cnt').waitFor({ state: "visible", timeout: 15000 });
+  await f.page.locator('#side [data-act="view"][data-v="inbox"]').click();
+  await f.page.locator('#main [data-act="ask"][data-v="allow"]').first().waitFor({ state: "visible", timeout: 15000 });
+  assert.deepEqual(f.errors, []);
+});
+
+// Redesign: Coming soon (pane, the side panel's allowed list), checked at afa6ad94; the "Yes, for this conversation"
+// answer and the #attention banner are replaced by the new window (not in the design's card).
+test.skip("calm: an approval question, its answers, the waiting banner and Inbox all show; a yes it carries shows while work runs", async (t) => {
   const model = askingModel();
   t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
   const f = await fixture(t, { provider: model.provider, onboarded: true });
@@ -337,7 +374,8 @@ test("calm: an approval question, its answers, the waiting banner and Inbox all 
   assert.deepEqual(f.errors, []);
 });
 
-test("calm: Lockdown says so while it is on, and turns off from the banner", async (t) => {
+// Redesign: Coming soon (lock: Lockdown in Settings › Permissions and the Inbox banner), checked at afa6ad94.
+test.skip("calm: Lockdown says so while it is on, and turns off from the banner", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#lx-more").click();
   await f.page.getByRole("menuitemcheckbox", { name: "Lockdown: refuse commands" }).click();
@@ -359,19 +397,23 @@ test("calm: a goal keeps its Resume and Stop in view", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("hello");
   await f.page.locator("#send").click();
-  await f.page.locator(".message.assistant").first().waitFor({ timeout: 30000 });
-  const sessionId = await f.page.evaluate(() => document.getElementById("conversation").dataset.sessionId);
+  await f.page.locator("#conversation .b").first().waitFor({ timeout: 30000 });
+  await f.page.waitForFunction(() => !document.getElementById("send").disabled);
+  const sessionId = await f.page.locator('#side [data-act="chat"][aria-current="true"]').getAttribute("data-id");
   f.app.store.save("settings", "local", `goal:${sessionId}`, {
     sessionId, objective: "Make the tests pass", status: "paused", round: 2, maxRounds: 6, score: 0.4, best: 0.4, flatRounds: 0,
     missing: [], reason: "Paused. Resume to carry on.", checks: null, startedAt: new Date().toISOString(), elapsedMs: 1000, activeSince: null, lastRunId: null,
   });
-  const strip = f.page.locator("#goal-strip");
+  // Redesign: the goal strip is the prototype's .goal6 (goalStrip()): Resume or Pause, and Stop.
+  await f.page.locator(`#side [data-act="chat"][data-id="${sessionId}"]`).click();
+  const strip = f.page.locator("#main .goal6");
   await strip.waitFor({ state: "visible", timeout: 15000 });
-  assert.deepEqual(await strip.locator("button").allTextContents(), ["Resume", "Stop"]);
+  assert.deepEqual((await strip.locator("button").allTextContents()).map((text) => text.trim()), ["Resume", "Stop"]);
   assert.deepEqual(f.errors, []);
 });
 
-test("calm: More works from the keyboard and names its groups", async (t) => {
+// Redesign: replaced by the new window (the calm window's More menu).
+test.skip("calm: More works from the keyboard and names its groups", async (t) => {
   const f = await fixture(t, { onboarded: true });
   const focused = () => f.page.evaluate(() => document.activeElement?.textContent?.trim());
   await f.page.locator("#lx-more").focus();
@@ -397,7 +439,19 @@ test("calm: More works from the keyboard and names its groups", async (t) => {
   assert.deepEqual(f.errors, []);
 });
 
-test("calm: a finished conversation is in Recents at once, and the next steps are offered once", async (t) => {
+/* Redesign: Recents is the sidebar's conversation list. */
+test("calm: a finished conversation is in Recents at once (the new window)", async (t) => {
+  const f = await fixture(t, { onboarded: true });
+  await f.page.locator("#prompt").fill("Tell me a joke");
+  await f.page.locator("#send").dispatchEvent("click");
+  await f.page.locator('#side [data-act="chat"]').filter({ hasText: "Tell me a joke" }).waitFor({ timeout: 10000 });
+  await f.page.locator("#conversation .b").first().waitFor({ state: "visible", timeout: 60000 });
+  assert.equal(await f.page.locator('#side [data-act="chat"]').filter({ hasText: "Tell me a joke" }).count(), 1);
+  assert.deepEqual(f.errors, []);
+});
+
+// Redesign: replaced by the new window (the next-steps tip "Use it from my phone" is not in the design).
+test.skip("calm: a finished conversation is in Recents at once, and the next steps are offered once", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("Tell me a joke");
   await f.page.locator("#send").dispatchEvent("click");
@@ -417,7 +471,8 @@ test("calm: a finished conversation is in Recents at once, and the next steps ar
   assert.deepEqual(f.errors, []);
 });
 
-test("calm: the offer opens the real switch rather than flipping it", async (t) => {
+// Redesign: replaced by the new window (the next-steps tip is not in the design).
+test.skip("calm: the offer opens the real switch rather than flipping it", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("Tell me a joke");
   await f.page.locator("#send").click();
@@ -428,7 +483,9 @@ test("calm: the offer opens the real switch rather than flipping it", async (t) 
   assert.deepEqual(f.errors, []);
 });
 
-test("calm: the empty screen is the question over the box in the middle, over the same oak and glass", async (t) => {
+// Redesign: replaced by the new window (the calm window's centred question and box over the oak; the
+// prototype's empty conversation, emptyChat(), keeps the box in the dock).
+test.skip("calm: the empty screen is the question over the box in the middle, over the same oak and glass", async (t) => {
   const f = await fixture(t, { onboarded: true });
   const [main, heading, box] = await settledBoxes(f.page, ["main", "#greeting", "#chat-form"]);
   assert.equal(await visible(f.page, "#wall"), true, "the oak behind the glass stays (the approved KeepOak look)");
@@ -441,7 +498,8 @@ test("calm: the empty screen is the question over the box in the middle, over th
   assert.deepEqual(f.errors, []);
 });
 
-test("calm: Restart asks the desktop app to start Branch again, and a browser loads the page again", async (t) => {
+// Redesign: replaced by the new window (the health probe's Restart is not in the design).
+test.skip("calm: Restart asks the desktop app to start Branch again, and a browser loads the page again", async (t) => {
   const f = await fixture(t, { onboarded: true });
   let refused = 0;
   await f.page.route("**/api/alive", (route) => route.abort());
@@ -463,7 +521,8 @@ test("calm: Restart asks the desktop app to start Branch again, and a browser lo
   assert.equal(await f.page.evaluate(() => globalThis.stillHere), undefined, "the browser loaded the page again");
 });
 
-test("calm: a health request that never answers times out and reveals Restart", async (t) => {
+// Redesign: replaced by the new window (the health probe's Restart is not in the design).
+test.skip("calm: a health request that never answers times out and reveals Restart", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.evaluate(async () => {
     const originalFetch = globalThis.fetch;
@@ -517,7 +576,8 @@ test("the desktop restart channel answers only its own window's page, and relaun
   assert.equal(handlers.has(restartChannel), false, "the channel goes with its window");
 });
 
-test("the calm window leaves the moon out behind its panes, softens the oak in the gaps, and brings both back with the sky", async (t) => {
+// Redesign: replaced by the new window (the calm window's wall, moon and blur).
+test.skip("the calm window leaves the moon out behind its panes, softens the oak in the gaps, and brings both back with the sky", async (t) => {
   const f = await fixture(t, { onboarded: true });
   /* The wall is told what to show once the calm window has drawn; wait for that, not for a pause. */
   await f.page.waitForFunction(() => document.getElementById("wall")?.dataset.moon === "hidden", null, { timeout: 15000 }).catch(() => undefined);
@@ -537,23 +597,29 @@ test("calm: a running task reads under its message, with a real Stop, and its co
   const f = await fixture(t, { provider: model.provider, onboarded: true });
   await f.page.locator("#prompt").fill("Sort my Downloads folder. Delete nothing.");
   await f.page.locator("#send").click();
-  await f.page.locator("#live-stop").waitFor({ state: "visible", timeout: 15000 });
-  const [mine, card] = await settledBoxes(f.page, [".message.user", "#live-row"]);
+  /* Redesign: the working state is drawn under the person's message (the typing or thinking row), Stop takes Send's
+     place (prototype: #send becomes "Stop" while working), and the conversation's row says Working. */
+  await f.page.locator("#conversation .typing, #conversation .think").first().waitFor({ state: "visible", timeout: 15000 });
+  const [mine, card] = await settledBoxes(f.page, ["#conversation .u", "#conversation .b:last-child"]);
   assert.ok(card.y > mine.y + mine.height - 1, "the working card is under the person's message");
   assert.ok(card.y - (mine.y + mine.height) < 80, "and right under it");
   assert.ok(card.height < 110, `the card is as tall as what it says (${card.height}px)`);
-  const stop = await f.page.locator("#live-stop").evaluate((node) => { const s = getComputedStyle(node); return { border: s.borderTopWidth, height: node.getBoundingClientRect().height }; });
+  const stopButton = f.page.locator("#composer").getByRole("button", { name: "Stop", exact: true });
+  await stopButton.waitFor({ state: "visible", timeout: 10000 });
+  const stop = await stopButton.evaluate((node) => { const s = getComputedStyle(node); return { border: s.borderTopWidth, height: node.getBoundingClientRect().height }; });
   assert.ok(parseFloat(stop.border) >= 1 && stop.height >= 30, "Stop is a button, not a small link");
-  const row = f.page.locator('#rail-list .rail-line[data-running="true"]');
+  const row = f.page.locator('#side [data-act="chat"]').filter({ hasText: "Sort my Downloads folder" });
   await row.waitFor({ timeout: 10000 });
   assert.match(await row.innerText(), /Sort my Downloads folder[\s\S]*Working/);
   model.release();
-  await f.page.locator('#rail-list .rail-line[data-running="true"]').waitFor({ state: "detached", timeout: 15000 });
-  assert.equal(await f.page.locator("#rail-list .rail-item").count(), 1, "still in Recents once finished");
+  await f.page.waitForFunction(() => !document.getElementById("send").disabled, null, { timeout: 15000 });
+  assert.equal(await f.page.locator('#side [data-act="chat"]').count(), 1, "still in Recents once finished");
   assert.deepEqual(f.errors, []);
 });
 
-test("calm: the sample-height message box has + on the left and one round button: quiet, then the accent, then Stop", async (t) => {
+// Redesign: Coming soon (plusmenu), checked at afa6ad94; the sample's 48/34 px sizes and placeholder are
+// replaced by the new window. Stop in Send's place is checked in "a running task reads under its message".
+test.skip("calm: the sample-height message box has + on the left and one round button: quiet, then the accent, then Stop", async (t) => {
   const model = slowModel();
   t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
   const f = await fixture(t, { provider: model.provider, onboarded: true });
@@ -608,14 +674,18 @@ test("calm: the sample-height message box has + on the left and one round button
   assert.deepEqual(f.errors, []);
 });
 
+/* Redesign: the empty conversation is the prototype's emptyChat(): "What should Branch do?" and suggestion chips
+   (data-act="sugg") that fill the box. The chips' words are the design's; what they do is checked. */
 test("calm: the empty screen offers three starting points that fill the box without sending", async (t) => {
   const f = await fixture(t, { onboarded: true });
-  const chips = f.page.locator("#lx-starters .lx-starter");
-  assert.deepEqual(await chips.allInnerTexts(), ["Tidy a folder", "Research something", "Plan my week"]);
+  await f.page.locator("#main .empty-chat h1").waitFor({ state: "visible", timeout: 10000 });
+  assert.equal((await f.page.locator("#main .empty-chat h1").innerText()).trim(), "What should Branch do?");
+  const chips = f.page.locator('#main .empty-chat [data-act="sugg"]');
+  assert.ok(await chips.count() >= 3, "at least three starting points");
+  const words = (await chips.first().innerText()).trim();
   await chips.first().click();
-  assert.match(await f.page.locator("#prompt").inputValue(), /Downloads folder/);
-  assert.equal(await f.page.locator(".message.user").count(), 0, "nothing was sent");
-  assert.equal(await f.page.locator("#send").evaluate((node) => node.classList.contains("lx-empty")), false);
+  assert.equal(await f.page.locator("#prompt").inputValue(), words, "the box holds the starting point");
+  assert.equal(await f.page.locator("#conversation .u").count(), 0, "nothing was sent");
   assert.deepEqual(f.errors, []);
 });
 
@@ -639,7 +709,27 @@ async function everyWayClosed(page, trigger, panel, label) {
   assert.equal(await shown(), false, `${label} closes on a click elsewhere`);
 }
 
-test("every menu and popover closes on its own button, on Escape and on a click elsewhere, and one at a time", async (t) => {
+/* Redesign: the new window's live popovers (public/app/core/ui.js openPop): New (newmenu), the person's menu (owner)
+   and Guide. */
+test("every menu and popover closes on its own button, on Escape and on a click elsewhere, and one at a time (the new window)", async (t) => {
+  const f = await fixture(t, { onboarded: true });
+  await f.page.locator("#prompt").fill("hello");
+  await f.page.locator("#send").click();
+  await f.page.locator("#conversation .b").first().waitFor({ timeout: 30000 });
+  await everyWayClosed(f.page, '#side [data-act="newmenu"]', "#app > .pop", "New");
+  await everyWayClosed(f.page, '#side [data-act="owner"]', "#app > .pop", "the person's menu");
+  await everyWayClosed(f.page, '#tbActions [data-act="guide"]', "#app > .pop", "Guide");
+  await f.page.locator('#side [data-act="newmenu"]').click();
+  await f.page.locator('#side [data-act="owner"]').click();
+  assert.equal(await f.page.locator("#app > .pop").count(), 1, "one popover at a time");
+  assert.equal(await f.page.locator('#side [data-act="newmenu"]').getAttribute("aria-expanded"), "false");
+  await f.page.keyboard.press("Escape");
+  assert.deepEqual(f.errors, []);
+});
+
+// Redesign: replaced by the new window (More, the Ctrl+K box and the full window's menus); Coming soon (plusmenu, pane),
+// checked at afa6ad94.
+test.skip("every menu and popover closes on its own button, on Escape and on a click elsewhere, and one at a time", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#prompt").fill("hello");
   await f.page.locator("#send").click();
