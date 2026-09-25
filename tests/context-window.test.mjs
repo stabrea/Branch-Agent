@@ -4,9 +4,11 @@
  * service itself reported), the owner's own figure comes first, and a model Branch knows nothing
  * about keeps 20,000. The window is only the ceiling: folding and shrinking still keep a request to
  * the built-in 20,000 (or a smaller window), unless the owner set a figure of their own. A connection
- * moved to after a failure is fitted to its own window before it is asked, and a fold reads what it
- * drops even when the connection writing its summary is small. Scripted models only: nothing leaves
- * this computer.
+ * moved to after a failure is fitted to its own window before it is asked; one that fails while it is
+ * fitted, or can't hold the conversation, is passed over for the next. A fold reads what it drops
+ * even when the connection writing its summary is small, in five requests at most (the last written by
+ * the conversation's own connection), and keeps what was written before a request failed. Scripted
+ * models only: nothing leaves this computer.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -46,6 +48,25 @@ function down(name) {
     (request.tools?.length ? provider.main : provider.side).push(request);
     throw new ProviderHttpError(503);
   } };
+  return provider;
+}
+/** A model on this computer whose runtime is not running: every request to it fails before it gets there. */
+function notRunning(name) {
+  const provider = { name, main: [], side: [], async complete(request) {
+    (request.tools?.length ? provider.main : provider.side).push(request);
+    throw new TypeError("fetch failed");
+  } };
+  return provider;
+}
+/** A scripted model whose n-th fold summary `summary(n, request)` writes; it may throw instead. */
+function writer(name, summary) {
+  const provider = scripted(name), answer = provider.complete;
+  let asked = 0;
+  provider.complete = async (request) => {
+    if (!isSummary(request)) return answer(request);
+    provider.side.push(request);
+    return { content: summary(++asked, request), toolCalls: [] };
+  };
   return provider;
 }
 /** The ChatGPT plan route, GPT-5.6 Sol: a model whose window the service reported. */
@@ -93,6 +114,18 @@ function earlierTurns(app, sessionId, count, size) {
 }
 /** The numbers of the earlier turns a piece of text holds. */
 const turnsIn = (text) => [...String(text).matchAll(/Turn (\d+):/g)].map((match) => Number(match[1]));
+/** A fold summary that says which earlier turns it was sent. */
+const summaryOf = (request) => JSON.stringify({ goals: [`summarised turns ${turnsIn(request.messages[1].content).join(",")}`],
+  decisions: [], openQuestions: [], filesTouched: [] });
+/** The earlier turns a conversation's stored messages still hold, after any fold. */
+const keptTurns = (app, sessionId) => new Set(app.store.workingMessages(sessionId).rows.flatMap((row) => turnsIn(row.message.content)));
+/** Earlier turns (1 to `count`) that no summary request carried and that are not in the conversation either. */
+function lostTurns(app, sessionId, requests, count = 40) {
+  const seen = new Set(requests.flatMap((request) => turnsIn(request.messages[1].content)));
+  const kept = keptTurns(app, sessionId), lost = [];
+  for (let n = 1; n <= count; n++) if (!seen.has(n) && !kept.has(n)) lost.push(n);
+  return lost;
+}
 
 test("a model whose window the service reported gets it as the ceiling and on the meter", async (t) => {
   const model = scripted("chatgpt");
@@ -297,27 +330,33 @@ test("the summary a fold asks for fits the connection that writes it", async (t)
   }
 });
 
+/**
+ * About 19,000 tokens of earlier turns, past where the conversation's own connection folds. What a fold
+ * reads (the older 34 turns, under 60,000 characters) is far more than one request to a small model holds.
+ */
+function photoTurns(app, sessionId) {
+  for (let n = 1; n <= 40; n++) app.store.message(sessionId, { role: n % 2 ? "user" : "assistant",
+    content: `Turn ${n}: ` + "earlier findings about the photo library and its folders ".repeat(n <= 34 ? 30 : 53) });
+}
 /** A conversation whose side jobs go to a model on this computer loaded with `contextLength`. */
-async function smallSideJobs(t, contextLength) {
-  const main = scripted("scripted"), small = scripted("ollama-like");
+async function smallSideJobs(t, contextLength, { small = scripted("ollama-like"), turns = photoTurns } = {}) {
+  const main = scripted("scripted");
   const app = await fixture(t, [unknown(main)]);
   const localId = localConnection(app, small, contextLength, { active: false });
   saveKnobs(app.store, app.runtime.owner, "subtasks", { sideJobModel: localId });
   const first = await app.runtime.run({ prompt: "start", ...tools });
-  // About 19,000 tokens of earlier turns, past where the conversation's own connection folds. What a fold
-  // reads (the older 34 turns, under 60,000 characters) is far more than one request to the small model holds.
-  for (let n = 1; n <= 40; n++) app.store.message(first.sessionId, { role: n % 2 ? "user" : "assistant",
-    content: `Turn ${n}: ` + "earlier findings about the photo library and its folders ".repeat(n <= 34 ? 30 : 53) });
+  turns(app, first.sessionId);
   const run = await app.runtime.run({ prompt: "short question", sessionId: first.sessionId, ...tools });
   return { app, main, small, localId, run, sessionId: first.sessionId };
 }
 
 test("a fold drops no turn its summary requests did not carry, however small the connection writing it", async (t) => {
-  const { app, small, run, sessionId } = await smallSideJobs(t, 4096);
+  const { app, main, small, run, sessionId } = await smallSideJobs(t, 4096);
   assert.equal(run.status, "completed", run.output);
   const asked = small.side.filter(isSummary);
   assert.ok(asked.length > 1, "what one request could not carry was carried by the next, each building on the summary so far");
-  const seen = new Set();
+  // A fold's last request is written by the conversation's own connection; what it carried counts too.
+  const seen = new Set(main.side.filter(isSummary).flatMap((request) => turnsIn(request.messages[1].content)));
   for (const request of asked) {
     const size = Math.ceil(JSON.stringify({ messages: request.messages, tools: [] }).length / 4);
     assert.ok(size <= 4096 - 2048, `a summary request (${size} tokens) fits the connection writing it`);
@@ -337,4 +376,129 @@ test("when the connection chosen for side jobs cannot hold any of a fold, the co
   const [compacting] = events(app, run, "context.compacting");
   assert.equal(compacting.writer, "default");
   assert.match(compacting.writerBecause, /cannot hold/);
+});
+
+test("a fallback that fails while the conversation is fitted to it is marked like any other, and the next one is asked", async (t) => {
+  // A failure with no status is written down by Branch; one with a status, by the connection's own watched fetch.
+  for (const [failing, writtenHere] of [[notRunning("ollama-like"), true], [down("ollama-like"), false]]) {
+    const plan = scripted("chatgpt", () => { throw new ProviderHttpError(503); }), backup = scripted("scripted");
+    const app = await fixture(t, [planSol(plan), unknown(backup, "backup")], noRetries);
+    const localId = localConnection(app, failing, 8192, { active: false });
+    app.runtime.models.configure(app.runtime.owner, { activePreset: "chatgpt-gpt-5.6-sol", fallbackOrder: [localId, "backup"] });
+    const sessionId = app.store.createSession(app.runtime.owner);
+    // About 14,000 tokens: under where the plan route folds, past what the model on this computer holds. With no
+    // side-job connection, that model is asked to write the summary that fits the conversation to it.
+    earlierTurns(app, sessionId, 14, () => 1000);
+    const run = await app.runtime.run({ prompt: "and now?", sessionId, ...tools });
+    assert.equal(run.status, "completed", run.output);
+    assert.equal(failing.side.filter(isSummary).length, 1, "the model on this computer was asked for the summary, and failed");
+    assert.equal(backup.main.length, 1, "the next connection in the order answered");
+    assert.deepEqual(events(app, run, "model.fallback").map((move) => `${move.from} > ${move.to}`),
+      [`chatgpt-gpt-5.6-sol > ${localId}`, `${localId} > backup`]);
+    assert.ok(app.runtime.models.coolingDown(localId), "the connection that failed is cooling down");
+    if (writtenHere) assert.equal(app.runtime.models.health.get(localId).consecutiveFailures, 1, "and its failure is written down");
+    const second = await app.runtime.run({ prompt: "and again?", sessionId, ...tools });
+    assert.equal(second.status, "completed", second.output);
+    assert.equal(events(app, second, "model.started")[0].preset, "backup", "the next task starts past both");
+  }
+});
+
+test("a fallback that can't hold the conversation is passed over for a later one that can", async (t) => {
+  const plan = scripted("chatgpt", () => { throw new ProviderHttpError(503); });
+  const local = scripted("ollama-like"), backup = scripted("scripted");
+  const app = await fixture(t, [planSol(plan), unknown(backup, "backup")], noRetries);
+  const localId = localConnection(app, local, 8192, { active: false });
+  app.runtime.models.configure(app.runtime.owner, { activePreset: "chatgpt-gpt-5.6-sol", fallbackOrder: [localId, "backup"] });
+  const sessionId = app.store.createSession(app.runtime.owner);
+  // The newest turns, which a fold keeps, hold about 15,000 tokens: past 8,192 however much is folded, inside 20,000.
+  earlierTurns(app, sessionId, 40, (n) => (n > 32 ? 2500 : 1000));
+  const run = await app.runtime.run({ prompt: "and now?", sessionId, ...tools });
+  assert.equal(run.status, "completed", run.output);
+  assert.equal(local.main.length, 0, "the model on this computer was never sent a request larger than its window");
+  assert.equal(backup.main.length, 1, "the backup, later in the order, answered");
+  const moves = events(app, run, "model.fallback");
+  assert.deepEqual(moves.map((move) => `${move.from} > ${move.to}`), [`chatgpt-gpt-5.6-sol > ${localId}`, `${localId} > backup`]);
+  assert.match(moves[1].reason, /can't hold this conversation/);
+  assert.equal(app.runtime.models.health.get(localId).consecutiveFailures, 0, "being passed over is not a failure");
+  assert.equal(app.runtime.models.coolingDown(localId), false);
+});
+
+test("a fold's last summary request is the conversation's own connection's, so a small side-job connection's fold ends in five", async (t) => {
+  const { app, main, small, localId, run, sessionId } = await smallSideJobs(t, 4096);
+  assert.equal(run.status, "completed", run.output);
+  const asked = small.side.filter(isSummary), taken = main.side.filter(isSummary);
+  assert.equal(asked.length, 4, "the side-job connection wrote four, where carrying all a fold reads by itself would take nine");
+  assert.equal(taken.length, 1, "and the conversation's own connection wrote the last");
+  assert.deepEqual(lostTurns(app, sessionId, [...asked, ...taken]), [], "every earlier turn was either summarised or is still in the conversation");
+  const [folded] = events(app, run, "context.compacted");
+  assert.equal(folded.summaryRequests, 5);
+  assert.deepEqual(folded.writers, [localId, "default"]);
+  assert.equal(folded.readMessages, undefined, "the fold read all a fold reads");
+});
+
+test("a fold with no larger connection to turn to stops at five requests, and what they did not carry stays for a later fold", async (t) => {
+  const own = writer("ollama-like", () => "the summary goes on and on about the photo library ".repeat(200));
+  const app = await fixture(t, [unknown(scripted("unused"))]);
+  localConnection(app, own, 4096);
+  const first = await app.runtime.run({ prompt: "start", ...tools });
+  // Many short turns and long summaries: after its first request, the only connection there is carries a few
+  // turns at a time while it reads back a summary of 6,000 characters.
+  for (let n = 1; n <= 400; n++) app.store.message(first.sessionId, { role: n % 2 ? "user" : "assistant",
+    content: `Turn ${n}: ` + "earlier findings about the photo library and its folders ".repeat(3) });
+  const run = await app.runtime.run({ prompt: "short question", sessionId: first.sessionId, ...tools });
+  const asked = own.side.filter(isSummary);
+  assert.equal(asked.length, 5, "five requests, where carrying all a fold reads would take thirty-six");
+  const [folded] = events(app, run, "context.compacted");
+  assert.equal(folded.summaryRequests, 5);
+  assert.ok(folded.readMessages < folded.ofMessages, "the fold ended before the end of what it reads");
+  assert.deepEqual(lostTurns(app, first.sessionId, asked, 400), [], "nothing no request carried was dropped");
+});
+
+test("a summary request that fails keeps what the earlier ones wrote, and the conversation's own connection writes the rest", async (t) => {
+  const small = writer("ollama-like", (n, request) => { if (n === 3) throw new ProviderHttpError(503); return summaryOf(request); });
+  const { app, main, run, localId, sessionId } = await smallSideJobs(t, 4096, { small });
+  assert.equal(run.status, "completed", run.output);
+  const asked = small.side.filter(isSummary), taken = main.side.filter(isSummary);
+  assert.equal(asked.length, 3, "the side-job connection was asked three times, and the third failed");
+  assert.equal(taken.length, 1, "the conversation's own connection wrote the rest");
+  assert.ok(taken[0].messages[1].content.includes(`summarised turns ${turnsIn(asked[1].messages[1].content).join(",")}`),
+    "building on the summary already written");
+  const written = asked.slice(0, 2).flatMap((request) => turnsIn(request.messages[1].content));
+  assert.deepEqual(turnsIn(taken[0].messages[1].content).filter((n) => written.includes(n)), [], "without being sent those turns again");
+  assert.deepEqual(lostTurns(app, sessionId, [...asked.slice(0, 2), ...taken]), []);
+  const [folded] = events(app, run, "context.compacted");
+  assert.deepEqual(folded.writers, [localId, "default"]);
+  assert.equal(folded.failedRequests, 1);
+});
+
+test("when the connection writing a fold fails partway, the summary it already wrote is kept", async (t) => {
+  const own = writer("ollama-like", (n, request) => { if (n === 3) throw new ProviderHttpError(503); return summaryOf(request); });
+  const app = await fixture(t, [unknown(scripted("unused"))]);
+  localConnection(app, own, 8192);
+  const first = await app.runtime.run({ prompt: "start", ...tools });
+  // What a fold reads here, about 15,000 tokens, takes three or more requests to a model loaded with 8,192.
+  earlierTurns(app, first.sessionId, 30, () => 1000);
+  const run = await app.runtime.run({ prompt: "and now?", sessionId: first.sessionId, ...tools });
+  assert.equal(run.status, "failed", "its only connection failed, as before");
+  const asked = own.side.filter(isSummary);
+  assert.equal(asked.length, 3);
+  const working = app.store.workingMessages(first.sessionId);
+  assert.match(working.summary ?? "", new RegExp(`summarised turns ${turnsIn(asked[1].messages[1].content).join(",")}`),
+    "the summary written before the failure is kept");
+  assert.equal(keptTurns(app, first.sessionId).has(1), false, "and the turns it carried left the conversation");
+  assert.deepEqual(lostTurns(app, first.sessionId, asked.slice(0, 2), 30), []);
+});
+
+test("a side-job connection that would read back more summary than it adds hands the rest of a fold to the conversation's own", async (t) => {
+  const small = writer("ollama-like", () => "the summary goes on and on about the photo library ".repeat(200));
+  const { app, main, run, localId } = await smallSideJobs(t, 4096, { small, turns: (app, sessionId) => {
+    // Many short turns: after its first long summary, each request the side-job connection could send would
+    // carry less of them than the summary it must read back.
+    for (let n = 1; n <= 400; n++) app.store.message(sessionId, { role: n % 2 ? "user" : "assistant",
+      content: `Turn ${n}: ` + "earlier findings about the photo library and its folders ".repeat(3) });
+  } });
+  assert.equal(run.status, "completed", run.output);
+  assert.equal(small.side.filter(isSummary).length, 1, "the side-job connection wrote the first part only");
+  assert.equal(main.side.filter(isSummary).length, 1, "the conversation's own connection wrote the rest, in one request");
+  assert.deepEqual(events(app, run, "context.compacted")[0].writers, [localId, "default"]);
 });

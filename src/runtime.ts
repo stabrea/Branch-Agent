@@ -103,6 +103,7 @@ import { wallContextFor } from "./sandbox-wall.js"; // wave mac3 (os-sandbox)
 import { Tracer } from "./tracing.js";
 import { audit, auditSources, type AuditSource } from "./audit.js";
 import {
+  fallbackEligible,
   parseRetryPolicy,
   planRetry,
   waitForRetry,
@@ -272,6 +273,11 @@ const summaryMessage = (summary: string): Message => ({ role: "system", content:
 const foldLine = (m: Message): string => `${m.role}: ${m.content}${m.toolCalls ? " [requested tools: " + m.toolCalls.map((c) => c.name).join(", ") + "]" : ""}`;
 /** The most characters of transcript one fold's summary request is sent. */
 const foldTranscriptChars = 60000;
+/**
+ * The most summary requests one fold sends, a failed one included. The last is written by the connection
+ * the round goes to, not the side-job one; what they did not carry stays for a later fold.
+ */
+const foldRequestCap = 5;
 /** The request that asks for a fold's summary. */
 const summaryAsk = (previous: string, transcript: string): Message[] => [
   { role: "system", content: compactionInstructions },
@@ -312,8 +318,14 @@ function foldEnd(messages: Message[], ids: (number | null)[], split: { from: num
   while (end > split.from && (ids[end] === null || messages[end]!.role !== "user")) end--;
   return end - split.from >= 2 ? end : split.from;
 }
-/** What reading a fold's part came to: its summary, how far it got, and who wrote it. */
-interface FoldReading { summary: string; structured: SessionSummary | null; read: number; all: boolean; requests: number; writers: string[] }
+/**
+ * What reading a fold's part came to: its summary, how far it got and who wrote it. `failedWriters` names
+ * the writer of each request that failed; `failure` is the one that ended the reading, when one did.
+ */
+interface FoldReading {
+  summary: string; structured: SessionSummary | null; read: number; all: boolean; requests: number; writers: string[];
+  failedWriters: string[]; failure?: { error: unknown; writer: ModelPreset };
+}
 const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
 /** Range of stored, non-system messages to summarise, leaving at least `compactionKeep` recent ones and never splitting a tool exchange. */
 export function compactionSplit(messages: Message[], ids: (number | null)[], keep = compactionKeep): { from: number; to: number } | null {
@@ -1582,7 +1594,9 @@ ${run.output.slice(0, 6000)}`;
       this.applySteers(run, messages, ids);
       await this.ceiling(context);
       await this.pace(context, "round", this.policy().limits.modelRoundsPerMinute);
-      await this.fitContext(run, messages, ids, context, route);
+      // Its own connection failing while it writes the fold ends the task here, as it always has.
+      const unwritten = await this.fitContext(run, messages, ids, context, route);
+      if (unwritten) throw unwritten.error;
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
       this.journal.turn(run.id, run.sessionId, round + 1); // mac3/never-break
       const everyModel = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name, ...route.candidates.flatMap(namesOf)];
@@ -1595,7 +1609,7 @@ ${run.output.slice(0, 6000)}`;
       if (notes.once) { messages.push(notes.once); ids.push(null); }
       const sent = (): Message[] => (notes.every ? [...messages, notes.every] : messages);
       const completion = await this.completeWithRetries(run, sent(), context, route, preview,
-        async (failed) => { await this.fitContext(run, messages, ids, context, route, failed); return sent(); });
+        async (failed) => { await this.fitRoute(run, messages, ids, context, route, failed); return sent(); });
       const filterModels = [this.provider.name, ...namesOf(route.candidates[route.index])];
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
@@ -2252,19 +2266,53 @@ ${run.output.slice(0, 6000)}`;
   /**
    * Keeps a request to its working size: compaction first, then shrinking older tool results. Only a
    * request past the connection's window is refused. `failed` is set when the conversation is fitted
-   * to the connection a task moved to after `failed` stopped answering.
+   * to the connection a task moved to after `failed` stopped answering. When the connection being
+   * fitted fails while it writes the fold's summary, what it wrote before is kept and its error is
+   * returned, for the caller to handle as that connection's failure.
    */
-  private async fitContext(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, failed?: ModelPreset): Promise<void> {
+  private async fitContext(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, failed?: ModelPreset): Promise<{ error: unknown } | null> {
     // After a fall-back to another connection, rounds are fitted to that one's window.
     const preset = route.candidates[route.index]!;
     const before = this.budgetOf(messages, context, preset);
     this.store.event(run.id, "context.budget", { ...before });
-    await this.maybeCompact(run, messages, ids, context, route, before, failed);
-    if (!pastWorking(this.budgetOf(messages, context, preset))) return;
+    const unwritten = await this.maybeCompact(run, messages, ids, context, route, before, failed);
+    if (unwritten) return unwritten;
+    if (!pastWorking(this.budgetOf(messages, context, preset))) return null;
     const shrunk = shrinkToolResults(messages, 4);
     const after = this.budgetOf(messages, context, preset);
     this.store.event(run.id, "context.shrunk", { shrunkResults: shrunk, estimatedBefore: before.messages, estimatedAfter: after.messages });
     if (after.headroom < 0) throw new TooLongError(failed ? notAnswering(failed, preset) : tooLong);
+    return null;
+  }
+  /**
+   * Fits the conversation to the connection a task moved to after `failed` stopped answering. One that
+   * fails while it is being fitted (writing the fold's summary) has failed like any other: it is marked
+   * and the next in the order is tried. One that can't hold the conversation is passed over, unmarked,
+   * for the next; the task ends with the not-answering words only when none can.
+   */
+  private async fitRoute(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, failed: ModelPreset): Promise<void> {
+    for (;;) {
+      let unwritten: { error: unknown } | null;
+      try {
+        unwritten = await this.fitContext(run, messages, ids, context, route, failed);
+      } catch (error) {
+        if (error instanceof TooLongError && this.passOver(run, route)) continue;
+        throw error;
+      }
+      if (!unwritten) return;
+      failed = route.candidates[route.index]!;
+      if (context.signal.aborted || !this.fallBack(run, context, route, unwritten.error)) throw unwritten.error;
+    }
+  }
+  /** Moves past a connection that can't hold the conversation to the next in the order. It is not its failure. */
+  private passOver(run: Run, route: ModelRoute): boolean {
+    const passed = route.candidates[route.index]!, next = route.candidates[route.index + 1];
+    if (!next) return false;
+    route.index += 1;
+    this.store.event(run.id, "model.fallback", {
+      from: passed.id, to: next.id, provider: next.provider.name, model: next.model, reason: `${passed.name} can't hold this conversation`,
+    });
+    return true;
   }
   /**
    * The owner's own figure can put the working size above everything one task may spend. The fold
@@ -2281,76 +2329,94 @@ ${run.output.slice(0, 6000)}`;
   /**
    * When the working context grows past the threshold, older stored turns are summarised by the
    * model into a handoff note and replaced in place; recent turns and anything from this run stay.
-   * A fold that could not read all it reads (`readForFold`) replaces only the turns it read.
+   * A fold that could not read all it reads (`readForFold`) replaces only the turns it read, so what
+   * was written before a request failed is kept. The connection being fitted failing is returned as
+   * that connection's failure; any other failure ends the task as it always has.
    */
-  private async maybeCompact(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, budget: ContextBudget, failed?: ModelPreset): Promise<void> {
+  private async maybeCompact(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, budget: ContextBudget, failed?: ModelPreset): Promise<{ error: unknown } | null> {
     const before = budget.messages;
     // R17-S08: the owner may switch folding off, or fold at a share of the room of their own choosing.
     const threshold = knobs.compactionThresholdFor(this.store, this.owner, budget);
-    if (threshold === null) return;
+    if (threshold === null) return null;
     budget = { ...budget, threshold: Math.min(threshold, this.spendableThreshold(budget, context)) };
-    if (before <= budget.threshold && !pastWorking(budget)) return;
+    if (before <= budget.threshold && !pastWorking(budget)) return null;
     const split = compactionSplit(messages, ids, knobs.keepRecent(this.store, this.owner));
-    if (!split) return;
+    if (!split) return null;
     const previous = messages.slice(1, split.from).filter((m) => m.role === "system").map((m) => m.content).join("\n");
     const lines = messages.slice(split.from, split.to).map(foldLine);
     const reading = await this.readForFold(run, context, route, failed, previous, lines, { estimatedBefore: before, threshold: budget.threshold });
-    const folded = { from: split.from, to: reading?.all ? split.to : foldEnd(messages, ids, split, reading?.read ?? 0) };
-    if (!reading || folded.to <= folded.from) return;
-    const throughId = ids[folded.to - 1]!;
-    this.store.saveSessionSummary(context.owner, run.sessionId, reading.structured, reading.summary);
-    this.store.saveCompaction(run.sessionId, throughId, reading.summary);
-    const kept = this.keepAfterCompaction(run.sessionId, messages, ids, folded);
-    messages.splice(1, messages.length - 1, summaryMessage(reading.summary), ...kept.messages);
-    ids.splice(1, ids.length - 1, null, ...kept.ids);
-    this.store.event(run.id, "context.compacted", {
-      droppedMessages: folded.to - folded.from - kept.pinned, keptMessages: kept.messages.length, summaryChars: reading.summary.length,
-      pinnedKept: kept.pinned, structured: reading.structured !== null, threshold: budget.threshold,
-      estimatedBefore: before, estimatedAfter: estimateTokens(messages.map(textOnly)), throughMessageId: throughId,
-      summaryRequests: reading.requests, writers: reading.writers, ...(reading.all ? {} : { readMessages: reading.read, ofMessages: lines.length }),
-    });
+    const folded = { from: split.from, to: reading.all ? split.to : foldEnd(messages, ids, split, reading.read) };
+    if (folded.to > folded.from) {
+      const throughId = ids[folded.to - 1]!;
+      this.store.saveSessionSummary(context.owner, run.sessionId, reading.structured, reading.summary);
+      this.store.saveCompaction(run.sessionId, throughId, reading.summary);
+      const kept = this.keepAfterCompaction(run.sessionId, messages, ids, folded);
+      messages.splice(1, messages.length - 1, summaryMessage(reading.summary), ...kept.messages);
+      ids.splice(1, ids.length - 1, null, ...kept.ids);
+      this.store.event(run.id, "context.compacted", {
+        droppedMessages: folded.to - folded.from - kept.pinned, keptMessages: kept.messages.length, summaryChars: reading.summary.length,
+        pinnedKept: kept.pinned, structured: reading.structured !== null, threshold: budget.threshold,
+        estimatedBefore: before, estimatedAfter: estimateTokens(messages.map(textOnly)), throughMessageId: throughId,
+        summaryRequests: reading.requests, writers: reading.writers, ...(reading.all ? {} : { readMessages: reading.read, ofMessages: lines.length }),
+        ...(reading.failedWriters.length ? { failedRequests: reading.failedWriters.length, failedWriters: [...new Set(reading.failedWriters)] } : {}),
+      });
+    }
+    const failure = reading.failure;
+    if (!failure) return null;
+    if (failure.writer.id !== route.candidates[route.index]!.id || failure.error instanceof BudgetError || context.signal.aborted) throw failure.error;
+    return { error: failure.error };
   }
   /**
    * Reads the part a fold summarises, as much of it as a fold has always read: the messages that
    * begin within its first `foldTranscriptChars` characters. A writer whose window holds that in one
    * request is sent exactly what a fold has always sent; a smaller one is sent it in several requests
-   * of whole messages, each building on the summary so far. Null when nothing could be sent.
+   * of whole messages, each building on the summary so far, `foldRequestCap` at most. When the
+   * side-job connection does not answer, the connection this round goes to writes the rest; any other
+   * failure ends the reading with what was written so far.
    */
   private async readForFold(run: Run, context: ToolContext, route: ModelRoute, failed: ModelPreset | undefined, previous: string,
-    lines: string[], note: Record<string, number>): Promise<FoldReading | null> {
-    const cover = foldCoverage(lines);
-    let prior = previous, read = 0, requests = 0, reply = "";
-    const writers: string[] = [];
-    while (read < cover) {
-      const next = this.nextFoldRequest(run, route, failed, prior, lines, read, cover);
+    lines: string[], note: Record<string, number>): Promise<FoldReading> {
+    const cover = foldCoverage(lines), current = route.candidates[route.index]!;
+    let prior = previous, read = 0, requests = 0, reply = "", skip = failed, failure: FoldReading["failure"];
+    const writers: string[] = [], failedWriters: string[] = [];
+    while (read < cover && requests < foldRequestCap && !failure) {
+      const next = this.nextFoldRequest(run, route, skip, prior, lines, read, cover, requests === foldRequestCap - 1);
       if (!next) break;
       if (!requests) this.store.event(run.id, "context.compacting", { ...note, writer: next.preset.id, ...next.note }); // R17-049
-      reply = (await this.complete(run, summaryAsk(prior, next.transcript), { ...context, permissions: new Set() }, next.preset, null)).content.trim().slice(0, 6000);
-      requests++; read = next.through;
+      requests++;
+      try {
+        reply = (await this.complete(run, summaryAsk(prior, next.transcript), { ...context, permissions: new Set() }, next.preset, null)).content.trim().slice(0, 6000);
+      } catch (error) {
+        failedWriters.push(next.preset.id);
+        if (next.preset.id !== current.id && fallbackEligible(error) && !context.signal.aborted) skip = next.preset;
+        else failure = { error, writer: next.preset };
+        continue;
+      }
+      read = next.through;
       if (!writers.includes(next.preset.id)) writers.push(next.preset.id);
       const parsed = parseSessionSummary(reply);
       prior = summaryMessage(parsed ? summaryText(parsed) : reply).content;
     }
-    if (!requests) return null;
     const structured = parseSessionSummary(reply);
-    return { summary: structured ? summaryText(structured) : reply, structured, read, all: read >= cover, requests, writers };
+    return { summary: structured ? summaryText(structured) : reply, structured, read, all: read >= cover, requests, writers, failedWriters, ...(failure ? { failure } : {}) };
   }
   /**
    * The next request of a fold: who writes it and what it carries. The side-job connection (R17-S11)
-   * writes it, never the connection that has just stopped answering. The connection this round goes
-   * to takes over when the side-job one can carry none of what is left, or less new text than the
-   * summary it would have to read again. A first request that can hold everything a fold reads is
-   * sent it exactly as a fold has always sent it.
+   * writes it, never `down`: the connection that has just stopped answering, or a side-job connection
+   * that did not answer this fold. The connection this round goes to takes over then, or when the
+   * side-job one can carry none of what is left, or less new text than the summary it would have to
+   * read again, and it writes a fold's `last` request. A first request that can hold everything a fold
+   * reads is sent it exactly as a fold has always sent it.
    */
-  private nextFoldRequest(run: Run, route: ModelRoute, failed: ModelPreset | undefined, prior: string, lines: string[], read: number, cover: number):
+  private nextFoldRequest(run: Run, route: ModelRoute, down: ModelPreset | undefined, prior: string, lines: string[], read: number, cover: number, last: boolean):
     { preset: ModelPreset; transcript: string; through: number; note: { writerBecause?: string } } | null {
     const current = route.candidates[route.index]!;
     const chosen = this.sideJobPreset(this.owner, run.sessionId, current); // R17-S11
     const whole = lines.join("\n").slice(0, foldTranscriptChars);
     let because: string | undefined;
-    for (const preset of chosen.id === current.id ? [current] : [chosen, current]) {
+    for (const preset of chosen.id === current.id || last ? [current] : [chosen, current]) {
       const note = because ? { writerBecause: because } : {};
-      if (preset.id === failed?.id) { because = "the connection chosen for side jobs is the one that stopped answering"; continue; }
+      if (preset.id === down?.id) { because = "the connection chosen for side jobs is the one that stopped answering"; continue; }
       const window = this.contextWindow(preset);
       if (read === 0 && estimateTokens({ messages: summaryAsk(prior, whole), tools: [] }) <= window - answerReserve)
         return { preset, transcript: whole, through: lines.length, note };
@@ -2389,6 +2455,7 @@ ${run.output.slice(0, 6000)}`;
     let fittedTo = route.index;
     for (let retriesUsed = 0; ; retriesUsed++) {
       // A connection moved to after a failure is asked only once the conversation fits its own window.
+      // Fitting may move further along the order, past one that fails or can't hold it.
       if (refit && route.index !== fittedTo) { messages = await refit(route.candidates[fittedTo]!); fittedTo = route.index; }
       let observedText = false;
       const emit = onTextDelta
