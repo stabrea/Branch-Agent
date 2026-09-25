@@ -29,7 +29,6 @@ async function fixture(t, width) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
-  await page.locator("body.sg-ready").waitFor();
   return { page, errors };
 }
 const everything = (page, on) => page.evaluate(async (value) => {
@@ -111,9 +110,23 @@ const plusMenu = async (page) => {
     };
   });
 };
+/* Redesign: the new window's + menu (public/app/chat/plus.js, the prototype's POPS.plusmenu) as drawn: its rows in order,
+   and whether it fits the window. */
+const plusMenuNew = async (page) => {
+  await page.locator('#composer [data-act="plusmenu"]').click();
+  await page.locator("#app > .pop").waitFor({ state: "visible" });
+  return page.evaluate(() => {
+    const menu = document.querySelector("#app > .pop"), box = menu.getBoundingClientRect();
+    return {
+      rows: [...menu.querySelectorAll(".ph, [role^=menuitem], .row-in > span:first-child")].map((row) => row.textContent.replace(/\s+/g, " ").trim()),
+      fits: box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
+    };
+  });
+};
 const planSaved = (page) => page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/plan-act");
 
-// Redesign: Coming soon (plusmenu), checked at afa6ad94; Show everything is replaced by the new window (one window).
+// Redesign: replaced by the new window (Show everything, and "How it should work" / "Check back with me" in the + menu, are not
+// in the prototype's POPS.plusmenu).
 test.skip("DG-175 with Show everything on, how it should work and when to check back are the + menu's choices, not a row above the box", async (t) => {
   const { page, errors } = await fixture(t, 400);
   await everything(page, true);
@@ -138,10 +151,11 @@ test.skip("DG-175 with Show everything on, how it should work and when to check 
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (plusmenu), checked at afa6ad94; Show everything is replaced by the new window (one window).
-test.skip("DG-175 the calm window's + menu stays the sample's short one", async (t) => {
+/* Redesign: the new window is one window; its + menu is the prototype's short one, which fits the window. */
+test("DG-175 the calm window's + menu stays the sample's short one", async (t) => {
   const { page, errors } = await fixture(t, 1440);
-  const { rows } = await plusMenu(page);
+  const { rows, fits } = await plusMenuNew(page);
+  assert.equal(fits, true, "the menu fits the window");
   assert.equal(rows.includes("How it should work"), false, JSON.stringify(rows));
   assert.deepEqual(errors, []);
 });

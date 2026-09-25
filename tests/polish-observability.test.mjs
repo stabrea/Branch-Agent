@@ -556,7 +556,7 @@ test.skip("D3 the Activity screen shows the live feed and stops it when you leav
 
 /* ---------- D4: the month view, the forecast and the cost columns ---------- */
 
-// Redesign: Coming soon (Settings › Data & usage: the report, rep15 and repopen15), checked at afa6ad94.
+// Redesign: Coming soon (Settings › Data & usage: the report, rep15 and repopen15), checked at 4460a085.
 test.skip("D4 the month card's numbers come from the ledger and the forecast says about", async (t) => {
   const { page, api, errors } = await onPage(t, { provider: answersTheQuestion });
   /* A model with a price on file, so there is money to add up at all. */
@@ -920,7 +920,7 @@ test.skip("G5 the Activity screen and the inspector render a reply as markdown, 
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at afa6ad94.
+// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at 4460a085.
 test.skip("G5 Appearance is written in French when French is chosen", async (t) => {
   const { page, errors } = await onPage(t);
   await openSettingFor(page, "#appearance-language");

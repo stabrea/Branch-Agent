@@ -103,7 +103,7 @@ test("K3 the /api/state models carry their levels (the engine, for the new windo
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (mtab=defaults, Settings › Models › Defaults, and its thinking level), checked at afa6ad94.
+// Redesign: Coming soon (mtab=defaults, Settings › Models › Defaults, and its thinking level), checked at 4460a085.
 test.skip("K3 the /api/state models carry their levels, and the default list follows the chosen model", async (t) => {
   const { page, errors, server } = await fixture(t);
   const state = await (await fetch(new URL("/api/state", server.url), { headers: { authorization: `Bearer ${server.token}` } })).json();
