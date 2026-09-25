@@ -41,3 +41,12 @@ test("an answer that names its request still lands on exactly that one", async (
   assert.equal(answered.tool, "process.start");
   assert.deepEqual(app.runtime.approvals.waiting(session).map((q) => q.tool), ["network.site"]);
 });
+
+test("an answer that names a request no longer waiting (a stale card) is refused, and both still wait", async (t) => {
+  const app = await branch(t);
+  const session = "33333333-3333-4333-8333-333333333333";
+  app.runtime.approvals.ask(question(session, "run-a", "process.start", "rm -rf build", "a".repeat(32)));
+  app.runtime.approvals.ask(question(session, "run-b", "network.site", "example.com", "b".repeat(32)));
+  assert.throws(() => app.runtime.approve(session, "allow", "never", "c".repeat(32)), /different request/);
+  assert.equal(app.runtime.approvals.waiting(session).length, 2, "nothing was answered");
+});
