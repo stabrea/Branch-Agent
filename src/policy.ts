@@ -60,6 +60,11 @@ export const PolicyRuleSchema = z
      * workspace, which is what every rule written before this behaves as.
      */
     paths: z.array(z.string().trim().min(1).max(200)).max(8).optional(),
+    /**
+     * Redesign ("Always allow for <Trunk>"): the one Trunk this rule is for. It covers only work that Trunk is doing;
+     * left out, the rule covers every Trunk and the owner's own conversations, as every rule written before this does.
+     */
+    trunk: z.string().min(1).max(100).optional(),
   })
   .strict();
 export type PolicyRule = z.infer<typeof PolicyRuleSchema>;
@@ -268,10 +273,13 @@ export interface PolicyRequest {
    * for the whole call still counts for each thing in it.
    */
   callTarget?: string | undefined;
+  /** Redesign: the Trunk doing the work, when a Trunk is; a rule for one Trunk covers only that Trunk's work. */
+  trunk?: string | undefined;
 }
 export interface PolicyOutcome { decision: PolicyDecision; rule: PolicyRule | null }
 /** Whether one rule covers this call: the tool, what it would touch, and the thing it is about. */
 function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
+  if (rule.trunk !== undefined && rule.trunk !== request.trunk) return false;
   if (rule.applies === "changes" && request.readOnly) return false;
   if (rule.applies === "reads" && !request.readOnly) return false;
   if (!globMatches(rule.tool, request.tool)) return false;

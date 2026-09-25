@@ -55,6 +55,8 @@ export interface PendingApproval {
    * when it touches more than one; the card lists them (the first few, the rest folded away).
    */
   files?: { kind: "read" | "write" | "delete"; path: string }[];
+  /** Redesign: the Trunk whose work stopped on this question, so "Always allow for <Trunk>" can be kept for it alone. */
+  trunk?: string;
 }
 
 /** Wave mac3 (tool-safety): what the owner is told when they try to keep a yes the safety check advised against. */
