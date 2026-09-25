@@ -438,3 +438,46 @@ test("P13 the own-plans switch is the owner's, and is for sign-in accounts only"
   setMode(service, { mode: "on" });
   assert.throws(() => updatePool(service, { pool: "openai-pool", ownPlans: true }), /this choice is for sign-in accounts/);
 });
+
+test("P14 with own plans on, work stays on one plan until it reaches its limit, and never spreads across them (NAS 204)", async (t) => {
+  const fx = await fixture(t);
+  const { app, service } = fx;
+  const seen = program(fx, {});
+  setMode(service, { mode: "on" });
+  await addAccount(service, { pool: POOL, label: "Second" });
+  await addAccount(service, { pool: POOL, label: "Third" });
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  updatePool(service, { pool: POOL, ownPlans: true });
+  for (let i = 0; i < 5; i++) await app.runtime.run({ prompt: `call ${i}` });
+  assert.deepEqual([...new Set(seen)], ["primary"], "none at its limit: every call stays on the default plan");
+});
+
+test("P15 a conversation whose plan reached its limit stays on the plan that answered next (NAS 204)", async (t) => {
+  const fx = await fixture(t);
+  const { app, service, owner } = fx;
+  const seen = program(fx, { primary: limited });
+  setMode(service, { mode: "on" });
+  const second = (await addAccount(service, { pool: POOL, label: "Second" })).accounts.at(-1).id;
+  await addAccount(service, { pool: POOL, label: "Third" });
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  updatePool(service, { pool: POOL, ownPlans: true });
+  const first = await app.runtime.run({ prompt: "hello" });
+  assert.equal(first.output, `from ${second}`);
+  for (let i = 0; i < 3; i++) await app.runtime.run({ prompt: `more ${i}`, sessionId: first.sessionId });
+  assert.deepEqual(seen.filter((who) => who !== "primary"), [second, second, second, second], "it stays on Second");
+  assert.equal(sessionChoice(app.store, owner, first.sessionId)[POOL], second);
+});
+
+test("P16 own plans needs sharing on, and turning sharing off turns it off (NAS 204)", async (t) => {
+  const fx = await fixture(t);
+  const { service } = fx;
+  program(fx, {});
+  setMode(service, { mode: "on" });
+  await addAccount(service, { pool: POOL, label: "Second" });
+  assert.throws(() => updatePool(service, { pool: POOL, ownPlans: true }), /Turn on sharing work between accounts first/);
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  updatePool(service, { pool: POOL, ownPlans: true });
+  updatePool(service, { pool: POOL, autoSwitch: false });
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  assert.equal((await viewAll(service)).pools.find((pool) => pool.pool === POOL).ownPlans, false, "sharing alone never brings it back");
+});

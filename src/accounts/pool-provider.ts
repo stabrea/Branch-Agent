@@ -171,10 +171,15 @@ export class AccountPoolProvider {
     // mac7/account-pooling: at most one of the owner's own plans, plus the accounts kept separate.
     const allowed = this.mayShare(pool, usable, sticky);
     if (allowed.length < 2) return this.single(pool, usable, request, call);
-    const ready = smartOrder(allowed.filter((account) => this.why(account) === null), this.hooks.states);
+    // NAS 204 (own plans): the owner's switch moves work on only when a plan reaches its limit, never to spread it, so
+    // the plans are tried in a fixed order: the conversation's pick, the owner's default, then the list's own order.
+    const open = allowed.filter((account) => this.why(account) === null);
+    const ready = pool.ownPlans ? inOrder(open, [sticky, pool.defaultAccount]) : smartOrder(open, this.hooks.states);
     // A conversation's own plan, once picked, is never replaced by Branch: were it overwritten by a
-    // kept-separate account, the next limit would move the work on to the owner's default plan.
-    const keepPick = usable.some((account) => account.id === sticky && !account.keptSeparate);
+    // kept-separate account, the next limit would move the work on to the owner's default plan. With the owner's
+    // own-plans switch on, a pick that reached its limit is replaced by the plan that answered, so later turns stay.
+    const pickLimited = !!sticky && this.why(usable.find((account) => account.id === sticky) ?? usable[0]!) !== null;
+    const keepPick = usable.some((account) => account.id === sticky && !account.keptSeparate) && !(pool.ownPlans && pickLimited);
     const first = ready.findIndex((account) => account.id === sticky);
     if (first > 0) ready.unshift(...ready.splice(first, 1));
     for (const account of ready) {
@@ -249,4 +254,13 @@ export function pooled(original: Provider, hooks: PoolHooks): Provider {
 }
 export function unwrapProvider(provider: Provider): Provider {
   return ((provider as unknown as Record<symbol, Provider | undefined>)[originalOf]) ?? provider;
+}
+
+/** The accounts in the owner's order: the given ids first (the conversation's pick, then the default), then the list's own. */
+function inOrder(accounts: Account[], first: (string | null | undefined)[]): Account[] {
+  const rank = (account: Account): number => {
+    const at = first.indexOf(account.id);
+    return at === -1 ? first.length + accounts.indexOf(account) : at;
+  };
+  return [...accounts].sort((a, b) => rank(a) - rank(b));
 }
