@@ -74,7 +74,8 @@ export function openDlg({ title, body, foot = "", wide = false }) {
   applyCss(dlgEl);
   greyOut(dlgEl);
   app().appendChild(dlgEl);
-  dlgEl.querySelector(".dlg-b input, .dlg-b textarea, .dlg-f .btn, .dlg-h button")?.focus({ preventScroll: true });
+  const first = [".dlg-b input:not([type=checkbox])", ".dlg-b textarea", ".dlg-f .btn.pri:not(:disabled)", ".dlg-f .btn"].map((q) => dlgEl.querySelector(q)).find(Boolean);
+  first?.focus({ preventScroll: true });
   return dlgEl;
 }
 
