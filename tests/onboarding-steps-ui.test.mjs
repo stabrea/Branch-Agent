@@ -56,10 +56,26 @@ test("both questions can be skipped, and nothing is changed", async (t) => {
   const before = readPolicy(app.store, app.runtime.owner).preset;
   await page.locator("#first-run-done").waitFor({ state: "visible", timeout: 30000 });
   await page.locator("#first-run-done").click();
+  // Mac mini's E1 review: the three doors sit on one row at desktop width.
+  await page.locator("#first-run .onboarding-step .door").first().waitFor({ state: "visible" });
+  const rows = await page.locator("#first-run .onboarding-step .door").evaluateAll((doors) => doors.map((door) => door.getBoundingClientRect().top));
+  assert.equal(new Set(rows).size, 1, `the look doors share one row (${rows.join(", ")})`);
   await page.locator("#first-run .onboarding-skip").click();
   await page.waitForFunction(() => document.querySelector("#first-run .onboarding-step")?.dataset.step === "3");
+  // A fresh install is on No approvals, which is not a door, so Skip says it keeps it rather than keeping it silently.
+  assert.equal(before, "off");
+  assert.match(await page.locator("#first-run .onboarding-keeps").textContent(), /^Skip keeps No approvals/);
+  assert.equal(await page.locator("#first-run .onboarding-step .door.selected").count(), 0);
   await page.locator("#first-run .onboarding-skip").click();
   await page.locator("#first-run").waitFor({ state: "hidden", timeout: 30000 });
   assert.equal(readPolicy(app.store, app.runtime.owner).preset, before);
   assert.equal(onboardingDone(app), true);
+});
+
+test("the demo door skips the two questions, so its card does not count to three (Mac mini's E1 review)", async (t) => {
+  const { page } = await openFresh(t);
+  const count = page.locator("#first-run > .onboarding-count");
+  assert.equal(await count.isVisible(), true);
+  await page.locator("#door-demo").click();
+  assert.equal(await count.isVisible(), false);
 });

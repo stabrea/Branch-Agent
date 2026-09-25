@@ -2153,6 +2153,8 @@
   "onboarding.careful.ask-note": "Reads freely; asks before it changes anything.",
   "onboarding.careful.read-only": "Read only",
   "onboarding.careful.read-only-note": "Looks and answers; never changes anything.",
+  "onboarding.careful.keeps-off": "Skip keeps No approvals: tasks you start yourself go ahead without asking. You can change it later in Settings.",
+  "onboarding.careful.keeps-now": "Skip keeps the approval setting you have now.",
   "flow-yaml.none": "There is no saved flow to write out yet.",
   "flow-yaml.pick": "Flow",
   "flow-yaml.read-back": "Save as a new flow",

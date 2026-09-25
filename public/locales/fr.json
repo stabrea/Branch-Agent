@@ -2154,6 +2154,8 @@
   "onboarding.careful.ask-note": "Lit librement ; demande avant de changer quoi que ce soit.",
   "onboarding.careful.read-only": "Lecture seule",
   "onboarding.careful.read-only-note": "Regarde et répond ; ne change jamais rien.",
+  "onboarding.careful.keeps-off": "Passer garde Aucune approbation : les tâches que vous lancez vous-même se font sans demander. Vous pourrez le changer plus tard dans les Réglages.",
+  "onboarding.careful.keeps-now": "Passer garde le réglage d'approbation actuel.",
   "flow-yaml.none": "Aucun flux enregistré à exporter pour l’instant.",
   "flow-yaml.pick": "Flux",
   "flow-yaml.read-back": "Enregistrer comme nouveau flux",

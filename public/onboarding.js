@@ -14,21 +14,29 @@ const el = (tag, key, className) => {
   return node;
 };
 
+const headers = () => ({ authorization: "Bearer " + (sessionStorage.getItem("branch-token") || ""), "content-type": "application/json" });
 async function savePolicy(preset) {
-  const response = await fetch("/api/policy", { method: "POST",
-    headers: { authorization: "Bearer " + (sessionStorage.getItem("branch-token") || ""), "content-type": "application/json" },
-    body: JSON.stringify({ preset }) });
+  const response = await fetch("/api/policy", { method: "POST", headers: headers(), body: JSON.stringify({ preset }) });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "The choice was not saved.");
 }
+/** The approval preset in force now, or null when it cannot be read. */
+async function currentPreset() {
+  const response = await fetch("/api/policy", { headers: headers() }).catch(() => null);
+  if (!response?.ok) return null;
+  return (await response.json().catch(() => ({}))).policy?.preset ?? null;
+}
 
-/** One question: a title, a few doors, and Skip. Resolves once one is picked or skipped. */
-function ask(card, step, titleKey, choices) {
+/**
+ * One question: a title, a few doors, and Skip. Resolves once one is picked or skipped. `keeps` is a line saying
+ * what Skip leaves in force when none of the doors is it (Mac mini's E1 review: Skip silently kept No approvals).
+ */
+function ask(card, step, titleKey, choices, keeps) {
   return new Promise((done) => {
     const box = el("div", undefined, "onboarding-step");
     box.dataset.step = String(step);
     const counter = el("p", undefined, "first-run-lead onboarding-count");
     counter.textContent = t("onboarding.count", { step, of: 3 });
-    const doors = el("div", undefined, "doors");
+    const doors = el("div", undefined, choices.length === 3 ? "doors three" : "doors");
     const status = el("p", undefined, "onboarding-status");
     status.setAttribute("role", "status");
     for (const choice of choices) {
@@ -47,7 +55,9 @@ function ask(card, step, titleKey, choices) {
     const skip = el("button", "onboarding.skip", "quiet-button onboarding-skip");
     skip.type = "button";
     skip.addEventListener("click", () => { box.remove(); done(); });
-    box.append(counter, el("h2", titleKey), doors, status, skip);
+    box.append(counter, el("h2", titleKey), doors, status);
+    if (keeps) box.append(el("p", keeps, "first-run-lead onboarding-keeps"));
+    box.append(skip);
     card.append(box);
   });
 }
@@ -65,11 +75,15 @@ async function lookStep(card) {
 }
 
 async function carefulStep(card) {
-  await ask(card, 3, "onboarding.careful.title", [
-    { id: "workspace", label: "onboarding.careful.workspace", note: "onboarding.careful.workspace-note", pick: () => savePolicy("workspace") },
-    { id: "ask-before-changes", label: "onboarding.careful.ask", note: "onboarding.careful.ask-note", pick: () => savePolicy("ask-before-changes") },
-    { id: "read-only", label: "onboarding.careful.read-only", note: "onboarding.careful.read-only-note", pick: () => savePolicy("read-only") },
-  ]);
+  const now = await currentPreset();
+  const doors = [
+    { id: "workspace", label: "onboarding.careful.workspace", note: "onboarding.careful.workspace-note" },
+    { id: "ask-before-changes", label: "onboarding.careful.ask", note: "onboarding.careful.ask-note" },
+    { id: "read-only", label: "onboarding.careful.read-only", note: "onboarding.careful.read-only-note" },
+  ].map((door) => ({ ...door, selected: door.id === now, pick: () => savePolicy(door.id) }));
+  // A fresh install starts on No approvals, which is not one of the doors: Skip says it keeps it.
+  const keeps = doors.some((door) => door.selected) ? undefined : now === "off" ? "onboarding.careful.keeps-off" : "onboarding.careful.keeps-now";
+  await ask(card, 3, "onboarding.careful.title", doors, keeps);
 }
 
 /** Called by the first-run card once a model is ready (public/app.js `finishFirstRun`); resolves when both are answered or skipped. */
