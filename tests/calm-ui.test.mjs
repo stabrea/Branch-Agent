@@ -616,8 +616,9 @@ test("calm: a running task reads under its message, with a real Stop, and its co
   assert.ok(card.height < 110, `the card is as tall as what it says (${card.height}px)`);
   const stopButton = f.page.locator("#composer").getByRole("button", { name: "Stop", exact: true });
   await stopButton.waitFor({ state: "visible", timeout: 10000 });
-  const stop = await stopButton.evaluate((node) => { const s = getComputedStyle(node); return { border: s.borderTopWidth, height: node.getBoundingClientRect().height }; });
-  assert.ok(parseFloat(stop.border) >= 1 && stop.height >= 30, "Stop is a button, not a small link");
+  // Redesign: the prototype's Stop is the round Send button (no border); a real button still means one of full size.
+  const stop = await stopButton.evaluate((node) => { const box = node.getBoundingClientRect(); return { width: box.width, height: box.height }; });
+  assert.ok(stop.width >= 30 && stop.height >= 30, "Stop is a button, not a small link");
   const row = f.page.locator('#side [data-act="chat"]').filter({ hasText: "Sort my Downloads folder" });
   await row.waitFor({ timeout: 10000 });
   assert.match(await row.innerText(), /Sort my Downloads folder[\s\S]*Working/);
