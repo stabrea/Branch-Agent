@@ -28,13 +28,33 @@ function filterNow() {
   return parts.toString();
 }
 
-/** One line of the record: when, what kind of step, which task, and what it said. */
+/**
+ * Dogfood E2 part 2 (Mac mini's item 3): a kind of step in words ("Asked you first"), not as it is filed
+ * ("policy.ask"). A kind with no words of its own is spelled out from its name, so a new one still reads.
+ */
+export function kindWords(kind) {
+  const said = t(`logs.kind.${kind}`);
+  if (said !== `logs.kind.${kind}`) return said;
+  const words = String(kind).replace(/[._]/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+/** The one sentence a step already has about itself (a tool's label, a question), if it has one. */
+const sentenceOf = (detail) => [detail.label, detail.question, detail.summary, detail.reason].find((value) => typeof value === "string" && value.trim());
+
+/** One line of the record: when, what kind of step, which task, what it said, and its details folded away. */
 function logRow(line) {
   const row = el("article", undefined, "card-row log-row");
-  row.append(el("strong", line.kind));
-  row.append(el("span", `${formatDate(line.at)} · task ${line.runId.slice(0, 8)}`, "meta"));
+  row.dataset.kind = line.kind;
+  row.append(el("strong", kindWords(line.kind)));
+  row.append(el("span", `${formatDate(line.at)} · ${t("logs.task", { id: line.runId.slice(0, 8) })}`, "meta"));
+  const sentence = sentenceOf(line.detail);
+  if (sentence) row.append(el("p", sentence.slice(0, 300)));
   const detail = Object.entries(line.detail).map(([key, value]) => `${key}: ${String(value)}`).join(" · ");
-  if (detail) row.append(el("p", detail.slice(0, 400), "meta"));
+  if (detail) {
+    const more = el("details", undefined, "log-details");
+    more.append(el("summary", t("logs.details")), el("p", `${line.kind} · ${detail.slice(0, 400)}`, "meta"));
+    row.append(more);
+  }
   return row;
 }
 
@@ -56,7 +76,7 @@ function fillKinds(kinds) {
   if (!picker || picker.dataset.filled === String(kinds.length)) return;
   const chosen = picker.value;
   picker.replaceChildren(new Option(t("logs.anyKind"), ""));
-  for (const kind of kinds) picker.append(new Option(kind, kind));
+  for (const kind of kinds) picker.append(new Option(kindWords(kind), kind));
   picker.value = chosen;
   picker.dataset.filled = String(kinds.length);
 }
