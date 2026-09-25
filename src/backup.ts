@@ -161,7 +161,10 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   "usage_budget", "skill-scan",
   // NAS 0f26219: the Schedules check-in (its switch, the words it runs and the chat its news goes to) and the daily
   // brief (its template and the chat it is sent to) run by themselves, as a heartbeat does. `heartbeat-state` travels.
-  "quiet-jobs", "heartbeat", "brief"];
+  "quiet-jobs", "heartbeat", "brief",
+  // NAS 63d028c: automatic problem reports send by themselves to the place the file names (a repository, a chat), and
+  // the owner's own prices set when the month's dollar limit trips.
+  "automatic-problem-reports", "pricing"];
 /** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
 const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:",
   // NAS f30facf: each outside service the assistant may call, by its address.

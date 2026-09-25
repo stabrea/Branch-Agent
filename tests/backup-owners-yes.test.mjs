@@ -227,7 +227,9 @@ test("the trace export, the memory service and each outside service wait for the
     // NAS 2a15d6b: Hindsight's switch and settings, analytics, another ask part, the budget, and the skill scan.
     "asks-hindsight", "asks-hindsight-settings", "asks-analytics-settings", "asks-app-server", "usage_budget", "skill-scan",
     // NAS 0f26219: the Schedules check-in and the daily brief run by themselves and send to a chat.
-    "quiet-jobs", "heartbeat", "brief"];
+    "quiet-jobs", "heartbeat", "brief",
+    // NAS 63d028c: problem reports that send by themselves, and the prices the dollar limit is counted in.
+    "automatic-problem-reports", "pricing"];
   for (const id of sent) assert.equal(heldForTheOwner(id) && !staysOnThisComputer(id), true, `${id} is held`);
   const { app, owner, setting } = await fixture(t);
   for (const id of sent) app.store.save("settings", owner, id, { mine: id });
