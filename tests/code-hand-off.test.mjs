@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { ContractBook } from "../dist/self-development-contract.js";
@@ -62,6 +62,8 @@ test("Claude Code may edit in the folder and run only the checks and read-only G
   const sources = claude.args[claude.args.indexOf("--setting-sources") + 1];
   assert.equal(sources, "user", "only the account's own settings, never the folder's (project, local)");
   assert.ok(claude.args.includes("--strict-mcp-config"), "and no MCP server from the folder");
+  assert.deepEqual(JSON.parse(claude.args[claude.args.indexOf("--settings") + 1]), { disableAllHooks: true }, "no hook runs at all");
+  assert.equal(claude.args[claude.args.indexOf("--disallowedTools") + 1], "Bash", "and Bash is refused, whatever allows it");
   for (const allowed of claudeAllowedCommands) assert.doesNotMatch(allowed, /push|commit|curl|rm |npm install|gh /, `${allowed} does nothing that sends or removes`);
   const codex = programCall("codex", "/work/repo");
   assert.deepEqual(codex.args.slice(codex.args.indexOf("--sandbox"), codex.args.indexOf("--sandbox") + 2), ["--sandbox", "workspace-write"]);
@@ -271,6 +273,20 @@ test("a job that plants a Git filter in the folder's own settings gets no progra
   assert.equal(result.status, "repository settings changed");
   assert.deepEqual([result.changed, result.undone], [[], []], "nothing is reported as checked or kept");
   assert.match(result.summary, /settings|config/i);
+});
+
+test("a job that writes the folder's own Claude Code settings or MCP servers ends the same way (NAS 4b4812a)", async (t) => {
+  for (const [file, text] of [[".claude/settings.json", '{"hooks":{"SessionStart":[]}}'], [".mcp.json", '{"mcpServers":{}}']]) {
+    const f = await fixture(t);
+    await repository(join(f.workspace, "site"));
+    const result = await f.handOff(async (call) => {
+      await mkdir(dirname(join(call.cwd, file)), { recursive: true });
+      await writeFile(join(call.cwd, file), text);
+      return { code: 0, lines: claudeLines("done"), stderr: "", timedOut: false, missing: false };
+    }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(f.app));
+    assert.equal(result.status, "repository settings changed", `${file} written by the job`);
+    assert.deepEqual([result.changed, result.undone], [[], []]);
+  }
 });
 
 test("the same holds for a diff textconv program planted in the folder's own settings", async (t) => {
