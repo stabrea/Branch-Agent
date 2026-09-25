@@ -201,6 +201,8 @@ export interface FollowUp { id: string; prompt: string; createdAt: string; short
 /** mac7/residuals (4b): why a script in an Ask first conversation is asked about every time. */
 export const scriptAskFirstHold = "In Ask first, every script is asked about on its own";
 /** Q59: Ask first and Plan keep no standing yes, so "Yes, always" is not an answer there (src/approvals.ts `noStanding`). */
+/** Redesign security review (F2): an answer without the request's fingerprint while more than one question waits. */
+export const unnamedAnswerRefusal = "More than one request in this conversation is waiting for you. Answer the one you mean from its own card.";
 export const noStandingRefusal = "Ask first and Plan first never keep a yes for good. Answer it just now, or for this conversation.";
 /** FQ-execution.browser: the answer to "always" for a call that named nothing a rule could be kept for. */
 export const unkeyedAlwaysRefusal = "This request does not say what it is targeting, so a standing yes would cover every "
@@ -3172,6 +3174,9 @@ ${run.output.slice(0, 6000)}`;
     const waiting = this.approvals.questionFor(sessionId, fingerprint)
       ?? (fingerprint === undefined ? undefined : this.approvals.questionFor(sessionId));
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
+    // Redesign security review (F2): an answer that names no request lands on one only when it is the only one waiting;
+    // with several, the oldest may be a different request from the one the person was shown.
+    if (fingerprint === undefined && this.approvals.waiting(sessionId).length > 1) throw new Error(unnamedAnswerRefusal);
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     // Q182: a standing yes is a rule in the owner's own policy, which then covers the owner's tasks too. Someone else
