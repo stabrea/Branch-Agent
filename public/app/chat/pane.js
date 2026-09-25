@@ -9,9 +9,11 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
 import { sendingPrompt } from "./chat.js";
+import { initStage, drawStage } from "./stage.js";
+import { initTerminal, drawTerminal } from "./terminal.js";
 
 const TABS = [["activity", "Activity"], ["plan", "Plan"], ["files", "Files"], ["memory", "Memory"], ["browser", "Browser"], ["terminal", "Terminal"]];
-const REAL = new Set(["activity", "plan", "files", "memory"]);
+const REAL = new Set(["activity", "plan", "files", "memory", "browser", "terminal"]);
 const P = { sid: null, messages: [], plan: null, at: 0 };
 
 /* This conversation's tasks; before a new conversation has its id, the task its first message started. */
@@ -51,7 +53,14 @@ function files() {
   return changed.map((f) => { const st = f.existed ? "Changed" : "Made"; return `<button class="memrow" type="button" data-css="text-align:left" data-act="fileopen" data-n="${esc(f.path)}"><span><b data-css="font-weight:500">${esc(f.path)}</b></span><small>+${Number(f.added) || 0} −${Number(f.removed) || 0}</small><span class="pill ${st === "Made" ? "done" : "warn"}" data-css="grid-row:1 / span 2;grid-column:2;align-self:center">${st}</span></button>`; }).join("");
 }
 
-const BODY = { activity, plan, files, memory: () => '<p class="empty">Nothing remembered was used here.</p>' };
+const BODY = {
+  activity,
+  plan,
+  files,
+  memory: () => '<p class="empty">Nothing remembered was used here.</p>',
+  browser: () => '<p class="empty">No browser view active.</p>',
+  terminal: () => '<p class="empty">No terminal output yet.</p>',
+};
 
 export function drawPane() {
   const pane = $("#pane"), body = $("#body");
@@ -95,4 +104,6 @@ export function initPane() {
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); S.pane = S.pane ? null : "activity"; drawPane(); }
   });
+  initStage();
+  initTerminal();
 }
