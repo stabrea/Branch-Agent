@@ -136,7 +136,22 @@ export function init() {
         .then(() => { toast("Model removed."); loadLocalData(); }, (e) => toast(e.message));
     }
   });
-  markLive(["lm-get", "lm-rm"]);
+  on("lm-run", (el) => {
+    api("local-models/runtime/start", {})
+      .then(() => { toast("Runtime starting..."); loadLocalData(); }, (e) => toast(e.message));
+  });
+  on("lm-stop", (el) => {
+    api("local-models/stop", {})
+      .then(() => { toast("Download stopped."); loadLocalData(); }, (e) => toast(e.message));
+  });
+  on("dl-go", (el) => {
+    const modelId = el.dataset.id;
+    if (modelId) {
+      api("local-models/pull", { model: modelId })
+        .then(() => { toast("Starting download..."); loadLocalData(); }, (e) => toast(e.message));
+    }
+  });
+  markLive(["lm-get", "lm-rm", "lm-run", "lm-stop", "dl-go"]);
 }
 
 export async function load() {
@@ -145,7 +160,10 @@ export async function load() {
 
 export const live = {
   "lm-get": true,
-  "lm-rm": true
+  "lm-rm": true,
+  "lm-run": true,
+  "lm-stop": true,
+  "dl-go": true
 };
 
 export function after(col) {
