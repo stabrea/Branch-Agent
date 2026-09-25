@@ -3,21 +3,29 @@
 
 import { $, esc, paint, renderNow } from "../core/dom.js";
 import { S, E, refresh, save } from "../core/state.js";
-import { on } from "../core/actions.js";
-import { ic, av, mi, openPop, closePop, toast } from "../core/ui.js";
+import { on, run } from "../core/actions.js";
+import { ic, av, mi, openPop, closePop, openDlg, toast } from "../core/ui.js";
 import { greyOut, markLive } from "../core/features.js";
 import { head as chatHead, openConversation, startConversation } from "../chat/chat.js";
 import { statusItems } from "../chat/messages.js";
 import { initExtras } from "./extras.js";
 import { initUsage } from "./usage.js";
 import { api, link } from "../core/api.js";
-import { SQ, searchHTML, askEngine } from "./search.js";
+import { SQ, searchHTML, askEngine, initSearch } from "./search.js";
+import { loadLook, applyLook, savePrefs } from "./look.js";
+import { initThemes } from "./themes.js";
+import { loadDelight, drawBackground, drawPet, petHTML, pat, D } from "./scene.js";
+import { initPalette } from "./palette.js";
+import { ACT, working, readActivity } from "./activity.js";
 
 const WIDE = matchMedia("(min-width: 761px)");
 const PLACES = [["overview", "home", "Overview"], ["inbox", "inbox", "Inbox"], ["automations", "clock", "Automations"],
   ["library", "book", "Library"], ["team", "users", "Team"], ["customize", "sliders", "Customize"]];
 
 const sessionId = (s) => s.sessionId ?? s.id;
+const hidden = (part) => (E.state?.preferences?.hidden ?? []).includes(part);
+/* The Trunk that answers a conversation: its own chat, or the one the conversation names. */
+const trunkFor = (s) => E.trunks.find((t) => t.id === s.trunkId || t.id === s.trunk?.id || (t.chatSessionId && t.chatSessionId === sessionId(s)));
 const sessionTitle = (s) => s.title || s.opening || "New conversation";
 const when = (t) => {
   if (!t) return "";
@@ -33,7 +41,7 @@ function waitingCount() {
 
 function row(s) {
   const id = sessionId(s);
-  const trunk = E.trunks.find((t) => t.id === s.trunkId || t.id === s.trunk?.id);
+  const trunk = trunkFor(s);
   return `<button class="row" type="button" data-act="chat" data-id="${esc(id)}" aria-current="${S.chat === id}">
     <span class="avw">${av(trunk ?? { kind: "main" }, 40)}</span>
     <b><span class="ellip14">${esc(sessionTitle(s))}</span></b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
@@ -70,7 +78,7 @@ function list() {
   const pinned = rows.filter((s) => s.pinned);
   const recent = rows.filter((s) => !s.pinned);
   return `<nav class="list" aria-label="Conversations">
-    <button class="lh lh-btn" type="button" data-act="projtoggle" aria-expanded="${!!S.projOpen}">${ic(S.projOpen ? "down" : "chev", "s")}Projects</button>${S.projOpen ? projectRows() : ""}
+    ${hidden("projects") ? "" : `<button class="lh lh-btn" type="button" data-act="projtoggle" aria-expanded="${!!S.projOpen}" data-hide="projects">${ic(S.projOpen ? "down" : "chev", "s")}Projects</button>${S.projOpen ? projectRows() : ""}`}
     ${pinned.length ? `<div class="lh">Pinned</div>${pinned.map(row).join("")}` : ""}
     ${recent.length ? `<div class="lh">Recent</div>${recent.map(row).join("")}` : ""}</nav>`;
 }
@@ -85,12 +93,13 @@ function side() {
     <button class="lh lh-btn places-h14" type="button" data-act="places14" aria-expanded="${!S.placesShut}">${ic("chev", "s")}Places</button>
     <div class="side-nav nav7">${PLACES.map(([v, i, l]) => `<button class="nav" type="button" data-act="view" data-v="${v}" aria-current="${S.view === v}">${ic(i)}${l}${v === "inbox" && n ? `<span class="cnt">${n}</span>` : ""}</button>`).join("")}</div>
     ${list()}
+    ${petHTML("side")}
     <div class="owner-wrap"><div class="owner-row"><button class="owner" type="button" data-act="owner" aria-haspopup="menu" data-tip="Who is using Branch, look, lock"><span class="me" aria-hidden="true">${esc(person.slice(0, 1).toUpperCase())}</span><span class="who14"><b>${esc(person)}</b></span>${ic("chev", "s")}</button><button class="icon-btn" type="button" aria-label="Settings" data-act="view" data-v="settings">${ic("gear")}</button></div></div>`;
 }
 
 function titleActions() {
   const theme = document.documentElement.dataset.theme === "dark" ? "sun" : "moon";
-  return `<button class="tb-btn" type="button" data-act="guide" aria-haspopup="menu">${ic("bulb", "s")}Guide</button>
+  return `${hidden("notes") ? "" : `<button class="tb-btn" type="button" data-act="guide" aria-haspopup="menu" data-hide="notes">${ic("bulb", "s")}Guide</button>`}
     <button class="tb-btn" type="button" aria-label="Switch light or dark" data-act="theme-flip">${ic(theme, "s")}</button>
     <button class="tb-btn" type="button" aria-label="Hide the list (Ctrl+B)" data-act="side-toggle" aria-pressed="${!document.getElementById("app").classList.contains("side-hidden")}" data-tip="Hide the list · Ctrl+B">${ic("sidebar", "s")}</button>`;
 }
@@ -99,10 +108,12 @@ function status() {
   const version = E.state?.version ?? "";
   const model = modelLabel();
   return `<button class="sb" type="button" data-act="machines"><span class="dot ${link.up ? "" : "off"}"></span>${link.up ? "Connected" : "Not connected"} · this computer</button>
-    <button class="sb" type="button" data-act="gwpop" data-tip="The gateway keeps Branch running in the background"><span class="dot off"></span>Gateway</button>
+    ${hidden("gateway") ? "" : '<button class="sb" type="button" data-act="gwpop" data-hide="gateway" data-tip="The gateway keeps Branch running in the background"><span class="dot off"></span>Gateway</button>'}
     ${statusItems()}
+    <button class="sb tasks10" type="button" data-act="tasks10" data-tip="What is running in the background"><i class="${working() ? "lit10" : ""}"></i>${working()} running</button>
+    ${petHTML("status")}
     <span class="tb-grow"></span>
-    ${model ? `<button class="sb usage" type="button" data-act="usagepop" data-tip="What each connection has left: 5-hour, daily and weekly limits"><span class="hide-sm">${esc(model)}</span></button>` : ""}
+    ${model && !hidden("usage") ? `<button class="sb usage" type="button" data-act="usagepop" data-hide="usage" data-tip="What each connection has left: 5-hour, daily and weekly limits"><span class="hide-sm">${esc(model)}</span></button>` : ""}
     ${version ? `<button class="sb hide-sm" type="button" data-act="updmenu" data-tip="Version and updates">${esc(version)}</button>` : ""}`;
 }
 
@@ -110,6 +121,11 @@ export const modelLabel = () => { const m = E.state?.activeModel; return m ? [m.
 
 export function drawShell() {
   const app = document.getElementById("app");
+  loadLook();
+  if (!D.asked && E.loaded) loadDelight().then(() => renderNow());
+  readActivity();
+  app.classList.toggle("no-status", hidden("statusbar"));
+  $("#statusbar").dataset.hide = "statusbar";
   const merged = WIDE.matches && S.view === "chat";
   app.dataset.surface = /Mac/.test(navigator.platform) ? "mac" : "desktop";
   app.classList.toggle("mac", app.dataset.surface === "mac");
@@ -124,6 +140,8 @@ export function drawShell() {
   paint($("#side"), side());
   paint($("#statusbar"), status());
   for (const region of [header, $("#side"), $("#statusbar")]) greyOut(region);
+  drawBackground();
+  drawPet();
 }
 
 export function initShell() {
@@ -134,29 +152,98 @@ export function initShell() {
   document.addEventListener("keydown", (e) => { if (e.target.id === "side-q" && e.key === "Escape") { SQ.q = ""; e.target.blur(); renderNow(); } });
   initExtras();
   initUsage();
-  markLive(["chat", "newconv", "newmenu", "places14", "owner", "themeset", "theme-flip", "side-toggle", "guide"]);
-  on("chat", (el) => openConversation(el.dataset.id));
+  initSearch();
+  initThemes();
+  initPalette();
+  initPerson();
+  markLive(["chat", "newconv", "newmenu", "places14", "themeset", "theme-flip", "side-toggle", "guide", "focus", "new-with"]);
+  on("chat", (el) => { closePop(); openConversation(el.dataset.id); });
   on("newconv", () => { closePop(); startConversation(); });
   on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", "<kbd>Ctrl N</kbd>") + mi("new-trunk", "plus", "New Trunk") + mi("new-room", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"')));
   on("places14", () => { S.placesShut = !S.placesShut; save(); renderNow(); });
-  on("owner", (el) => openPop(el, ownerMenu()));
   on("themeset", (el) => setTheme(el.dataset.v === "system" ? null : el.dataset.v));
   on("theme-flip", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
   on("side-toggle", () => { document.getElementById("app").classList.toggle("side-hidden"); renderNow(); });
-  on("guide", (el) => openPop(el, mi("tour", "spark", "Take the tour", "2 min") + mi("whatsnew", "star", "What’s new")));
+  on("guide", (el) => openPop(el, mi("whatsnew13", "star", "What’s new", "this version") + '<div class="ph">New here?</div>' + mi("onboard", "spark", "Set up Branch", "3 min") + mi("tour", "help", "Take the walkthrough", "2 min")));
+  on("focus", () => toggleFocus());
+  on("new-with", (el) => newWith(el.dataset.id));
   document.addEventListener("input", (e) => { if (e.target.id === "side-q") { if (!SQ.q.trim()) SQ.f = "all"; SQ.q = e.target.value; searchInside(SQ.q); const pos = e.target.selectionStart; renderNow(); const box = $("#side-q"); box?.focus(); box?.setSelectionRange(pos, pos); } });
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#side-q")?.focus(); }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") { e.preventDefault(); startConversation(); }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); document.getElementById("app").classList.toggle("side-hidden"); }
+    const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
+    if (mod && key === "n") { e.preventDefault(); startConversation(); }
+    if (mod && key === "b") { e.preventDefault(); document.getElementById("app").classList.toggle("side-hidden"); }
+    if (mod && key === ".") { e.preventDefault(); toggleFocus(); }
   });
+  document.addEventListener("contextmenu", (e) => rowMenu(e) || hideMenu(e));
   WIDE.addEventListener("change", () => renderNow());
 }
 
+/* Focus mode: the list and the status bar step aside until it is left (the button, or Ctrl+. again). */
+function toggleFocus() { document.getElementById("app").classList.toggle("focus"); }
+
+/* A row's own menu (right-click), 1:1 with the prototype's: a conversation a Trunk answers offers a new one with it. */
+function rowMenu(e) {
+  const row = e.target.closest?.("#side .row[data-id]");
+  if (!row) return false;
+  e.preventDefault();
+  const id = esc(row.dataset.id), s = E.sessions.find((x) => sessionId(x) === row.dataset.id), t = s && trunkFor(s);
+  const base = mi("chat", "chat", "Open", "", `data-id="${id}"`) + mi("pin-id", "pin", s?.pinned ? "Unpin" : "Pin to top", "", `data-id="${id}"`) + mi("rename-id", "edit", "Rename", "", `data-id="${id}"`);
+  const tid = esc(t?.id ?? "");
+  const trunk = t ? mi("new-with", "plus", `New conversation with ${esc(t.name)}`, "", `data-id="${tid}"`) + mi("pausetrunk", "pause", "Pause", "", `data-id="${tid}"`) + mi("edit", "sliders", "Edit Trunk…", "", `data-id="${tid}"`) + "<hr>" + mi("remove", "trash", "Remove…", "", `data-id="${tid}"`) : "";
+  openPop(row, base + trunk, { force: true });
+  return true;
+}
+/* A new conversation answered by that Trunk (POST /api/trunks/conversations). */
+async function newWith(trunkId) {
+  closePop();
+  try {
+    const made = await api("trunks/conversations", { trunkId });
+    await refresh();
+    await openConversation(made.sessionId);
+  } catch (error) { toast(error.message); }
+}
+
+/* Right-clicking a part of the window offers to hide it, when the engine's "right-click to hide" switch is on. */
+function hideMenu(e) {
+  const part = e.target.closest?.("[data-hide]");
+  if (!part || !E.state?.preferences?.rightClickHide) return;
+  e.preventDefault();
+  openPop(part, mi("hide", "eye", "Hide this", "", `data-v="${esc(part.dataset.hide)}"`) + mi("setgo", "sliders", "Choose what’s shown…", "", 'data-v="appearance"'), { force: true });
+}
+async function hidePart(v) {
+  closePop();
+  const now = E.state?.preferences?.hidden ?? [];
+  if (!now.includes(v)) await savePrefs({ hidden: [...now, v] });
+  await refresh().catch((error) => toast(error.message));
+  toast("Hidden. Bring it back in Settings › Appearance.");
+}
+
+/* ---------- the person menu ---------- */
+function people() {
+  const owner = E.profiles?.roleLabels?.owner?.label || "";
+  const all = [[null, owner], ...(E.profiles?.profiles ?? []).map((p) => [p.id, p.name])];
+  return all.map(([id, name]) => `<button type="button" data-act="switchto" data-v="${esc(id ?? "")}" data-css="display:grid;justify-items:center;gap:3px;font-size:11.5px;padding:4px;border-radius:10px;${(E.profiles?.active ?? null) === id ? "background:var(--fill-2)" : ""}"><span class="me">${esc(String(name ?? "").slice(0, 1).toUpperCase())}</span>${esc(name)}</button>`).join("");
+}
 function ownerMenu() {
-  const current = document.documentElement.dataset.theme || "system";
-  return `<div class="row-in"><span>Look</span><span class="seg">${[["light", "Light"], ["dark", "Dark"], ["system", "Auto"]].map(([v, l]) => `<button type="button" data-act="themeset" data-v="${v}" aria-pressed="${current === v}">${l}</button>`).join("")}</span></div><hr>
-    ${mi("switchperson", "users", "Switch person")}${mi("view", "gear", "Settings", "<kbd>Ctrl ,</kbd>", 'data-v="settings"')}${mi("shortcuts", "keyboard", "Keyboard shortcuts", "<kbd>?</kbd>")}`;
+  const current = document.documentElement.dataset.theme || "system", earned = D.earned;
+  return `<div class="ph">Who is using Branch</div><div data-css="display:flex;gap:8px;padding:4px 10px 8px;flex-wrap:wrap">${people()}<button type="button" data-act="invite" data-css="display:grid;justify-items:center;gap:3px;font-size:11.5px;padding:4px"><span class="me" data-css="background:var(--fill);color:var(--ink-2)">+</span>Add</button></div><hr>
+    <div class="row-in"><span>Look</span><span class="seg">${[["light", "Light"], ["dark", "Dark"], ["system", "Auto"]].map(([v, l]) => `<button type="button" data-act="themeset" data-v="${v}" aria-pressed="${current === v}">${l}</button>`).join("")}</span></div><hr>
+    ${mi("view", "gear", "Settings", "<kbd>Ctrl ,</kbd>", 'data-v="settings"')}${mi("setgo", "medal", "Achievements", earned == null ? "" : esc(String(earned)), 'data-v="achievements"')}${mi("shortcuts", "keyboard", "Keyboard shortcuts", "<kbd>?</kbd>")}${mi("help", "bulb", "Guide: why each thing is here")}${mi("firstrun", "spark", "Replay the first run")}${mi("about", "info", "About Branch")}<hr>${mi("lockscreen", "lock", "Lock Branch")}`;
+}
+/* About Branch: the engine's version, and which kind of computer this is, from the browser. */
+function about() {
+  closePop();
+  const os = /Mac/.test(navigator.platform) ? "Mac" : /Win/.test(navigator.platform) ? "Windows" : "";
+  openDlg({ title: "About Branch", body: `<div data-css="display:flex;gap:16px;align-items:center"><span class="mark mark-full" data-css="width:84px;height:84px" aria-hidden="true"></span><div><b>Branch Agent ${esc(E.state?.version ?? "")}</b><p class="hint" data-css="margin:2px 0 0">By KeepOak${os ? " · " + os : ""}</p></div></div>` });
+}
+function initPerson() {
+  markLive(["owner", "help", "about", "hide", "pat"]);
+  on("pat", () => pat());
+  document.addEventListener("keydown", (e) => { if (e.target.id === "pet-cv" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); pat(); } });
+  on("owner", (el) => openPop(el, ownerMenu()));
+  on("help", () => { closePop(); run("tour"); });
+  on("about", () => about());
+  on("hide", (el) => hidePart(el.dataset.v));
 }
 
 /* The look applies at once and is kept by the engine too (its words: daylight is light, forest is dark). */
@@ -164,8 +251,8 @@ function setTheme(value) {
   if (value) document.documentElement.dataset.theme = value; else delete document.documentElement.dataset.theme;
   S.theme = value;
   save();
-  const prefs = E.state?.preferences;
-  if (prefs) api("preferences", { ...prefs, followSystem: !value, ...(value ? { appearance: value === "light" ? "daylight" : "forest" } : {}) }).then(() => refresh(), (error) => toast(error.message));
+  applyLook();
+  savePrefs({ followSystem: !value, ...(value ? { appearance: value === "light" ? "daylight" : "forest" } : {}) }).then(() => renderNow());
   closePop();
   renderNow();
 }
