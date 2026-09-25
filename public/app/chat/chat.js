@@ -11,6 +11,7 @@ import { text } from "./markdown.js";
 import { chips, loadChips, initChips } from "./chips.js";
 import { drawPane, initPane } from "./pane.js";
 import { attached, takePending, initPlus } from "./plus.js";
+import { findBar, applyFind, initFind } from "./find.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -74,11 +75,12 @@ function composer() {
 
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
-  return `${narrowHead}<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>${composer()}`;
+  return `${narrowHead}${findBar()}<div class="scroll" id="scroll"><div class="thread" id="conversation">${thread()}</div></div>${composer()}`;
 }
 export function after(main) {
   const box = $("#scroll", main);
   if (box) box.scrollTop = box.scrollHeight;
+  applyFind();
   loadChips();
 }
 
@@ -186,6 +188,7 @@ export function init() {
   initChips();
   initPane();
   initPlus();
+  initFind();
   onRender(drawPane);
   markLive(["ask", "send", "side"]);
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
