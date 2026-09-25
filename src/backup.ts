@@ -117,6 +117,9 @@ export const thisComputerSettings: readonly string[] = [
   // its own state here, which the catalogue never touches either: the switch migration and which chat service is
   // being turned away (a file must never say a service is fine while it is refused).
   "code-run", "feature-switches-migration", "webhook-waits",
+  // NAS 360099c: a program on this disk and its arguments, which the decision judge starts as they are, and the folder
+  // the vector store makes its database in. Both only mean something on this computer.
+  "jev-decisions", "vector-store",
 ];
 /** NAS 23e7382: one row per add-on file on this disk, its fingerprint (src/safety-extras/wasm-add-ons.ts). */
 const thisComputerPrefixes: readonly string[] = ["safety-wasm-add-on:",

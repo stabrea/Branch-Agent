@@ -26,13 +26,16 @@ async function fixture(t) {
   const setting = (key) => app.store.get("settings", owner, key)?.data;
   return { app, owner, setting, workspace: join(root, "workspace") };
 }
-const keys = [...thisComputerSettings, "devices-book", "remote-agent:helper"];
+// NAS 360099c: named here as well as in the list, so dropping one from the list turns the planting tests red too.
+const keys = [...new Set([...thisComputerSettings, "devices-book", "remote-agent:helper", "jev-decisions", "vector-store"])];
 
 test("the list is what Q168 A names, and devices-book stays too (named once, with the #186 fix's sign-ins)", () => {
   assert.deepEqual([...thisComputerSettings].sort(), ["comfort-update-failed", "folder-trust-copies", "folder-trust-real", "folder_trust", "folder_trust_mode",
     "keychain-entries", "listen-address", "lockdown", "media-programs", "os-sandbox", "reach-machine-name", "reach-relay-seen", "reach-relay-settings",
     "reach-remote-trunks-keys", "remote-agent-pairing", "remote-computers", "safety-code-approvals-setup", "safety-emergency-stop", "secret-commands",
-    "speech-engines", "voice", "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends", "code-run", "feature-switches-migration", "webhook-waits"].sort());
+    "speech-engines", "voice", "language-servers", "debug-adapters", "code-check", "background-processes", "sandbox-backends", "code-run", "feature-switches-migration", "webhook-waits",
+    // NAS 360099c: a program and its arguments, and a database folder.
+    "jev-decisions", "vector-store"].sort());
   assert.equal(staysOnThisComputer("devices-book"), true);
   assert.equal(thisComputerSettings.includes("devices-book"), false, "one list names it, not two");
 });
