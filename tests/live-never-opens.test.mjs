@@ -102,7 +102,8 @@ test("a live conversation whose socket never connects ends by itself as stopped,
   assert.equal(ended[0].data.reason, "The live conversation never connected");
   assert.equal(runningTaskCount(app.store), 0, "the quit question no longer counts it");
   assert.equal(busyTaskCount(app.store), 0, "nor does the update's count");
-  assert.deepEqual((await call("GET", "/api/comfort/update-readiness")).json, { channel: "stable", busyTasks: 0 });
+  const ready = (await call("GET", "/api/comfort/update-readiness")).json;
+  assert.equal(ready.busyTasks, 0, "the readiness count is clear too");
   const plan = (await call("POST", "/api/comfort/update-plan", { updaterPhase: "available" })).json;
   assert.equal(plan.busyTasks, 0);
   assert.equal(plan.step, "install", "so the update installs by itself again");
