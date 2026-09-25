@@ -30,12 +30,32 @@ async function until(fn, ms = 8000) {
   for (;;) { const v = await fn(); if (v || Date.now() > end) return v; await pause(250); }
 }
 
-async function setup() {
+// What the script changes is read first and put back at the end (pricing replaces the whole corrections object).
+async function saveSettings() {
+  return {
+    pricing: (await api("pricing")).overrides ?? {},
+    trunks: (await api("trunks")).modes?.trunks ?? "off",
+    waiting: (await api("flows-boards")).modes?.["waiting-line"] ?? "off",
+    project: (await api("projects")).active.id,
+  };
+}
+async function restoreSettings(saved, ctx) {
+  await api("projects/active", { active: saved.project }).catch((e) => console.log("restore project:", e.message));
+  if (ctx) {
+    await api(`projects/${ctx.project.id}/remove`, {}).catch((e) => console.log("remove project:", e.message));
+    await api(`trunks/${ctx.trunk.id}/remove`, {}).catch((e) => console.log("remove Trunk:", e.message));
+  }
+  await api("pricing", { overrides: saved.pricing }).catch((e) => console.log("restore pricing:", e.message));
+  await api("trunks/switch", { part: "trunks", mode: saved.trunks }).catch((e) => console.log("restore Trunks switch:", e.message));
+  await api("flows-boards/switch", { part: "waiting-line", mode: saved.waiting }).catch((e) => console.log("restore waiting line:", e.message));
+}
+
+async function setup(saved) {
   const stamp = Date.now().toString(36);
   await api("trunks/switch", { part: "trunks", mode: "on" });
   const trunk = (await api("trunks", { name: `Verify ${stamp}`, title: "Checks the message actions" })).trunk;
   const project = await api("projects", { id: `verify-${stamp}`, name: `Verify ${stamp}` });
-  await api("pricing", { overrides: { demo: { input: 1, output: 1 } } });
+  await api("pricing", { overrides: { ...saved.pricing, demo: { input: 1, output: 1 } } });
   const first = await api("run", { prompt: `first message ${stamp}` });
   await api("run", { sessionId: first.sessionId, prompt: `second message ${stamp}` });
   return { sid: first.sessionId, trunk, project, stamp };
@@ -90,6 +110,32 @@ async function verifyInspect(page, ctx, msgs) {
   await dlg.locator("[data-act='dlg-close']").click();
 }
 
+const idleIn = (sid) => async () => !(await api("state")).runs.some((r) => r.sessionId === sid && ["running", "queued"].includes(r.status));
+
+// The default choice puts back the conversation and the files; when the files cannot all come back the toast must be
+// the engine's own note, word for word, never "Went back, files included."
+async function verifyEditBoth(page, ctx) {
+  const before = (await api(`sessions/${ctx.sid}`)).messages;
+  const lastUser = [...before].reverse().find((m) => m.role === "user");
+  await hoverClick(page, rowOf(page, lastUser.messageId), "u-edit");
+  await page.locator("#rw-text").fill(`edited both ${ctx.stamp}`);
+  const answered = page.waitForResponse((r) => r.url().endsWith("/rewind") && r.request().method() === "POST");
+  await page.locator("[data-act='rw-go']").click();
+  const outcome = await (await answered).json();
+  const expected = outcome.files && (outcome.files.method === "none" || outcome.files.note) ? outcome.files.note : "Went back, files included.";
+  // The toast with Undo appears once the conversation has been re-read after the rewind.
+  const withUndo = page.locator(".toast:has([data-act='undo']) span");
+  await withUndo.waitFor({ timeout: 10000 });
+  const toastText = (await withUndo.innerText()).trim();
+  check("rw-go with the default choice tells the engine's outcome", outcome.restore === "both" && toastText === expected, `files ${JSON.stringify(outcome.files)}; toast "${toastText}"`);
+  await until(async () => (await api(`sessions/${ctx.sid}`)).messages.some((x) => x.content === `edited both ${ctx.stamp}`) && (await idleIn(ctx.sid)()), 15000);
+  await page.locator(".toast [data-act='undo']").click();
+  const undone = await until(async () => (await api(`sessions/${ctx.sid}/rewind`)).undo === null, 10000);
+  check("undo after the default choice (unrevert)", !!undone);
+  await until(async () => (await page.locator("#conversation").innerText()).includes(lastUser.content));
+  await pause(500);
+}
+
 async function verifyEdit(page, ctx) {
   const before = (await api(`sessions/${ctx.sid}`)).messages;
   const firstUser = before.find((m) => m.role === "user");
@@ -100,7 +146,7 @@ async function verifyEdit(page, ctx) {
   check("rw-what picks what to put back", pressed === "true");
   await page.locator("[data-act='rw-go']").click();
   // The edited words are sent at once; Undo needs that task to have finished (the engine refuses while it works).
-  const idle = async () => !(await api("state")).runs.some((r) => r.sessionId === ctx.sid && ["running", "queued"].includes(r.status));
+  const idle = idleIn(ctx.sid);
   const after = await until(async () => { const m = (await api(`sessions/${ctx.sid}`)).messages; return m.some((x) => x.content === `edited ${ctx.stamp}`) && (await idle()) && m; }, 15000);
   const status = await api(`sessions/${ctx.sid}/rewind`);
   check("rw-go goes back and sends the edited words", after && !after.some((x) => x.content === firstUser.content) && status.undo && status.undo.restore === "conversation",
@@ -211,18 +257,21 @@ async function verifyQueue(page, ctx) {
 }
 
 (async () => {
-  const ctx = await setup();
-  const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  const saved = await saveSettings();
+  let ctx = null, browser = null;
   const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
   try {
+    ctx = await setup(saved);
+    browser = await chromium.launch();
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    page.on("pageerror", (e) => errors.push(e.message));
     await signIn(page);
     await page.locator(`#side [data-act='chat'][data-id="${ctx.sid}"]`).click();
     await page.locator("#conversation .u").first().waitFor();
     const msgs = (await api(`sessions/${ctx.sid}`)).messages;
     await verifyPins(page, ctx, msgs);
     await verifyInspect(page, ctx, msgs);
+    await verifyEditBoth(page, ctx);
     await verifyEdit(page, ctx);
     await verifySlash(page);
     await verifyMention(page, ctx);
@@ -232,7 +281,8 @@ async function verifyQueue(page, ctx) {
   } catch (error) {
     check("script ran to the end", false, error.message);
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
+    await restoreSettings(saved, ctx);
   }
   check("no page errors", errors.length === 0, errors.join(" / "));
   const failed = results.filter((r) => !r.ok).length;
