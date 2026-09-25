@@ -2,11 +2,6 @@
 import { level } from "../../core/state.js";
 import { E } from "../../core/state.js";
 import { esc } from "../../core/dom.js";
-import { on } from "../../core/actions.js";
-import { markLive } from "../../core/features.js";
-import { toast } from "../../core/ui.js";
-import { renderNow } from "../../core/dom.js";
-import { api } from "../../core/api.js";
 
 const MASK = "••••••••";
 
@@ -19,7 +14,7 @@ function secretsSection(secrets) {
     .map((s, i) => {
       const name = esc(s.name ?? "");
       const host = esc(s.host ?? "");
-      return `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="M11 12.5l8-8M16 7.5l2.5 2.5"></path></svg></span><span class="grow"><b>${name}</b><small>${host}</small></span><span class="meta">${MASK}</span><button class="btn ghost sm" type="button" data-act="secret-rm" data-i="${i}">Remove</button></div>`;
+      return `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="M11 12.5l8-8M16 7.5l2.5 2.5"></path></svg></span><span class="grow"><b>${name}</b><small>${host}</small></span><span class="meta">${MASK}</span><button class="btn ghost sm" type="button" data-act="secret-rm" data-i="${i}" disabled>Remove</button></div>`;
     })
     .join("");
 
@@ -33,24 +28,4 @@ export function draw() {
   return BASE + secretsSection(secrets);
 }
 
-export function init() {
-  on("secret-rm", async (el) => {
-    const i = parseInt(el.dataset.i, 10);
-    const secrets = E.state?.secrets ?? [];
-    if (i >= 0 && i < secrets.length) {
-      const secret = secrets[i];
-      try {
-        await api("secrets/remove", { id: secret.id });
-        toast("Sign-in removed.");
-        renderNow();
-      } catch (e) {
-        toast(e.message);
-      }
-    }
-  });
-  markLive(["secret-rm"]);
-}
-
-export const live = {
-  "secret-rm": null,
-};
+export const live = {};

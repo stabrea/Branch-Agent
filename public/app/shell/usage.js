@@ -49,7 +49,7 @@ function taskRow(r) {
 
 function tasksPop(activity) {
   const running = (activity?.runs ?? []).filter(r => r.status === "running" || r.status === "needs_input") || [];
-  return `<div class="ph">Running in the background</div>${running.length ? running.map(taskRow).join("") : '<p class="hint" style="margin:8px 6px;font-size:12px">Nothing running.</p>'}<hr>${mi("bg-new", "plus", "Start something in the background", "<kbd>/bg</kbd>")}`;
+  return `<div class="ph">Running in the background</div>${running.length ? running.map(taskRow).join("") : '<p class="hint" data-css="margin:8px 6px;font-size:12px">Nothing running.</p>'}<hr>${mi("bg-new", "plus", "Start something in the background", "<kbd>/bg</kbd>")}`;
 }
 
 export function initUsage() {
