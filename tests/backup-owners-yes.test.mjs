@@ -316,6 +316,32 @@ test("a pending chat message in a backup is restored as not sent (NAS dc50a36)",
   }
 });
 
+// NAS d96cab6: a file may write a task's id as a JSON number. SQLite keeps it as the text "5.0", so the settle has to
+// find the row as the restore stored it, not by String(5); otherwise never-break carries the task on by itself.
+test("a restored task whose id the file writes as a number is still only offered (NAS d96cab6)", async (t) => {
+  const { app, owner } = await fixture(t);
+  const sessionId = app.store.createSession(owner);
+  const planted = app.store.createRun(owner, "PLANTED-BY-FILE: numeric id", sessionId);
+  app.store.event(planted.id, "run.note", { note: "from the file" });
+  app.store.finish(planted.id, "interrupted", "cut off");
+  const archive = app.store.backup(app.version);
+  archive.tables.tasks = archive.tables.tasks.map((task) => (task.id === planted.id ? { ...task, id: 5, updated_at: new Date().toISOString() } : task));
+  // Every reference to the task is written as the number too, as the file would.
+  for (const [table, rows] of Object.entries(archive.tables))
+    if (Array.isArray(rows)) archive.tables[table] = rows.map((row) => (row.run_id === planted.id ? { ...row, run_id: 5 } : row));
+  for (const replacing of [false, true]) {
+    const target = (await fixture(t)).app;
+    if (replacing) await restoreBackup(target, async () => target.store.backup(target.version), true);
+    await restoreBackup(target, async () => archive, replacing);
+    const stored = target.store.sqlite.prepare("SELECT id FROM tasks WHERE prompt LIKE 'PLANTED-BY-FILE: numeric id%'").get();
+    assert.ok(stored, `${replacing ? "replacing" : "fresh"}: control: the task came back`);
+    const marks = target.store.sqlite.prepare("SELECT kind FROM events WHERE run_id=? AND kind IN ('run.restored','run.can_continue')").all(stored.id).map((row) => row.kind);
+    assert.deepEqual(marks.sort(), ["run.can_continue", "run.restored"], `${replacing ? "replacing" : "fresh"}: it is settled as it was stored (${stored.id})`);
+    const report = await recoverAfterRestart({ store: target.store, runtime: target.runtime, journal: target.neverBreak.journal, mode: "on" });
+    assert.deepEqual(report.map((one) => one.runId), [], `${replacing ? "replacing" : "fresh"}: never-break does not carry it on by itself`);
+  }
+});
+
 // NAS 5653d17: the settle is found however many events the file gave the task (store.events() reads 2000), a task the
 // file says was running is settled too, and neither is carried on by never-break at the next start.
 test("a restored task padded past 2000 events, or marked running, is still only offered (NAS 5653d17)", async (t) => {

@@ -435,8 +435,10 @@ function settleRestoredTasks(db: DatabaseSync, archive: BackupArchive): void {
   for (const task of archive.tables.tasks ?? []) {
     const status = String(task.status ?? "");
     if (status !== "running" && status !== "interrupted") continue;
-    const id = String(task.id);
-    if (!db.prepare("SELECT 1 FROM tasks WHERE id=?").get(id)) continue;
+    // NAS d96cab6: bound exactly as the import bound it. A file's number id (5) is stored as the text "5.0", and so are
+    // the events written for it here, so String(5) would miss the row and leave it to be carried on by itself.
+    const id = task.id;
+    if (id === null || id === undefined || !db.prepare("SELECT 1 FROM tasks WHERE id=?").get(id)) continue;
     db.prepare("UPDATE tasks SET status='interrupted' WHERE id=?").run(id);
     // NAS 5653d17: `run.restored` is what never-break asks for by name, however many events the file gave the task.
     db.prepare("INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)").run(id, "run.restored", "{}", now);
