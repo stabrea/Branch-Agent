@@ -799,12 +799,23 @@ header {
   margin-bottom: var(--s1);
 }
 .message.user {
+  position: relative;
   margin-left: auto;
   width: fit-content;
   max-width: 82%;
   padding: var(--s3) var(--s4);
   border-radius: var(--r3);
   background: var(--bubble);
+  /* Dogfood B22: the bubble is the size of its words; its buttons sit in a row under it, in the room kept here. */
+  margin-bottom: calc(var(--s1) + 36px);
+}
+.message.user > .message-controls {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--s1);
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 .message.user small {
   display: none;

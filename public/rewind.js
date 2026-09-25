@@ -138,9 +138,9 @@ async function boot() {
     if (!session()) return;
     for (const node of $("conversation")?.querySelectorAll(".message.user:not([data-rewind])") ?? []) {
       node.dataset.rewind = "1";
-      const controls = el("div", undefined, "message-controls");
+      // Dogfood B22: Edit joins the message's own row (Copy, Branch from here), so its buttons are one row.
+      const controls = node.querySelector(":scope > .message-controls") ?? node.appendChild(el("div", undefined, "message-controls"));
       controls.append(button("rewind.edit", () => void edit(node)));
-      node.append(controls);
     }
   };
   const conversation = $("conversation");
