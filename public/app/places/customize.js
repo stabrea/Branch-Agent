@@ -1,11 +1,16 @@
-/* Customize: Trunks, Tools, Specialists, Channels, Everywhere. */
+/* Customize: Trunks, Tools, Specialists, Channels, Everywhere. Every list is the engine's: the Trunks (E.trunks), the
+   tool servers (GET /api/mcp/connections), skills (E.state.skills), plugins (GET /api/plugins), other assistants
+   (GET /api/agents/remote), suggested skills (GET /api/skills/suggest), better versions of skills
+   (GET /api/skill-revisions) and the chat apps (GET /api/channel-setup, connected ones from GET /api/channels). */
 
-import { esc, renderNow } from "../core/dom.js";
-import { S, E } from "../core/state.js";
-import { ic, av } from "../core/ui.js";
-import { markLive } from "../core/features.js";
+import { esc, renderNow, paint } from "../core/dom.js";
+import { S, E, refresh } from "../core/state.js";
+import { ic, av, toast } from "../core/ui.js";
+import { markLive, greyOut } from "../core/features.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
+import { logo } from "../core/logos.js";
+import { face, TEMPLATES } from "../flows/trunk.js";
 
 function tabBar(tabs, place, current) {
   return `<div class="tabs" role="tablist">${tabs.map(([id, label, count]) =>
@@ -14,158 +19,184 @@ function tabBar(tabs, place, current) {
 }
 
 let channelSetup = [];
-let devices = [];
-let channels = [];
-let mcpConnections = [];
-let skills = [];
+let connected = [];
+let mcpServers = [];
 let plugins = [];
-let toolsCatalog = [];
-let toolsSelectedKind = "mcp";
-let toolsSelectedId = null;
+let agents = [];
+let suggestions = [];
+let revisions = [];
+const T9 = { k: "mcp", sel: null };
+const CH = { fam: "all", q: "" };
+
+const KINDS = [
+  ["mcp", "Connectors", "plug", "MCP servers: apps and data a Trunk can reach"],
+  ["skills", "Skills", "bolt", "Step-by-step know-how, as SKILL.md"],
+  ["plugins", "Plugins", "puzzle", "Packs of skills, servers and tools"],
+  ["clis", "Command-line tools", "term", "Programs on this computer it may run"],
+  ["agents", "Agents", "users", "Other assistants over A2A, and Trunks on other computers"],
+];
+/* Each kind's items as {id, name, sub}; command-line tools have no engine list, so none are drawn. */
+function itemsOf(k) {
+  if (k === "mcp") return mcpServers.map((s) => ({ id: s.id, name: s.id, sub: s.summary ?? "" }));
+  if (k === "skills") return (E.state?.skills ?? []).map((s) => ({ id: s.id, name: s.activeName || s.name, sub: s.description ?? "" }));
+  if (k === "plugins") return plugins.map((p) => ({ id: p.id ?? p.name, name: p.name ?? p.id, sub: p.description ?? "" }));
+  if (k === "agents") return agents.map((a) => ({ id: a.name, name: a.name, sub: a.description ?? a.cardUrl ?? "" }));
+  return [];
+}
+/* The add button: a server, a skill or an agent opens its dialog; a plugin or a tool has no engine form to show yet. */
+const ADD = { mcp: ["tool-add", "Add a server"], skills: ["tool-add", "Add a skill"], plugins: ["plug-add", "Add a plugin"], clis: ["cli-add", "Add a tool"], agents: ["tool-add", "Connect another agent"] };
+
+function trunksTab() {
+  const rows = E.trunks.map((t) => `<div class="prow">${av(face(t), 36)}<span class="grow"><b>${esc(t.name)}</b><small>${esc(t.title ?? "")}</small></span>
+    <button class="btn sm" type="button" data-act="edit" data-id="${esc(t.id)}">Edit</button>
+    <button class="btn ghost sm" type="button" data-act="pausetrunk" data-id="${esc(t.id)}">Pause</button></div>`).join("");
+  const jobs = TEMPLATES.map(([n, x, col], i) => `<div class="tile"><div class="th">${av({ name: n, color: col }, 34)}<b>${esc(n)}</b></div><p>${esc(x)}</p><div class="acts"><button class="btn sm" type="button" data-act="tmpl" data-i="${i}">Use this job</button></div></div>`).join("");
+  return `<div class="rows"><div class="acts" data-css="margin:6px 0 4px"><button class="btn pri" type="button" data-act="new-trunk">${ic('plus', 's')}A new Trunk</button>
+    <button class="btn" type="button" data-act="grp-new">${ic('room', 's')}A new room</button></div>${rows}
+    <div class="sec"><h2>Start from a job</h2><div class="grid2">${jobs}</div></div></div>`;
+}
+
+function learnedCard() {
+  const r = revisions.find((x) => !x.decision);
+  if (T9.k !== "skills" || !r) return "";
+  return `<div class="tile t9-learn"><div class="th"><b>A better version of “${esc(r.skillName)}”</b><span class="pill work ml"><i></i>Suggested</span></div><div class="acts"><button class="btn sm" type="button" data-act="rev" data-v="tried">Practice run on the last 3 tasks</button><button class="btn pri sm" type="button" data-act="rev" data-v="kept">Keep it</button><button class="btn ghost sm" type="button" data-act="rev" data-v="gone">Throw it away</button></div></div>`;
+}
+
+function suggested() {
+  if (T9.k !== "skills" || !suggestions.length) return "";
+  return `<div class="sugg15"><h3>Suggested for you</h3>${suggestions.map((s) => `<div class="sg-row15"><span class="grow"><b>${esc(s.name)}</b><small>${esc(s.description)}</small></span><button type="button" class="btn sm" data-act="sugg15" data-v="${esc(s.id)}">Add</button></div>`).join("")}</div>`;
+}
+
+/* Which Trunks may use a server or a skill is drawn from each Trunk's own lists, and stays greyed: adding a server to a
+   Trunk widens what it can reach. Only skills and remote agents can be removed (servers live in the launch file). */
+function detail(k, x) {
+  const list = k === "mcp" ? "mcpServers" : k === "skills" ? "skills" : null;
+  const who = list ? `<div class="sec"><h2>Which Trunks may use it</h2><div class="chips8">${E.trunks.map((t) => `<button type="button" class="chip6" data-act="tool-who" data-k="${k}" data-id="${esc(x.id)}" data-v="${esc(t.id)}" aria-pressed="${(t[list] ?? []).includes(x.id)}">${esc(t.name)}</button>`).join("")}</div></div>` : "";
+  const rm = k === "skills" || k === "agents" ? `<span class="grow"></span><button class="btn ghost sm" type="button" data-act="tool-rm" data-k="${k}" data-id="${esc(x.id)}">Remove</button>` : "";
+  return `<div class="t9-detail"><div class="t9-dh"><span class="ico-tile t9i" data-css="width:40px;height:40px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span></div>
+    ${who}${rm ? `<div class="acts" data-css="margin-top:16px">${rm}</div>` : ""}</div>`;
+}
+
+function toolsTab() {
+  const k = T9.k, items = itemsOf(k), sel = items.find((x) => x.id === T9.sel) ?? items[0];
+  const nav = KINDS.map(([id, label, icon, desc]) => `<button type="button" data-act="t9-kind" data-v="${id}" aria-current="${k === id}">${ic(icon, 's')}<span><b>${esc(label)}</b><small>${esc(desc)}</small></span><em>${itemsOf(id).length}</em></button>`).join("");
+  const [act, label] = ADD[k];
+  const rows = items.map((x) => `<button type="button" class="t9-item" data-act="t9-sel" data-v="${esc(x.id)}" aria-current="${sel?.id === x.id}"><span class="ico-tile t9i" data-css="width:32px;height:32px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span></button>`).join("");
+  return `<div class="t9"><nav class="t9-nav" aria-label="Kinds of tools">${nav}<button type="button" class="btn pri t9-addbtn" data-act="${act}" data-v="${k}">${ic('plus', 's')}${label}</button></nav>
+    <div class="t9-list">${learnedCard()}${rows}${suggested()}</div>${sel ? detail(k, sel) : ""}</div>`;
+}
+
+function specialistsTab() {
+  const specs = E.state.specialists || [];
+  return `<div class="rows"><p class="hint">Helpers a Trunk calls in for one job, then lets go.</p>${specs.map((s) => `<div class="prow"><span class="ico-tile">${ic('bolt', 's')}</span>
+    <span class="grow"><b>${esc(s.name || '')}</b><small>${esc(s.description || '')}</small></span>
+    <button class="btn sm" type="button" data-act="spec-edit" data-id="${esc(s.id ?? "")}">Edit</button></div>`).join('')}</div>`;
+}
+
+const FAM_WORDS = { core: "Two minutes to set up", chat: "Text through a webhook" };
+function channelGrid() {
+  const q = CH.q.trim().toLowerCase();
+  const on = new Set(connected.map((c) => c.id ?? c.kind));
+  const list = channelSetup.filter((c) => (CH.fam === "all" || c.family === CH.fam) && (!q || String(c.name).toLowerCase().includes(q)));
+  return list.map((c) => `<button type="button" class="ch12 ${on.has(c.id) ? "on12" : ""}" data-act="ch-open" data-v="${esc(c.id)}">${logo(c.id, c.name, 32)}<span><b>${esc(c.name)}</b><small>${on.has(c.id) ? "Connected · reaches Branch" : FAM_WORDS[c.family] ?? "Switch it on"}</small></span>${on.has(c.id) ? '<i class="dot12"></i>' : ""}</button>`).join("");
+}
+
+function channelsTab() {
+  const fams = [["all", "All"], ["core", "Popular"], ["chat", "Work chat"], ["parity", "More"]].map(([v, l]) => `<button type="button" data-act="ch-fam" data-v="${v}" aria-pressed="${CH.fam === v}">${l}</button>`).join("");
+  return `<p class="hint" data-css="margin:4px 0 10px">Talk to Branch from other apps. Each chat app reaches the Trunk you choose; with the gateway on, they work while Branch is closed.</p>
+    <div class="ch-wrap12"><div class="ch-top12"><label class="set-search" data-css="margin:0;flex:1">${ic('search', 's')}<input id="ch-q" value="${esc(CH.q)}" placeholder="Search ${channelSetup.length} chat apps" aria-label="Search chat apps" autocomplete="off"></label>
+    <span class="seg">${fams}</span></div>
+    <div class="ch-grid12">${channelGrid()}</div><div class="tile phone12"><div class="th"><span class="ico-tile">${ic('phone', 's')}</span><b>Your phone</b></div><p>Answer approvals and talk to Trunks from the Branch app.</p>
+    <div class="acts"><button class="btn pri sm" type="button" data-act="pair">Pair a phone</button></div></div></div>`;
+}
+
+function everywhereTab() {
+  const version = E.state?.version ?? "";
+  const tile = (icon, name, text, extra = "", v = "") => `<div class="tile"><div class="th"><span class="ico-tile">${ic(icon, 's')}</span><b>${name}</b></div><p>${text}</p><div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="${v}">Open this view</button>${extra}</div></div>`;
+  const pair = '<button class="btn ghost sm" type="button" data-act="pair">Pair</button>';
+  return `<div class="rows"><p class="hint" data-css="margin:4px 0 10px">One Branch, everywhere you are. Open any card to see that surface; the switcher in the title bar does the same.</p><div class="grid2">
+    ${tile("win", "Windows", `This computer · Branch ${esc(version)}`, "", "desktop")}
+    ${tile("mac", "Mac", "The same app on a Mac · menu bar icon with usage", "", "mac")}
+    ${tile("term", "Terminal", "Type branch in any terminal. Same places, same theme", "", "terminal")}
+    ${tile("phone", "iPhone", "Pair with the square code · lock screen answers", pair, "iphone")}
+    ${tile("android", "Android", "Pair with the square code · answer from the notification", pair, "android")}
+    ${tile("globe", "keepoak.com", "Connect your account to reach Branch from a browser", "", "web")}
+    <div class="tile"><div class="th"><span class="ico-tile">${ic('chat', 's')}</span><b>Chat apps</b></div><p>Telegram, WhatsApp, Discord, Slack: talk to a Trunk from where you already are.</p><div class="acts"><button class="btn sm ml" type="button" data-act="ptab" data-place="customize" data-v="channels">Channels</button></div></div>
+    <div class="tile"><div class="th"><span class="ico-tile">${ic('doc', 's')}</span><b>A page of your own</b></div><p>A small box on your own notes page or desk dashboard that asks Branch something. It talks only to your paired address, with its own key.</p><div class="acts"><button class="btn sm" type="button" data-act="widget6">Get the snippet</button></div></div>
+    </div></div>`;
+}
+
+const DRAW = { trunks: trunksTab, tools: toolsTab, specialists: specialistsTab, channels: channelsTab, everywhere: everywhereTab };
 
 export function draw() {
   const tab = S.tabs.customize || "trunks";
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
-
-  const trunks = E.trunks || [];
-  const tabs = [
-    ["trunks", "Trunks", trunks.length],
-    ["tools", "Tools", 0],
-    ["specialists", "Specialists", 0],
-    ["channels", "Channels", 0],
-    ["everywhere", "Everywhere", 0]
-  ];
-
+  const tabs = [["trunks", "Trunks", E.trunks.length], ["tools", "Tools", 0], ["specialists", "Specialists", 0], ["channels", "Channels", 0], ["everywhere", "Everywhere", 0]];
   const lockBanner = E.state.lock ? `<div class="lock-banner">${ic('lock', 's')}Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div>` : "";
-
-  let html = `<main class="main enter11" id="main">${lockBanner}<div class="scroll"><div class="place">
+  return `<main class="main enter11" id="main">${lockBanner}<div class="scroll"><div class="place${tab === "tools" ? " t9-place" : ""}">
     <h1>Customize</h1><p class="lede">Who your Trunks are, what they can do, and where you can reach them.</p>
-    ${tabBar(tabs, "customize", tab)}`;
-
-  if (tab === "trunks") {
-    html += `<div class="rows"><div class="acts" data-css="margin:6px 0 4px"><button class="btn pri" type="button" data-act="new-trunk">${ic('plus', 's')}A new Trunk</button>
-      <button class="btn" type="button" data-act="toast" data-msg="Rooms: pick two or more Trunks and give the room a name.">${ic('people', 's')}A new room</button></div>`;
-    if (trunks.length) {
-      html += trunks.map(t => {
-        const avClass = t.paused ? " waiting" : "";
-        return `<div class="prow">${av(t, 36)}<span class="grow">
-        <b>${esc(t.name || '')}</b><small>${esc(t.role || '')}</small></span>
-        <button class="btn sm" type="button" data-act="edit" data-id="${esc(t.id || '')}">Edit</button>
-        <button class="btn ghost sm" type="button" data-act="pausetrunk" data-id="${esc(t.id || '')}">${t.paused ? 'Resume' : 'Pause'}</button></div>`;
-      }).join('');
-    }
-    html += `</div>`;
-  } else if (tab === "tools") {
-    const kinds = [
-      ["mcp", "Connectors", mcpConnections.length, "MCP servers: apps and data a Trunk can reach"],
-      ["skills", "Skills", skills.length, "Step-by-step know-how, as SKILL.md"],
-      ["plugins", "Plugins", plugins.length, "Packs of skills, servers and tools"],
-      ["clis", "Command-line tools", toolsCatalog.length, "Programs on this computer it may run"],
-      ["agents", "Agents", 0, "Other assistants over A2A, and Trunks on other computers"]
-    ];
-    const currentKind = toolsSelectedKind;
-    const kindIcons = {mcp:"plug", skills:"bolt", plugins:"puzzle", clis:"term", agents:"users"};
-
-    html += `<div class="t9"><nav class="t9-nav" aria-label="Kinds of tools">`;
-    kinds.forEach(([k, label, count, desc]) => {
-      html += `<button type="button" data-act="t9-kind" data-v="${esc(k)}" aria-current="${k === currentKind ? 'true' : 'false'}">
-        ${ic(kindIcons[k] || 'wrench', 's')}<span><b>${esc(label)}</b><small>${esc(desc)}</small></span><em>${count}</em></button>`;
-    });
-    html += `<button type="button" class="btn pri t9-addbtn" data-act="tool-add" data-v="${esc(currentKind)}">${ic('plus', 's')}Add a server</button></nav>
-    <div class="t9-list">`;
-
-    const currentTools = currentKind === "mcp" ? mcpConnections : currentKind === "skills" ? skills : currentKind === "plugins" ? plugins : currentKind === "clis" ? toolsCatalog : [];
-    if (currentTools.length) {
-      currentTools.forEach(tool => {
-        const isSelected = tool.id === toolsSelectedId;
-        html += `<button type="button" class="t9-item" data-act="t9-sel" data-v="${esc(tool.id || '')}" aria-current="${isSelected ? 'true' : 'false'}">
-          <span class="ico-tile">${ic('wrench', 's')}</span>
-          <span class="grow"><b>${esc(tool.name || '')}</b><small>${esc(tool.description || '')}</small></span>
-        </button>`;
-      });
-    }
-    html += `</div></div>`;
-  } else if (tab === "specialists") {
-    const specs = E.state.specialists || [];
-    html += `<div class="rows"><p class="hint">Helpers a Trunk calls in for one job, then lets go.</p>`;
-    if (specs.length) {
-      html += specs.map(s => `<div class="prow"><span class="ico-tile">${ic('zap', 's')}</span>
-        <span class="grow"><b>${esc(s.name || '')}</b><small>${esc(s.description || '')}</small></span>
-        <button class="btn sm" type="button" data-act="toast" data-msg="Edit what ${esc(s.name || '')} may do.">Edit</button></div>`).join('');
-    }
-    html += `</div>`;
-  } else if (tab === "channels") {
-    const channelCount = channelSetup.length;
-    html += `<p class="hint" data-css="margin:4px 0 10px">Talk to Branch from other apps. Each chat app reaches the Trunk you choose; with the gateway on, they work while Branch is closed.</p>
-      <div class="ch-wrap12"><div class="ch-top12"><label class="set-search" data-css="margin:0;flex:1"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M20 20l-4-4"></path></svg><input id="ch-q" value="" placeholder="Search ${channelCount} chat apps" aria-label="Search chat apps" autocomplete="off"></label>
-      <span class="seg"><button type="button" data-act="ch-fam" data-v="all" aria-pressed="true">All</button><button type="button" data-act="ch-fam" data-v="core" aria-pressed="false">Popular</button><button type="button" data-act="ch-fam" data-v="chat" aria-pressed="false">Work chat</button><button type="button" data-act="ch-fam" data-v="parity" aria-pressed="false">More</button></span></div> // state: the list shows every family until a filter works
-      <div class="ch-grid12">`;
-    if (channelSetup.length) {
-      html += channelSetup.map(ch => {
-        const logo = `<span class="logo" data-css="width:32px;height:32px;background:${ch.color || '#666'}"><b data-css="font:700 11px var(--sans);color:#fff">${esc((ch.name || '').substring(0, 2).toUpperCase())}</b></span>`;
-        return `<button type="button" class="ch12" data-act="ch-open" data-v="${esc(ch.id)}"><span class="logo">${logo}</span><span><b>${esc(ch.name)}</b><small>${esc(ch.status || 'Two minutes to set up')}</small></span></button>`;
-      }).join('');
-    }
-    html += `</div><div class="tile phone12"><div class="th"><span class="ico-tile">${ic('phone', 's')}</span><b>Your phone</b></div><p>Answer approvals and talk to Trunks from the Branch app.</p>
-      <div class="acts"><button class="btn pri sm" type="button" data-act="pair">Pair a phone</button></div></div></div>`;
-  } else if (tab === "everywhere") {
-    const version = E.state?.version ?? "";
-    html += `<div class="rows"><p class="hint" data-css="margin:4px 0 10px">One Branch, everywhere you are. Open any card to see that surface; the switcher in the title bar does the same.</p>
-      <div class="grid2">
-      <div class="tile"><div class="th"><span class="ico-tile">${ic('desktop', 's')}</span><b>Windows</b></div><p>This computer · Branch ${esc(version)}</p>
-        <div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="desktop">Open this view</button></div></div>
-      <div class="tile"><div class="th"><span class="ico-tile">${ic('monitor', 's')}</span><b>Mac</b></div><p>The same app on a Mac · menu bar icon with usage</p>
-        <div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="mac">Open this view</button></div></div>
-      <div class="tile"><div class="th"><span class="ico-tile">${ic('terminal', 's')}</span><b>Terminal</b></div><p>Type branch in any terminal. Same places, same theme</p>
-        <div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="terminal">Open this view</button></div></div>
-      <div class="tile"><div class="th"><span class="ico-tile">${ic('phone', 's')}</span><b>iPhone</b></div><p>Pair with the square code · lock screen answers</p>
-        <div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="iphone">Open this view</button><button class="btn ghost sm" type="button" data-act="pair">Pair</button></div></div>
-      <div class="tile"><div class="th"><span class="ico-tile">${ic('phone', 's')}</span><b>Android</b></div><p>Pair with the square code · answer from the notification</p>
-        <div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="android">Open this view</button><button class="btn ghost sm" type="button" data-act="pair">Pair</button></div></div>
-      <div class="tile"><div class="th"><span class="ico-tile">${ic('globe', 's')}</span><b>keepoak.com</b></div><p>Connect your account to reach Branch from a browser</p>
-        <div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="web">Open this view</button></div></div>
-      <div class="tile"><div class="th"><span class="ico-tile">${ic('chat', 's')}</span><b>Chat apps</b></div><p>Telegram, WhatsApp, Discord, Slack: talk to a Trunk from where you already are.</p>
-        <div class="acts"><button class="btn sm ml" type="button" data-act="ptab" data-place="customize" data-v="channels">Channels</button></div></div>
-      </div></div>`;
-  }
-
-  html += `</div></div></main>`;
-  return html;
+    ${tabBar(tabs, "customize", tab)}${(DRAW[tab] ?? trunksTab)()}</div></div></main>`;
 }
 
-/* The engine answers with objects ({servers}, {channels}, {devices}…); each is reduced to its list before it is kept, and
-   the tab is drawn again only when a list really changed. */
+/* The engine answers with objects ({servers}, {channels}…); each is reduced to its list before it is kept, and the tab is
+   drawn again only when a list really changed. A list the engine refuses is shown as its words, once. */
 const listOf = (x, key) => (Array.isArray(x) ? x : Array.isArray(x?.[key]) ? x[key] : []);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const said = new Set();
+const read = (path) => api(path).catch((error) => { if (!said.has(path)) { said.add(path); toast(error.message); } return null; });
+
+async function readTools() {
+  const [mcp, plugs, ag, sug, rev] = await Promise.all([read("mcp/connections"), read("plugins"), read("agents/remote"), read("skills/suggest"), read("skill-revisions")]);
+  return { mcpServers: listOf(mcp, "servers"), plugins: listOf(plugs, "plugins"), agents: listOf(ag, "agents"), suggestions: listOf(sug, "suggestions"), revisions: listOf(rev, "revisions") };
+}
 
 export async function after() {
   const tab = S.tabs.customize || "trunks";
-  let changed = false;
-  const keep = (current, fresh, set) => { if (!same(current, fresh)) { set(fresh); changed = true; } };
-  if (tab === "tools") {
-    const [mcp, cat, plugs] = await Promise.all([api("mcp/connections").catch(() => null), api("tools/catalog").catch(() => null), api("plugins").catch(() => null)]);
-    keep(mcpConnections, listOf(mcp, "servers"), (v) => { mcpConnections = v; });
-    keep(toolsCatalog, listOf(cat, "tools"), (v) => { toolsCatalog = v; });
-    keep(plugins, listOf(plugs, "plugins"), (v) => { plugins = v; });
-    skills = E.state.skills || [];
-  } else if (tab === "channels") {
-    keep(channelSetup, listOf(await api("channel-setup").catch(() => null), "channels"), (v) => { channelSetup = v; });
-  } else if (tab === "everywhere") {
-    const [dev, ch] = await Promise.all([api("devices").catch(() => null), api("channels").catch(() => null)]);
-    keep(devices, listOf(dev, "devices"), (v) => { devices = v; });
-    keep(channels, listOf(ch, "channels"), (v) => { channels = v; });
+  const before = JSON.stringify([mcpServers, plugins, agents, suggestions, revisions, channelSetup, connected]);
+  if (tab === "tools") ({ mcpServers, plugins, agents, suggestions, revisions } = await readTools());
+  else if (tab === "channels") {
+    const [setup, live] = await Promise.all([read("channel-setup"), read("channels")]);
+    channelSetup = listOf(setup, "channels");
+    connected = listOf(live, "channels");
   }
-  if (changed) renderNow();
+  if (!same(before, JSON.stringify([mcpServers, plugins, agents, suggestions, revisions, channelSetup, connected]))) renderNow();
+}
+
+/* Removing: a skill (POST /api/skills/{id}/remove, naming the revision it was shown at) or an assistant elsewhere (POST /api/agents/remote/remove). */
+async function removeTool(el) {
+  const { k, id } = el.dataset;
+  try {
+    if (k === "skills") await api(`skills/${encodeURIComponent(id)}/remove`, { expectedRevision: (E.state?.skills ?? []).find((s) => s.id === id)?.revision });
+    else if (k === "agents") await api("agents/remote/remove", { agent: id });
+    else return;
+    const name = itemsOf(k).find((x) => x.id === id)?.name ?? "";
+    T9.sel = null;
+    await refresh();
+    await after();
+    renderNow();
+    toast(`${name} removed.`);
+  } catch (error) { toast(error.message); }
+}
+
+/* Filtering the chat apps redraws only the grid, so the search box keeps its caret. */
+function redrawGrid() {
+  const grid = document.querySelector("#main .ch-grid12");
+  if (grid) greyOut(paint(grid, channelGrid()));
 }
 
 export function init() {
-  markLive(["ptab", "t9-kind", "t9-sel"]);
-  on("t9-kind", (el) => {
-    toolsSelectedKind = el.dataset.v;
-    renderNow();
-  });
-  on("t9-sel", (el) => {
-    toolsSelectedId = el.dataset.v;
-    renderNow();
-  });
+  markLive(["ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam"]);
+  on("t9-kind", (el) => { T9.k = el.dataset.v; T9.sel = null; renderNow(); });
+  on("t9-sel", (el) => { T9.sel = el.dataset.v; renderNow(); });
+  on("tool-rm", (el) => removeTool(el));
+  on("ch-fam", (el) => { CH.fam = el.dataset.v; renderNow(); });
+  document.addEventListener("input", (e) => { if (e.target.id === "ch-q") { CH.q = e.target.value; redrawGrid(); } });
+}
+
+/* Another area (the Add a skill dialog) shows a skill it just added. */
+export function showTool(kind, id) {
+  S.view = "customize";
+  S.tabs.customize = "tools";
+  T9.k = kind;
+  T9.sel = id;
 }
