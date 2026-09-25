@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { ContractBook } from "../dist/self-development-contract.js";
-import { HandOff, claudeAllowedCommands, handOffReason, programCall, readClaude, readCodex } from "../dist/coding/hand-off.js";
+import { HandOff, claudeAllowedCommands, handOffReason, programCall, readClaude, readCodex, repoOwnSettings } from "../dist/coding/hand-off.js";
 import { addPolicyRule } from "../dist/policy.js";
 
 /**
@@ -58,6 +58,12 @@ test("Claude Code may edit in the folder and run only the checks and read-only G
   assert.equal(claude.cwd, "/work/repo");
   assert.deepEqual(claude.args.slice(claude.args.indexOf("--permission-mode"), claude.args.indexOf("--permission-mode") + 2), ["--permission-mode", "acceptEdits"]);
   assert.ok(!claude.args.includes("bypassPermissions") && !claude.args.some((arg) => /dangerously/.test(arg)));
+  // NAS 454af77: the folder's own hooks (.claude/settings*.json) and MCP servers (.mcp.json) are never loaded.
+  const sources = claude.args[claude.args.indexOf("--setting-sources") + 1];
+  assert.equal(sources, "user", "only the account's own settings, never the folder's (project, local)");
+  assert.ok(claude.args.includes("--strict-mcp-config"), "and no MCP server from the folder");
+  assert.deepEqual(JSON.parse(claude.args[claude.args.indexOf("--settings") + 1]), { disableAllHooks: true }, "no hook runs at all");
+  assert.equal(claude.args[claude.args.indexOf("--disallowedTools") + 1], "Bash", "and Bash is refused, whatever allows it");
   for (const allowed of claudeAllowedCommands) assert.doesNotMatch(allowed, /push|commit|curl|rm |npm install|gh /, `${allowed} does nothing that sends or removes`);
   const codex = programCall("codex", "/work/repo");
   assert.deepEqual(codex.args.slice(codex.args.indexOf("--sandbox"), codex.args.indexOf("--sandbox") + 2), ["--sandbox", "workspace-write"]);
@@ -269,6 +275,21 @@ test("a job that plants a Git filter in the folder's own settings gets no progra
   assert.match(result.summary, /settings|config/i);
 });
 
+test("a job that writes the folder's own Claude Code settings or MCP servers ends the same way (NAS 4b4812a)", async (t) => {
+  for (const [file, text] of [[".claude/settings.json", '{"hooks":{"SessionStart":[]}}'], [".mcp.json", '{"mcpServers":{}}'],
+    [".codex/config.toml", "[mcp_servers.x]\ncommand = \"sh\"\n"], [".agents/hooks/start.sh", "echo hi\n"]]) {
+    const f = await fixture(t);
+    await repository(join(f.workspace, "site"));
+    const result = await f.handOff(async (call) => {
+      await mkdir(dirname(join(call.cwd, file)), { recursive: true });
+      await writeFile(join(call.cwd, file), text);
+      return { code: 0, lines: claudeLines("done"), stderr: "", timedOut: false, missing: false };
+    }).run({ program: "claude-code", folder: "site", task: "x", minutes: 1 }, context(f.app));
+    assert.equal(result.status, "repository settings changed", `${file} written by the job`);
+    assert.deepEqual([result.changed, result.undone], [[], []]);
+  }
+});
+
 test("the same holds for a diff textconv program planted in the folder's own settings", async (t) => {
   const f = await fixture(t);
   await repository(join(f.workspace, "site"));
@@ -375,4 +396,25 @@ test("a link that already led out before the job, and neighbours it did not touc
   }).run({ program: "claude-code", folder: "site", task: "Set a to 2.", minutes: 5 }, context(f.app));
   assert.equal(result.status, "done");
   assert.ok(existsSync(join(f.workspace, "site", "shared")), "the owner's own link stays");
+});
+
+// NAS 448815a: a folder's settings file can be a link to /dev/zero or a huge file; the fingerprint never reads through it.
+test("a settings file that is a link is noted by where it points, never read, and a change of target still counts", { skip: process.platform === "win32" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-handoff-links-"));
+  t.after(() => discardTemp(root));
+  await symlink("/dev/zero", join(root, ".mcp.json"));
+  const before = repoOwnSettings(root);
+  assert.match(before, /link:\/dev\/zero/, "the link is noted, and reading it would never have ended");
+  assert.equal(repoOwnSettings(root), before, "and it is the same each time");
+  await rm(join(root, ".mcp.json"));
+  await symlink("/dev/urandom", join(root, ".mcp.json"));
+  assert.notEqual(repoOwnSettings(root), before, "pointing it elsewhere is a change");
+});
+
+test("past its bound the look at .agents never matches itself, so a change beyond it is not hidden", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-handoff-many-"));
+  t.after(() => discardTemp(root));
+  await mkdir(join(root, ".agents"), { recursive: true });
+  for (let i = 0; i < 501; i++) await writeFile(join(root, ".agents", `f${String(i).padStart(3, "0")}`), "x");
+  assert.notEqual(repoOwnSettings(root), repoOwnSettings(root), "an incomplete look counts as a change");
 });

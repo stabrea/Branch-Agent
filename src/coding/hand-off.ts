@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmdirSync, statSync, unlinkSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -17,14 +17,14 @@ import { startCall } from "../windows-command.js";
 
 /**
  * Handing a coding job to Claude Code or Codex, the programs the owner signed in to with their own plans, so the
- * work is done by the program itself inside one folder: it reads, edits and runs the checks there, and Branch gets
+ * work is done by the program itself inside one folder: it reads and edits there (Codex may also run its checks), and Branch gets
  * back what it did. Elsewhere Branch only asks these programs for words (src/providers/cli-agent.ts,
  * src/asks/codex-app-server.ts, both read-only); this is the one door where they may change files, and it is
  * held three ways:
  * - Each program's own limits: Codex runs with `--sandbox workspace-write` in the folder; Claude Code runs with
- *   `--permission-mode acceptEdits` in the folder and runs no commands at all (the list below is only read-only Git
- *   with no program of the folder's), since nothing walls its commands in the way Codex's sandbox does (NAS 22aa6e3,
- *   Mac mini 2e70eda). The checks are run afterwards through Branch's own held tools.
+ *   `--permission-mode acceptEdits` in the folder and runs no commands at all (no allowed commands, Bash refused, and
+ *   none of the folder's own settings, hooks or MCP servers loaded), since nothing walls its commands in the way Codex's
+ *   sandbox does (NAS 22aa6e3, 454af77, Mac mini 2e70eda). The checks are run afterwards through Branch's own held tools.
  * - Branch's own check afterwards: every file the job changed is listed against where it started, and inside
  *   Branch's own source (a self-development worktree) anything outside the contract's allowed paths is put back
  *   and named, so the contract holds whatever the program did. Sending still goes through the contract's push check.
@@ -60,10 +60,15 @@ export type HandOffInput = z.infer<typeof HandOffInputSchema>;
 export const claudeAllowedCommands: readonly string[] = [];
 
 /** Handing a job over is asked every time, just this once: the program works with the owner's own sign-in. */
-export const handOffReason = "Your Claude Code or Codex would change files in that folder with your own sign-in, so this is asked every time.";
+export const handOffReason = "Your Claude Code or Codex would change files in that folder with your own sign-in, so this is asked every time. "
+  + "Claude Code runs without that folder's own settings, hooks or MCP servers, and runs no commands.";
 export function handOffHold(tool: string): { reason: string; onceOnly: true } | null {
   return tool === "code.hand_off" ? { reason: handOffReason, onceOnly: true } : null;
 }
+
+/** What keeps the folder's own Claude Code settings (hooks) and MCP servers out of a handed-over job. */
+export const claudeIsolation: readonly string[] = ["--setting-sources", "user", "--strict-mcp-config",
+  "--settings", JSON.stringify({ disableAllHooks: true }), "--disallowedTools", "Bash"];
 
 export interface ProgramCall { command: string; args: string[]; cwd: string }
 export function programCall(program: HandOffProgram, folder: string, model?: string, effort?: string): ProgramCall {
@@ -71,7 +76,11 @@ export function programCall(program: HandOffProgram, folder: string, model?: str
   if (program === "claude-code")
     return { command: "claude", cwd: folder, args: ["-p", "--output-format", "stream-json", "--verbose", ...chosen,
       ...(effort ? ["--effort", effort] : []),
-      "--permission-mode", "acceptEdits", ...(claudeAllowedCommands.length ? ["--allowedTools", ...claudeAllowedCommands] : [])] };
+      "--permission-mode", "acceptEdits", ...(claudeAllowedCommands.length ? ["--allowedTools", ...claudeAllowedCommands] : []),
+      // NAS 454af77 / 4b4812a: hooks in the folder's own .claude/settings*.json, and servers in its .mcp.json, would run
+      // programs outside every permission and wall, and an earlier job could have left them there. Only the account's
+      // own settings are read, no MCP server from the folder, no hook at all, and Bash is refused whatever allows it.
+      ...claudeIsolation] };
   return { command: "codex", cwd: folder, args: ["exec", "--json", "--sandbox", "workspace-write", "--cd", folder, ...chosen,
     ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []), "-"] };
 }
@@ -222,14 +231,47 @@ function includeTargets(configFile: string, text: string): string[] {
  * The owner's own global and system config is never read here, so their credential helpers and filters (git-lfs)
  * keep working for a folder a job did not touch.
  */
+const settingsFileLimit = 1_000_000;
+const settingsFilesLimit = 500;
 export function repoOwnSettings(folder: string): string {
   const parts: [string, string][] = [];
+  // NAS 448815a: a folder's file can be a link to /dev/zero or a huge file, which reading would take Branch down with.
+  // A link is noted by where it points and never followed; anything not a plain file, or over a megabyte, by what it is.
   const record = (label: string, path: string): string => {
+    let about: import("node:fs").Stats;
+    try { about = lstatSync(path); } catch { parts.push([label, "absent"]); return ""; }
+    if (about.isSymbolicLink()) { parts.push([label, `link:${readlinkSafe(path)}`]); return ""; }
+    if (!about.isFile()) { parts.push([label, "special"]); return ""; }
+    if (about.size > settingsFileLimit) { parts.push([label, `size:${about.size}:${about.mtimeMs}`]); return ""; }
     try { const bytes = readFileSync(path); parts.push([label, `sha256:${createHash("sha256").update(bytes).digest("hex")}`]); return bytes.toString("utf8"); }
     catch { parts.push([label, "absent"]); return ""; }
   };
   const dotGit = join(folder, ".git");
   try { if (!statSync(dotGit).isDirectory()) record(".git", dotGit); } catch { parts.push([".git", "absent"]); }
+  // NAS 4b4812a: the folder's own Claude Code settings and MCP servers can start programs too, so a job that writes
+  // them is caught the same way, even though a hand-off no longer loads them.
+  for (const file of [".claude/settings.json", ".claude/settings.local.json", ".mcp.json"]) record(`folder:${file}`, join(folder, file));
+  // NAS 538774b: Codex's own project settings (its config, MCP servers, hooks, exec rules) live under .codex/ and
+  // .agents/, which Claude Code's edits may reach; every file there, to a bound, counts like the ones above.
+  for (const dir of [".codex", ".agents"]) {
+    const files: string[] = [];
+    let incomplete = false;
+    const walk = (at: string): void => {
+      let entries: import("node:fs").Dirent[] = [];
+      try { entries = readdirSync(at, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (files.length >= settingsFilesLimit) { incomplete = true; return; }
+        const path = join(at, entry.name);
+        if (entry.isDirectory()) walk(path); else files.push(path);
+      }
+    };
+    walk(join(folder, dir));
+    parts.push([`folder:${dir}/`, files.map((file) => relative(folder, file)).join(",")]);
+    // Past the bound the look is incomplete, so it never matches itself: the job ends as a settings change rather than
+    // one hiding past the bound (NAS 448815a LOW), as linksOut fails closed at its own.
+    if (incomplete) parts.push([`folder:${dir}/incomplete`, randomUUID()]);
+    for (const file of files) record(`folder:${relative(folder, file)}`, file);
+  }
   const dirs = gitDirsOf(folder);
   if (dirs) {
     const seen = new Set<string>();
@@ -422,7 +464,7 @@ export class HandOff {
   /** The job changed the folder's own Git settings. Branch runs no more Git in it: nothing is checked or put back, and the owner is told plainly. */
   private settingsChanged(input: HandOffInput, account: string, report: ProgramReport, context: ToolContext): HandOffResult {
     const result: HandOffResult = { program: input.program, account, status: "repository settings changed",
-      summary: "The job changed this folder's own Git settings (its config, attributes or hooks), so I ran no more Git in it: "
+      summary: "The job changed this folder's own Git or Claude Code settings (its config, attributes, hooks or MCP servers), so I ran no more Git in it: "
         + "nothing it did was checked or put back. Look the folder over yourself before you trust or keep anything from this run.",
       steps: report.steps.slice(-40), changed: [], undone: [] };
     this.deps.store.event(context.runId, "code.hand_off", { ...result, summary: result.summary.slice(0, 500) });
@@ -434,7 +476,7 @@ export function registerHandOff(registry: ToolRegistry, handOff: HandOff): void 
   registry.register({
     name: "code.hand_off", permission: "code.handoff", group: "code",
     description: "Give a coding job to the owner's Claude Code or Codex, signed in with the owner's own plan, to do inside one "
-      + "folder of the workspace that is a Git repository: the program reads, edits and runs the checks there, and this answers "
+      + "folder of the workspace that is a Git repository: the program reads and edits there, and this answers "
       + "with what it did and which files changed. Choose the account from Settings › Accounts, or leave it out for the usual one. "
       + "When the answer says the plan's limit was reached, try another account. Inside Branch's own source, anything the job "
       + "changed outside the contract's allowed paths is put back and named. A job that makes a link out of its folder, or "
