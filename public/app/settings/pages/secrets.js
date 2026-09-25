@@ -2,6 +2,11 @@
 import { level } from "../../core/state.js";
 import { E } from "../../core/state.js";
 import { esc } from "../../core/dom.js";
+import { on } from "../../core/actions.js";
+import { markLive } from "../../core/features.js";
+import { toast } from "../../core/ui.js";
+import { renderNow } from "../../core/dom.js";
+import { api } from "../../core/api.js";
 
 const MASK = "••••••••";
 
@@ -28,4 +33,24 @@ export function draw() {
   return BASE + secretsSection(secrets);
 }
 
-export const live = {};
+export function init() {
+  on("secret-rm", async (el) => {
+    const i = parseInt(el.dataset.i, 10);
+    const secrets = E.state?.secrets ?? [];
+    if (i >= 0 && i < secrets.length) {
+      const secret = secrets[i];
+      try {
+        await api("secrets/remove", { id: secret.id });
+        toast("Sign-in removed.");
+        renderNow();
+      } catch (e) {
+        toast(e.message);
+      }
+    }
+  });
+  markLive(["secret-rm"]);
+}
+
+export const live = {
+  "secret-rm": null,
+};

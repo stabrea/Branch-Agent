@@ -1,12 +1,14 @@
 /* Settings › achievements: bind real engine data and wire controls. */
 import { esc } from "../../core/dom.js";
-import { level, E } from "../../core/state.js";
+import { level, E, S } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { renderNow } from "../../core/dom.js";
+import { toast } from "../../core/ui.js";
 
 let achievements = { total: 505, unlocked: 0, tiers: {}, list: [] };
+let selectedCategory = "All";
 
 async function loadAchievements() {
   try {
@@ -21,9 +23,27 @@ async function loadAchievements() {
 
 export function init() {
   loadAchievements();
+  on("achcat", (el) => {
+    selectedCategory = el.dataset.v || "All";
+    renderNow();
+  });
+  on("pat", async (el) => {
+    try {
+      await api("delight/noticed", { what: "pat" });
+      toast("You patted the pet!");
+    } catch (e) {
+      toast(e.message);
+    }
+  });
+  on("ach-close", (el) => {
+    if (el?.parentElement?.parentElement) {
+      el.parentElement.parentElement.remove();
+    }
+  });
+  markLive(["achcat", "pat", "ach-close"]);
 }
 
-function draw() {
+export function draw() {
   const t = achievements.tiers || {};
   const unlockedCount = achievements.unlocked || 0;
   const totalCount = achievements.total || 505;
@@ -41,17 +61,17 @@ function draw() {
   html += "</div>";
 
   html += "<div class=\"tabs\" role=\"tablist\" data-css=\"margin-top:6px\">";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"true\" data-act=\"achcat\" data-v=\"All\">All</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Getting started\">Getting started</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Trunks &amp; devices\">Trunks &amp; devices</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Automations\">Automations</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Looks &amp; fun\">Looks &amp; fun</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Streaks\">Streaks</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Safety\">Safety</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Explorer\">Explorer</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Secrets\">Secrets</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Look\">Look</button>";
-  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"false\" data-act=\"achcat\" data-v=\"Setup\">Setup</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "All") + "\" data-act=\"achcat\" data-v=\"All\">All</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Getting started") + "\" data-act=\"achcat\" data-v=\"Getting started\">Getting started</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Trunks & devices") + "\" data-act=\"achcat\" data-v=\"Trunks &amp; devices\">Trunks &amp; devices</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Automations") + "\" data-act=\"achcat\" data-v=\"Automations\">Automations</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Looks & fun") + "\" data-act=\"achcat\" data-v=\"Looks &amp; fun\">Looks &amp; fun</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Streaks") + "\" data-act=\"achcat\" data-v=\"Streaks\">Streaks</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Safety") + "\" data-act=\"achcat\" data-v=\"Safety\">Safety</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Explorer") + "\" data-act=\"achcat\" data-v=\"Explorer\">Explorer</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Secrets") + "\" data-act=\"achcat\" data-v=\"Secrets\">Secrets</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Look") + "\" data-act=\"achcat\" data-v=\"Look\">Look</button>";
+  html += "<button class=\"tab\" role=\"tab\" type=\"button\" aria-selected=\"" + (selectedCategory === "Setup") + "\" data-act=\"achcat\" data-v=\"Setup\">Setup</button>";
   html += "</div>";
 
   html += "<div class=\"sec\"><h2>Settings</h2>";
@@ -70,5 +90,7 @@ export async function load() {
 }
 
 export const live = {
-  // Wire up controls to real routes
+  "achcat": null,
+  "pat": null,
+  "ach-close": null,
 };
