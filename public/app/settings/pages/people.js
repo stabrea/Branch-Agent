@@ -1,31 +1,136 @@
-/* Settings › people: markup generated 1:1 from the prototype (design/redesign/tools/convert-settings.py).
-   Bind real engine data and wire controls in place; never add text that is not here. */
-import { level } from "../../core/state.js";
+/* Settings › people: bind real engine data and wire controls. */
+import { level, E } from "../../core/state.js";
+import { api } from "../../core/api.js";
 
-const MARKUP = {
-  regular: `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p><div class="t10"><div class="t9-list"><div class="grp8">On this computer</div><button type="button" class="t9-item" data-act="p-sel" data-v="t" aria-current="false"><span class="tav6" data-css="--c:#16212A;width:34px;height:34px;font-size:13px">T<i class="st st-online"></i></span><span class="grow"><b>Taofik · you</b><small>Owner · last used Now</small></span></button><button type="button" class="t9-item" data-act="p-sel" data-v="s" aria-current="false"><span class="tav6" data-css="--c:#56616B;width:34px;height:34px;font-size:13px">SR<i class="st st-away"></i></span><span class="grow"><b>Sam Rivera</b><small>Child · last used Sun</small></span></button><div class="grp8">On their own device</div><button type="button" class="t9-item" data-act="p-sel" data-v="d" aria-current="true"><span class="tav6" data-css="--c:#2F8C86;width:34px;height:34px;font-size:13px">DO<i class="st st-online"></i></span><span class="grow"><b>Dana Okafor</b><small>Adult · last used 5 min ago</small></span></button><button type="button" class="t9-item" data-act="p-sel" data-v="m" aria-current="false"><span class="tav6" data-css="--c:#8A5AA8;width:34px;height:34px;font-size:13px">ML<i class="st st-phone"></i></span><span class="grow"><b>Marcus Lee</b><small>Adult · last used 12 min ago</small></span></button><div class="grp8">From your keepoak.com team</div><button type="button" class="t9-item" data-act="p-sel" data-v="p" aria-current="false"><span class="tav6" data-css="--c:#C0467A;width:34px;height:34px;font-size:13px">PS<i class="st st-away"></i></span><span class="grow"><b>Priya Shah</b><small>Operator · last used Yesterday</small></span></button><button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Invite someone</button></div><div class="t9-detail pcard10"><div class="t9-dh"><span class="tav6" data-css="--c:#2F8C86;width:44px;height:44px;font-size:17px">DO<i class="st st-online"></i></span><span class="grow"><b>Dana Okafor</b><small>Her own MacBook · signs in with a passkey</small></span><span class="pill idle">Adult</span></div>
-    <div class="sec"><h2>May</h2><div class="acts10"><label class="chk "><input type="checkbox" checked="" aria-label="Look things up"> Look things up</label><label class="chk "><input type="checkbox" checked="" aria-label="Use web pages"> Use web pages</label><label class="chk "><input type="checkbox" checked="" aria-label="Write files"> Write files</label><label class="chk "><input type="checkbox" checked="" aria-label="Run commands"> Run commands</label><label class="chk "><input type="checkbox" checked="" aria-label="Send messages"> Send messages</label><label class="chk no10"><input type="checkbox" aria-label="Spend money"> Spend money</label><label class="chk no10"><input type="checkbox" aria-label="Change how Branch is set up"> Change how Branch is set up</label></div></div>
-    <dl class="kv" data-css="margin-top:14px"><dt>Trunks</dt><dd>Ledger, Fieldnotes</dd><dt>Projects</dt><dd>Hartwell</dd><dt>Daily allowance</dt><dd>$5 a day</dd><dt>PIN</dt><dd>Set</dd><dt>Signed in on</dt><dd>MacBook</dd></dl>
-    <div class="acts" data-css="margin-top:14px"><button class="btn sm" type="button" data-act="toast" data-msg="Switched to Dana. Their conversations only.">Switch to Dana</button><span class="seg"><button type="button" data-act="p-role" data-v="Adult" aria-pressed="true">Adult</button><button type="button" data-act="p-role" data-v="Child" aria-pressed="false">Child</button></span><button class="btn ghost sm" type="button" data-act="toast" data-msg="One-time code: 482-913. It works once, for 15 minutes.">Make a one-time code</button><button class="btn ghost sm" type="button" data-act="toast" data-msg="Dana is signed out on every device.">Sign out everywhere</button><button class="btn ghost sm" type="button" data-act="toast" data-msg="Removed. Their conversations are kept for 30 days.">Remove</button></div></div></div>
-    <p class="hint">Separation on one computer, not separate accounts. Each person’s conversations and memory are their own.</p>
-  <div class="sec"><h2>Each person</h2><div class="ctl"><b>Ask for a PIN when switching person</b><input class="sw" type="checkbox" id="pp-pin" checked="" aria-label="Ask for a PIN when switching person" data-sw="set"><small>Four to eight digits, kept on this computer. Five wrong tries lock the profile for five minutes.</small></div><div class="ctl"><b>Keep conversations separate</b><input class="sw" type="checkbox" id="pp-own" checked="" aria-label="Keep conversations separate" data-sw="set"><small>People can’t read each other’s conversations unless they share one.</small></div></div>
-  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">Groups</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">Signing in from other devices</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">What you share</button></div>`,
-  advanced: `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p><div class="t10"><div class="t9-list"><div class="grp8">On this computer</div><button type="button" class="t9-item" data-act="p-sel" data-v="t" aria-current="false"><span class="tav6" data-css="--c:#16212A;width:34px;height:34px;font-size:13px">T<i class="st st-online"></i></span><span class="grow"><b>Taofik · you</b><small>Owner · last used Now</small></span></button><button type="button" class="t9-item" data-act="p-sel" data-v="s" aria-current="false"><span class="tav6" data-css="--c:#56616B;width:34px;height:34px;font-size:13px">SR<i class="st st-away"></i></span><span class="grow"><b>Sam Rivera</b><small>Child · last used Sun</small></span></button><div class="grp8">On their own device</div><button type="button" class="t9-item" data-act="p-sel" data-v="d" aria-current="true"><span class="tav6" data-css="--c:#2F8C86;width:34px;height:34px;font-size:13px">DO<i class="st st-online"></i></span><span class="grow"><b>Dana Okafor</b><small>Adult · last used 5 min ago</small></span></button><button type="button" class="t9-item" data-act="p-sel" data-v="m" aria-current="false"><span class="tav6" data-css="--c:#8A5AA8;width:34px;height:34px;font-size:13px">ML<i class="st st-phone"></i></span><span class="grow"><b>Marcus Lee</b><small>Adult · last used 12 min ago</small></span></button><div class="grp8">From your keepoak.com team</div><button type="button" class="t9-item" data-act="p-sel" data-v="p" aria-current="false"><span class="tav6" data-css="--c:#C0467A;width:34px;height:34px;font-size:13px">PS<i class="st st-away"></i></span><span class="grow"><b>Priya Shah</b><small>Operator · last used Yesterday</small></span></button><button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Invite someone</button></div><div class="t9-detail pcard10"><div class="t9-dh"><span class="tav6" data-css="--c:#2F8C86;width:44px;height:44px;font-size:17px">DO<i class="st st-online"></i></span><span class="grow"><b>Dana Okafor</b><small>Her own MacBook · signs in with a passkey</small></span><span class="pill idle">Adult</span></div>
-    <div class="sec"><h2>May</h2><div class="acts10"><label class="chk "><input type="checkbox" checked="" aria-label="Look things up"> Look things up</label><label class="chk "><input type="checkbox" checked="" aria-label="Use web pages"> Use web pages</label><label class="chk "><input type="checkbox" checked="" aria-label="Write files"> Write files</label><label class="chk "><input type="checkbox" checked="" aria-label="Run commands"> Run commands</label><label class="chk "><input type="checkbox" checked="" aria-label="Send messages"> Send messages</label><label class="chk no10"><input type="checkbox" aria-label="Spend money"> Spend money</label><label class="chk no10"><input type="checkbox" aria-label="Change how Branch is set up"> Change how Branch is set up</label></div></div>
-    <dl class="kv" data-css="margin-top:14px"><dt>Trunks</dt><dd>Ledger, Fieldnotes</dd><dt>Projects</dt><dd>Hartwell</dd><dt>Daily allowance</dt><dd>$5 a day</dd><dt>PIN</dt><dd>Set</dd><dt>Signed in on</dt><dd>MacBook</dd></dl>
-    <div class="acts" data-css="margin-top:14px"><button class="btn sm" type="button" data-act="toast" data-msg="Switched to Dana. Their conversations only.">Switch to Dana</button><span class="seg"><button type="button" data-act="p-role" data-v="Adult" aria-pressed="true">Adult</button><button type="button" data-act="p-role" data-v="Child" aria-pressed="false">Child</button></span><button class="btn ghost sm" type="button" data-act="toast" data-msg="One-time code: 482-913. It works once, for 15 minutes.">Make a one-time code</button><button class="btn ghost sm" type="button" data-act="toast" data-msg="Dana is signed out on every device.">Sign out everywhere</button><button class="btn ghost sm" type="button" data-act="toast" data-msg="Removed. Their conversations are kept for 30 days.">Remove</button></div></div></div>
-    <p class="hint">Separation on one computer, not separate accounts. Each person’s conversations and memory are their own.</p>
-  <div class="sec"><h2>Each person</h2><div class="ctl"><b>Ask for a PIN when switching person</b><input class="sw" type="checkbox" id="pp-pin" checked="" aria-label="Ask for a PIN when switching person" data-sw="set"><small>Four to eight digits, kept on this computer. Five wrong tries lock the profile for five minutes.</small></div><div class="ctl"><b>Keep conversations separate</b><input class="sw" type="checkbox" id="pp-own" checked="" aria-label="Keep conversations separate" data-sw="set"><small>People can’t read each other’s conversations unless they share one.</small></div></div>
-  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">Groups</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">Signing in from other devices</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">What you share</button></div>`,
-  technical: `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p><div class="t10"><div class="t9-list"><div class="grp8">On this computer</div><button type="button" class="t9-item" data-act="p-sel" data-v="t" aria-current="false"><span class="tav6" data-css="--c:#16212A;width:34px;height:34px;font-size:13px">T<i class="st st-online"></i></span><span class="grow"><b>Taofik · you</b><small>Owner · last used Now</small></span></button><button type="button" class="t9-item" data-act="p-sel" data-v="s" aria-current="false"><span class="tav6" data-css="--c:#56616B;width:34px;height:34px;font-size:13px">SR<i class="st st-away"></i></span><span class="grow"><b>Sam Rivera</b><small>Child · last used Sun</small></span></button><div class="grp8">On their own device</div><button type="button" class="t9-item" data-act="p-sel" data-v="d" aria-current="true"><span class="tav6" data-css="--c:#2F8C86;width:34px;height:34px;font-size:13px">DO<i class="st st-online"></i></span><span class="grow"><b>Dana Okafor</b><small>Adult · last used 5 min ago</small></span></button><button type="button" class="t9-item" data-act="p-sel" data-v="m" aria-current="false"><span class="tav6" data-css="--c:#8A5AA8;width:34px;height:34px;font-size:13px">ML<i class="st st-phone"></i></span><span class="grow"><b>Marcus Lee</b><small>Adult · last used 12 min ago</small></span></button><div class="grp8">From your keepoak.com team</div><button type="button" class="t9-item" data-act="p-sel" data-v="p" aria-current="false"><span class="tav6" data-css="--c:#C0467A;width:34px;height:34px;font-size:13px">PS<i class="st st-away"></i></span><span class="grow"><b>Priya Shah</b><small>Operator · last used Yesterday</small></span></button><button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Invite someone</button></div><div class="t9-detail pcard10"><div class="t9-dh"><span class="tav6" data-css="--c:#2F8C86;width:44px;height:44px;font-size:17px">DO<i class="st st-online"></i></span><span class="grow"><b>Dana Okafor</b><small>Her own MacBook · signs in with a passkey</small></span><span class="pill idle">Adult</span></div>
-    <div class="sec"><h2>May</h2><div class="acts10"><label class="chk "><input type="checkbox" checked="" aria-label="Look things up"> Look things up</label><label class="chk "><input type="checkbox" checked="" aria-label="Use web pages"> Use web pages</label><label class="chk "><input type="checkbox" checked="" aria-label="Write files"> Write files</label><label class="chk "><input type="checkbox" checked="" aria-label="Run commands"> Run commands</label><label class="chk "><input type="checkbox" checked="" aria-label="Send messages"> Send messages</label><label class="chk no10"><input type="checkbox" aria-label="Spend money"> Spend money</label><label class="chk no10"><input type="checkbox" aria-label="Change how Branch is set up"> Change how Branch is set up</label></div></div>
-    <dl class="kv" data-css="margin-top:14px"><dt>Trunks</dt><dd>Ledger, Fieldnotes</dd><dt>Projects</dt><dd>Hartwell</dd><dt>Daily allowance</dt><dd>$5 a day</dd><dt>PIN</dt><dd>Set</dd><dt>Signed in on</dt><dd>MacBook</dd></dl>
-    <div class="acts" data-css="margin-top:14px"><button class="btn sm" type="button" data-act="toast" data-msg="Switched to Dana. Their conversations only.">Switch to Dana</button><span class="seg"><button type="button" data-act="p-role" data-v="Adult" aria-pressed="true">Adult</button><button type="button" data-act="p-role" data-v="Child" aria-pressed="false">Child</button></span><button class="btn ghost sm" type="button" data-act="toast" data-msg="One-time code: 482-913. It works once, for 15 minutes.">Make a one-time code</button><button class="btn ghost sm" type="button" data-act="toast" data-msg="Dana is signed out on every device.">Sign out everywhere</button><button class="btn ghost sm" type="button" data-act="toast" data-msg="Removed. Their conversations are kept for 30 days.">Remove</button></div></div></div>
-    <p class="hint">Separation on one computer, not separate accounts. Each person’s conversations and memory are their own.</p>
-  <div class="sec"><h2>Each person</h2><div class="ctl"><b>Ask for a PIN when switching person</b><input class="sw" type="checkbox" id="pp-pin" checked="" aria-label="Ask for a PIN when switching person" data-sw="set"><small>Four to eight digits, kept on this computer. Five wrong tries lock the profile for five minutes.</small></div><div class="ctl"><b>Keep conversations separate</b><input class="sw" type="checkbox" id="pp-own" checked="" aria-label="Keep conversations separate" data-sw="set"><small>People can’t read each other’s conversations unless they share one.</small></div></div>
-  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">Groups</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">Signing in from other devices</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">What you share</button></div>`,
-};
+let profiles = null;
+let selectedProfile = null;
 
-export function draw() {
-  return MARKUP[["regular", "advanced", "technical"][level()]];
+async function loadProfiles() {
+  try {
+    const data = await api("profiles");
+    profiles = data || [];
+    if (profiles.length > 0) {
+      selectedProfile = profiles[0];
+    }
+  } catch (err) {
+    console.error("Failed to load profiles:", err);
+    profiles = [];
+  }
 }
+
+function renderProfileList() {
+  let html = `<div class="t9-list">`;
+
+  if (profiles && profiles.length > 0) {
+    const groups = {
+      local: [],
+      remote: [],
+      team: [],
+    };
+
+    for (const p of profiles) {
+      if (p.location === "local") {
+        groups.local.push(p);
+      } else if (p.location === "remote") {
+        groups.remote.push(p);
+      } else if (p.location === "team") {
+        groups.team.push(p);
+      }
+    }
+
+    if (groups.local.length > 0) {
+      html += `<div class="grp8">On this computer</div>`;
+      for (const p of groups.local) {
+        const isSelected = selectedProfile && selectedProfile.id === p.id;
+        const initials = p.initials || p.name.split(" ").map(w => w[0]).join("");
+        const color = p.color || "#56616B";
+        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${p.id}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${p.status || "online"}"></i></span><span class="grow"><b>${p.name}${p.isOwner ? " · you" : ""}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
+      }
+    }
+
+    if (groups.remote.length > 0) {
+      html += `<div class="grp8">On their own device</div>`;
+      for (const p of groups.remote) {
+        const isSelected = selectedProfile && selectedProfile.id === p.id;
+        const initials = p.initials || p.name.split(" ").map(w => w[0]).join("");
+        const color = p.color || "#56616B";
+        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${p.id}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${p.status || "online"}"></i></span><span class="grow"><b>${p.name}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
+      }
+    }
+
+    if (groups.team.length > 0) {
+      html += `<div class="grp8">From your keepoak.com team</div>`;
+      for (const p of groups.team) {
+        const isSelected = selectedProfile && selectedProfile.id === p.id;
+        const initials = p.initials || p.name.split(" ").map(w => w[0]).join("");
+        const color = p.color || "#56616B";
+        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${p.id}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${p.status || "online"}"></i></span><span class="grow"><b>${p.name}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
+      }
+    }
+  }
+
+  html += `<button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Invite someone</button></div>`;
+
+  return html;
+}
+
+function renderProfileDetail() {
+  if (!selectedProfile) return "";
+
+  const initials = selectedProfile.initials || selectedProfile.name.split(" ").map(w => w[0]).join("");
+  const color = selectedProfile.color || "#56616B";
+
+  let html = `<div class="t9-detail pcard10"><div class="t9-dh"><span class="tav6" data-css="--c:${color};width:44px;height:44px;font-size:17px">${initials}<i class="st st-${selectedProfile.status || "online"}"></i></span><span class="grow"><b>${selectedProfile.name}</b><small>${selectedProfile.device || "Unknown device"} · ${selectedProfile.signInMethod || "sign-in method"}</small></span><span class="pill ${selectedProfile.role?.toLowerCase() || "user"}">${selectedProfile.role || "User"}</span></div>
+    <div class="sec"><h2>Permissions</h2><div class="acts10">
+      ${selectedProfile.permissions ? selectedProfile.permissions.map(p => `<label class="chk ${!p.allowed ? "no10" : ""}"><input type="checkbox" ${p.allowed ? "checked" : ""} aria-label="${p.name}"> ${p.name}</label>`).join("") : ""}
+    </div></div>
+    <dl class="kv" data-css="margin-top:14px">
+      ${selectedProfile.trunks ? `<dt>Trunks</dt><dd>${selectedProfile.trunks.join(", ")}</dd>` : ""}
+      ${selectedProfile.projects ? `<dt>Projects</dt><dd>${selectedProfile.projects.join(", ")}</dd>` : ""}
+      ${selectedProfile.allowance ? `<dt>Daily allowance</dt><dd>${selectedProfile.allowance}</dd>` : ""}
+      ${selectedProfile.pinRequired !== undefined ? `<dt>PIN</dt><dd>${selectedProfile.pinRequired ? "Set" : "Not set"}</dd>` : ""}
+      ${selectedProfile.signedInOn ? `<dt>Signed in on</dt><dd>${selectedProfile.signedInOn}</dd>` : ""}
+    </dl>
+    <div class="acts" data-css="margin-top:14px">
+      <button class="btn sm" type="button" data-act="p-switch" data-v="${selectedProfile.id}">Switch to ${selectedProfile.name}</button>
+      <span class="seg"><button type="button" data-act="p-role" data-v="Adult" aria-pressed="${selectedProfile.role === "Adult"}">Adult</button><button type="button" data-act="p-role" data-v="Child" aria-pressed="${selectedProfile.role === "Child"}">Child</button></span>
+      <button class="btn ghost sm" type="button" data-act="p-code">Make a one-time code</button>
+      <button class="btn ghost sm" type="button" data-act="p-signout">Sign out everywhere</button>
+      <button class="btn ghost sm" type="button" data-act="p-remove">Remove</button>
+    </div></div>`;
+
+  return html;
+}
+
+function draw() {
+  let html = `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p><div class="t10">
+    ${renderProfileList()}
+    ${renderProfileDetail()}
+  </div>
+    <p class="hint">Separation on one computer, not separate accounts. Each person's conversations and memory are their own.</p>
+  <div class="sec"><h2>Each person</h2><div class="ctl"><b>Ask for a PIN when switching person</b><input class="sw" type="checkbox" id="pp-pin" checked="" aria-label="Ask for a PIN when switching person" data-sw="set"><small>Four to eight digits, kept on this computer. Five wrong tries lock the profile for five minutes.</small></div><div class="ctl"><b>Keep conversations separate</b><input class="sw" type="checkbox" id="pp-own" checked="" aria-label="Keep conversations separate" data-sw="set"><small>People can't read each other's conversations unless they share one.</small></div></div>
+  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">Groups</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">Signing in from other devices</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">What you share</button></div>`;
+
+  return html;
+}
+
+export async function load() {
+  await loadProfiles();
+}
+
+export function init() {
+  // Handlers for people settings
+}
+
+export const live = {
+  "p-sel": true,
+  "p-invite": true,
+  "p-switch": true,
+  "p-role": true,
+  "p-code": true,
+  "p-signout": true,
+  "p-remove": true,
+  "sw:pp-pin": true,
+  "sw:pp-own": true,
+  "p-open-team": true,
+};

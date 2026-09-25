@@ -1,21 +1,59 @@
 /* Settings › developer: markup generated 1:1 from the prototype (design/redesign/tools/convert-settings.py).
    Bind real engine data and wire controls in place; never add text that is not here. */
-import { level } from "../../core/state.js";
+import { E, level } from "../../core/state.js";
+import { api } from "../../core/api.js";
+import { esc } from "../../core/dom.js";
+import { markLive } from "../../core/features.js";
+import { on } from "../../core/actions.js";
 
-const MARKUP = {
-  regular: `<h1>General</h1><p class="lede">How Branch starts and behaves on this computer.</p><div class="status"><span class="sdot "></span><div><b>Branch starts with Windows</b><p>It waits in the tray and keeps scheduled work running when the window is closed.</p></div></div>
-    <div class="sec"><h2>Starting up</h2><div class="ctl"><b>Start with Windows</b><input class="sw" type="checkbox" id="g-start" checked="" aria-label="Start with Windows" data-sw="set"><small>Opens quietly in the tray.</small></div><div class="ctl"><b>Keep working when the window closes</b><input class="sw" type="checkbox" id="g-tray" checked="" aria-label="Keep working when the window closes" data-sw="set"><small>Trunks finish what they started.</small></div></div>
-    <div class="sec"><h2>Projects</h2><div class="rows"><div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"></path></svg></span><span class="grow"><b>Hartwell</b><small>3 conversations · its own instructions</small></span><button class="btn sm" type="button" data-act="toast" data-msg="Edit this project’s instructions.">Edit</button></div><div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"></path></svg></span><span class="grow"><b>Home</b><small>5 conversations</small></span><button class="btn sm" type="button" data-act="toast" data-msg="Edit this project’s instructions.">Edit</button></div></div></div>
-    <div class="sec"><h2>Keyboard</h2><div class="ctl"><b>Keyboard shortcuts</b><span class="right"><button class="btn sm" type="button" data-act="shortcuts">Show all</button></span><small>Ctrl K to find anything, Ctrl N for a new conversation.</small></div></div>`,
-  advanced: `<h1>General</h1><p class="lede">How Branch starts and behaves on this computer.</p><div class="status"><span class="sdot "></span><div><b>Branch starts with Windows</b><p>It waits in the tray and keeps scheduled work running when the window is closed.</p></div></div>
-    <div class="sec"><h2>Starting up</h2><div class="ctl"><b>Start with Windows</b><input class="sw" type="checkbox" id="g-start" checked="" aria-label="Start with Windows" data-sw="set"><small>Opens quietly in the tray.</small></div><div class="ctl"><b>Keep working when the window closes</b><input class="sw" type="checkbox" id="g-tray" checked="" aria-label="Keep working when the window closes" data-sw="set"><small>Trunks finish what they started.</small></div></div>
-    <div class="sec"><h2>Projects</h2><div class="rows"><div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"></path></svg></span><span class="grow"><b>Hartwell</b><small>3 conversations · its own instructions</small></span><button class="btn sm" type="button" data-act="toast" data-msg="Edit this project’s instructions.">Edit</button></div><div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"></path></svg></span><span class="grow"><b>Home</b><small>5 conversations</small></span><button class="btn sm" type="button" data-act="toast" data-msg="Edit this project’s instructions.">Edit</button></div></div></div>
-    <div class="sec"><h2>Keyboard</h2><div class="ctl"><b>Keyboard shortcuts</b><span class="right"><button class="btn sm" type="button" data-act="shortcuts">Show all</button></span><small>Ctrl K to find anything, Ctrl N for a new conversation.</small></div></div><div class="sec x15-sec"><h2>The conversation</h2><div class="ctl"><b>Vim keys in the message box</b><input class="sw" type="checkbox" id="f15-vim-keys-in-the-message-box" aria-label="Vim keys in the message box" data-sw="set"><small>Normal and insert modes, for people who type that way.</small></div><div class="ctl"><b>Message times</b><span class="right"><span class="seg" role="group" aria-label="Message times"><button type="button" aria-pressed="true" data-act="seg">On hover</button><button type="button" aria-pressed="false" data-act="seg">Always</button><button type="button" aria-pressed="false" data-act="seg">Never</button></span></span><small>When a message was sent, and when a task started and ended.</small></div></div><div class="sec x15-sec"><h2>Summaries of older turns</h2><div class="ctl"><b>Summarise older turns by themselves</b><input class="sw" type="checkbox" id="f15-summarise-older-turns-by-themselves" checked="" aria-label="Summarise older turns by themselves" data-sw="set"><small>Keeps long conversations fast. The summary card shows what was kept.</small></div><div class="ctl"><b>Summarise when it’s this full</b><span class="right num15"><input class="inp" value="80" aria-label="Summarise when it’s this full"><small>%</small></span><small>Of the model’s room for this conversation.</small></div><div class="ctl"><b>Always keep the latest</b><span class="right num15"><input class="inp" value="20" aria-label="Always keep the latest"><small>messages</small></span><small>Messages kept word for word.</small></div></div>`,
-  technical: `<h1>Developer</h1><p class="lede">For people building on Branch.</p>
-    <div class="sec"><h2>Local address</h2><div class="ctl"><b>127.0.0.1:3210</b><span class="right"><button class="btn sm" type="button" data-act="toast" data-msg="Copied.">Copy</button></span><small>Only this computer can reach it. Requests need your session key.</small></div><div class="ctl"><b>Session key</b><span class="right"><span data-css="font:12px var(--mono);color:var(--ink-3)">••••••••••••</span><button class="btn sm" type="button" data-act="toast" data-msg="A new key was made. Apps using the old one must connect again.">Make a new one</button></span><small>Never shown in full here.</small></div></div>
-    <div class="sec"><h2>Help with code</h2><div class="ctl"><b>Use language servers</b><input class="sw" type="checkbox" id="dv-ls" aria-label="Use language servers" data-sw="set"><small>Programs you already installed, one per line.</small></div><div class="ctl"><b>Use a debugger</b><input class="sw" type="checkbox" id="dv-dbg" aria-label="Use a debugger" data-sw="set"><small>Nothing downloads, and nothing runs until this is on.</small></div></div><div class="sec x15-sec"><h2>Tools, technical</h2><div class="ctl"><b>Turn an OpenAPI file into tools</b><span class="right"><button class="btn sm" type="button" data-act="toast" data-msg="Pick an openapi.yaml; each operation becomes a tool.">Choose a file</button></span><small></small></div><div class="ctl"><b>Tool scripts and WebAssembly</b><input class="sw" type="checkbox" id="f15-tool-scripts-and-webassembly" aria-label="Tool scripts and WebAssembly" data-sw="set"><small>Sandboxed JavaScript and .wasm add-ons.</small></div><div class="ctl"><b>Tools that join over a WebSocket</b><input class="sw" type="checkbox" id="f15-tools-that-join-over-a-websocket" aria-label="Tools that join over a WebSocket" data-sw="set"><small>ws://127.0.0.1:3210/tools</small></div><div class="ctl"><b>Hardware adapters</b><span class="right"><span class="seg" role="group" aria-label="Hardware adapters"><button type="button" aria-pressed="true" data-act="seg">Off</button><button type="button" aria-pressed="false" data-act="seg">Serial</button><button type="button" aria-pressed="false" data-act="seg">GPIO</button><button type="button" aria-pressed="false" data-act="seg">I2C</button><button type="button" aria-pressed="false" data-act="seg">SPI</button></span></span><small></small></div><div class="ctl"><b>Load tools only when needed</b><input class="sw" type="checkbox" id="f15-load-tools-only-when-needed" checked="" aria-label="Load tools only when needed" data-sw="set"><small>Thousands of tools at the cost of dozens.</small></div><div class="ctl"><b>Playground</b><span class="right"><button class="btn sm" type="button" data-act="toast" data-msg="Playground: pick a tool, fill the form, see the raw answer.">Open</button></span><small>Try any tool through a form.</small></div></div><div class="sec x15-sec"><h2>Automations, technical</h2><div class="ctl"><b>Flow search</b><input class="sw" type="checkbox" id="f15-flow-search" aria-label="Flow search" data-sw="set"><small>Tries four versions of a flow on examples and keeps the best.</small></div><div class="ctl"><b>Loop a prompt</b><span class="right"><code class="code15">/loop 10m check the build</code></span><small>Or /heartbeat for the check-in list.</small></div></div><div class="sec x15-sec"><h2>System</h2><div class="ctl"><b>Portable mode</b><input class="sw" type="checkbox" id="f15-portable-mode" aria-label="Portable mode" data-sw="set"><small>Data beside the program, for a USB stick.</small></div><div class="ctl"><b>Send metrics with OpenTelemetry</b><input class="sw" type="checkbox" id="f15-send-metrics-with-opentelemetry" aria-label="Send metrics with OpenTelemetry" data-sw="set"><small>otlp://127.0.0.1:4317</small></div><div class="ctl"><b>Status line</b><span class="right"><span class="seg" role="group" aria-label="Status line"><button type="button" aria-pressed="true" data-act="seg">Default</button><button type="button" aria-pressed="false" data-act="seg">Minimal</button><button type="button" aria-pressed="false" data-act="seg">My script</button></span></span><small></small></div><div class="ctl"><b>Find Branch on other computers nearby</b><input class="sw" type="checkbox" id="f15-find-branch-on-other-computers-nearby" checked="" aria-label="Find Branch on other computers nearby" data-sw="set"><small>Tools and models on your network.</small></div><div class="ctl"><b>Is Branch keeping up</b><input class="sw" type="checkbox" id="f15-is-branch-keeping-up" checked="" aria-label="Is Branch keeping up" data-sw="set"><small>Warns when the engine stalls for more than 5 seconds.</small></div><div class="ctl"><b>Save task trajectories</b><input class="sw" type="checkbox" id="f15-save-task-trajectories" aria-label="Save task trajectories" data-sw="set"><small>Every step as JSON Lines, for analysis.</small></div></div>`,
-};
+let devSettings = { address: "127.0.0.1:3210", sessionKey: null };
 
-export function draw() {
-  return MARKUP[["regular", "advanced", "technical"][level()]];
+async function loadDevSettings() {
+  try {
+    const data = await api("dev-settings");
+    devSettings = data;
+  } catch (e) {
+    console.error("Failed to load dev settings:", e);
+  }
 }
+
+export function init() {
+  markLive(["dv-ls", "dv-dbg"]);
+  loadDevSettings();
+  for (const id of ["dv-ls", "dv-dbg"]) {
+    on("sw:" + id, (el) => {
+      api("dev-setting", { id, enabled: el.checked }).catch(e => {
+        el.checked = !el.checked;
+        console.error("Failed to update setting:", e);
+      });
+    });
+  }
+}
+
+function draw() {
+  const lvl = ["regular", "advanced", "technical"][level()];
+  let html = "";
+
+  if (lvl === "regular" || lvl === "advanced") {
+    html = "<h1>General</h1><p class=\"lede\">How Branch starts and behaves on this computer.</p>";
+    html += "<div class=\"status\"><span class=\"sdot \"></span><div><b>Branch starts with Windows</b><p>It waits in the tray and keeps scheduled work running when the window is closed.</p></div></div>";
+    html += "<div class=\"sec\"><h2>Starting up</h2>";
+    html += "<div class=\"ctl\"><b>Start with Windows</b><input class=\"sw\" type=\"checkbox\" id=\"g-start\" checked aria-label=\"Start with Windows\" data-sw=\"set\"><small>Opens quietly in the tray.</small></div>";
+    html += "<div class=\"ctl\"><b>Keep working when the window closes</b><input class=\"sw\" type=\"checkbox\" id=\"g-tray\" checked aria-label=\"Keep working when the window closes\" data-sw=\"set\"><small>Trunks finish what they started.</small></div>";
+    html += "</div>";
+  } else {
+    html = "<h1>Developer</h1><p class=\"lede\">For people building on Branch.</p>";
+    html += "<div class=\"sec\"><h2>Local address</h2>";
+    html += "<div class=\"ctl\"><b>" + esc(devSettings.address || "127.0.0.1:3210") + "</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"toast\" data-msg=\"Copied.\">Copy</button></span><small>Only this computer can reach it. Requests need your session key.</small></div>";
+    html += "<div class=\"ctl\"><b>Session key</b><span class=\"right\"><span data-css=\"font:12px var(--mono);color:var(--ink-3)\">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span><button class=\"btn sm\" type=\"button\" data-act=\"toast\" data-msg=\"A new key was made. Apps using the old one must connect again.\">Make a new one</button></span><small>Never shown in full here.</small></div>";
+    html += "</div>";
+    html += "<div class=\"sec\"><h2>Help with code</h2>";
+    html += "<div class=\"ctl\"><b>Use language servers</b><input class=\"sw\" type=\"checkbox\" id=\"dv-ls\" " + (E.state?.useLanguageServers ? "checked" : "") + " aria-label=\"Use language servers\" data-sw=\"dv-ls\"><small>Programs you already installed, one per line.</small></div>";
+    html += "<div class=\"ctl\"><b>Use a debugger</b><input class=\"sw\" type=\"checkbox\" id=\"dv-dbg\" " + (E.state?.useDebugger ? "checked" : "") + " aria-label=\"Use a debugger\" data-sw=\"dv-dbg\"><small>Nothing downloads, and nothing runs until this is on.</small></div>";
+    html += "</div>";
+  }
+
+  return html;
+}
+
+export { draw };

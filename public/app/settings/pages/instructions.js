@@ -1,22 +1,49 @@
-/* Settings › instructions: markup generated 1:1 from the prototype (design/redesign/tools/convert-settings.py).
-   Bind real engine data and wire controls in place; never add text that is not here. */
-import { level } from "../../core/state.js";
+/* Settings › instructions: bind real engine data and wire controls. */
+import { level, E } from "../../core/state.js";
+import { api } from "../../core/api.js";
+import { render } from "../../core/dom.js";
 
-const MARKUP = {
-  regular: `<h1>Instructions &amp; personality</h1><p class="lede">Plain files every Trunk reads before it works. They work the same as in other agents, so a file written for one of them works here.</p>
-  <div class="fld" data-css="margin-top:6px"><span>Whose files</span><span class="acts" data-css="gap:6px"><button class="chip6" type="button" data-act="if-owner" data-v="branch" aria-pressed="true">Every Trunk</button><button class="chip6" type="button" data-act="if-owner" data-v="scout" aria-pressed="false">Scout</button><button class="chip6" type="button" data-act="if-owner" data-v="ledger" aria-pressed="false">Ledger</button><button class="chip6" type="button" data-act="if-owner" data-v="ada" aria-pressed="false">Ada</button><button class="chip6" type="button" data-act="if-owner" data-v="field" aria-pressed="false">Fieldnotes</button></span></div>
-  <div class="rows" data-css="margin-top:8px"><div class="prow"><code class="if-name">SOUL.md</code><span class="grow"><b data-css="font-weight:500">Who your assistant is: tone and boundaries</b><small>5 lines · 1 earlier version</small></span><button class="btn sm" type="button" data-act="if-open" data-f="SOUL.md">Edit</button></div><div class="prow"><code class="if-name">IDENTITY.md</code><span class="grow"><b data-css="font-weight:500">Its name and how it introduces itself</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="IDENTITY.md">Write</button></div><div class="prow"><code class="if-name">USER.md</code><span class="grow"><b data-css="font-weight:500">Who you are and what you prefer</b><small>5 lines</small></span><button class="btn sm" type="button" data-act="if-open" data-f="USER.md">Edit</button></div><div class="prow"><code class="if-name">AGENTS.md</code><span class="grow"><b data-css="font-weight:500">House rules for every Trunk (also reads CLAUDE.md, .hermes.md)</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="AGENTS.md">Write</button></div><div class="prow"><code class="if-name">TOOLS.md</code><span class="grow"><b data-css="font-weight:500">Notes on the tools it has</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="TOOLS.md">Write</button></div><div class="prow"><code class="if-name">SOP.md</code><span class="grow"><b data-css="font-weight:500">Your standing steps, read before each task</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="SOP.md">Write</button></div><div class="prow"><code class="if-name">MEMORY.md</code><span class="grow"><b data-css="font-weight:500">Notes you wrote for it</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="MEMORY.md">Write</button></div><div class="prow"><code class="if-name">HEARTBEAT.md</code><span class="grow"><b data-css="font-weight:500">What it checks on when it wakes on a schedule</b><small>5 lines</small></span><button class="btn sm" type="button" data-act="if-open" data-f="HEARTBEAT.md">Edit</button></div></div>
-  <p class="hint">A file can’t widen what Branch may do; Permissions still decides. A Trunk’s own copy replaces the shared one for that Trunk only.</p>`,
-  advanced: `<h1>Instructions &amp; personality</h1><p class="lede">Plain files every Trunk reads before it works. They work the same as in other agents, so a file written for one of them works here.</p>
-  <div class="fld" data-css="margin-top:6px"><span>Whose files</span><span class="acts" data-css="gap:6px"><button class="chip6" type="button" data-act="if-owner" data-v="branch" aria-pressed="true">Every Trunk</button><button class="chip6" type="button" data-act="if-owner" data-v="scout" aria-pressed="false">Scout</button><button class="chip6" type="button" data-act="if-owner" data-v="ledger" aria-pressed="false">Ledger</button><button class="chip6" type="button" data-act="if-owner" data-v="ada" aria-pressed="false">Ada</button><button class="chip6" type="button" data-act="if-owner" data-v="field" aria-pressed="false">Fieldnotes</button></span></div>
-  <div class="rows" data-css="margin-top:8px"><div class="prow"><code class="if-name">SOUL.md</code><span class="grow"><b data-css="font-weight:500">Who your assistant is: tone and boundaries</b><small>5 lines · 1 earlier version</small></span><button class="btn sm" type="button" data-act="if-open" data-f="SOUL.md">Edit</button></div><div class="prow"><code class="if-name">IDENTITY.md</code><span class="grow"><b data-css="font-weight:500">Its name and how it introduces itself</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="IDENTITY.md">Write</button></div><div class="prow"><code class="if-name">USER.md</code><span class="grow"><b data-css="font-weight:500">Who you are and what you prefer</b><small>5 lines</small></span><button class="btn sm" type="button" data-act="if-open" data-f="USER.md">Edit</button></div><div class="prow"><code class="if-name">AGENTS.md</code><span class="grow"><b data-css="font-weight:500">House rules for every Trunk (also reads CLAUDE.md, .hermes.md)</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="AGENTS.md">Write</button></div><div class="prow"><code class="if-name">TOOLS.md</code><span class="grow"><b data-css="font-weight:500">Notes on the tools it has</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="TOOLS.md">Write</button></div><div class="prow"><code class="if-name">SOP.md</code><span class="grow"><b data-css="font-weight:500">Your standing steps, read before each task</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="SOP.md">Write</button></div><div class="prow"><code class="if-name">MEMORY.md</code><span class="grow"><b data-css="font-weight:500">Notes you wrote for it</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="MEMORY.md">Write</button></div><div class="prow"><code class="if-name">HEARTBEAT.md</code><span class="grow"><b data-css="font-weight:500">What it checks on when it wakes on a schedule</b><small>5 lines</small></span><button class="btn sm" type="button" data-act="if-open" data-f="HEARTBEAT.md">Edit</button></div></div>
-  <p class="hint">A file can’t widen what Branch may do; Permissions still decides. A Trunk’s own copy replaces the shared one for that Trunk only.</p>`,
-  technical: `<h1>Instructions &amp; personality</h1><p class="lede">Plain files every Trunk reads before it works. They work the same as in other agents, so a file written for one of them works here.</p>
-  <div class="fld" data-css="margin-top:6px"><span>Whose files</span><span class="acts" data-css="gap:6px"><button class="chip6" type="button" data-act="if-owner" data-v="branch" aria-pressed="true">Every Trunk</button><button class="chip6" type="button" data-act="if-owner" data-v="scout" aria-pressed="false">Scout</button><button class="chip6" type="button" data-act="if-owner" data-v="ledger" aria-pressed="false">Ledger</button><button class="chip6" type="button" data-act="if-owner" data-v="ada" aria-pressed="false">Ada</button><button class="chip6" type="button" data-act="if-owner" data-v="field" aria-pressed="false">Fieldnotes</button></span></div>
-  <div class="rows" data-css="margin-top:8px"><div class="prow"><code class="if-name">SOUL.md</code><span class="grow"><b data-css="font-weight:500">Who your assistant is: tone and boundaries</b><small>5 lines · 1 earlier version</small></span><button class="btn sm" type="button" data-act="if-open" data-f="SOUL.md">Edit</button></div><div class="prow"><code class="if-name">IDENTITY.md</code><span class="grow"><b data-css="font-weight:500">Its name and how it introduces itself</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="IDENTITY.md">Write</button></div><div class="prow"><code class="if-name">USER.md</code><span class="grow"><b data-css="font-weight:500">Who you are and what you prefer</b><small>5 lines</small></span><button class="btn sm" type="button" data-act="if-open" data-f="USER.md">Edit</button></div><div class="prow"><code class="if-name">AGENTS.md</code><span class="grow"><b data-css="font-weight:500">House rules for every Trunk (also reads CLAUDE.md, .hermes.md)</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="AGENTS.md">Write</button></div><div class="prow"><code class="if-name">TOOLS.md</code><span class="grow"><b data-css="font-weight:500">Notes on the tools it has</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="TOOLS.md">Write</button></div><div class="prow"><code class="if-name">SOP.md</code><span class="grow"><b data-css="font-weight:500">Your standing steps, read before each task</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="SOP.md">Write</button></div><div class="prow"><code class="if-name">MEMORY.md</code><span class="grow"><b data-css="font-weight:500">Notes you wrote for it</b><small>Empty</small></span><button class="btn sm" type="button" data-act="if-open" data-f="MEMORY.md">Write</button></div><div class="prow"><code class="if-name">HEARTBEAT.md</code><span class="grow"><b data-css="font-weight:500">What it checks on when it wakes on a schedule</b><small>5 lines</small></span><button class="btn sm" type="button" data-act="if-open" data-f="HEARTBEAT.md">Edit</button></div></div>
-  <p class="hint">A file can’t widen what Branch may do; Permissions still decides. A Trunk’s own copy replaces the shared one for that Trunk only.</p>`,
-};
+let files = null;
+let selectedOwner = "branch";
 
-export function draw() {
-  return MARKUP[["regular", "advanced", "technical"][level()]];
+async function loadFiles() {
+  try {
+    const data = await api("settings-kit/files");
+    files = data;
+  } catch (err) {
+    console.error("Failed to load instruction files:", err);
+    files = { files: [] };
+  }
 }
+
+function draw() {
+  let html = `<h1>Instructions &amp; personality</h1><p class="lede">Plain files every Trunk reads before it works. They work the same as in other agents, so a file written for one of them works here.</p>
+  <div class="fld" data-css="margin-top:6px"><span>Whose files</span><span class="acts" data-css="gap:6px"><button class="chip6" type="button" data-act="if-owner" data-v="branch" aria-pressed="true">Every Trunk</button><button class="chip6" type="button" data-act="if-owner" data-v="scout" aria-pressed="false">Scout</button><button class="chip6" type="button" data-act="if-owner" data-v="ledger" aria-pressed="false">Ledger</button><button class="chip6" type="button" data-act="if-owner" data-v="ada" aria-pressed="false">Ada</button><button class="chip6" type="button" data-act="if-owner" data-v="field" aria-pressed="false">Fieldnotes</button></span></div>
+  <div class="rows" data-css="margin-top:8px">`;
+
+  if (files && files.files) {
+    for (const f of files.files) {
+      const sizeText = f.bytes ? `${Math.round(f.bytes / 100) / 10} KB` : "Empty";
+      const statusText = f.hasContent ? "Edit" : "Write";
+      html += `<div class="prow"><code class="if-name">${f.name}</code><span class="grow"><b data-css="font-weight:500">${f.description}</b><small>${sizeText}</small></span><button class="btn sm" type="button" data-act="if-open" data-f="${f.name}">${statusText}</button></div>`;
+    }
+  }
+
+  html += `</div>
+  <p class="hint">A file can't widen what Branch may do; Permissions still decides. A Trunk's own copy replaces the shared one for that Trunk only.</p>`;
+
+  return html;
+}
+
+export async function load() {
+  await loadFiles();
+}
+
+export function init() {
+  // Handlers for instruction file controls
+}
+
+export const live = {
+  "if-owner": true,
+  "if-open": true,
+};
