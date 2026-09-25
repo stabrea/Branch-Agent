@@ -65,14 +65,17 @@ test("F1/F2: allowing the request shown answers that one only; the other convers
 test("F3: a Trunk named with markup shows the name as text, and none of it becomes part of the page", async (t) => {
   const { app, page } = await signedIn(t);
   const name = "</button><i class=scrim data-act=ask>";
+  app.trunks.setMode("trunks", { mode: "on" });
   app.trunks.create({ name });
   await page.reload();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.getByRole("button", { name: "Settings", exact: true }).first().click();
   await page.locator('[data-act="setpage"][data-v="instructions"]').click();
-  await page.getByText(name, { exact: true }).first().waitFor({ timeout: 30000 });
+  await page.getByRole("heading", { name: "Instructions & personality" }).waitFor({ timeout: 30000 });
+  await page.locator('[data-act="if-owner"][data-v="branch"]').waitFor({ timeout: 30000 });
   assert.equal(await page.locator("i.scrim").count(), 0, "no element made from the name");
   assert.equal(await page.locator('i[data-act="ask"]').count(), 0, "no action made from the name");
+  await page.getByText(name, { exact: true }).first().waitFor({ timeout: 10000 });
 });
 
 test("F1: an approve control that names no request (as Inbox's Trunk-message rows had) answers nothing", async (t) => {
