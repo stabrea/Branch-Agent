@@ -68,6 +68,8 @@ export interface WorkflowView {
   id: string; name: string; description: string; steps: WorkflowStep[];
   status: WorkflowStatus; cursor: number; waitingUntil: string | null;
   question: string | null; error: string | null; state: StepState[];
+  /** Q219: set when the owner's "always" was not kept because the approval rules are full. */
+  standingNote?: string;
   /** What it was doing when it was stopped, so carrying it on picks the same thread back up. */
   pausedFrom: WorkflowStatus | null;
 }
@@ -240,9 +242,10 @@ export class Workflows {
     if (refused) throw refused;
     const asked = this.pending(owner, id);
     if (asked) {
-      this.runtime.grantApproval(approvalKeyFor(id), asked, options.remember ?? asked.remember);
+      const note = this.runtime.grantApproval(approvalKeyFor(id), asked, options.remember ?? asked.remember);
       this.setStatus(owner, id, { question: null, pausedFrom: null, pendingApproval: null });
-      return this.run(owner, id, asked.source);
+      const view = await this.run(owner, id, asked.source);
+      return note ? { ...view, standingNote: note } : view;
     }
     const step = current.steps[current.cursor];
     if (step) this.writeStep(owner, id, current.cursor, step, { status: "approved", attempts: 1, output: "Approved by the owner" });
