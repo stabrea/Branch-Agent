@@ -2651,6 +2651,7 @@
   "live.steerPlaceholder": "Changement de plan : …",
   "live.steerSend": "Envoyer",
   "live.steered": "Noté. Elle en tiendra compte.",
+  "live.standingFull": "Vos règles d’approbation sont pleines : cette réponse vaut pour cette conversation seulement. Supprimez des règles dans « Quand me demander » dans les Réglages pour en garder davantage.",
   "live.stop": "Arrêter",
   "live.stopped": "Arrêté.",
   "live.tokens": "{tokens} mots de contexte utilisés",

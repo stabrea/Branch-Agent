@@ -1246,6 +1246,8 @@ async function api(
       store: app.store, owner: app.runtime.owner, workspace: app.runtime.workspace, appVersion: app.version,
       // One set of writers for the window and for the assistant changing a setting (src/settings-kit/writers.ts).
       writers: settingsKitWriters(app),
+      // A move of the approval preset is weighed on the tools Branch has (src/preset-moves.ts).
+      tools: app.registry,
       guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
         workspace: app.runtime.workspace }, app.runtime.protectedAreas),
     }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {

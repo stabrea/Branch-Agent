@@ -158,6 +158,35 @@ export function presetRules(preset: PolicyPresetName): PolicyRule[] {
   if (preset === "custom") return [];
   return presetDefinitions[preset].rules.map((rule) => PolicyRuleSchema.parse(rule));
 }
+/** One rule as the saved list holds it, so two rules can be told the same however they were written. */
+const ruleKey = (rule: PolicyRule): string => JSON.stringify(PolicyRuleSchema.parse(rule));
+/** Every line a named preset writes, to tell them from the rules that are the owner's own. */
+const presetLineKeys = new Set((Object.keys(presetDefinitions) as Exclude<PolicyPresetName, "custom">[]).flatMap((name) => presetRules(name).map(ruleKey)));
+
+/**
+ * Whether a rule stays when the owner moves to another preset. A preset replaces its own lines, never
+ * the owner's: every refusal the owner has, a standing "deny, always" or one they wrote themselves, stays.
+ * A line some preset writes is that preset's, so Read only's refusal of every change goes with Read only,
+ * even from a hand-made list that holds a copy of it. A standing yes ends with the move, so a stricter
+ * preset never goes on letting through what the owner once allowed under a looser one.
+ */
+export function keptThroughPresetMove(rule: PolicyRule): boolean {
+  return rule.decision === "deny" && !presetLineKeys.has(ruleKey(rule));
+}
+
+/**
+ * The rules a move to `preset` saves: the owner's kept refusals first, in their own order, then the
+ * preset's own lines. Saving and weighing a move both use this, so what is weighed is what is saved.
+ * Nothing is cut to fit: a move that would take the list past the most a policy holds is refused in
+ * plain words, and the owner's refusals and the preset's lines all stay as they are.
+ */
+export function presetMoved(current: Policy, preset: PolicyPresetName): PolicyRule[] {
+  const kept = current.rules.filter(keptThroughPresetMove);
+  const lines = presetRules(preset);
+  if (kept.length + lines.length > maximumPolicyRules)
+    throw new Error(`This preset's ${lines.length} rules and the ${kept.length} refusals of your own it keeps come to more than the ${maximumPolicyRules} rules a policy holds. Remove some of your own rules, then choose it again.`);
+  return [...kept, ...lines];
+}
 /** Every preset the owner can pick, with plain-language labels for the settings screen. */
 export function policyPresets(): { id: PolicyPresetName; label: string; description: string; rules: PolicyRule[] }[] {
   return (Object.keys(presetDefinitions) as Exclude<PolicyPresetName, "custom">[]).map((id) => ({
@@ -338,13 +367,16 @@ export function readPolicy(store: Store, owner: string): Policy {
   const saved = PolicySchema.safeParse(store.get("settings", owner, policyKey)?.data ?? {});
   return saved.success ? saved.data : PolicySchema.parse({});
 }
-/** Saves a preset, a hand-edited rule list, or new limits; anything left out keeps its current value. */
+/**
+ * Saves a preset, a hand-edited rule list, or new limits; anything left out keeps its current value.
+ * A preset on its own keeps the owner's refusals in front of its lines (`presetMoved`).
+ */
 export function savePolicy(store: Store, owner: string, input: unknown, reason = "The approval settings were saved"): Policy {
   const value = PolicyInputSchema.parse(input ?? {});
   const current = readPolicy(store, owner);
   const next: Policy = {
     preset: value.preset ?? (value.rules ? "custom" : current.preset),
-    rules: value.rules ?? (value.preset ? presetRules(value.preset) : current.rules),
+    rules: value.rules ?? (value.preset ? presetMoved(current, value.preset) : current.rules),
     limits: PolicyLimitsSchema.parse({ ...current.limits, ...value.limits }),
     unmatchedCommands: value.unmatchedCommands ?? current.unmatchedCommands,
   };
@@ -372,16 +404,53 @@ export function standingRule(rule: PolicyRule): PolicyRule {
   if (!rule.match.includes("*")) return rule;
   return { ...rule, match, resource: { kind: "command", pattern: exactCommandPattern(command), exact: true } };
 }
+const carefulness: Record<PolicyDecision, number> = { allow: 0, ask: 1, deny: 2 };
+/**
+ * At the most rules a policy holds, the oldest rule of the owner's own makes room for the newest
+ * answer, in front: never a line of the preset, and never the answer just given. Q212, Q215: the least
+ * careful kind goes first (a yes, then a question, then a refusal), and never one more careful than the
+ * new answer, so a standing yes never pushes out one of the owner's refusals or "ask first" rules. When
+ * nothing may make room the answer is not kept (null).
+ */
+function withRoom(rules: PolicyRule[], preset: PolicyPresetName): { rules: PolicyRule[]; dropped: PolicyRule | undefined } | null {
+  if (rules.length <= maximumPolicyRules) return { rules, dropped: undefined };
+  const lines = new Set(presetRules(preset).map(ruleKey));
+  const own = (rule: PolicyRule, at: number): boolean => at > 0 && !lines.has(ruleKey(rule));
+  for (const decision of ["allow", "ask", "deny"] as const) {
+    if (carefulness[decision] > carefulness[rules[0]!.decision]) break;
+    const oldest = rules.findLastIndex((rule, at) => own(rule, at) && rule.decision === decision);
+    if (oldest >= 0) return { rules: rules.filter((_rule, at) => at !== oldest), dropped: rules[oldest] };
+  }
+  return null;
+}
+/** Q215: the words for a standing answer that was not kept because the rules are full. */
+export const policyFullNote = `Your approval rules are full (${maximumPolicyRules}), so this answer was not kept as a standing rule. It holds for this conversation. Remove some rules under "When to check with me" in Settings to keep more.`;
 /** Records a standing answer as a rule in front of the others, so it beats the broader ones. */
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {
+  return keepPolicyRule(store, owner, rule).policy;
+}
+/** The same, saying whether the rule was kept (Q215): a full list keeps it only when a less careful rule makes room. */
+export function keepPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): { policy: Policy; kept: boolean } {
   const current = readPolicy(store, owner);
   const added = standingRule(PolicyRuleSchema.parse(rule));
-  const next: Policy = { ...current, rules: [added, ...current.rules].slice(0, maximumPolicyRules) };
+  const room = withRoom([added, ...current.rules], current.preset);
+  const subject = `${added.tool} on ${added.match}`;
+  if (!room) {
+    // Q212: the answer still counts for the question it was given to; it is only not remembered.
+    audit(store, owner, {
+      action: "policy.changed", actor: owner, subject, outcome: "not kept",
+      reason: `A standing "${added.decision}" was not remembered: the approval rules are full (${maximumPolicyRules}), and making room would drop one of your refusals or "ask first" rules. Remove some rules to keep more answers.`,
+    });
+    return { policy: current, kept: false };
+  }
+  const next: Policy = { ...current, rules: room.rules };
   store.save("settings", owner, policyKey, next);
   audit(store, owner, {
-    action: "policy.changed", actor: owner, subject: `${added.tool} on ${added.match}`,
+    action: "policy.changed", actor: owner, subject,
     reason: `A standing "${added.decision}" was remembered from a question you answered`
-      + (added.resource ? `, for the command ${added.resource.pattern}` : ""), outcome: "saved",
+      + (added.resource ? `, for the command ${added.resource.pattern}` : "")
+      + (room.dropped ? `. The rules were full, so your oldest rule (${room.dropped.decision} ${room.dropped.tool} on ${room.dropped.match}) made room` : ""),
+    outcome: "saved",
   });
-  return next;
+  return { policy: next, kept: true };
 }

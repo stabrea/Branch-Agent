@@ -132,10 +132,12 @@ async function answer(sessionId, decision, remember, fingerprint, source) {
     const said = await api("policy/approve", { sessionId, decision, remember, ...(fingerprint ? { fingerprint } : {}), carryOn: true });
     // Dogfood A6: a yes to the owner's own task carries it on by itself (src/server.ts, settleAsked), and says when it
     // did not (NAS bd6cf44): a plan waiting, a newer task in that conversation, or another question still open.
-    status(decision !== "allow" ? "Noted. It will not do that."
+    const noted = decision !== "allow" ? "Noted. It will not do that."
       : said?.task === "carrying-on" ? "Noted. It carries on in its conversation."
         : said?.task === "still-waiting" && source === "owner" ? "Noted. It still waits in its conversation: open it to carry on."
-          : "Noted. Send your next message in that conversation to carry on.");
+          : "Noted. Send your next message in that conversation to carry on.";
+    // Q215: with the approval rules full, an "always" was kept for this conversation only.
+    status(said?.standingNote ? `${noted} ${said.standingNote}` : noted);
     await render();
   } catch (e) {
     status(e.message);

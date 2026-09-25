@@ -69,8 +69,12 @@ test("a fresh install has nothing to put back, and a changed guard comes back on
 
 test("a preset shows each change first, and only the ticked ones are made, through each setting's own reader", async (t) => {
   const { store, owner } = await fixture(t);
+  // A move of the approval preset is weighed on the tools Branch has; without them it counts as less careful.
+  // This test has a store and no app, so it hands in a reading tool, a changing tool and a web one.
+  const tools = { inventory: () => [{ name: "files.read", permission: "files.read" }, { name: "files.write", permission: "files.write" },
+    { name: "web.fetch", permission: "web.read" }] };
   const careful = presets.find((preset) => preset.id === "careful");
-  const { changes } = changesFor(store, owner, careful.sets);
+  const { changes } = changesFor(store, owner, careful.sets, tools);
   const ids = changes.map((change) => change.id);
   assert.ok(ids.includes("policy.preset") && ids.includes("loop_guard.mode") && ids.includes("folder_trust_mode.mode"));
   assert.ok(changes.every((change) => !change.loosens), "being careful never loosens anything from a fresh install");
@@ -81,7 +85,7 @@ test("a preset shows each change first, and only the ticked ones are made, throu
   assert.equal(loopGuardMode(store, owner), "on");
   assert.equal(folderTrustMode(store, owner), "off", "an unticked line was not written");
   // Moving from careful to hands-off loosens the approval preset, and says so.
-  const handsOff = changesFor(store, owner, presets.find((preset) => preset.id === "hands-off").sets).changes;
+  const handsOff = changesFor(store, owner, presets.find((preset) => preset.id === "hands-off").sets, tools).changes;
   assert.equal(handsOff.find((change) => change.id === "policy.preset")?.loosens, true);
 });
 
