@@ -1,0 +1,118 @@
+/* The composer's two chips and their menus, 1:1 with the prototype's: which model answers and how long it thinks, and how
+   much it may do. A conversation's own choice is kept with it (POST /api/sessions/<id>/model, POST /api/conversation-mode);
+   before a conversation exists, the choice is what new ones start with (POST /api/models, POST
+   /api/conversation-mode/settings). Lockdown is the engine's own switch (POST /api/lockdown). */
+
+import { esc, applyCss } from "../core/dom.js";
+import { ic, openPop, closePop, mi, toast } from "../core/ui.js";
+import { S, E, refresh } from "../core/state.js";
+import { api } from "../core/api.js";
+import { on } from "../core/actions.js";
+import { markLive } from "../core/features.js";
+import { logo } from "../core/logos.js";
+
+const PMODES = [["auto", "Auto", "Branch decides what’s safe and only asks about risky things.", "spark"], ["ask", "Ask first", "Always asks before changing files, running commands or using the internet.", "shield"], ["plan", "Plan first", "Writes a plan and waits for your OK before doing anything.", "plan"], ["full", "Full access", "Does anything on this computer without asking: files, commands, the internet.", "unlock"]];
+const M = { sid: undefined, model: null, mode: null, at: 0 };
+
+const presets = () => E.state?.models?.presets ?? [];
+function current() {
+  const eff = M.model?.effective ?? E.state?.activeModel ?? {};
+  const reasoning = M.model ? M.model.reasoning ?? E.state?.models?.reasoning : E.state?.models?.reasoning;
+  return { id: M.model?.preset ?? eff.presetId, name: eff.presetName ?? "", provider: eff.provider ?? "", reasoning };
+}
+const modeNow = () => (M.mode?.locked ? "lock" : M.mode?.mode ?? M.mode?.newConversation ?? "ask");
+
+export function chips() {
+  const m = current(), mode = modeNow(), p = PMODES.find(([id]) => id === mode);
+  const model = `<button type="button" class="chip-c" data-act="modelmenu2" data-tip="Model and how long it thinks">${logo(m.provider, m.name, 18)}<span class="lbl">${esc(m.name)}${m.reasoning ? " · " + esc(String(m.reasoning).toLowerCase()) : ""}</span>${ic("down", "s")}</button>`;
+  const modeChip = `<button type="button" class="chip-c ${mode === "full" ? "full" : ""} ${mode === "lock" ? "lockd" : ""}" data-act="modemenu2" data-tip="How much it may do in this conversation (Shift+Tab)">${ic(mode === "lock" ? "lock" : p?.[3] ?? "shield")}<span class="lbl">${mode === "lock" ? "Lockdown" : esc(p?.[1] ?? "")}</span>${ic("down", "s")}</button>`;
+  return model + modeChip;
+}
+
+/* After each draw of the conversation: read the open conversation's model and mode, and draw again only if they changed. */
+export async function loadChips() {
+  const sid = S.chat ?? null;
+  if (sid === M.sid && Date.now() - M.at < 5000) return;
+  M.at = Date.now();
+  const [model, mode] = await Promise.all([
+    sid ? api(`sessions/${encodeURIComponent(sid)}/model`).catch(() => null) : null,
+    api("conversation-mode" + (sid ? "?sessionId=" + encodeURIComponent(sid) : "")).catch(() => null),
+  ]);
+  const key = (x) => JSON.stringify(x);
+  if (sid === M.sid && key(model) === key(M.model) && key(mode) === key(M.mode)) return;
+  Object.assign(M, { sid, model, mode, at: Date.now() });
+  redrawChips();
+}
+
+/* Only the two chips change, in place, so the conversation and whatever is being typed are left alone. */
+function redrawChips() {
+  const old = [...document.querySelectorAll('[data-act="modelmenu2"], [data-act="modemenu2"]')];
+  if (old.length !== 2) return;
+  const tmp = document.createElement("template");
+  tmp.innerHTML = chips();
+  applyCss(tmp.content);
+  old[0].replaceWith(tmp.content.children[0]);
+  old[1].replaceWith(tmp.content.children[0]);
+}
+
+function modelMenu() {
+  const m = current(), preset = presets().find((x) => x.id === m.id);
+  const levels = preset?.thinking?.levels ?? [];
+  const rows = presets().map((x) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${x.id === m.id}" data-act="pick-model" data-v="${esc(x.id)}"><span class="tick">${ic("check", "s")}</span>${logo(x.provider, x.name, 22)}<span><span class="mi-t">${esc(x.name)}</span><span class="mi-s">${esc(x.model)}</span></span></button>`).join("");
+  const think = levels.length ? `<hr><div class="row-in"><span>Thinking</span><span class="seg">${levels.map((t) => `<button type="button" data-act="pick-think" data-v="${esc(t)}" aria-pressed="${m.reasoning === t}">${esc(t[0].toUpperCase() + t.slice(1))}</button>`).join("")}</span></div><p class="pp" data-css="padding-top:6px">Thinking options depend on the model.</p>` : "";
+  return `<div class="ph">Which model answers</div>${rows}${think}${mi("setgo", "users", "Accounts and order…", "", 'data-v="accounts"')}`;
+}
+
+function modeMenu() {
+  const cur = modeNow(), locked = !!M.mode?.locked;
+  const rows = PMODES.map(([id, n, d, icon], i) => {
+    const choice = M.mode?.choices?.find((c) => c.mode === id);
+    const blocked = choice && !choice.available ? choice.why : "";
+    return `<button class="mi pm ${id === "full" ? "dz" : ""} ${blocked ? "blocked" : ""}" type="button" role="menuitemradio" aria-checked="${!locked && cur === id}" data-act="set-mode" data-v="${id}" ${blocked || locked ? "disabled" : ""}><span class="ico">${ic(icon, "s")}</span><span><span class="mi-t">${n}</span><span class="mi-s">${esc(blocked || d)}</span></span><span class="r">${!locked && cur === id ? ic("check", "s") : `<kbd>${i + 1}</kbd>`}</span></button>`;
+  }).join("");
+  return `<div class="pt">How much may it do in this conversation?</div>${rows}<hr><div class="row-in"><span>Applies to</span><span class="seg"><button type="button" data-act="scope" data-v="here" aria-pressed="true">This conversation</button><button type="button" data-act="scope" data-v="everywhere" aria-pressed="false">Everywhere</button></span></div><div class="row-in"><span data-css="color:var(--bad)">${ic("lock", "s")} Lockdown</span><input class="sw" type="checkbox" id="pm-lock2" data-sw="lock" ${locked ? "checked" : ""} aria-label="Lockdown"></div>`;
+}
+
+function reopen(act, menu) {
+  const a = document.querySelector(`[data-act="${act}"]`);
+  if (a) openPop(a, menu(), { force: true });
+}
+
+async function saveModel(change) {
+  try {
+    if (S.chat) await api(`sessions/${encodeURIComponent(S.chat)}/model`, change);
+    else await api("models", "preset" in change ? { activePreset: change.preset } : { reasoning: change.reasoning });
+    await refresh();
+    M.sid = undefined;
+    await loadChips();
+  } catch (error) { toast(error.message); }
+  reopen("modelmenu2", modelMenu);
+}
+
+async function setMode(v) {
+  try {
+    if (S.chat) await api("conversation-mode", { sessionId: S.chat, mode: v });
+    else await api("conversation-mode/settings", { newConversation: v });
+    M.sid = undefined;
+    closePop();
+    await loadChips();
+  } catch (error) { toast(error.message); }
+}
+
+async function setLockdown(on) {
+  try { await api("lockdown", { on }); } catch (error) { toast(error.message); }
+  await refresh().catch(() => {});
+  M.sid = undefined;
+  await loadChips();
+  reopen("modemenu2", modeMenu);
+}
+
+export function initChips() {
+  markLive(["modelmenu2", "modemenu2", "pick-model", "pick-think", "set-mode", "sw:pm-lock2"]);
+  on("modelmenu2", (el) => openPop(el, modelMenu()));
+  on("modemenu2", (el) => openPop(el, modeMenu()));
+  on("pick-model", (el) => saveModel({ preset: el.dataset.v }));
+  on("pick-think", (el) => saveModel({ reasoning: el.dataset.v }));
+  on("set-mode", (el) => setMode(el.dataset.v));
+  document.addEventListener("change", (e) => { if (e.target.id === "pm-lock2") setLockdown(e.target.checked); });
+}

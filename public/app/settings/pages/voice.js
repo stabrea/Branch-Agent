@@ -1,25 +1,25 @@
 /* Settings › voice: bind real engine data and wire controls. */
+import { esc } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
+import { markLive } from "../../core/features.js";
+import { renderNow } from "../../core/dom.js";
 
-let voiceSettings = null;
+let voiceSettings = { listening: 'push-to-talk', voice: 'Oak', dictation: true };
 
 async function loadVoiceSettings() {
   try {
     const data = await api("voice/settings");
-    voiceSettings = data;
+    voiceSettings = data || { listening: 'push-to-talk', voice: 'Oak', dictation: true };
   } catch (err) {
     console.error("Failed to load voice settings:", err);
     voiceSettings = { listening: 'push-to-talk', voice: 'Oak', dictation: true };
   }
+  renderNow();
 }
 
 export function draw() {
-  if (!voiceSettings) {
-    voiceSettings = { listening: 'push-to-talk', voice: 'Oak', dictation: true };
-  }
-
   const lv = level();
 
   let html = `<h1>Voice</h1><p class="lede">Talking to Branch. Voice stays on this computer.</p>`;
@@ -58,16 +58,16 @@ export function draw() {
   return html;
 }
 
+export function init() {
+  loadVoiceSettings();
+}
+
 export async function load() {
   await loadVoiceSettings();
 }
 
-export function init() {
-  // Set up event handlers
-}
-
 export const live = {
-  // Wire up these controls
+  // Wire up controls to real routes
 };
 
 export function after(col) {

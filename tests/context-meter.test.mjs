@@ -98,7 +98,7 @@ test("one failed refresh keeps the context chip's last reading instead of showin
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
   const chip = () => page.evaluate(() => document.querySelector(".lx-foot-context")?.textContent ?? "");
   await page.waitForFunction(() => /Context used [1-9]/.test(document.querySelector(".lx-foot-context")?.textContent ?? ""), null, { timeout: 20000 });

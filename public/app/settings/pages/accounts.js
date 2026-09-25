@@ -3,6 +3,7 @@ import { level, E } from "../../core/state.js";
 import { esc, render } from "../../core/dom.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
+import { markLive } from "../../core/features.js";
 
 let view = null;
 const flat = () => (view?.pools ?? []).flatMap((p) => p.accounts.map((a) => ({ ...a, pool: p.pool, kind: p.kind, first: p.defaultAccount === a.id })));
@@ -14,6 +15,7 @@ export async function load() {
 
 const up = '<svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg>';
 const more = '<svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="18" cy="12" r="1"></circle></svg>';
+
 function row(a, i) {
   return `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="M11 12.5l8-8M16 7.5l2.5 2.5"></path></svg></span>`
     + `<span class="grow"><b>${esc(a.label)}</b><small>${esc(a.pool)}</small></span>${a.first ? '<span class="pill ok">used next</span>' : ""}`
@@ -23,11 +25,19 @@ function row(a, i) {
 
 export function draw() {
   const accts = flat();
+  const lev = level();
   let html = `<h1>Accounts</h1><p class="lede">Your model accounts, the order Branch uses them in, which Trunks use each, and your keepoak.com account.</p>`;
-  if (view) html += `<div class="status"><span class="sdot ${accts.length ? "" : "bad"}"></span><div><b>${accts.length} account${accts.length === 1 ? "" : "s"} signed in</b><p>Branch never sees your passwords. Each account is billed by its own site.</p></div></div>`;
-  html += `<div class="sec"><h2>Order Branch uses them in</h2><div class="rows">${accts.map(row).join("")}</div>`;
-  html += `<div class="acts" data-css="margin-top:12px"><button class="btn pri" type="button" data-act="addacct"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add an account</button>`
-    + (view?.pools ?? []).map((p) => `<button class="btn" type="button" data-act="addacct" data-v="${esc(p.pool)}">Another ${esc(p.pool)} account</button>`).join("") + `</div></div>`;
+
+  if (view) {
+    html += `<div class="status"><span class="sdot ${accts.length ? "" : "bad"}"></span><div><b>${accts.length} account${accts.length === 1 ? "" : "s"} signed in</b><p>Branch never sees your passwords. Each account is billed by its own site.</p></div></div>`;
+  }
+
+  // Accounts section - advanced level has "Select several" button
+  html += `<div class="sec"><h2${lev >= 1 ? ' class="h2row15"' : ''}>Order Branch uses them in${lev >= 1 ? '<button type="button" class="link15 acsel15" data-act="acsel15">Select several</button>' : ''}</h2><div class="rows">`;
+  html += accts.map(row).join("");
+  html += `</div><div class="acts" data-css="margin-top:12px"><button class="btn pri" type="button" data-act="addacct"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add an account</button>`;
+  html += (view?.pools ?? []).map((p) => `<button class="btn" type="button" data-act="addacct" data-v="${esc(p.pool)}">Another ${esc(p.pool)} account</button>`).join("");
+  html += `</div></div>`;
 
   // When one runs out
   html += `<div class="sec"><h2>When one runs out</h2>` +
@@ -51,9 +61,7 @@ export function init() {
   load();
 }
 
-export const live = {
-  // Wire up these controls
-};
+export const live = {};
 
 export function after(col) {
   // Set up control listeners after rendering

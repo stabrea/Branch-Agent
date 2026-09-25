@@ -7,6 +7,7 @@ import { on } from "../core/actions.js";
 import { ic, av, mi, openPop, closePop, toast } from "../core/ui.js";
 import { greyOut, markLive } from "../core/features.js";
 import { head as chatHead, openConversation, startConversation } from "../chat/chat.js";
+import { initExtras } from "./extras.js";
 
 const WIDE = matchMedia("(min-width: 761px)");
 const PLACES = [["overview", "home", "Overview"], ["inbox", "inbox", "Inbox"], ["automations", "clock", "Automations"],
@@ -98,6 +99,7 @@ export function drawShell() {
 }
 
 export function initShell() {
+  initExtras();
   markLive(["chat", "newconv", "newmenu", "places14", "owner", "themeset", "theme-flip", "side-toggle", "guide"]);
   on("chat", (el) => openConversation(el.dataset.id));
   on("newconv", () => { closePop(); startConversation(); });

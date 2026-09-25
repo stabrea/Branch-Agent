@@ -129,7 +129,7 @@ test("in the window: a Trunk's answer is read in its voice, chosen in the studio
   await page.goto(server.url + "/");
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
 
   // The studio: a Voice field with its own sentence, from your list, saved with the Trunk.
   await openPlace(page, "customize:specialists");

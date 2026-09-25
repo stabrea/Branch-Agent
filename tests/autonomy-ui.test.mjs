@@ -39,7 +39,7 @@ test("the cards sit in their homes, a blueprint is made from the window, and not
   await page.goto(server.url + "/");
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
   await openPlace(page, "automations:scheduled");
@@ -71,7 +71,7 @@ test("the cards sit in their homes, a blueprint is made from the window, and not
     await token.fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
   }
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openPlace(page, "inbox:needs");
   await page.locator("#autonomy-needs-card").getByText("Answer in French.", { exact: false }).waitFor();
   await page.locator("#autonomy-needs-card").getByRole("button", { name: "Yes" }).click();

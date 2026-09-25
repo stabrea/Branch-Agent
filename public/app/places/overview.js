@@ -4,35 +4,152 @@ import { esc } from "../core/dom.js";
 import { S, E } from "../core/state.js";
 import { ic, av } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { api } from "../core/api.js";
+import { renderNow } from "../core/dom.js";
+
+let lastHealthCheck = 0;
+let cachedHealth = null;
+let conversationMode = null;
+let achievements = null;
+
+function formatSpend(amount) {
+  return "$" + (amount ?? 0).toFixed(2);
+}
+
+function nowTile() {
+  const running = E.state.runs?.filter(r => r.status === "running" || r.status === "needs_input") || [];
+  const waiting = (E.state.trunkWaiting?.length || 0) + (E.state.attention?.length || 0);
+  let html = `<div class="tile"><h2>Now</h2>`;
+  if (!running.length) html += `<p>Nothing is running right now.</p>`;
+  else running.slice(0, 3).forEach(r => html += `<div class="row" data-act="chat" data-id="${esc(r.sessionId || "")}"><span class="avw">${av({}, 34)}</span><div class="inf"><b>${esc(r.prompt?.split("\n")[0]?.slice(0, 40) || "Task")}</b></div></div>`);
+  html += `<div class="acts">${waiting ? `<button class="btn pri sm" type="button" data-act="view" data-v="inbox">Answer ${waiting} waiting</button>` : `<span class="pill done"><i></i>Nothing waiting</span>`}</div></div>`;
+  return html;
+}
+
+function healthTile() {
+  if (!cachedHealth || !cachedHealth.items) return "";
+  let html = `<div class="tile"><h2>Health</h2>`;
+  cachedHealth.items.forEach(item => {
+    const dotClass = item.ok ? "" : "bad";
+    html += `<div data-css="display:flex;align-items:center;gap:8px;font-size:13px"><span class="dot ${dotClass}"></span><span>${esc(item.name || "")}</span><span data-css="color:var(--ink-3);margin-left:auto;text-align:right">${esc(item.summary || "")}</span></div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+function spendTile() {
+  const runs = E.state.runs || [];
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const week = runs.filter(r => new Date(r.createdAt).getTime() > weekAgo);
+  const byTrunk = {};
+  let total = 0;
+  const priced = week.filter((r) => typeof r.cost?.amount === "number");
+  priced.forEach(r => {
+    const cost = r.cost.amount;
+    total += cost;
+    const firstLine = r.prompt?.split("\n")[0]?.slice(0, 30) || "Task";
+    byTrunk[firstLine] = (byTrunk[firstLine] || 0) + cost;
+  });
+  const sorted = Object.entries(byTrunk).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const maxCost = Math.max(...sorted.map(e => e[1]), 0.01);
+  let html = `<div class="tile"><h2>Spend this week</h2><div class="big-n">${priced.length ? formatSpend(total) : esc(week.find((r) => r.cost?.display)?.cost.display ?? "")}</div><div class="bars" data-css="margin:0">`;
+  sorted.forEach(([trunk, cost]) => {
+    const pct = (cost / maxCost) * 100;
+    html += `<div class="brow"><span>${esc(trunk)}</span><span class="track"><u data-css="width:${pct}%"></u></span><span class="v">${formatSpend(cost)}</span></div>`;
+  });
+  html += `</div></div>`;
+  return html;
+}
+
+function recentTile() {
+  const recent = E.state.runs?.slice(0, 4) || [];
+  let html = `<div class="tile"><h2>Recent activity</h2>`;
+  recent.forEach(r => {
+    const duration = r.updatedAt && r.createdAt ? Math.round((new Date(r.updatedAt).getTime() - new Date(r.createdAt).getTime()) / 1000) : 0;
+    const mins = Math.floor(duration / 60);
+    const secs = duration % 60;
+    const durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    html += `<div data-css="display:flex;align-items:center;gap:8px;font-size:13px">${av({}, 20)}<span data-css="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.prompt?.split("\n")[0]?.slice(0, 50) || "Task")}</span><span data-css="font:12px var(--mono);color:var(--ink-3)">${durationStr}</span></div>`;
+  });
+  html += `<div class="acts"><button class="btn sm" type="button" data-act="ptab" data-place="inbox" data-v="history">All history</button></div></div>`;
+  return html;
+}
+
+function controlsTile() {
+  const mode = conversationMode?.following?.label || "Ask first";
+  return `<div class="tile"><h2>Controls</h2><p>Mode: <b data-css="font-weight:600">${esc(mode)}</b> · <button class="link" type="button" data-act="setgo" data-v="permissions">change</button></p><div class="acts"><button class="btn bad sm" type="button" data-act="lock">Lockdown</button><button class="btn sm" type="button" data-act="pauseall">Pause all Trunks</button></div></div>`;
+}
+
+function usersTile() {
+  const identity = E.profiles?.profiles?.find((p) => p.id === E.profiles.active)?.name || E.profiles?.roleLabels?.owner?.label || "";
+  return `<div class="tile"><h2>Who is using Branch</h2><div data-css="display:flex;align-items:center;gap:10px;font-size:13px"><span class="me" data-css="width:26px;height:26px;font-size:11px">${esc(identity.charAt(0))}</span><span data-css="flex:1">${esc(identity)}</span></div><div class="acts"><button class="btn sm" type="button" data-act="invite">Invite someone</button></div></div>`;
+}
+
+function milestonesTile() {
+  if (!achievements || !achievements.length) return "";
+  const shown = achievements.slice(0, 3);
+  const count = shown.filter(a => a.earned).length;
+  const total = achievements.length;
+  let html = `<div class="tile"><h2>Milestones</h2><div class="badges">`;
+  shown.forEach(a => {
+    const cls = a.earned ? "" : "locked";
+    html += `<span class="badge ${cls}" title="${esc(a.title || "")}"><span class="bi">${ic("star", "s")}</span>${esc(a.title?.slice(0, 20) || "")}</span>`;
+  });
+  html += `</div><p>${count} of ${total}. Just for fun.</p></div>`;
+  return html;
+}
 
 export function draw() {
-  if (!E.state) return `<div class="scroll"><div class="place"></div></div>`;
-  const waiting = E.state.trunkWaiting?.length || 0;
-  const recent = E.state.runs?.slice(0, 4) || [];
+  if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
 
-  let html = `<div class="scroll"><div class="place" data-css="max-width:1000px">
+  let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div><div class="scroll"><div class="place" data-css="max-width:1000px">
+    <div class="recbar"><span class="mark mark-face rec-mark" aria-hidden="true"></span><span class="rec-t"><b>Keep your Trunks running when Branch is closed?</b><span class="rec">Recommended</span><small>The gateway keeps Telegram, your phone and automations working, and restarts Branch if it ever stops.</small></span>
+    <button class="btn pri sm" type="button" data-act="rec" data-k="gw" data-v="yes">Yes</button><button class="btn sm" type="button" data-act="rec" data-k="gw" data-v="later">Not now</button><button class="btn ghost sm" type="button" data-act="rec" data-k="gw" data-v="never">Don't ask again</button></div>
     <h1>Overview</h1><p class="lede">What's happening across your Trunks, at a glance.</p>
-    <div class="ov"><div class="tile"><h2>Now</h2>`;
+    <div class="ov">`;
 
-  if (!recent.length) html += `<p>Nothing is running right now.</p>`;
-  else recent.forEach(c => html += `<div class="row" data-act="chat" data-id="${esc(c.id || '')}">
-    <span class="avw">${av({}, 34)}</span><div class="inf"><b>${esc(c.title || 'Task')}</b></div></div>`);
+  html += nowTile();
+  html += healthTile();
+  html += spendTile();
+  html += recentTile();
+  html += controlsTile();
+  html += usersTile();
+  const milestonesHtml = milestonesTile();
+  if (milestonesHtml) html += milestonesHtml;
 
-  html += `<div class="acts">${waiting ? `<button class="btn pri sm" data-act="view" data-v="inbox">Answer ${waiting} waiting</button>` :
-    `<span class="pill done"><i></i>Nothing waiting</span>`}</div></div>`;
-
-  html += `<div class="tile"><h2>Health</h2>`;
-  [['This computer', 'Online'], ['Model', 'Loaded'], ['Telegram', 'Connected']].forEach(([l, s]) =>
-    html += `<div data-css="display:flex;gap:8px;font-size:13px;margin:8px 0"><span class="dot"></span><span>${esc(l)}</span>
-    <span data-css="color:var(--ink-3);margin-left:auto">${esc(s)}</span></div>`);
-  html += `</div><div class="tile"><h2>Controls</h2><p>Mode: <b>Ask first</b>
-    <button class="link" data-act="setgo" data-v="permissions">change</button></p>
-    <div class="acts"><button class="btn sm" data-act="lock">Lockdown</button>
-    <button class="btn sm" data-act="pauseall">Pause all Trunks</button></div></div></div></div></div>`;
-
+  html += `</div></div></div></main>`;
   return html;
 }
 
 export function init() {
-  markLive(["view", "ptab", "chat"]);
+  markLive(["ptab", "chat"]);
+}
+
+export async function after() {
+  let needsRender = false;
+  const now = Date.now();
+
+  // Health check: at most every 30 seconds
+  if (now - lastHealthCheck > 30000) {
+    lastHealthCheck = now;
+    const health = await api("health").catch(() => null);
+    if (health && JSON.stringify(health?.items) !== JSON.stringify(cachedHealth?.items)) {
+      cachedHealth = health;
+      needsRender = true;
+    }
+  }
+
+  // Fetch conversation mode if not yet cached
+  if (!conversationMode) {
+    conversationMode = await api("conversation-mode").catch(() => null);
+    if (conversationMode) needsRender = true;
+  }
+
+  // Fetch achievements if not yet cached
+  if (!achievements) {
+    achievements = await api("delight/achievements").catch(() => null);
+    if (achievements) needsRender = true;
+  }
+
+  if (needsRender) renderNow();
 }

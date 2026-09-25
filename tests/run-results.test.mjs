@@ -112,7 +112,7 @@ test("Q52 a real task that writes a file: the result names it, proven, and the A
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0;
   await page.evaluate(async () => {
     const { applyAppearance, currentAppearance } = await import("/appearance.js");
@@ -155,7 +155,7 @@ test("Q52 a task that changed Branch's own source: the Activity pane shows its c
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0;
   await page.evaluate(async () => {
     const { applyAppearance, currentAppearance } = await import("/appearance.js");

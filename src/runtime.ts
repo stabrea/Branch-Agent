@@ -2488,8 +2488,9 @@ ${run.output.slice(0, 6000)}`;
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
               // integrate/empty-completion: only within the reply's room and a bounded window.
-              onReasoningDelta: thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
-                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }), this.firstReplyWait(run, preset, firstCapMs))
+              onReasoningDelta: this.thinkingShown(run, thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
+                forMs: this.reliability.modelStallMs * thinkingStallWindows })) }), this.firstReplyWait(run, preset, firstCapMs))
+            .finally(() => this.thinkingNow.delete(run.id))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -2543,6 +2544,28 @@ ${run.output.slice(0, 6000)}`;
     return { firstMs, ...(capMs === undefined ? {} : { capMs }), quiet: { afterMs: Math.min(localQuietMs, this.reliability.modelStallMs), notify: () =>
       this.store.event(run.id, "model.loading", { preset: preset.id, model: preset.model, waitSeconds: Math.round(firstMs / 1000),
         message: "Waiting for the model on this computer to start. It may be loading into memory." }) } };
+  }
+  /**
+   * Dogfood B1 ("no thought process shown while it works"): with "show reasoning" on (its default), the newest part of
+   * what a task's model is thinking is held here, in memory only, for the live row (`thinkingOf`). It is never written
+   * to the record, the conversation or the disk (integrate/empty-completion), and it goes when the model call ends.
+   * With it off, the thinking is only heard, as before.
+   */
+  private readonly thinkingNow = new Map<string, string>();
+  private thinkingShown(run: Run, heard: (text: string) => void): (text: string) => void {
+    this.thinkingNow.delete(run.id);
+    if (!knobs.showsReasoning(this.store, this.owner)) return heard;
+    let text = "";
+    return (delta) => {
+      heard(delta);
+      text = (text + delta).slice(-600);
+      this.thinkingNow.set(run.id, text);
+    };
+  }
+  /** Dogfood B1: what the task's model is thinking right now (the newest 300 characters, secrets hidden), or nothing. */
+  thinkingOf(runId: string): string | undefined {
+    const text = this.thinkingNow.get(runId)?.trim();
+    return text ? this.hideSecrets(text.slice(-300)) : undefined;
   }
   /** R17-S12: with "show reasoning" off, no caller (task, side question, debate turn) gets the thinking. */
   private shownThinking(completion: Completion): Completion {

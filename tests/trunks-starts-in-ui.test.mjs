@@ -50,7 +50,7 @@ async function fixture(t, before = async () => undefined, { devicesFail = false 
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#trunk-strip .strip-brand").waitFor({ state: "visible", timeout: 120000 });
   const raw = (path, body) => fetch(new URL(path, server.url), { method: "POST", body: JSON.stringify(body),
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } }).then(async (r) => ({ status: r.status, body: await r.json() }));

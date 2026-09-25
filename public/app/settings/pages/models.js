@@ -3,17 +3,20 @@ import { esc } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
+import { markLive } from "../../core/features.js";
+import { renderNow } from "../../core/dom.js";
 
-let accounts = null;
+let accounts = { accounts: [] };
 
 async function loadAccounts() {
   try {
     const data = await api("accounts");
-    accounts = data;
+    accounts = data || { accounts: [] };
   } catch (err) {
     console.error("Failed to load accounts:", err);
     accounts = { accounts: [] };
   }
+  renderNow();
 }
 
 function getAccountsByProvider(provider) {
@@ -58,7 +61,7 @@ export function draw() {
 
   // Advanced sections (only show for level >= 1)
   if (lv >= 1) {
-    html += `<div class="sec x15-sec"><h2>Budgets</h2><div class="ctl"><b>Most steps in one task</b><span class="right num15"><input class="inp" value="60" aria-label="Most steps in one task"><small>steps</small></span><small>It stops and asks when it gets there.</small></div><div class="ctl"><b>Spend cap per task</b><span class="right num15"><input class="inp" value="2.00" aria-label="Spend cap per task"><small>USD</small></span><small>Only for accounts that bill per use.</small></div><div class="ctl"><b>Sub-tasks at once</b><span class="right"><span class="seg" role="group" aria-label="Sub-tasks at once"><button type="button" aria-pressed="false" data-act="seg">1</button><button type="button" aria-pressed="true" data-act="seg">3</button><button type="button" aria-pressed="false" data-act="seg">5</button></span></span><small>Parts of a big task that can run side by side.</small></div></div><div class="sec x15-sec"><h2>Models for smaller jobs</h2><div class="ctl"><b>Sub-tasks and side jobs</b><span class="right"><span class="seg" role="group" aria-label="Sub-tasks and side jobs"><button type="button" aria-pressed="false" data-act="seg">Same model</button><button type="button" aria-pressed="true" data-act="seg">GPT-6 Mini</button><button type="button" aria-pressed="false" data-act="seg">Qwen3.6 here</button></span></span><small>Titles, summaries and searches inside a task.</small></div><div class="ctl"><b>Pick the model per task</b><input class="sw" type="checkbox" id="f15-pick-the-model-per-task" checked="" aria-label="Pick the model per task" data-sw="set"><small>Easy tasks go to a quick model, hard ones to the best you have.</small></div><div class="ctl"><b>Planning model</b><span class="right"><span class="seg" role="group" aria-label="Planning model"><button type="button" aria-pressed="true" data-act="seg">Same model</button><button type="button" aria-pressed="false" data-act="seg">Claude Opus</button><button type="button" aria-pressed="false" data-act="seg">GPT-6 Sol</button></span></span><small>Writes the plan in Plan first.</small></div><div class="ctl"><b>Mix models on hard questions</b><input class="sw" type="checkbox" id="f15-mix-models-on-hard-questions" aria-label="Mix models on hard questions" data-sw="set"><small>Asks two and merges the best of each. Off until you choose: it doubles the cost.</small></div></div><div class="sec x15-sec"><h2>Compare models</h2><div class="ctl"><b>Model arena</b><span class="right"><button class="btn sm" type="button" data-act="toast" data-msg="Arena: GPT-6 Sol 1,242 · Claude Opus 1,238 · Qwen3.6 1,106, from 38 of your picks.">Open the arena</button></span><small>The same task to two models, you pick the better. Ratings build up over time.</small></div><div class="ctl"><b>Test suites</b><span class="right"><button class="btn sm" type="button" data-act="toast" data-msg="Everyday · 20: 18 right today, 18 last week, 17 in August.">See history</button></span><small>Your own tasks with a check for each, with history.</small></div></div>`;
+    html += `<div class="sec x15-sec"><h2>Budgets</h2><div class="ctl"><b>Most steps in one task</b><span class="right num15"><input class="inp" value="60" aria-label="Most steps in one task"><small>steps</small></span><small>It stops and asks when it gets there.</small></div><div class="ctl"><b>Spend cap per task</b><span class="right num15"><input class="inp" value="2.00" aria-label="Spend cap per task"><small>USD</small></span><small>Only for accounts that bill per use.</small></div><div class="ctl"><b>Sub-tasks at once</b><span class="right"><span class="seg" role="group" aria-label="Sub-tasks at once"><button type="button" aria-pressed="false" data-act="seg">1</button><button type="button" aria-pressed="true" data-act="seg">3</button><button type="button" aria-pressed="false" data-act="seg">5</button></span></span><small>Parts of a big task that can run side by side.</small></div></div><div class="sec x15-sec"><h2>Models for smaller jobs</h2><div class="ctl"><b>Sub-tasks and side jobs</b><span class="right"><span class="seg" role="group" aria-label="Sub-tasks and side jobs"><button type="button" aria-pressed="false" data-act="seg">Same model</button><button type="button" aria-pressed="true" data-act="seg">Soon</button></span></span><small>Titles, summaries and searches inside a task.</small></div><div class="ctl"><b>Pick the model per task</b><input class="sw" type="checkbox" id="f15-pick-the-model-per-task" checked="" aria-label="Pick the model per task" data-sw="set"><small>Easy tasks go to a quick model, hard ones to the best you have.</small></div><div class="ctl"><b>Planning model</b><span class="right"><span class="seg" role="group" aria-label="Planning model"><button type="button" aria-pressed="true" data-act="seg">Same model</button></span></span><small>Writes the plan in Plan first.</small></div><div class="ctl"><b>Mix models on hard questions</b><input class="sw" type="checkbox" id="f15-mix-models-on-hard-questions" aria-label="Mix models on hard questions" data-sw="set"><small>Asks two and merges the best of each. Off until you choose: it doubles the cost.</small></div></div><div class="sec x15-sec"><h2>Compare models</h2><div class="ctl"><b>Model arena</b><span class="right"><button class="btn sm" type="button" data-act="soon">Open the arena</button></span><small>The same task to two models, you pick the better. Ratings build up over time.</small></div><div class="ctl"><b>Test suites</b><span class="right"><button class="btn sm" type="button" data-act="soon">See history</button></span><small>Your own tasks with a check for each, with history.</small></div></div>`;
   }
 
   // Technical sections (only show for level >= 2)
@@ -69,12 +72,12 @@ export function draw() {
   return html;
 }
 
-export async function load() {
-  await loadAccounts();
+export function init() {
+  loadAccounts();
 }
 
-export function init() {
-  // Set up event handlers here if needed
+export async function load() {
+  await loadAccounts();
 }
 
 export const live = {

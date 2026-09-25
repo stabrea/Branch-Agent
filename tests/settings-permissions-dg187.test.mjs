@@ -49,7 +49,7 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   errors.length = 0;
   await openPermissions(page);
@@ -216,12 +216,12 @@ test("the four cards save the new-conversation default: Plan first sticks after 
   await page.reload();
   /* The window may ask for the session token again after a reload; if it does, sign in as before. */
   const tokenBox = page.getByLabel("Session token", { exact: true });
-  await Promise.race([tokenBox.waitFor({ state: "visible" }), page.locator("#workspace").waitFor({ state: "visible" })]);
+  await Promise.race([tokenBox.waitFor({ state: "visible" }), page.locator("#app #side").waitFor({ state: "visible" })]);
   if (await tokenBox.isVisible()) {
     await tokenBox.fill(token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
   }
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   await open();
   await page.waitForFunction(() => document.querySelector('#mode-new-conversation input[value="plan"]')?.checked);

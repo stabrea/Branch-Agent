@@ -106,6 +106,14 @@ export function init() {
     renderNow();
   });
 
+  on("setgo", (el) => {
+    S.view = "settings";
+    S.setPage = el.dataset.v;
+    closePop();
+    open(S.setPage);
+    renderNow();
+  });
+
   on("setlevel", (el) => {
     S.level = el.dataset.v;
     renderNow();
@@ -134,7 +142,7 @@ export function init() {
   for (const page of Object.values(PAGES)) {
     live.push(...(page.live ? Object.keys(page.live) : []));
   }
-  markLive(["setpage", "setlevel", ...live]);
+  markLive(["setpage", "setgo", "setlevel", ...live]);
 }
 
 export function after(main) {

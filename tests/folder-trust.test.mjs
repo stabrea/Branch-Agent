@@ -229,7 +229,7 @@ test("with both switches off (as shipped) both cards are still there to turn the
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openSettings(page);
   for (const id of ["folder-trust-card", "loop-guard-card"]) {
     await page.locator(`#${id}`).waitFor({ state: "attached" });
@@ -258,7 +258,7 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   const ask = page.locator("#folder-trust-ask");
   await ask.waitFor({ state: "attached" });
   assert.match(await ask.textContent(), /Do you trust this folder\?[\s\S]*Your workspace holds[\s\S]*AGENTS\.md/);

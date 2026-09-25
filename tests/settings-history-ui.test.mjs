@@ -39,7 +39,7 @@ test("Q48/Q49 recent changes: undo needs the separate yes to loosen, and why nam
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#settings-kit-history").waitFor({ state: "attached", timeout: 60000 });
   await openSettings(page, "general");
 
@@ -88,7 +88,7 @@ test("Q48/Q49 in French: the why answer names the preset in French, not by its E
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#settings-kit-history").waitFor({ state: "attached", timeout: 60000 });
   await openPlace(page, "settings:appearance");
   await page.locator("#appearance-language").selectOption("fr");

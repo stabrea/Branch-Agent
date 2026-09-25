@@ -39,7 +39,7 @@ async function settings(t, before) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0;
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
   /* Opened as a person opens it, not through the helper that also shows every card of the page. */

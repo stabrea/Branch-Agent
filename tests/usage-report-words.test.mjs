@@ -27,7 +27,7 @@ test("DG-170 the usage report's range reads words, not keys, in English and in F
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
   await openSettings(page, "data");
   /* Every key either card shows as text, shown or not (text runs together, so no word boundary), and the range's choices. */

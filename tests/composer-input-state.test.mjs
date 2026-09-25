@@ -38,7 +38,7 @@ async function fixture(t, viewport = { width: 1440, height: 950 }, { everything 
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120_000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120_000 });
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120_000 });
   /* DG-175: the owner can be in either window; the bar is the sample's in both. */
   if (everything) {
