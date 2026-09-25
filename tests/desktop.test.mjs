@@ -209,6 +209,15 @@ test(
     await assert.rejects(fetch(url, { signal: AbortSignal.timeout(2000) }));
     const restarted = await _electron.launch(options);
     const restartedChild = restarted.process();
+    // Q244: the restarted app stops answering (main process included) soon after it connects; the engine runs inside
+    // that process, so what it says about itself (a long job, a blocked event loop) is passed on, at most 80 lines.
+    let told = 0;
+    const tell = (stream) => (chunk) => {
+      for (const line of String(chunk).split(/\r?\n/).filter(Boolean))
+        if (told++ < 80) console.log(`Desktop restart ${stream}: ${line.slice(0, 300)}`);
+    };
+    restartedChild.stdout?.on("data", tell("out"));
+    restartedChild.stderr?.on("data", tell("err"));
     t.signal.addEventListener("abort", () => endTree(restartedChild), { once: true });
     try {
       // Each step says so, so a run that stops here shows where.
