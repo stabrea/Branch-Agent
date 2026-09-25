@@ -22,6 +22,7 @@ const MODEL_PORT = Number(process.env.MODEL_PORT || 43343);
 const BASE = `http://127.0.0.1:${PORT}`;
 
 /* ---------- the model on this computer ---------- */
+let asked = 0;
 function answer(body) {
   const text = (body.messages ?? []).map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n");
   const skill = /Current SKILL\.md:\n([\s\S]*?)\n\n(?:A task|Tasks) where/.exec(text);
@@ -37,6 +38,7 @@ function startModel() {
         let body = {};
         try { body = JSON.parse(raw || "{}"); } catch (error) { res.writeHead(400); res.end(JSON.stringify({ error: error.message })); return; }
         if (!req.url.endsWith("/chat/completions")) { res.writeHead(404); res.end("{}"); return; }
+        asked += 1;
         const content = answer(body);
         const usage = { prompt_tokens: 10, completion_tokens: 5 };
         if (body.stream) {
@@ -97,6 +99,7 @@ async function setup() {
   const recordingsBefore = (await get("recordings")).settings.mode;
   const a = await post("skills/install", { document: SKILL_A });
   const first = await post("run", { prompt: "Match this invoice against what was paid" });
+  if (!asked) throw new Error(`The engine did not ask the model on port ${MODEL_PORT}. Start it with BRANCH_PROVIDER=openai BRANCH_ENDPOINT=http://127.0.0.1:${MODEL_PORT}/v1 BRANCH_MODEL=verify BRANCH_API_KEY=verify (and a fresh BRANCH_DATA_DIR), then run this again.`);
   await post(`sessions/${first.sessionId}/skill`, { skillId: a.id });
   const used = await post("run", { prompt: "Match the second invoice against what was paid", sessionId: first.sessionId });
   const older = (await post(`skills/${a.id}/draft`, { runId: used.id })).candidateVersion;
