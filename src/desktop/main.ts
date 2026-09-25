@@ -55,6 +55,7 @@ import { recordActivation } from "../install/headless-update.js";
 import { refreshShortcutsFlag, refreshWindowsIdentity, windowsAppId } from "../install/windows-identity.js";
 // Redesign phase 1: asking before a Quit that would stop work (src/desktop/quit-guard.ts).
 import { asksBeforeQuit, quitChoice, quitQuestion, runningTaskCount, type QuitReason } from "./quit-guard.js";
+import { signedHeaders } from "./signed-headers.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -121,14 +122,11 @@ function protectWindow(
   // window throws on any property access ("Object has been destroyed").
   const contentsId = win.webContents.id;
   session.webRequest.onBeforeSendHeaders((details, callback) => {
-    const headers = { ...details.requestHeaders };
-    if (
+    const signed =
       details.webContentsId === contentsId &&
       new URL(details.url).origin === origin &&
-      new URL(details.url).pathname.startsWith("/api/")
-    )
-      headers.Authorization = `Bearer ${token}`;
-    callback({ requestHeaders: headers });
+      new URL(details.url).pathname.startsWith("/api/");
+    callback({ requestHeaders: signed ? signedHeaders(details.requestHeaders, token) : { ...details.requestHeaders } });
   });
 }
 

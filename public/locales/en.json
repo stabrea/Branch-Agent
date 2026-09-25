@@ -5502,6 +5502,7 @@
   "voice.talkStatus.thinking": "Working on your answer",
   "voice.talkStop": "Stop",
   "voiceLive.cutIn": "Cut in",
+  "voiceLive.neverConnected": "The live conversation could not connect, so it was stopped.",
   "voiceLive.stop": "Stop",
   "voiceLive.talk": "Talk live",
   "wsedit.card.note": "Open and change text files in your workspace from the Files tab of a conversation. Every save can be put back, and a file that changed since you opened it is never overwritten.",

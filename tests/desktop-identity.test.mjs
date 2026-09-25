@@ -23,7 +23,8 @@ test("native identity settings survive restart and apply to a new task without e
     await page.getByLabel("Working instructions", { exact: true }).fill("Keep checked results concise.");
     await page.getByRole("button", { name: "Save identity", exact: true }).click();
     await page.locator("#identity-status").filter({ hasText: "Identity saved." }).waitFor();
-    assert.equal(await page.evaluate(() => sessionStorage.getItem("branch-token")), null);
+    // Dogfood F7: a stand-in, never the key (tests/window-signed-in-desktop-ui.test.mjs).
+    assert.equal(await page.evaluate(() => sessionStorage.getItem("branch-token")), "desktop-window");
   } finally { await first.close(); }
   const second = await _electron.launch(options);
   try {

@@ -48,9 +48,10 @@ async function verifyWindow(electron, page, home) {
   ).trim();
   assert.equal(page.url().includes(token), false);
   assert.equal((await page.content()).includes(token), false);
+  // Dogfood F7: the page holds a stand-in so its parts know they are signed in; never the key itself.
   assert.equal(
     await page.evaluate(() => sessionStorage.getItem("branch-token")),
-    null,
+    "desktop-window",
   );
   await followSetting(page);
   await page
