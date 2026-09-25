@@ -1,23 +1,26 @@
 // Checks every control the approvals-and-modes area made live, against a running engine, through the engine's own routes.
-//   PORT=<port> TOKEN=<hex> CERT=<cert.pem> KEY=<key.pem> node design/redesign/tools/verify-approvals-modes.cjs
+//   PORT=<port> TOKEN=<hex> [CERT=<cert.pem> KEY=<key.pem>] node design/redesign/tools/verify-approvals-modes.cjs
+// Without CERT and KEY only the Lockdown checks run; the save-progress checks need the setup below.
 // 1. Lockdown on (the mode menu's switch) turns the engine's Lockdown on (GET /api/lockdown); while it is on the switch is
 //    greyed and turning it off never leaves the page.
 // 2. The save-progress offer: a stand-in model service answers with the allowance headers of a window 98% used and holds
 //    its reply, so a task is really running near a measured limit. The offer appears from GET /api/usage/glance; Save
-//    progress sends the running task the engine's note (seen arriving at the model), and Not now dismisses it without
-//    asking anything. The stand-in is an OpenAI-shaped "custom" connection at https://127.0.0.2:<free port>: Branch counts
+//    progress sends the running task the engine's note (GET /api/runs/<id>/inspect steering, and seen arriving at the
+//    model), and Not now dismisses it without asking anything. The stand-in is an OpenAI-shaped "custom" connection at https://127.0.0.2:<free port>: Branch counts
 //    only 127.0.0.1/localhost as a local model (which never reports a limit), and wants https anywhere else.
 // Setup, for a throwaway engine only (its launch file lets it reach this computer's addresses, and it trusts the cert):
 //   openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 2 -subj /CN=127.0.0.2 -addext subjectAltName=IP:127.0.0.2
 //   echo '{"web":{"allowPrivateAddresses":true}}' > launch.json
 //   NODE_EXTRA_CA_CERTS=cert.pem BRANCH_INTEGRATIONS=launch.json BRANCH_DATA_DIR=<fresh dir> BRANCH_PORT=<port> node dist/cli.js start
-// Leaves Lockdown off again and prints each check.
+// Leaves Lockdown off, takes the stand-in connection out again (POST /api/connections/forget), puts back the model that
+// answered before, and prints each check.
 const https = require("node:https");
 const { readFileSync } = require("node:fs");
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
 
 const { PORT, TOKEN, CERT, KEY } = process.env;
-if (!PORT || !TOKEN || !CERT || !KEY) { console.error("Set PORT, TOKEN, CERT and KEY"); process.exit(2); }
+if (!PORT || !TOKEN) { console.error("Set PORT and TOKEN"); process.exit(2); }
+const cleanup = [];
 const BASE = `http://127.0.0.1:${PORT}`;
 const api = async (path, body) => {
   const r = await fetch(BASE + "/api/" + path, { method: body === undefined ? "GET" : "POST",
@@ -92,12 +95,15 @@ async function lockdown(page, sent) {
 }
 
 async function saveProgressOffer(page, saves, port) {
+  const before = (await api("state")).models?.activePreset ?? null;
   const added = await api("connections/from-preset", { provider: "custom", key: "stand-in-test-key", model: "stand-in", name: "Stand-in",
     extras: { baseUrl: `https://127.0.0.2:${port}/v1` } });
+  cleanup.push(async () => { await api("connections/forget", { id: added.id }); await api("models", { activePreset: before }); });
   await api("models", { activePreset: added.id });
   const run = api("run", { prompt: "hello" }).catch((e) => e);
   const g = await until("a running task near the limit", async () => { const x = await api("usage/glance"); return x.running > 0 && x.crossings.length ? x : null; })
     .catch(async (error) => { console.log("the task:", String(await Promise.race([run, pause(100).then(() => "still running")]))); throw error; });
+  const runId = (await api("state")).runs.find((r) => r.status === "running")?.id;
   check(g.settings.saveProgress === "ask", "GET /api/usage/glance: the owner's offer is on, a task runs, a measured window is past 95%");
   await page.reload();
   const offer = page.locator(".ckpt-q");
@@ -107,6 +113,8 @@ async function saveProgressOffer(page, saves, port) {
   await offer.locator('[data-act="ckpt-save"]').click();
   const said = await (await answer).json();
   check(said.asked >= 1, `Save progress: POST /api/usage/save-progress asked ${said.asked} running task(s)`);
+  const steering = (await api(`runs/${runId}/inspect`)).steering ?? [];
+  check(steering.some((n) => n.text.includes("nearly out of its allowance")), "GET /api/runs/<id>/inspect: the task was steered with the engine's note");
   const calls = model.bodies.length;
   release();
   const ended = await run;
@@ -117,7 +125,7 @@ async function saveProgressOffer(page, saves, port) {
 }
 
 async function notNow(page, saves, before) {
-  await page.evaluate(() => localStorage.removeItem("branch.saveProgressOffered"));
+  await page.evaluate(() => localStorage.removeItem("branch-save-progress-asked"));
   const run = api("run", { prompt: "hello again" }).catch((e) => e);
   await until("a running task", async () => (await api("usage/glance")).running > 0);
   await page.reload();
@@ -130,7 +138,7 @@ async function notNow(page, saves, before) {
 }
 
 (async () => {
-  const server = await standIn();
+  const server = CERT && KEY ? await standIn() : null;
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1366, height: 900 }, serviceWorkers: "block" });
   const errors = [], lockBodies = [], saves = [];
@@ -142,15 +150,16 @@ async function notNow(page, saves, before) {
   try {
     await signIn(page);
     await lockdown(page, lockBodies);
-    const before = await saveProgressOffer(page, saves, server.address().port);
-    await notNow(page, saves, before);
+    if (server) await notNow(page, saves, await saveProgressOffer(page, saves, server.address().port));
+    else console.log("SKIP save-progress: needs CERT, KEY and the engine setup in this file's header");
   } catch (error) { check(false, error.message); }
   finally {
     release();
     await api("lockdown", { on: false }).catch((e) => console.log(e.message));
+    for (const undo of cleanup) await undo().catch((e) => console.log(e.message));
     check(errors.length === 0, `page errors: ${errors.length}${errors.length ? " " + errors.join(" | ") : ""}`);
     await browser.close();
-    server.close();
+    server?.close();
   }
   console.log(failures ? `${failures} check(s) failed` : "all checks passed");
   process.exit(failures ? 1 : 0);
