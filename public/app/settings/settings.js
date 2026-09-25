@@ -114,6 +114,15 @@ export function init() {
     renderNow();
   });
 
+  /* The status bar's update menu: close it and open Settings › Updates & about (navigation only). */
+  on("updmenu-go", () => {
+    closePop();
+    S.view = "settings";
+    S.setPage = "updates";
+    open(S.setPage);
+    renderNow();
+  });
+
   on("setlevel", (el) => {
     S.level = el.dataset.v;
     renderNow();
@@ -142,7 +151,7 @@ export function init() {
   for (const page of Object.values(PAGES)) {
     live.push(...(page.live ? Object.keys(page.live) : []));
   }
-  markLive(["setpage", "setgo", "setlevel", ...live]);
+  markLive(["setpage", "setgo", "setlevel", "updmenu-go", ...live]);
 }
 
 export function after(main) {
