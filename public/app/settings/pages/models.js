@@ -1,10 +1,9 @@
 /* Settings › models: bind real engine data and wire controls. */
-import { esc } from "../../core/dom.js";
+import { esc, renderNow } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
-import { renderNow } from "../../core/dom.js";
 
 let accounts = { pools: [] };
 
@@ -76,6 +75,21 @@ export function draw() {
 
 export function init() {
   loadAccounts();
+  on("mtab", (el) => {
+    const tab = el.dataset.v;
+    if (tab) {
+      // Switch tab view - window state only
+      const tabs = document.querySelectorAll('[data-act="mtab"]');
+      tabs.forEach(t => t.setAttribute('aria-selected', t.dataset.v === tab ? 'true' : 'false'));
+    }
+  });
+  on("addacct", (el) => {
+    // addacct triggers the add account flow from flows/account.js
+  });
+  on("acct-menu", (el) => {
+    // Account menu for managing accounts
+  });
+  markLive(["mtab"]);
 }
 
 export async function load() {
@@ -83,7 +97,7 @@ export async function load() {
 }
 
 export const live = {
-  // Keys of controls that are wired to real routes
+  "mtab": false  // Window state only
 };
 
 export function after(col) {
