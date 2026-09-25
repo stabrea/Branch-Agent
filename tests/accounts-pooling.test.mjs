@@ -15,7 +15,7 @@ import { startServer } from "../dist/server.js";
 import { registerCliAgent } from "../dist/providers/cli-agent.js";
 import { accountsServiceFor } from "../dist/accounts/service.js";
 import {
-  AccountsSettingsSchema, applyPoolingRule, poolingRuleVersion, saveAccountsSettings, sessionChoice,
+  AccountsSettingsSchema, applyPoolingRule, poolingRuleVersion, saveAccountsSettings, saveSessionChoice, sessionChoice,
 } from "../dist/accounts/settings.js";
 import { firstChoice, rotationSet } from "../dist/accounts/pool.js";
 import {
@@ -480,4 +480,23 @@ test("P16 own plans needs sharing on, and turning sharing off turns it off (NAS 
   updatePool(service, { pool: POOL, autoSwitch: false });
   updatePool(service, { pool: POOL, autoSwitch: true });
   assert.equal((await viewAll(service)).pools.find((pool) => pool.pool === POOL).ownPlans, false, "sharing alone never brings it back");
+});
+
+// Mac mini 1cef0b5 MINOR: with the owner's own-plans switch on, a conversation on an account kept separate moves on to
+// the owner's own plans when it reaches its limit, even while another own plan is limited (mayShare's first line).
+test("P17 with own plans on, a conversation on the kept-separate account moves to an own plan when both it and another own plan are limited", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner, service } = fx;
+  const outcomes = {};
+  program(fx, outcomes);
+  const { second, work } = await threeAccounts(fx);
+  Object.assign(outcomes, { [second]: limited, [work]: limited });
+  updatePool(service, { pool: POOL, ownPlans: true });
+  const onSecond = app.store.createSession(owner);
+  saveSessionChoice(app.store, owner, onSecond, POOL, second);
+  assert.equal((await app.runtime.run({ prompt: "hello", sessionId: onSecond })).output, "from primary", "control: Second is at its limit now");
+  const onWork = app.store.createSession(owner);
+  saveSessionChoice(app.store, owner, onWork, POOL, work);
+  const moved = await app.runtime.run({ prompt: "hello", sessionId: onWork });
+  assert.equal(moved.output, "from primary", "the work account's limit moves it on to the owner's own plan");
 });
