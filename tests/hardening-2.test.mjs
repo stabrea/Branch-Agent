@@ -519,6 +519,9 @@ test("a service turned into tools comes back after a restart, without fetching a
   open.push(second);
   assert.ok(second.registry.names().includes("api.tiny.get_thing"), "the service's tools survive a restart");
   assert.equal(second.registry.groupOf("api.tiny.get_thing"), "services");
+  // Mac mini's E2 part 2 review: the service's own summary never words a question; the tool is from outside.
+  assert.equal(second.registry.isExternal("api.tiny.get_thing"), true);
+  assert.equal(second.registry.plainWords("api.tiny.get_thing"), null);
   assert.deepEqual(second.openApiTools.list().map((service) => service.name), ["tiny"]);
   const saved = second.store.get("settings", second.runtime.owner, "openapi-service:tiny").data;
   assert.equal(saved.secret, "TINY_KEY", "the name of the secret is kept");

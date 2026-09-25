@@ -171,6 +171,9 @@ export class OpenApiTools {
     const name = toolNameFor(input.name, operation.id);
     this.registry.register({
       name, permission: openApiPermission, group: "services",
+      // Mac mini's E2 part 2 review (MAJOR): the summary is the service's own text, so the tool is from outside: it
+      // never words its own approval question, and its description is read as untrusted.
+      external: true,
       description: operation.summary,
       parameters: OperationArgsSchema,
       inputSchema: operationSchema(source, operation),
