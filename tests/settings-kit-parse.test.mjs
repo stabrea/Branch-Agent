@@ -51,6 +51,7 @@ import { readComfort } from "../dist/comfort/settings.js";
 import { voiceSettings } from "../dist/voice.js";
 import { saveReviewerSettings } from "../dist/approval-reviewer.js";
 import { saveReflectionSettings } from "../dist/reflection/settings.js";
+import { readKnobs } from "../dist/knobs/settings.js";
 
 /*
  * Q65: the settings kit reads and writes every setting through the app's own parse. A record the app would
@@ -96,6 +97,7 @@ const strictReaders = {
   reflection: reflectionSettings,
   "context-files": contextFileSettings,
   retention: retentionSettings,
+  "round-limit": (store, owner) => readKnobs(store, owner, "limits"),
   ...Object.fromEntries(["command-scan", "progress-judge", "activity-chain", "tool-scripts", "wasm-add-ons", "history-repair"]
     .map((name) => [`safety-${name}`, part(safetyMode, name)])),
   ...Object.fromEntries(["recipe-checks", "widgets", "install-requests", "time-travel", "kanban", "waiting-line", "focus"]
@@ -124,6 +126,10 @@ const notStrict = {
 
 /** Records that do not refuse an unknown field are made unreadable another way. */
 const unreadableExtra = { "local-models": { enabled: "yes" } };
+
+/** Settings kept inside another record than their own key: the round limit is a field of the owner's limits knob. */
+const recordKeys = { "round-limit": "knobs-limits" };
+const recordOf = (spec) => recordKeys[spec.key] ?? spec.key;
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-settings-kit-parse-"));
@@ -177,7 +183,7 @@ test("every catalogue setting is either read through its module's strict reader 
 test("an unreadable record shows what the app has in force, not what lies in the record", async (t) => {
   const { store, owner } = await fixture(t);
   for (const spec of strictSpecs()) {
-    store.save("settings", owner, spec.key, unreadable(spec));
+    store.save("settings", owner, recordOf(spec), unreadable(spec));
     for (const field of spec.fields)
       assert.deepEqual(currentValue(store, owner, spec, field), inForce(strictReaders[spec.key], store, owner, field),
         `${spec.key}.${field.field} should show what the app reads`);
@@ -189,14 +195,14 @@ test("a kit write of one field cannot bring back another field or mode the app w
   const writers = settingsKitWriters(app);
   for (const spec of strictSpecs()) {
     const reader = strictReaders[spec.key];
-    store.save("settings", owner, spec.key, unreadable(spec));
+    store.save("settings", owner, recordOf(spec), unreadable(spec));
     const before = Object.fromEntries(spec.fields.map((field) => [field.field, inForce(reader, store, owner, field)]));
     const [first, ...others] = spec.fields;
     // Moved away from what is in force (the wall reads a damaged record as "on", not as where it starts).
     const to = raised(first, before[first.field]);
     const { changes } = changesFor(store, owner, [{ key: spec.key, field: first.field, value: to }]);
     applyChanges(store, owner, changes, { accept: changes.map((change) => change.id), confirmLoosening: true, why: "test", writers });
-    const raw = store.get("settings", owner, spec.key)?.data ?? {};
+    const raw = store.get("settings", owner, recordOf(spec))?.data ?? {};
     assert.deepEqual(inForce(reader, store, owner, first), to, `${spec.key}.${first.field}: the change is in force`);
     assert.deepEqual(readPath(raw, first.field), to, `${spec.key}.${first.field}: the change is what is saved`);
     for (const field of others) {
@@ -274,7 +280,7 @@ test("a kit write of one field keeps every other field of a readable record, cat
   const readers = { ...strictReaders, voice: voiceSettings };
   for (const spec of settingsCatalogue.filter((entry) => readers[entry.key] && entry.fields.length > 1)) {
     const reader = readers[spec.key];
-    store.save("settings", owner, spec.key, spec.fields.reduce((data, field) => setPath(data, field.field, raised(field)), {}));
+    store.save("settings", owner, recordOf(spec), spec.fields.reduce((data, field) => setPath(data, field.field, raised(field)), {}));
     const before = Object.fromEntries(spec.fields.map((field) => [field.field, inForce(reader, store, owner, field)]));
     const [first, ...others] = spec.fields;
     write(spec.key, first.field, raised(first, before[first.field]));

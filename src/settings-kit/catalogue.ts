@@ -1,6 +1,7 @@
 import { reachKey, reachLabels, reachParts, savedReachMode, type ReachPart } from "../reach/settings.js";
 import { listenAsked, listenPlaces, ListenSettingsSchema, listenKey, saveListenSettings } from "../listen-address.js"; // mac7/bind
-import { readPolicy, savePolicy } from "../policy.js";
+import { readPolicy, savePolicy, type PolicyPresetName } from "../policy.js";
+import { presetMoveLooser, type ToolLister } from "../preset-moves.js";
 import type { Store } from "../store.js";
 import { loopGuardMode, saveLoopGuardSettings } from "../loop-guard.js";
 import { folderTrustMode, saveFolderTrustSettings } from "../folder-trust.js";
@@ -41,6 +42,7 @@ import { GoalUndoSettingsSchema } from "../goal-mode.js";
 import { reflectionSettings } from "../reflection/settings.js";
 import { contextFileSettings, saveContextFileSettings } from "../context-files.js";
 import { saveVoiceSettings, voiceSettings, VoiceSettingsSchema } from "../voice.js";
+import { codingModelRounds, readKnobs, saveKnobs } from "../knobs/settings.js";
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -163,8 +165,11 @@ export type FieldKind =
   | { type: "yes-no" }
   /** Choices written from most careful to least careful. */
   | { type: "choice"; options: readonly string[] }
-  /** `fractions`: the app itself keeps values between whole steps (the dictation wait does, at 1.5 seconds). */
-  | { type: "number"; min: number; max: number; fractions?: true };
+  /**
+   * `fractions`: the app itself keeps values between whole steps (the dictation wait does, at 1.5 seconds).
+   * `unset`: a word the field also takes, meaning the owner has set no figure of their own, so Branch uses its own.
+   */
+  | { type: "number"; min: number; max: number; fractions?: true; unset?: string };
 
 export interface FieldSpec {
   /** The field inside the saved record; a dot reaches one level in ("files.soul"). */
@@ -175,6 +180,8 @@ export interface FieldSpec {
   kind: FieldKind;
   initial: string | number | boolean;
   guard: Guard;
+  /** One sentence the settings tools give with the field, such as what its `unset` word stands for. */
+  note?: string;
 }
 
 export interface SettingSpec {
@@ -204,6 +211,12 @@ export interface SettingSpec {
   putBack?: (store: Store, owner: string) => void;
   /** The whole record `putBack` writes, so put-back can name the saved values no field weighs when they differ from it (Q99). */
   shipped?: () => Record<string, unknown>;
+  /**
+   * A field whose move is weighed by what it lets through rather than by the order of its options (the
+   * approval preset): what would get less careful, in plain words, or null when nothing would; undefined
+   * leaves the field to the order of its options. It throws, with the reason, for a move that cannot be made.
+   */
+  weigh?: (store: Store, owner: string, field: string, to: string | number | boolean, tools: ToolLister | undefined) => string | null | undefined;
 }
 
 const sw = (field: string, label: string, t: string, guard: Guard): FieldSpec =>
@@ -246,6 +259,10 @@ const safety: SettingSpec[] = [
     // The approval rules are worked out from the preset, so the preset is saved the way the card saves it.
     write: (store, owner, patch) => { savePolicy(store, owner, patch, "Changed from Settings: presets, reset or a settings file"); },
     read: (store, owner) => ({ ...readPolicy(store, owner) }),
+    // A move of the preset is weighed by what the policy answers before and after it, the owner's own
+    // rules included; its place in the list of options is only a label (src/preset-moves.ts).
+    weigh: (store, owner, field, to, tools) =>
+      field === "preset" ? presetMoveLooser(readPolicy(store, owner), to as PolicyPresetName, tools) : undefined,
   },
   one("approval_reviewer", "A second look before approvals", "settings-kit.name.reviewer", "settings:permissions", "guard",
     { write: (store, owner, patch) => { saveReviewerSettings(store, owner, patch); }, read: (store, owner) => ({ ...reviewerSettings(store, owner) }) }),
@@ -384,6 +401,9 @@ const reach: SettingSpec[] = [
   board("install-requests", "Requests for packages and tool servers", "inbox:needs", "reach"),
 ];
 
+/** The round limit's word for "no figure of the owner's own": Branch then gives each task its own. */
+const roundsUnset = "auto";
+
 const comfort: SettingSpec[] = [
   one("local-models", "Models on this computer", "settings-kit.name.local-models", "settings:models:local", "plain", { keepsEnabled: true,
     ...modeFrom(localModelsMode), write: (store, owner, patch) => { saveLocalModelsMode(store, owner, { mode: localModelsMode(store, owner), ...patch }); } }),
@@ -452,6 +472,20 @@ const comfort: SettingSpec[] = [
         initial: 0, kind: { type: "number", min: 0, max: 3650 } }],
     write: (store, owner, patch) => { saveRetentionSettings(store, owner, { ...retentionSettings(store, owner), ...patch }); },
     read: (store, owner) => ({ ...retentionSettings(store, owner) }),
+  },
+  // The round limit is the owner's own knob (src/knobs/settings.ts, limits.maxModelRounds), so Branch's settings tools
+  // can find it and change it on the owner's yes. The knob records stay on the never-touched list: this reads and
+  // writes that one field and nothing else. More rounds spend only on the connected model, so it is plain.
+  {
+    key: "round-limit", name: "Round limit", t: "settings-kit.name.round-limit", home: "settings:advanced",
+    fields: [{ field: "maxModelRounds", label: "Model rounds (steps) per task", t: "settings-kit.field.round-limit", guard: "plain",
+      initial: roundsUnset, kind: { type: "number", min: 2, max: 60, unset: roundsUnset },
+      note: `${roundsUnset}: 12 rounds, or ${codingModelRounds} when the task works on the project's files. A task working to a plan gets more on top.` }],
+    // The knob's empty value (null) is "auto", so putting it back, or undoing a change, leaves no figure at all.
+    read: (store, owner) => ({ maxModelRounds: readKnobs(store, owner, "limits").maxModelRounds ?? roundsUnset }),
+    write: (store, owner, patch) => {
+      saveKnobs(store, owner, "limits", { maxModelRounds: patch.maxModelRounds === roundsUnset ? null : patch.maxModelRounds });
+    },
   },
 ];
 

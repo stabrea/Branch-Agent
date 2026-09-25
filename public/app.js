@@ -670,6 +670,8 @@ function renderAttention() {
     row.append(el("strong", needsYouTitle(item)), el("span", item.question),
       button(t(item.room ? "attention.openRoom" : "attention.openConversation"), () => { displayView("chat"); openConversation(item.open ?? item.sessionId); })); // phase2/rooms
     if (item.canContinue) row.append(continueButton(item));
+    // Dogfood F8: a waiting task, or one a restart cut off, can be stopped from here.
+    row.append(button(t("attention.stop"), async () => { await api("runs/" + item.runId + "/cancel", {}); await refresh(); }));
     return row;
   }));
   for (const item of waiting) {
@@ -1157,11 +1159,16 @@ $("updates-check").addEventListener("click", async () => {
 /* ---------- tasks working when Update is pressed ---------- */
 let busyTimer = null, waitingForTasks = false, installing = false;
 /** How many tasks are working now, or null when that could not be found out (never taken as none). */
+const whole = (count) => typeof count === "number" && Number.isInteger(count) && count >= 0;
+/* Dogfood F4: how many of those are waiting on a fresh question rather than working, for the words; null when not said. */
+let busyAsking = null, busyWorking = null;
 const busyTasks = () => api("comfort/update-plan", {}).then((plan) => {
   // Only a real count counts: null, false, "" or "3" would each read as a number and could pass for none.
   const count = plan?.busyTasks;
-  return typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : null;
-}, () => null);
+  const known = whole(plan?.workingTasks) && whole(plan?.askingTasks) && plan.workingTasks + plan.askingTasks === count;
+  [busyWorking, busyAsking] = known ? [plan.workingTasks, plan.askingTasks] : [null, null];
+  return whole(count) ? count : null;
+}, () => { busyWorking = busyAsking = null; return null; });
 function endBusyChoice() {
   waitingForTasks = false;
   clearTimeout(busyTimer);
@@ -1259,7 +1266,7 @@ $("updates-failed-log").addEventListener("click", async () => {
 let busySaid = null;
 function sayBusy(key, count) {
   busySaid = { key, count };
-  $("updates-busy-text").textContent = t(key, { count });
+  $("updates-busy-text").textContent = t(key, { count, working: busyWorking ?? 0, asking: busyAsking ?? 0 });
 }
 const busyKey = (count, waiting) => count === null ? (waiting ? "updates.busy.waiting-unknown" : "updates.busy.unknown")
   : count === 1 ? (waiting ? "updates.busy.waiting-one" : "updates.busy.one") : (waiting ? "updates.busy.waiting-many" : "updates.busy.many");
@@ -1273,7 +1280,10 @@ $("updates-install").addEventListener("click", async () => {
   if (count === 0) return installNow();
   // Nothing closes under a working task without the owner's say, and not knowing counts as maybe:
   // wait for them, or update now and have them offered back.
-  sayBusy(busyKey(count, false), count ?? 0);
+  // Dogfood F4: a question waiting for the owner is not a task working, and says so.
+  const asking = count !== null && busyAsking !== null && busyAsking > 0
+    ? (busyWorking > 0 ? "updates.busy.mixed" : count === 1 ? "updates.busy.asking-one" : "updates.busy.asking-many") : null;
+  sayBusy(asking ?? busyKey(count, false), count ?? 0);
   $("updates-busy").hidden = false;
 });
 $("updates-wait").addEventListener("click", () => {
@@ -2161,6 +2171,8 @@ $("chat-form").addEventListener("submit", async (event) => {
   const answering = chosenSpecialist();
   const prompt = answering ? `Delegate to specialist ${answering.id}: ${asked}` : asked;
   setConversationBusy(true);
+  // A send really starts here (public/follow-newest.js tells its first id apart from the person opening one).
+  document.dispatchEvent(new CustomEvent("branch-send-started"));
   const startsConversation = !sessionId;
   if (startsConversation) $("conversation").replaceChildren();
   // FQ-surfaces.playback: the sound/video file just attached, handed to this one message's bubble.
@@ -2224,6 +2236,7 @@ $("chat-form").addEventListener("submit", async (event) => {
   } catch (e) {
     message("assistant", e.message);
   } finally {
+    document.dispatchEvent(new CustomEvent("branch-send-settled"));
     globalThis.branchPlaybackSettle?.();
     stopActivity();
     globalThis.branchLiveRun?.stop(sessionId);

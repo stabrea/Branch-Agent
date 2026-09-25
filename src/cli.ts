@@ -3,6 +3,7 @@ import { reportCommand } from "./diagnostic-cli.js"; // mac7/diagnostics
 import { installTypeOf } from "./diagnostic-api.js"; // mac7/diagnostics
 import { resolve } from "node:path";
 import { createBranch } from "./index.js";
+import { maximumPolicyRules } from "./policy.js"; // Q215
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, join, dirname } from "node:path";
@@ -16,7 +17,7 @@ import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
 import { startTui } from "./terminal-tui.js";
 import { looksInteractive } from "./terminal-style.js";
-import { readOnlyTerminalCommands, runTerminalCommand, terminalArgv, terminalCommandNames, versionText } from "./terminal-cli.js";
+import { readOnlyTerminalCommands, runTerminalCommand, statusCommand, terminalArgv, terminalCommandNames, versionText } from "./terminal-cli.js";
 import { asksForHelp, cliCommands, commandHelp, completionScript, usageText } from "./cli-completion.js";
 import { nodeCommand } from "./devices/node/cli.js"; // mac7/nodes
 // Batch 20 (wave 8): short-lived keys, schedules and the attach client for the running engine.
@@ -28,7 +29,7 @@ import { scopeDescriptions } from "./session-tokens.js";
 import { errorText, type Run } from "./contracts.js";
 import { watchFolder } from "./watch.js";
 import {
-  answerFromCommand, usePreset, exitCodeFor, parseRunArgs, runForScripts, statusSnapshot,
+  answerFromCommand, usePreset, exitCodeFor, parseRunArgs, runForScripts,
   timelineLines, type RunFlags,
 } from "./cli-run.js";
 // Bucket 8 (wave 9): the whole assistant with no window, for a job a script starts.
@@ -236,7 +237,10 @@ async function main(): Promise<void> {
       const session = flag("session");
       await (full ? startTui(app.runtime, { app, ...(session ? { sessionId: session } : {}) }) : startTerminal(app.runtime));
       return;
-    } else if (command === "status") { await printStatus(app); return; }
+    } else if (command === "status") {
+      await statusCommand(app, { json: process.argv.includes("--json"), write: (line) => console.log(line) });
+      return;
+    }
     else if (command === "logs") { printLogs(app); return; }
     else if (command === "approve") { printApproval(app); return; }
     else if (command === "mcp-serve") {
@@ -436,8 +440,9 @@ async function tokenCommand(keys: TokenAccess): Promise<void> {
  * code, or null when nothing is running and this copy should open the saved work itself.
  *
  * What is here: `doctor` (the checks), `trace` (one task's steps), `token` (a short-lived key for a
- * script — the one moment a script needs one is while Branch is running), and every terminal place
- * that only looks. Everything else would fight the running Branch for the same files and still
+ * script — the one moment a script needs one is while Branch is running), and every terminal
+ * command that only looks, `status` included (the running Branch writes its lines, with the same
+ * function as here). Everything else would fight the running Branch for the same files and still
  * refuses, in a sentence that now says which commands do work.
  */
 async function overRunningBranch(command: string, dataDir: string): Promise<number | null> {
@@ -695,18 +700,6 @@ async function headlessJob(app: Awaited<ReturnType<typeof createBranch>>): Promi
     process.exitCode = report.exitCode;
   } finally { preset?.restore(); }
 }
-/** Tasks working now, questions waiting for an answer, and the health summary. */
-async function printStatus(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
-  const snapshot = statusSnapshot(app.runtime);
-  const health = await healthReport(app, { probeProvider: false });
-  if (process.argv.includes("--json")) { console.log(JSON.stringify({ ...snapshot, health }, null, 2)); return; }
-  console.log(`When to check with me: ${snapshot.approvalPreset}`);
-  console.log(snapshot.running.length ? "Working now:" : "Nothing is working right now.");
-  for (const run of snapshot.running) console.log(`  ${run.id} — ${run.prompt}`);
-  for (const waiting of snapshot.waitingForYou) console.log(`  waiting for you: ${waiting.id} — ${waiting.question}`);
-  console.log(health.ok ? "Everything checks out." : "Some checks need attention:");
-  for (const check of health.items) console.log(`  ${check.ok ? "ok" : "x "} ${check.name}: ${check.summary}`);
-}
 function printLogs(app: Awaited<ReturnType<typeof createBranch>>): void {
   const runId = process.argv[3];
   if (!runId) throw new Error("Name a task: branch logs <task id>");
@@ -723,6 +716,12 @@ function printApproval(app: Awaited<ReturnType<typeof createBranch>>): void {
   if (process.argv.includes("--json")) { console.log(JSON.stringify(result)); return; }
   // The run that asked has already ended, so there is nothing left to answer just this once: the
   // answer has to be saved as a rule. Say that plainly rather than letting it look like a one-off.
+  // Q215: the asking run has ended, so an answer that was not saved holds nowhere; say so rather than "Saved".
+  if (!result.kept) {
+    console.log(`Nothing was saved: your approval rules are full (${maximumPolicyRules}), and making room would drop one of your refusals or "ask first" rules.`);
+    console.log("Remove some rules under \"When to check with me\" in Settings, then answer again. The task will ask again when you run it.");
+    return;
+  }
   console.log(result.decision === "allow"
     ? `Saved a standing rule: ${result.rule} may go ahead from now on, without asking.`
     : `Saved a standing rule: ${result.rule} is refused from now on, without asking.`);

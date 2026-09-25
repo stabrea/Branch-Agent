@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js";
 import { checksumAssetName } from "./release-assets.js";
-import { buildDev, devToolsMissing, realRun, remoteHead, type DevPhase, type Run } from "./dev-build.js";
+import { buildDev, devStanding, devToolsMissing, realRun, remoteHead, type DevPhase, type DevStanding, type Run } from "./dev-build.js";
 import { removeTree } from "./remove-tree.js";
 import { fetchAttestationBundles, isBuildProvenance, verifyAttestationBundle, type AttestationLookup } from "./provenance.js";
 import { primaryRepo, fallbackRepo, isTrustedRepo } from "./repo-pair.js";
@@ -78,6 +78,8 @@ export interface ReleaseInfo {
   channel: UpdateChannel;
   /** Dev: the commit that would be built. */
   commit?: string;
+  /** Dev (dogfood F5): where the running change stands against it, from the history. */
+  standing?: DevStanding;
   /** The repository this release was found from (used for provenance checks). */
   sourceRepo?: string;
 }
@@ -242,7 +244,11 @@ export class Updater {
       const release = await this.latestRelease();
       if (generation !== this.generation) return this.status;
       if (release.channel === "dev") {
-        const change = release.commit?.slice(0, 7);
+        const change = release.commit?.slice(0, 7), mine = this.options.currentCommit?.slice(0, 7);
+        if (release.standing === "ahead")
+          return this.set("current", `You are ahead of the main line: this copy (change ${mine}) already includes its newest change (${change}).`, null, release);
+        if (release.standing === "apart")
+          return this.set("current", `The main line's newest change (${change}) does not include this copy's change (${mine}), so installing it would go back. It is offered once the main line catches up.`, null, release);
         return release.available
           ? this.set("available", `A newer Dev build (change ${change}) can be built and installed.`, null, release)
           : this.set("current", `You have the newest Dev build (change ${change}).`, null, release);
@@ -434,14 +440,27 @@ export class Updater {
     const missing = await devToolsMissing(run);
     if (missing) throw new Error(missing);
     const commit = await remoteHead(run, this.devRepo());
-    const short = commit.slice(0, 7);
+    const short = commit.slice(0, 7), running = this.options.currentCommit;
+    // Dogfood F5: a copy built ahead of the main line is not offered the main line's older head as "newer".
+    const standing = running && running !== commit ? await this.devHistoryStanding(run, running, commit) : undefined;
     return {
       currentVersion: this.options.currentVersion, latestVersion: this.options.currentVersion, tag: `dev-${short}`,
-      available: commit !== this.options.currentCommit,
+      available: commit !== running && standing !== "ahead" && standing !== "apart", ...(standing ? { standing } : {}),
       title: `Dev build of change ${short}`, notes: "", publishedAt: null,
       assetUrl: "", checksumUrl: "", assetBytes: 0, pageUrl: `https://github.com/${this.devRepo()}/commit/${commit}`,
       channel: "dev", commit,
     };
+  }
+  /**
+   * Dev (dogfood F5): where the running change stands, from a history kept in the updater's own folder. That folder is
+   * made private first, as an install makes it (NAS cfc3808); one that is not safe to use leaves the answer unknown.
+   */
+  private async devHistoryStanding(run: Run, running: string, commit: string): Promise<DevStanding> {
+    try {
+      await mkdir(this.options.scratchDir, { recursive: true });
+      if (this.platform !== "win32") await ensurePrivateDir(this.options.scratchDir);
+    } catch { return "unknown"; }
+    return devStanding(run, join(this.options.scratchDir, "dev-history"), this.devRepo(), running, commit);
   }
   /** Dev: builds the download from source on this computer; the steps after it are the same as for a release. */
   private async buildDevArchive(release: ReleaseInfo): Promise<{ archive: string; version: string }> {

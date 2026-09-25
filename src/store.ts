@@ -21,6 +21,7 @@ import { achievementTallies, type AchievementTallies, type EventScan } from "./a
 import { MemoryReview } from "./memory-review.js";
 import { SkillGovernance } from "./skill-governance.js";
 import { exportBackup, importBackup, type RestoreOptions } from "./backup.js";
+import { RestoreHeld } from "./restore-held.js";
 import { WorkspaceHistory } from "./workspace-history.js";
 import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
@@ -54,6 +55,7 @@ export class Store {
   private readonly memories: MemoryFacts;
   readonly review: MemoryReview;
   private governanceStore: SkillGovernance | undefined;
+  private restoreHeldStore: RestoreHeld | undefined;
   private historyStore: WorkspaceHistory | undefined;
   readonly skills: InstalledSkills;
   readonly projects: Projects;
@@ -101,7 +103,7 @@ export class Store {
           `Branch is already open and using the work saved in ${this.folder}, so this second Branch stopped rather than write to the same files. Nothing was changed. `
             // mac7/smoke-fixes (B4): the sentence now says what does work, instead of leaving the
             // terminal looking broken while the window is open.
-            + "These work against the Branch that is already open, from any terminal: branch doctor, branch token, "
+            + "These work against the Branch that is already open, from any terminal: branch status, branch doctor, branch token, "
             + "branch trace, branch schedule, and the places that only look (memory, usage, sessions, inbox, library, "
             + "settings, places, tools, skills, projects, snapshots, channels, mcp, customize, automations). "
             + "Anything that writes to the saved work — backup, restore, security audit, activity verify, theme, model use, "
@@ -276,7 +278,18 @@ export class Store {
   /** Every table of the person's state, for a backup file; secrets are left out (device-bound key). */
   backup(appVersion: string) { return exportBackup(this.db, appVersion); }
   /** Restores a backup into a fresh install; refuses when this copy already has state. */
-  restore(input: unknown, options: RestoreOptions = {}) { return importBackup(this.db, input, options); }
+  /**
+   * Q168 B: what a restore held for the owner's yes is added to the waiting list, and the answer says what is
+   * waiting, so the window and `branch restore` can both say so.
+   */
+  restore(input: unknown, options: RestoreOptions = {}) {
+    const { held, ...result } = importBackup(this.db, input, options);
+    return { ...result, held: this.restoreHeld.merge(held) };
+  }
+  /** Rows from a restore waiting for the owner's yes (src/restore-held.ts). */
+  get restoreHeld(): RestoreHeld {
+    return (this.restoreHeldStore ??= new RestoreHeld(this));
+  }
   /** Skill failure patterns, exclusions, demotion, benchmarks and drafts for this owner. */
   get governance(): SkillGovernance {
     return (this.governanceStore ??= new SkillGovernance(this, "local"));
@@ -414,11 +427,25 @@ export class Store {
               OR (newer.created_at = current.created_at AND newer.rowid > current.rowid)))
       ORDER BY current.created_at DESC LIMIT ?`).all(owner, limit).map((row) => this.toRun(row));
   }
+  /** The newest message written in one conversation, by anyone, or 0 when there is none (NAS 3fd7700). */
+  lastMessageId(sessionId: string): number {
+    const row = this.db.prepare("SELECT MAX(id) AS id FROM messages WHERE session_id=?").get(sessionId) as { id: number | null } | undefined;
+    return Number(row?.id ?? 0);
+  }
+  /** The newest task in one conversation (A6, NAS 166fbe3), read on its own, however much other work came after it. */
+  newestIn(owner: string, sessionId: string): Run | undefined {
+    const row = this.db.prepare("SELECT * FROM tasks WHERE owner=? AND session_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(owner, sessionId);
+    return row ? this.toRun(row) : undefined;
+  }
   finish(id: string, status: RunStatus, output: string): Run {
     const run = this.run(id);
     if (!run) throw new Error("Run not found");
     const added = this.reconcileMessages(run.sessionId, status);
     if (added) this.event(id, "session.reconciled", { added, reason: status });
+    // NAS 3fd7700: where the conversation stood when this task stopped to ask, so a yes carries it on only while
+    // nothing else (a heartbeat's note, a Trunk routine's report) has been written there since.
+    if (status === "needs_input") this.event(id, "run.stopped_to_ask", { lastMessageId: this.lastMessageId(run.sessionId) });
     this.db
       .prepare("UPDATE tasks SET status=?,output=?,updated_at=? WHERE id=?")
       .run(status, output, new Date().toISOString(), id);

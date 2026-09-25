@@ -139,7 +139,7 @@ test("A0374: the diagnosis the loop asks for is charged to the task's own budget
   const run = await app.runtime.run({ prompt: "check the project is ready", budget: { maxSteps: 5, maxTokens: 200000 } });
   assert.equal(provider.diagnoses, 1, "the loop asked once");
   assert.equal(run.status, "budget_exceeded", run.output);
-  assert.match(run.output, /Step budget exhausted/,
+  assert.match(run.output, /as many steps as one task may \(5\)/,
     "the ask counted against the task's steps, so the task ran out where it should");
 });
 

@@ -140,7 +140,8 @@ if (typeof document !== "undefined") {
   if (view) {
     new MutationObserver(() => void refresh()).observe(view, { attributes: true, attributeFilter: ["hidden"] });
     // The usage view redraws by emptying itself (public/usage.js); the chart goes back at the end.
-    new MutationObserver(() => { if (on && chartBox && !view.contains(chartBox)) view.append(chartBox); })
+    // Q196 (NAS b613f63): and is drawn at once, not at the next 4-second look, so opening the page shows it.
+    new MutationObserver(() => { if (on && chartBox && !view.contains(chartBox)) { view.append(chartBox); void refresh(); } })
       .observe(view, { childList: true });
   }
   document.addEventListener("branch-language", () => void refresh());

@@ -129,15 +129,18 @@ function askCard(question) {
     if (remember === "always" && question.source !== "owner") continue;
     if (remember === "always" && question.noStanding) continue; // Q59: Ask first and Plan keep no standing yes
     if (remember === "always" && question.noAlways) continue;
+    if (remember === "always" && document.documentElement.dataset.household === "on") continue; // Q182: the owner's to give
     if (question.onceOnly && decision === "allow" && remember !== "never") continue;
     const choice = el("div", undefined, "live-ask-choice");
     choice.append(button(label, decision === "deny" ? "danger" : "", () => answerOnce(card, async () => {
       /* The yes is tied to the exact bytes shown, so a changed request has to ask again. */
-      await api("policy/approve", {
+      const said = await api("policy/approve", {
         sessionId: question.sessionId, decision, remember,
-        ...(question.fingerprint ? { fingerprint: question.fingerprint } : {}),
+        ...(question.fingerprint ? { fingerprint: question.fingerprint } : {}), carryOn: true,
       });
       card.replaceChildren(el("p", decision === "allow" ? t("live.steered") : t("live.stopped"), "meta"));
+      /* Q215: with the approval rules full, an "always" holds for this conversation only. */
+      if (said?.standingNote) card.append(el("p", t("live.standingFull"), "meta"));
     })));
     /* Wave 7: say what this answer leaves behind before it is pressed, in the same words the
        "What is allowed right now" list uses for the same thing. */

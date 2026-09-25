@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { askerOf, runOrigin } from "./key-context.js"; // dogfood A6
 import { personalHold } from "./personal/guard.js"; // R17-C integration review
 import { z } from "zod";
 import { Budget, errorText, type ToolCall, type ToolContext, type Run } from "./contracts.js";
@@ -195,7 +196,8 @@ function everyTarget(host: ReviewerHost, policy: Policy, whole: PolicyOutcome, a
  */
 export async function reviewCall(host: ReviewerHost, check: PolicyCheck, about: ReviewedCall): Promise<PolicyCheck> {
   const session = sessionOf(host, about.context);
-  if (check.decision !== "deny" && host.approvals.takeOverrule(session, about.fingerprint)) {
+  if (check.decision !== "deny" && (host.approvals.takeOverrule(session, about.fingerprint)
+    || host.approvals.takeJustNow(session, about.call.name, about.fingerprint, askerOf(runOrigin(host.store, about.context.runId))))) {
     host.store.event(about.context.runId, "policy.overruled", { name: about.call.name, id: about.call.id, label: check.label });
     return { ...check, decision: "allow" };
   }

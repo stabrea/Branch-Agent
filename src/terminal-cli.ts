@@ -1,6 +1,8 @@
 import { createRequire } from "node:module";
 import type { createBranch } from "./index.js";
 import { inferToolGroup } from "./catalog.js";
+import { statusSnapshot } from "./cli-run.js";
+import { healthReport } from "./health.js";
 import { lockdownState, setLockdown } from "./lockdown.js";
 import { pricingSettings } from "./pricing.js";
 import { limitLines } from "./usage-limits.js"; // mac7/usage-bar
@@ -33,11 +35,11 @@ export const terminalCommandNames = new Set(TERMINAL_CLI_COMMANDS.map((entry) =>
  * may run against the Branch already open, over `GET /api/terminal`, so the window being open no
  * longer makes the terminal useless. Everything left out either writes (`theme`, `model use`,
  * `lockdown`, `permissions <preset>`) or wants a terminal of its own (`resume`, `setup`), and still
- * refuses while another Branch holds the saved work.
+ * refuses while another Branch holds the saved work. `status` only reads too, so it is here.
  */
 export const readOnlyTerminalCommands = new Set([
   "inbox", "automations", "library", "customize", "overview", "household", "settings", "places", "sessions", "memory",
-  "skills", "channels", "mcp", "tools", "projects", "usage", "snapshots", "version",
+  "skills", "channels", "mcp", "tools", "projects", "usage", "snapshots", "version", "status",
 ]);
 
 /**
@@ -177,6 +179,24 @@ async function usageCommand(app: Branch, io: Io): Promise<void> {
   for (const line of limitLines(limits, Date.now())) io.write(line);
 }
 
+/**
+ * `branch status`: the tasks working now, the questions waiting for an answer, and the health
+ * summary. The health summary only looks; it never asks the model anything. The one place these
+ * lines are written, whether this terminal opened the saved work itself or asked the Branch that
+ * is already open for them over `GET /api/terminal`, so the two can never say different things.
+ */
+export async function statusCommand(app: Branch, io: Pick<Io, "json" | "write">): Promise<void> {
+  const snapshot = statusSnapshot(app.runtime);
+  const health = await healthReport(app, { probeProvider: false });
+  if (io.json) return io.write(JSON.stringify({ ...snapshot, health }, null, 2));
+  io.write(`When to check with me: ${snapshot.approvalPreset}`);
+  io.write(snapshot.running.length ? "Working now:" : "Nothing is working right now.");
+  for (const run of snapshot.running) io.write(`  ${run.id} — ${run.prompt}`);
+  for (const waiting of snapshot.waitingForYou) io.write(`  waiting for you: ${waiting.id} — ${waiting.question}`);
+  io.write(health.ok ? "Everything checks out." : "Some checks need attention:");
+  for (const check of health.items) io.write(`  ${check.ok ? "ok" : "x "} ${check.name}: ${check.summary}`);
+}
+
 /** Runs one of the terminal's commands. */
 export async function runTerminalCommand(app: Branch, command: string, args: string[], io: Io): Promise<void> {
   const words = wordsFor(app, io.env), owner = app.runtime.owner;
@@ -187,6 +207,7 @@ export async function runTerminalCommand(app: Branch, command: string, args: str
   // so this is only reached over GET /api/terminal — where leaving it out made a command on the
   // read-only list answer "I do not know the command version".
   if (command === "version") return io.write(versionText());
+  if (command === "status") return statusCommand(app, io);
   if (command === "theme") return themeCommand(app, args, io);
   if (command === "sessions") return sessionsCommand(app, args, io);
   if (command === "resume") return resumeCommand(app, args, io);

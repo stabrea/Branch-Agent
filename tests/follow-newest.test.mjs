@@ -131,3 +131,96 @@ test("B5 opening a conversation from Recents in a fresh window starts at its new
   assert.ok((await gap(page)) <= 80, `opened at the newest message (${await gap(page)} px above the bottom)`);
   assert.deepEqual(errors, []);
 });
+
+test("Q197 Shift+Space, and a key pressed with the focus on the page itself, count as reading up (NAS b613f63)", async (t) => {
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
+  await send(page, "A long answer please.");
+  // The window reloads the conversation after an answer lands: wait until the page is quiet, so that redraw's own
+  // scroll cannot land between a key and the check that follows it.
+  // (The page keeps polling, so it is never network-idle: quiet here means its height held for two looks in a row.)
+  for (let still = 0, tries = 0; still < 2 && tries < 40; tries++)
+    still = await page.evaluate(() => new Promise((resolve) => {
+      const box = document.getElementById("workspace"), before = box.scrollHeight;
+      setTimeout(() => resolve(box.scrollHeight === before), 400);
+    })) ? still + 1 : 0;
+  const following = () => page.evaluate(() => globalThis.branchFollowNewest.following);
+  assert.equal(await following(), true, "control: following after the answer");
+  await page.locator("#conversation").click();
+  await page.keyboard.press("Shift+Space");
+  assert.equal(await following(), false, "Shift+Space in the conversation");
+  await page.evaluate(() => document.getElementById("workspace").scrollTo(0, document.getElementById("workspace").scrollHeight));
+  await page.evaluate(() => document.getElementById("workspace").dispatchEvent(new Event("scroll")));
+  assert.equal(await following(), true, "control: back at the bottom it follows again");
+  await page.evaluate(() => { document.activeElement?.blur(); });
+  await page.keyboard.press("PageUp");
+  assert.equal(await following(), false, "PageUp with the focus on the page itself");
+  assert.deepEqual(errors, []);
+});
+
+test("Q198 a conversation opened from Recents after a scroll up on the empty screen starts at its newest message (NAS e87c522)", async (t) => {
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
+  await send(page, "A long answer to come back to.");
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.waitForFunction(() => globalThis.branchFollowNewest, null, { timeout: 20000 });
+  // A wheel turned upward over the empty screen.
+  await page.evaluate(() => document.getElementById("workspace").dispatchEvent(new WheelEvent("wheel", { deltaY: -300, bubbles: true })));
+  assert.equal(await page.evaluate(() => globalThis.branchFollowNewest.following), false, "control: the wheel counted as reading");
+  const row = page.locator("#rail-list .rail-item").filter({ hasText: "A long answer to come back to" });
+  await row.waitFor({ timeout: 20000 });
+  await row.click();
+  await page.waitForFunction(() => document.querySelectorAll("#conversation .message.assistant").length >= 1, null, { timeout: 20000 });
+  await page.waitForTimeout(500);
+  assert.ok((await gap(page)) <= 80, `opened at the newest message (${await gap(page)} px above the bottom)`);
+  assert.deepEqual(errors, []);
+});
+
+// NAS f050949: a submit that sends nothing (a slash command, a box of spaces, a first send that fails) left the send
+// flag set, so after a wheel up the next conversation opened from Recents started at its top.
+test("a slash command on the empty screen leaves no send under way: Recents still opens at the newest message", async (t) => {
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
+  await send(page, "A long answer to open again.");
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.waitForFunction(() => globalThis.branchFollowNewest, null, { timeout: 20000 });
+  await page.locator("#prompt").fill("/help");
+  await page.locator("#prompt").press("Enter");
+  await page.waitForFunction(() => document.getElementById("prompt").value === "", null, { timeout: 20000 });
+  assert.equal(await page.locator("#conversation").getAttribute("data-session-id") ?? "", "", "control: nothing was sent");
+  await page.evaluate(() => document.getElementById("workspace").dispatchEvent(new WheelEvent("wheel", { deltaY: -300, bubbles: true })));
+  assert.equal(await page.evaluate(() => globalThis.branchFollowNewest.following), false, "control: the wheel counted as reading");
+  const row = page.locator("#rail-list .rail-item").filter({ hasText: "A long answer to open again" });
+  await row.waitFor({ timeout: 20000 });
+  await row.click();
+  await page.waitForFunction(() => document.querySelectorAll("#conversation .message.assistant").length >= 1, null, { timeout: 20000 });
+  await page.waitForTimeout(500);
+  assert.ok((await gap(page)) <= 80, `opened at the newest message (${await gap(page)} px above the bottom)`);
+  assert.deepEqual(errors, []);
+});
+
+// NAS de61b26: the failed-first-send third of f050949's LOW had no test. A first send that fails ends in the send's
+// `finally`, so the flag clears and the next conversation opened from Recents starts at its newest message.
+test("a first send that fails leaves no send under way: Recents still opens at the newest message", async (t) => {
+  const { page, errors } = await fixture(t, { name: "scripted", async complete() { return { content: long, toolCalls: [] }; } });
+  await send(page, "A long answer after a failed send.");
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.waitForFunction(() => globalThis.branchFollowNewest, null, { timeout: 20000 });
+  let refused = 0;
+  await page.route("**/api/run", (route) => { refused += 1; return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "The service is not answering." }) }); });
+  await page.locator("#prompt").fill("This first send fails.");
+  await page.locator("#prompt").press("Enter");
+  await page.waitForFunction(() => /not answering/.test(document.getElementById("conversation").textContent), null, { timeout: 20000 });
+  await page.unroute("**/api/run");
+  assert.equal(refused, 1, "control: the send was tried and refused");
+  await page.evaluate(() => document.getElementById("workspace").dispatchEvent(new WheelEvent("wheel", { deltaY: -300, bubbles: true })));
+  assert.equal(await page.evaluate(() => globalThis.branchFollowNewest.following), false, "control: the wheel counted as reading");
+  const row = page.locator("#rail-list .rail-item").filter({ hasText: "A long answer after a failed send" });
+  await row.waitFor({ timeout: 20000 });
+  await row.click();
+  await page.waitForFunction(() => document.querySelectorAll("#conversation .message.assistant").length >= 1
+    && !/not answering/.test(document.getElementById("conversation").textContent), null, { timeout: 20000 });
+  await page.waitForTimeout(500);
+  assert.ok((await gap(page)) <= 80, `opened at the newest message (${await gap(page)} px above the bottom)`);
+  assert.deepEqual(errors, []);
+});

@@ -23,7 +23,9 @@ test("Q48/Q49 recent changes: undo needs the separate yes to loosen, and why nam
   const ask = (path, body) => settingsKitApi(deps, "POST", path, async () => body);
   const plan = { source: "preset", preset: "careful" };
   const { changes } = await ask("/api/settings-kit/preview", plan);
-  await ask("/api/settings-kit/apply", { plan, accept: changes.map((change) => change.id), confirmLoosening: false });
+  // Q201: the Careful preset's move of the approval preset is weighed as less careful (web lookups stop asking), so
+  // applying it needs the separate yes; this test is about the record and its undo, not about that move.
+  await ask("/api/settings-kit/apply", { plan, accept: changes.map((change) => change.id), confirmLoosening: true });
   const guardBefore = changes.find((change) => change.id === "loop_guard.mode")?.from;
   assert.ok(guardBefore !== undefined, "the careful preset no longer changes loop_guard.mode");
   assert.equal(loopGuardMode(app.store, owner), "on");
@@ -70,7 +72,9 @@ test("Q48/Q49 in French: the why answer names the preset in French, not by its E
   const ask = (path, body) => settingsKitApi(deps, "POST", path, async () => body);
   const plan = { source: "preset", preset: "careful" };
   const { changes } = await ask("/api/settings-kit/preview", plan);
-  await ask("/api/settings-kit/apply", { plan, accept: changes.map((change) => change.id), confirmLoosening: false });
+  // Q201: the Careful preset's move of the approval preset is weighed as less careful (web lookups stop asking), so
+  // applying it needs the separate yes; this test is about the record and its undo, not about that move.
+  await ask("/api/settings-kit/apply", { plan, accept: changes.map((change) => change.id), confirmLoosening: true });
   // Q48 review: Lockdown's own changes are listed, in French, with no undo of their own.
   setLockdown(app.store, app.runtime.owner, { on: true });
   setLockdown(app.store, app.runtime.owner, { on: false });

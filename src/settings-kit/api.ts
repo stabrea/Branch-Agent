@@ -11,6 +11,7 @@ import { presetFor, presets } from "./presets.js";
 import { settingsHistory, type ChangeOrigin } from "./history.js";
 import { undoSettingsChange, UndoRefused, whySetting } from "./undo.js";
 import { exportSettings, maximumSettingsFileBytes, readSettingsFile } from "./transfer.js";
+import type { ToolLister } from "../preset-moves.js";
 
 /**
  * R17-S-A: the window's side of understandable settings, under /api/settings-kit. Every route is the
@@ -32,6 +33,8 @@ export interface SettingsKitDeps {
   writers?: Record<string, Writer> | undefined;
   /** The never-break guard for a file about to be written: why not, or null (src/never-break/protected.ts). */
   guard?: ((target: string) => string | null) | undefined;
+  /** The tools Branch has, which a move of the approval preset is weighed on (see changesFor). */
+  tools?: ToolLister | undefined;
 }
 
 function ownerOnly(deps: SettingsKitDeps, what: string): void {
@@ -119,7 +122,7 @@ function apply(deps: SettingsKitDeps, input: unknown) {
   if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
   const body = Apply.parse(input);
   const { proposals, why, origin } = proposalsFor(body.plan);
-  const { changes, refused } = changesFor(deps.store, deps.owner, proposals);
+  const { changes, refused } = changesFor(deps.store, deps.owner, proposals, deps.tools);
   let applied, skipped, record;
   try {
     // mac7/wake-pins: one switch moved on purpose may be a pinned one; a preset, a settings file or
@@ -140,7 +143,7 @@ function undo(deps: SettingsKitDeps, input: unknown) {
   if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
   const body = UndoBody.parse(input);
   try {
-    const { applied, record } = undoSettingsChange(deps.store, deps.owner, body.record, { confirmLoosening: body.confirmLoosening, writers: deps.writers });
+    const { applied, record } = undoSettingsChange(deps.store, deps.owner, body.record, { confirmLoosening: body.confirmLoosening, writers: deps.writers, tools: deps.tools });
     return { applied, record, overview: overview(deps) };
   } catch (error) { throw error instanceof UndoRefused ? new SettingsKitError(error.status, error.message) : error; }
 }
@@ -213,7 +216,7 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
   if (method !== "POST") throw new SettingsKitError(404, "Not found");
   if (path === "/api/settings-kit/preview") {
     const { proposals } = proposalsFor(Source.parse(await body()));
-    return changesFor(deps.store, deps.owner, proposals);
+    return changesFor(deps.store, deps.owner, proposals, deps.tools);
   }
   if (path === "/api/settings-kit/apply") return apply(deps, await body());
   if (path === "/api/settings-kit/pins") return pin(deps, await body()); // mac7/wake-pins

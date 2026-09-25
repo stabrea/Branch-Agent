@@ -10,6 +10,7 @@ import { memoryProvider, saveMemoryProvider } from "./apply.js";
 import { refusedEnvironmentName } from "./environment.js";
 import { launchFileView, saveLaunchFile } from "./launch-file.js";
 import { contextLimit } from "../runtime.js";
+import { byCard, recordedWrite } from "../settings-kit/recorded-write.js";
 
 /**
  * R17-S-B: the screen's way in.
@@ -109,12 +110,17 @@ function save(app: KnobsApp, body: unknown) {
   const input = SaveSchema.parse(body);
   const { store, runtime: { owner } } = app;
   requireOwnerHere(store, "These settings");
-  if (input.reset) {
-    resetKnobs(store, owner, input.card);
-  } else if (input.values) {
-    checkValues(app, input.card, input.values);
-    saveKnobs(store, owner, input.card, input.values);
-  }
+  const write = (): void => {
+    if (input.reset) {
+      resetKnobs(store, owner, input.card);
+    } else if (input.values) {
+      checkValues(app, input.card, input.values);
+      saveKnobs(store, owner, input.card, input.values);
+    }
+  };
+  // The round limit is also a Settings setting (src/settings-kit/catalogue.ts), so what this card moves of it is recorded.
+  if (input.card === "limits") recordedWrite(store, owner, byCard("round-limit"), ["round-limit"], write);
+  else write();
   if (input.memoryProvider) saveMemoryProvider(store, owner, input.memoryProvider);
   return view(app);
 }

@@ -2,6 +2,7 @@ import type { Store } from "../store.js";
 import { specFor } from "./catalogue.js";
 import { applyWithPins, changesFor, currentValue, type Change, type Value, type Writer } from "./changes.js";
 import { lastChangeOf, settingsHistory, type ChangeOrigin, type ChangeRecord } from "./history.js";
+import type { ToolLister } from "../preset-moves.js";
 
 /**
  * Q48 and Q49: undoing one recorded change, and saying why a setting is as it is. Both read the
@@ -71,6 +72,8 @@ export interface UndoChoice {
   writers?: Record<string, Writer> | undefined;
   /** Q49: who asked for the undo; the owner in the window unless said otherwise. */
   by?: Pick<ChangeOrigin, "writer" | "runId" | "sessionId"> | undefined;
+  /** The tools Branch has, which putting back the approval preset is weighed on (see changesFor). */
+  tools?: ToolLister | undefined;
 }
 
 /**
@@ -78,7 +81,7 @@ export interface UndoChoice {
  * a missing or already undone record, a setting changed again since, a refused value or a pinned
  * setting refuses the whole undo here.
  */
-export function planUndo(store: Store, owner: string, id: string): { record: ChangeRecord; changes: Change[] } {
+export function planUndo(store: Store, owner: string, id: string, tools?: ToolLister): { record: ChangeRecord; changes: Change[] } {
   const records = settingsHistory(store, owner);
   const record = records.find((entry) => entry.id === id);
   if (!record) throw new UndoRefused(404, "There is no such change to undo.");
@@ -88,7 +91,7 @@ export function planUndo(store: Store, owner: string, id: string): { record: Cha
     const dot = entry.setting.indexOf(".");
     return { key: entry.setting.slice(0, dot), field: entry.setting.slice(dot + 1), value: entry.before };
   });
-  const { changes, refused } = changesFor(store, owner, proposals);
+  const { changes, refused } = changesFor(store, owner, proposals, tools);
   if (refused.length) throw new UndoRefused(409, `It cannot be put back: ${refused.join("; ")}`);
   const pinned = changes.filter((change) => change.pinned);
   if (pinned.length)
@@ -103,7 +106,7 @@ export function planUndo(store: Store, owner: string, id: string): { record: Cha
  * again since, a pinned setting or a missing yes refuses the whole undo before anything is written.
  */
 export function undoSettingsChange(store: Store, owner: string, id: string, choice: UndoChoice): { applied: Change[]; record: string | null } {
-  const { record, changes } = planUndo(store, owner, id);
+  const { record, changes } = planUndo(store, owner, id, choice.tools);
   const by = choice.by ?? { writer: "owner-in-window" };
   try {
     const done = applyWithPins(store, owner, changes, {

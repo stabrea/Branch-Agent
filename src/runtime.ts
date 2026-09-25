@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
 import { memoryAgent } from "./trunks/memory-scope.js"; // FQ-routing.isolated-agents
+import { mixtureProviderName } from "./model-savings/mixture.js"; // NAS cc72768
 import { trunkFilesHome } from "./trunks/file-root.js"; // Q114
 import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
@@ -8,7 +9,7 @@ import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./n
 import { unreadable, unreadableInside } from "./never-break/protected.js"; // mac7/walk-rules
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
-import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
+import { askerOf, runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
 import { personalHold } from "./personal/guard.js"; // R17-C integration review
 import { settingsHold, settingsPreview } from "./settings-kit/tools.js";
 import { conversationCarrier, outsideSourceOf, type OutsideSource } from "./outside-origin.js"; // mac7/outside-resume
@@ -60,7 +61,7 @@ import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOver
 import { presetRunsLocally } from "./models.js"; // mac7/coding-next
 import { contractHold } from "./self-development-contract.js"; // Q12
 import { nobodyToAskAboutPlan, projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next, mac7/smoke-fixes
-import { codingPreload, batchingInstructions, cannotRunInstructions, fewerRoundsOn, parallelGroups } from "./coding/fewer-rounds.js"; // mac7/speed
+import { codingPreload, batchingInstructions, cannotRunInstructions, fewerRoundsOn, looksLikeCodingWork, parallelGroups } from "./coding/fewer-rounds.js"; // mac7/speed
 import { codeRunSettings } from "./code-run.js"; // mac7/speed
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
@@ -90,7 +91,7 @@ import {
   jsonWriteProblem, refusedByPolicy, simulatedResult, sleepFor, type PendingApproval,
 } from "./approvals.js";
 import {
-  addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
+  addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, keepPolicyRule, policyFullNote, readPolicy,
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
 import { alsoDecision, judgeTargets, stricterThan, targetRefusal, targetText, unknownTargetsRefusal } from "./policy-targets.js"; // mac7/multi-target
@@ -126,7 +127,9 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 // --- R17-S-B: the owner's knobs, read fresh at each marked hook (src/knobs/apply.ts) ---
 import * as knobs from "./knobs/apply.js";
 import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
-import { produced, producedNothing, thinkingTokens } from "./empty-answer.js"; // mac7/empty-completion
+import { loadWords, type Words } from "./terminal-words.js"; // the workspace's language, for a stopped task's sentences
+import { lookLanguage, readLook } from "./terminal-theme.js";
+import { produced, producedNothing, silentAfterWork, thinkingTokens } from "./empty-answer.js"; // mac7/empty-completion
 import { isOutOfRoomThinking } from "./provider-stream.js"; // mac7/coding-gap
 // --- end R17-S-B ---
 // --- R17-E: models, cheaper and smarter (src/model-savings/hook.ts) ---
@@ -157,6 +160,7 @@ import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory bloc
 import { walkCheck, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
 import { underTask } from "./task-scope.js"; // mac7/walk-rules
 import { posix, resolve as resolvePath } from "node:path"; // mac7/walk-rules
+import { finishSetupOnFirstAnswer } from "./onboarding.js"; // dogfood B7
 
 // R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -216,6 +220,9 @@ const localQuietMs = 10_000;
 /** What the model is told after a reply that was all thinking: act on it now. */
 export const emptyReplyNudge = "Your last reply had thinking but no answer and no tool call, so nothing happened. "
   + "Act on what you worked out now: call the tool for the next step, or, if the task is finished, give your final answer.";
+/** Dogfood A7: a task that used tools and then said nothing left the owner with no answer at all. */
+export const silentAfterToolsNudge = "Your last reply was empty, so the owner has no answer. In plain words, tell them what you did, "
+  + "what came of it, and anything you could not do; or call the tool for the next step if the task is not finished.";
 /** A task's own deadline: two minutes unless the caller asked for another, within one day. */
 export function runDeadline(timeoutMs: number | undefined): number {
   const asked = Number.isFinite(timeoutMs) ? Math.floor(timeoutMs!) : 0;
@@ -253,6 +260,24 @@ export function attachmentsNote(attachments?: AttachmentRef[]): string {
   if (!attachments?.length) return "";
   const names = attachments.map((one) => `${one.name} (${one.kind})`);
   return `\n\n[attached ${attachments.length === 1 ? "file" : "files"}: ${names.join(", ")}]`;
+}
+/**
+ * NAS cc72768: connections whose `model` is not the model writing. A mixture is priced as its priciest member
+ * (every member would be told that name), an installed program is named by its command, and the Codex app-server
+ * by what it is; "configured" and "demo" stand in where no model was named (src/providers.ts `defaultPreset`).
+ */
+const namesNoModel = (preset: Pick<ModelPreset, "model"> & { provider?: { name: string } }): boolean =>
+  ["configured", "demo"].includes(preset.model) || preset.provider?.name === mixtureProviderName
+  || /^(cli-agent|app-server|retired):/.test(preset.provider?.name ?? "");
+/** Dogfood B18: the first system message, with the line that says which model and connection are answering. */
+export function withModelIdentity(messages: Message[], preset: Pick<ModelPreset, "name" | "model"> & { provider?: { name: string } }): Message[] {
+  const first = messages[0];
+  if (first?.role !== "system") return messages;
+  const who = namesNoModel(preset)
+    ? `The connection answering now is "${preset.name}".`
+    : `The model answering now is ${preset.model}, through the connection "${preset.name}".`;
+  const line = `\n\n${who} If asked which model you are, say so.`;
+  return [{ ...first, content: first.content + line }, ...messages.slice(1)];
 }
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
 const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
@@ -344,6 +369,11 @@ export interface RunOptions {
   /** mac7/tests-unattended: `branch run --allow-tests`, for this one task (see ToolContext.allowProjectTests). */
   allowProjectTests?: boolean;
 }
+/** Q182: why only the owner gives a standing yes. */
+export const ownersStandingYes = "A standing yes is the owner's to give. Answer this just now, or for this conversation.";
+/** Q182: whether a standing yes may be given here: by the owner at the window, never with a short-lived key (NAS 68eb8b2). */
+export const mayGiveStandingYes = (store: Store): boolean => store.profiles.isOwner() && !startedWithShortLivedKey();
+
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
   /**
@@ -366,6 +396,8 @@ export class Runtime {
   readonly backgroundResults: BackgroundResult[] = [];
   /** Per session: write tool calls whose outcome is unknown after an interruption, until a read has checked the state. */
   private readonly unreconciled = new Map<string, { name: string; arguments: string }[]>();
+  /** Dogfood B7: set once a real model has answered and the first-run card is done with. */
+  private setupFinished = false;
   private readonly activeSessions = new Set<string>();
   /** Notes the owner sent to a task that is still working, waiting for its next round. */
   private readonly steers = new Map<string, { note: string; from: string | undefined }[]>();
@@ -1025,6 +1057,9 @@ ${run.output.slice(0, 6000)}`;
     instructions = "",
   ): Promise<Run> {
     options = this.carryOrigin(options, parent); // mac7/outside-resume
+    // Q213 (NAS 6a6e954): every refusal of a task as it starts (the budget, the inlet filter, a busy conversation) stays
+    // above this function's first await. The approve route waits one turn for them (server.ts settleAsked), so a refusal
+    // after real waiting would be answered as "carrying on".
     // Check the monthly budget before creating the run
     if (!parent) {
       const refusal = this.monthlyBudgetRefusal();
@@ -1264,7 +1299,10 @@ ${run.output.slice(0, 6000)}`;
   /** Records the continuation and tells the model which tool outcomes are unknown. */
   private resumeNote(run: Run, from: string): string {
     const messages = this.store.messages(run.sessionId);
-    const unknownIds = new Set(messages.filter((m) => m.role === "tool" && m.content.includes('"outcome":"unknown"')).map((m) => m.toolCallId));
+    // Dogfood F8: a call that stopped at the owner's question never ran, so its outcome is known (src/server.ts).
+    const notRun = new Set(this.store.events(from).filter((event) => event.kind === "run.call_not_run").map((event) => String(event.data.id)));
+    const unknownIds = new Set(messages.filter((m) => m.role === "tool" && m.content.includes('"outcome":"unknown"') && !notRun.has(String(m.toolCallId)))
+      .map((m) => m.toolCallId));
     const calls = messages.flatMap((m) => (m.role === "assistant" ? m.toolCalls ?? [] : [])).filter((c) => unknownIds.has(c.id)).map((c) => ({ name: c.name, arguments: c.arguments }));
     if (calls.length) this.unreconciled.set(run.sessionId, calls);
     const unknown = unknownIds.size;
@@ -1292,11 +1330,17 @@ ${run.output.slice(0, 6000)}`;
     // run — an owner's task, a delegated child and a manual tool action all settle here — so the
     // check cannot be walked around, and it judges only what the task itself recorded.
     this.replyCeilings.delete(run.id);
-    const nothing = producedNothing(status, output, produced(this.store.events(run.id)));
+    const done = produced(this.store.events(run.id));
+    const nothing = producedNothing(status, output, done);
     if (nothing) {
       this.store.event(run.id, "run.produced_nothing", { reason: nothing });
       status = "failed";
       output = nothing;
+    }
+    const silent = silentAfterWork(status, output, done);
+    if (silent) {
+      this.store.event(run.id, "run.silent_after_work", { reason: silent });
+      output = silent;
     }
     try {
       await this.registry.finishRun(context);
@@ -1487,7 +1531,7 @@ ${run.output.slice(0, 6000)}`;
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
     await this.guards.opening(run.id); // wave mac2 (guards): an undecided folder is noted for the owner
-    const catalog = this.openCatalog(run, context, messages, shape.groups);
+    const { catalog, coding } = this.openCatalog(run, context, messages, shape.groups);
     // R17-047: with the difficulty card on, a small model's "easy or hard" picks the connection.
     override = await savings.byDifficulty(this, run, context.owner, override, (id, system, question) =>
       this.aside(run, context, { index: 0, reasoning: null, candidates: [this.models.presets.get(id)!] }, [{ role: "system", content: system }, { role: "user", content: question }]));
@@ -1510,14 +1554,17 @@ ${run.output.slice(0, 6000)}`;
     this.add(run, messages, ids, opening);
     let checkFailures = 0;
     let emptyReplies = 0; // mac7/coding-gap: replies that were all thinking and no action
+    let usedTools = false; // dogfood A7: this task has called a tool, so an empty reply is never its answer
     let knownTools = this.registry.version;
     // ── bucket-15: the owner's filters are asked about the connection that answers. The preview is held
     // back (the stall watch still runs) while an outlet filter applies to any connection this round may
     // fall back to, so filtered words never reach the page before the whole answer is filtered. ──
     const namesOf = (preset: ModelPreset | undefined): string[] => preset ? [preset.name, preset.id, preset.model, preset.provider.name] : [];
-    // mac7/speed: the owner's figure, or the launch one (12). A planned task gets more on top.
-    const ceiling = knobs.maxModelRounds(this.store, this.owner, this.reliability);
+    // mac7/speed: the owner's figure, or the launch one (12; 40 for work on the project's files). A planned task gets more on top.
+    const ceiling = knobs.maxModelRounds(this.store, this.owner, this.reliability, coding);
     for (let round = 0; round < conductor.maxRounds(ceiling); round++) {
+      // With no step left for the next question to the model, the task ends with the step limit's sentences, unasked.
+      if (context.budget.steps >= context.budget.limits.maxSteps) return await this.outOfRounds(run, context, messages, route, context.budget.limits.maxSteps, "steps");
       catalog.nextRound();
       if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
       this.applySteers(run, messages, ids);
@@ -1554,12 +1601,14 @@ ${run.output.slice(0, 6000)}`;
       // call. That is not an answer, and ending the task there wastes all the thinking; ask it once
       // or twice to act on what it worked out before the task is judged to have produced nothing.
       // Only a reply that did think: an empty reply with no thinking ends the turn as it always did.
-      if (!completion.toolCalls.length && !completion.content.trim() && (completion.reasoningChars ?? 0) > 0 && emptyReplies < 2) {
+      const thought = (completion.reasoningChars ?? 0) > 0;
+      if (!completion.toolCalls.length && !completion.content.trim() && (thought || usedTools) && emptyReplies < 2) {
         emptyReplies++;
         this.store.event(run.id, "model.empty_reply", { round: round + 1, nudge: emptyReplies });
-        this.add(run, messages, ids, { role: "user", content: emptyReplyNudge });
+        this.add(run, messages, ids, { role: "user", content: thought ? emptyReplyNudge : silentAfterToolsNudge });
         continue;
       }
+      if (completion.toolCalls.length) usedTools = true;
       const assistant: Message = {
         role: "assistant",
         content: completion.content,
@@ -1599,7 +1648,11 @@ ${run.output.slice(0, 6000)}`;
         // exactly as the loop did when a call that threw ended the round where it stood.
         const settled = await Promise.allSettled(group.map((call) => this.oneCall(run, context, call)));
         for (const [at, outcome] of settled.entries()) {
-          if (outcome.status === "rejected") throw outcome.reason;
+          if (outcome.status === "rejected") {
+            // A call that found no step left ends the task with the sentences too, not the budget's bare words.
+            if (outOfSteps(context, outcome.reason)) return await this.outOfRounds(run, context, messages, route, context.budget.limits.maxSteps, "steps");
+            throw outcome.reason;
+          }
           const call = group[at]!, result = outcome.value;
           const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
           messages.push(message); ids.push(null);
@@ -1664,15 +1717,20 @@ ${run.output.slice(0, 6000)}`;
    * more question, with no tools of its own), what actually happened, and that the limit is the
    * owner's to raise. The task is still recorded as having stopped at its limit rather than having
    * finished, because that is what happened.
+   *
+   * A task that has used every step it may take (`by` "steps": each question to the model and each
+   * tool call is one) ends with the sentences too, naming that limit instead. It is not asked the one
+   * last question: that question would be one more step than the task may take.
    */
-  private async outOfRounds(run: Run, context: ToolContext, messages: Message[], route: ModelRoute, limit: number): Promise<never> {
+  private async outOfRounds(run: Run, context: ToolContext, messages: Message[], route: ModelRoute, limit: number, by: "rounds" | "steps" = "rounds"): Promise<never> {
     const trouble = this.whatItDid(run.id);
     let best = "";
-    try {
+    if (by === "rounds") try {
       best = (await this.lastWord(run, context, route, messages)).trim();
     } catch { /* a task that cannot even be asked still gets the sentences below */ }
-    this.store.event(run.id, "rounds.exhausted", { limit, answered: Boolean(best), trouble });
-    throw new BudgetError([best, roundLimitSentence(limit, trouble)].filter(Boolean).join("\n\n"));
+    this.store.event(run.id, "rounds.exhausted", { limit, by, answered: Boolean(best), trouble });
+    const words = loadWords(lookLanguage(readLook(this.store, this.owner), process.env));
+    throw new BudgetError([best, limitSentence(words, by, limit, trouble)].filter(Boolean).join("\n\n"));
   }
   /**
    * The one last question, asked with no tools.
@@ -2059,9 +2117,10 @@ ${run.output.slice(0, 6000)}`;
   /**
    * Opens the catalog this task will show the model: the toolboxes that are always open, plus a
    * cheap lexical guess at the two or three this request needs, so an ordinary task never has to
-   * spend a round opening one. No model call and no network is involved.
+   * spend a round opening one. No model call and no network is involved. It also says whether this
+   * is work on the project's files, judged the way the coding pre-load judges it (`looksLikeCodingWork`).
    */
-  private openCatalog(run: Run, context: ToolContext, messages: Message[], styleGroups: readonly string[] = []): ToolLoader {
+  private openCatalog(run: Run, context: ToolContext, messages: Message[], styleGroups: readonly string[] = []): { catalog: ToolLoader; coding: boolean } {
     const tools = this.registry.descriptions(context.permissions);
     const available = [...new Set(tools.map((tool) => this.registry.groupOf(tool.name)))];
     const recent = messages.filter((m) => m.role !== "system").slice(-4).map((m) => m.content);
@@ -2100,9 +2159,10 @@ ${run.output.slice(0, 6000)}`;
     });
     this.catalogs.set(run.id, catalog);
     this.toolWork.set(run.id, { searched: [], called: [], failures: new Map(), rounds: 0 });
-    this.store.event(run.id, "catalog.preselected", { guessed, available, tools: tools.length,
+    const coding = looksLikeCodingWork(run.prompt, [...guessed, ...opened]);
+    this.store.event(run.id, "catalog.preselected", { guessed, available, tools: tools.length, coding,
       preloadedFromHistory: catalog.preloadedFromHistory(), ...(opened.length ? { style: opened } : {}) });
-    return catalog;
+    return { catalog, coding };
   }
   /**
    * A server has connected, or a plugin has been switched on, while this task was working. Its
@@ -2233,6 +2293,11 @@ ${run.output.slice(0, 6000)}`;
       pinned: pinnedMessages.length,
     };
   }
+  /**
+   * Dogfood B18: asked "which model are you?", GPT-6 Sol said it had no reliable view of its name. Each attempt tells
+   * the model which connection is answering (a fallback is told its own), as one line at the end of the first system
+   * message, so the line changes only when the model does.
+   */
   private async completeWithRetries(
     run: Run,
     messages: Message[],
@@ -2252,7 +2317,8 @@ ${run.output.slice(0, 6000)}`;
         : undefined;
       const preset = route.candidates[route.index]!;
       try {
-        return await this.complete(run, messages, context, preset, route.reasoning, emit, undefined, firstReply.capMs);
+        // NAS cc72768: an isolated grader is given its instructions and nothing else (src/evaluation-honesty.ts).
+        return await this.complete(run, context.isolated ? messages : withModelIdentity(messages, preset), context, preset, route.reasoning, emit, undefined, firstReply.capMs);
       } catch (error) {
         const ceiling = this.replyCeilings.get(run.id) ?? baseReplyCeiling;
         if (isOutOfRoomThinking(error) && ceiling < maxReplyCeiling && !context.signal.aborted) {
@@ -2445,6 +2511,10 @@ ${run.output.slice(0, 6000)}`;
         provider: preset.provider.name,
         model: preset.model,
       });
+      // Dogfood B7: a real model has answered, so the first-run card is done with (src/onboarding.ts). An empty
+      // reply is no answer (NAS ca8db88): only words, or a tool call, count.
+      const answered = completion.toolCalls.length > 0 || withoutThinking(completion.content).trim().length > 0;
+      if (!this.setupFinished && answered) this.setupFinished = finishSetupOnFirstAnswer(this.store, this.owner, preset.provider.name);
       span?.end("ok", "", { "branch.tool_calls": completion.toolCalls.length, "branch.tokens.estimated_output": output });
       // Only a plain answer is kept; one that asks for a tool would replay whatever that tool does.
       this.requestCache.keep(cacheKey, completion);
@@ -2729,7 +2799,7 @@ ${run.output.slice(0, 6000)}`;
     const answered = decision === "ask" && !hold?.onceOnly
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact || unkeyed) : undefined;
     // Q50: a change to Branch's own settings is asked about with its exact before and after.
-    const preview = settingsPreview(this.store, tool, args, context);
+    const preview = settingsPreview(this.store, tool, args, context, this.registry);
     const shown = preview ? `${label}: ${preview}` : label;
     const noted = extra.note ? `${shown} — ${extra.note}` : shown; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
@@ -2839,6 +2909,9 @@ ${run.output.slice(0, 6000)}`;
       fingerprint?: string },
     remember: PolicyRemember = "session",
   ): void {
+    // Q182 (NAS 68eb8b2): a flow carried on by a key or away from the owner takes its question's "always" as
+    // "for this conversation": it may carry on, but never writes a standing rule into the owner's policy.
+    if (remember === "always" && !mayGiveStandingYes(this.store)) remember = "session";
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     if (remember === "always" && this.registry.noStandingTarget(about.tool, about.target)) throw new Error(unkeyedAlwaysRefusal);
@@ -3088,7 +3161,7 @@ ${run.output.slice(0, 6000)}`;
      * from.
      */
     answeredOn?: string,
-  ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null } {
+  ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null; standingNote?: string } {
     // With a fingerprint the answer lands on that exact request, whichever of the questions this
     // conversation is waiting on it is; without one, on the oldest, which is the only one when
     // only one is waiting.
@@ -3097,6 +3170,9 @@ ${run.output.slice(0, 6000)}`;
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    // Q182: a standing yes is a rule in the owner's own policy, which then covers the owner's tasks too. Someone else
+    // at the window (a household profile) answers just now or for the conversation; setting Branch up is the owner's.
+    if (remember === "always" && !mayGiveStandingYes(this.store)) throw new Error(ownersStandingYes);
     if (remember === "always" && waiting.noStanding) throw new Error(noStandingRefusal); // Q59
     // FQ-execution.browser: checked before anything is kept, so a refused "always" leaves the question waiting.
     if (remember === "always" && this.registry.noStandingTarget(waiting.tool, waiting.target)) throw new Error(unkeyedAlwaysRefusal);
@@ -3111,7 +3187,7 @@ ${run.output.slice(0, 6000)}`;
     // mac7/coding-next: only the owner, at the app, may let a folder's tests run for good.
     if (waiting.tool === projectTestsTool && decision === "allow" && remember === "always") this.ownerAlwaysForTests(waiting, answeredOn);
     // Wave mac3 (tool-safety): a request the safety check advised against may be allowed only this once.
-    this.approvals.settleOverrule(sessionId, waiting, decision, remember);
+    this.approvals.settleOverrule(sessionId, waiting, decision, remember, askerOf(runOrigin(this.store, waiting.runId))); // dogfood A6
     this.approvals.resolve(sessionId, waiting.fingerprint);
     if (remember !== "never")
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
@@ -3120,7 +3196,9 @@ ${run.output.slice(0, 6000)}`;
     // mac7/coding-next: "Once" for the tests is a single pass for the next run of them.
     if (waiting.tool === projectTestsTool && decision === "allow" && remember === "never")
       this.approvals.grantOnce(sessionId, waiting.tool, waiting.target);
-    if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
+    // Q215: with the rules full, an "always" that nothing less careful could make room for holds for this conversation only, and says so.
+    const kept = remember === "always" ? keepPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" }).kept : true;
+    if (!kept) remember = "session";
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
       // The sentence still says where the answer was pressed, because that is what a person reads
@@ -3135,7 +3213,8 @@ ${run.output.slice(0, 6000)}`;
       origin: waiting.source, runId: waiting.runId,
       outcome: decision === "allow" ? "allowed" : "refused",
     });
-    return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
+    return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null,
+      ...(kept ? {} : { standingNote: policyFullNote }) };
   }
   /**
    * mac7/coding-next: "Always for this folder" to running a project's tests is the owner's alone:
@@ -3490,11 +3569,26 @@ const lastWordRequest =
   + "Using only what you have already found, give the person the best answer you can now: what you did, "
   + "what you found out, and what is still left to do. Be short and plain.";
 
-/** mac7/speed: the plain sentences that follow that answer. Never shown on its own without a reason. */
-function roundLimitSentence(limit: number, trouble: string): string {
-  return `I stopped here: this task went back to the model ${limit} times, which is as many as one task may. `
-    + `${trouble} You can let a task take more rounds in Settings, under Advanced, or ask me to carry on from here.`;
+/**
+ * mac7/speed: the plain sentences that follow that answer. Never shown on its own without a reason.
+ * They are said in the workspace's language and name the limit the task met by its name in Settings.
+ * The round limit is one Branch's own settings tools can change once the owner says yes; the step
+ * limit is only changed in Settings.
+ */
+function limitSentence(words: Words, by: "rounds" | "steps", limit: number, trouble: string): string {
+  if (by === "steps")
+    return words.t("task.stopped.steps", stepLimitWords, { limit, trouble, name: words.t("knobs.field.maxSteps", "Most steps in one task") });
+  return words.t("task.stopped.rounds", roundLimitWords, { limit, trouble, name: words.t("settings-kit.name.round-limit", "Round limit") });
 }
+const roundLimitWords = "I stopped here: this task went back to the model {limit} times, which is as many as one task may. {trouble} "
+  + "That is the \"{name}\" setting: you can let a task take more rounds in Settings, under Advanced, or ask me to raise it and I will, "
+  + "once you say yes. You can also ask me to carry on from here.";
+const stepLimitWords = "I stopped here: this task has taken as many steps as one task may ({limit}). Each question to the model "
+  + "and each tool it uses is one step. {trouble} You can raise \"{name}\" in Settings, under Permissions, or ask me to carry on from here.";
+
+/** Whether a task's call was refused because the task has no step left: the budget only counts past its limit when it refuses. */
+const outOfSteps = (context: ToolContext, error: unknown): boolean =>
+  error instanceof BudgetError && context.budget.steps > context.budget.limits.maxSteps;
 
 /** hardening-3: how long a model on this computer has been waited for in this round, and whether it was tried again. */
 interface LocalFirstReply { started: number; retried: boolean; capMs?: number | undefined }

@@ -94,10 +94,11 @@ function renderWaiting() {
       if (remember === "always" && question.source !== "owner") continue;
       if (remember === "always" && question.noStanding) continue; // Q59: Ask first and Plan keep no standing yes
       if (remember === "always" && question.noAlways) continue;
+      if (remember === "always" && document.documentElement.dataset.household === "on") continue; // Q182: the owner's to give
       if (question.onceOnly && remember !== "never") continue;
       const button = el("button", label);
       button.type = "button";
-      button.addEventListener("click", () => void answer(question.sessionId, "allow", remember, question.fingerprint));
+      button.addEventListener("click", () => void answer(question.sessionId, "allow", remember, question.fingerprint, question.source));
       item.append(button);
     }
     const no = el("button", "No", "danger");
@@ -126,10 +127,17 @@ function filesBlock(question, tone) {
   return box;
 }
 
-async function answer(sessionId, decision, remember, fingerprint) {
+async function answer(sessionId, decision, remember, fingerprint, source) {
   try {
-    await api("policy/approve", { sessionId, decision, remember, ...(fingerprint ? { fingerprint } : {}) });
-    status(decision === "allow" ? "Noted. Send your next message in that conversation to carry on." : "Noted. It will not do that.");
+    const said = await api("policy/approve", { sessionId, decision, remember, ...(fingerprint ? { fingerprint } : {}), carryOn: true });
+    // Dogfood A6: a yes to the owner's own task carries it on by itself (src/server.ts, settleAsked), and says when it
+    // did not (NAS bd6cf44): a plan waiting, a newer task in that conversation, or another question still open.
+    const noted = decision !== "allow" ? "Noted. It will not do that."
+      : said?.task === "carrying-on" ? "Noted. It carries on in its conversation."
+        : said?.task === "still-waiting" && source === "owner" ? "Noted. It still waits in its conversation: open it to carry on."
+          : "Noted. Send your next message in that conversation to carry on.";
+    // Q215: with the approval rules full, an "always" was kept for this conversation only.
+    status(said?.standingNote ? `${noted} ${said.standingNote}` : noted);
     await render();
   } catch (e) {
     status(e.message);

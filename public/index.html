@@ -240,8 +240,20 @@
           </div>
           <div id="session-context" class="session-context" hidden></div>
           <div id="activity" class="activity" hidden></div>
+          <div class="welcome">
+            <h2 id="greeting">What do you want done?</h2>
+            <p>Ask for anything, or start from one of these.</p>
+            <div class="chips" id="suggestions">
+              <button id="demo-prompt" class="chip" type="button" data-t="action.try-the-file-workflow">Try the file workflow</button>
+              <button class="chip" type="button" data-prompt="Look through my workspace files and tell me what changed most recently." data-t="action.catch-me-up-on-my">Catch me up on my files</button>
+              <button class="chip" type="button" data-prompt="Remember this for later: " data-t="action.save-something-to-memory">Save something to memory</button>
+              <button class="chip" type="button" data-prompt="Make a short plan for " data-t="action.plan-a-piece-of-work">Plan a piece of work</button>
+            </div>
+          </div>
+          <div id="conversation" aria-live="polite" tabindex="0" aria-label="Messages"></div>
           <!-- Wave 6: the live row while a task is working — what it is doing, and how to step in
-               (public/live-run.js). The question it stops on lands in the slot underneath. -->
+               (public/live-run.js). The question it stops on lands in the slot underneath. After the
+               conversation in the page too, so Tab and a screen reader meet it where it is shown (Q195). -->
           <div id="live-row" class="live-row" hidden>
             <div id="live-line" class="live-line"></div>
             <div id="live-controls-slot"></div>
@@ -254,17 +266,6 @@
             <p id="live-status" class="meta" role="status"></p>
             <div id="live-ask-slot"></div>
           </div>
-          <div class="welcome">
-            <h2 id="greeting">What do you want done?</h2>
-            <p>Ask for anything, or start from one of these.</p>
-            <div class="chips" id="suggestions">
-              <button id="demo-prompt" class="chip" type="button" data-t="action.try-the-file-workflow">Try the file workflow</button>
-              <button class="chip" type="button" data-prompt="Look through my workspace files and tell me what changed most recently." data-t="action.catch-me-up-on-my">Catch me up on my files</button>
-              <button class="chip" type="button" data-prompt="Remember this for later: " data-t="action.save-something-to-memory">Save something to memory</button>
-              <button class="chip" type="button" data-prompt="Make a short plan for " data-t="action.plan-a-piece-of-work">Plan a piece of work</button>
-            </div>
-          </div>
-          <div id="conversation" aria-live="polite" tabindex="0" aria-label="Messages"></div>
           <!-- Wave 9: plan first or just do it, and how far it may go before checking back. The
                choice belongs in the conversation, not buried in Settings (public/plan-act.js). It
                is here before the first message too, so a plan can be asked for from the start. -->

@@ -71,6 +71,9 @@ test("a task whose tools all failed and then said nothing is still a failure", a
   const { app } = await fixture(t, calls(
     { content: "", toolCalls: [{ id: "one", name: "files.write", arguments: "{\"path\": \"a.txt\", cont" }] },
     { content: "", toolCalls: [] },
+    // Dogfood A7 asks an empty reply after a tool twice more for its answer; this model stays silent through both.
+    { content: "", toolCalls: [] },
+    { content: "", toolCalls: [] },
   ));
   const run = await app.runtime.run({ prompt: "write a.txt" });
   assert.equal(run.status, "failed");

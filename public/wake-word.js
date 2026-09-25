@@ -29,12 +29,22 @@ function show(state) {
   $("wake-word-how").classList.toggle("warn", blocked);
   // Whether it is listening this moment, read from the listener itself and never guessed from the
   // switch: a computer that cannot listen says so instead.
-  const line = $("wake-word-listening");
-  line.textContent = blocked ? t("settings.wake-word.cannot")
-    : state?.listening ? t("settings.wake-word.listening") : t("settings.wake-word.idle");
-  line.classList.toggle("warn", blocked);
+  shown = state;
+  sayListening();
   $("wake-word-refusal").textContent = state?.refusal ?? "";
 }
+/* NAS 703fb96: the line is written in words, so it is written again when the language changes (only the line, so
+   nothing the owner is typing on the card is touched). */
+let shown = null;
+function sayListening() {
+  const line = $("wake-word-listening");
+  if (!line || !shown) return;
+  const blocked = shown.canListen === false;
+  line.textContent = blocked ? t("settings.wake-word.cannot")
+    : shown.listening ? t("settings.wake-word.listening") : t("settings.wake-word.idle");
+  line.classList.toggle("warn", blocked);
+}
+document.addEventListener("branch-language", sayListening);
 
 async function load() {
   const signedIn = document.getElementById("workspace");

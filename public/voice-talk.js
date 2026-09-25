@@ -69,11 +69,12 @@ globalThis.branchStopSpeaking = function branchStopSpeaking() {
 
 /* ---------- hold to talk ---------- */
 
+/* NAS 703fb96: the line under Talk, in the owner's language (it was English only). */
 const statusFor = {
-  idle: "Hold the Talk button and speak",
-  listening: "Listening… let go when you are done",
-  thinking: "Working on your answer",
-  speaking: "Reading the answer aloud — press Talk to stop",
+  idle: "voice.talkStatus.idle",
+  listening: "voice.talkStatus.listening",
+  thinking: "voice.talkStatus.thinking",
+  speaking: "voice.talkStatus.speaking",
 };
 let state = "idle";
 let recorder = null;
@@ -84,7 +85,7 @@ function show(next) {
   state = next;
   const row = $("voice-talk-status");
   if (!row) return;
-  row.textContent = statusFor[state];
+  row.textContent = t(statusFor[state]);
   row.hidden = state === "idle";
   const button = $("voice-talk");
   if (button) button.textContent = state === "speaking" ? t("voice.talkStop") : t("voice.talkStart");
@@ -175,6 +176,9 @@ function wireTalk() {
   button.addEventListener("keydown", (event) => { if (event.key === " " || event.key === "Enter") void press(); });
   button.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") release(); });
   show("idle");
+  // Dogfood B14: this runs before the words have loaded, so the button read "voice.talkStart". It is drawn
+  // again once they arrive, and whenever the language changes.
+  document.addEventListener("branch-language", () => show(state));
 }
 
 /* ---------- the Voice settings screen ---------- */

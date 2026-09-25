@@ -34,7 +34,7 @@ import { readAttachSettings, saveAttachSettings } from "./integrations/browser-a
 import { refusedHosts } from "./integrations/desktop-config.js";
 import { draftFromRuns, testSkill } from "./skill-authoring.js";
 import { suggestSkills } from "./skill-suggest.js";
-import { healthReport } from "./health.js";
+import { healthReport, startedCleanly } from "./health.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
@@ -175,7 +175,7 @@ import { People } from "./people/index.js";
 import { peopleEnabled } from "./people/settings.js";
 import { interopMode } from "./interop/settings.js";
 import { requireBoundSession } from "./people/access.js";
-import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
+import { keyAnswerRefusal, keyStopRefusal, runOrigin, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
@@ -914,6 +914,55 @@ function toolInventory(app: Branch) {
  * and it can be continued. Read with store.waitingRuns, as the Activity list reads its waiting tasks, so the two lists
  * agree and a question stays listed however much other work finishes after it.
  */
+/** What a yes to the owner's own waiting task says in the conversation, as if the owner had typed it. */
+export const carryOnWords = "Yes, go ahead.";
+/**
+ * Dogfood A6/B6: an answer settles the task that stopped to ask. A task stops on its question, so a yes alone
+ * carried nothing on, and the task went on waiting in the banner. Now a yes to the owner's own task, given in the
+ * owner's window, carries it on in that conversation as pressing Send would; any other answer (a no, or a yes to a
+ * chat's or a schedule's task, which carries on from where it came) ends its wait. A task with another question
+ * still waiting is left for that one.
+ */
+/** What an answer did to the task that asked (NAS bd6cf44): the window says so, rather than always "it carries on". */
+type Settled = "carrying-on" | "still-waiting" | "settled";
+async function settleAsked(app: Branch, asked: { runId: string; sessionId: string; source: string }, decision: "allow" | "deny"): Promise<Settled> {
+  const run = app.store.run(asked.runId);
+  if (!run || run.status !== "needs_input" || app.runtime.approvals.waiting(asked.sessionId).length) return "still-waiting";
+  // Only the owner's own task, answered by the owner at the window: never a key's (it records source "owner" too,
+  // and a carry-on would lose its key mark), a household person's, or one that came from elsewhere (NAS 618407c).
+  const origin = runOrigin(app.store, run.id);
+  const owners = asked.source === "owner" && origin.source === "owner" && !origin.shortLivedKey && !origin.keyIds.length
+    && !origin.personProfileId && !origin.lentTo;
+  if (decision === "allow" && owners && app.store.profiles.isOwner() && !startedWithShortLivedKey()) {
+    // NAS 06a9508: the carry-on reads as the owner saying yes, so with a plan waiting for the owner's own answer in
+    // that conversation it would agree to the plan too. Then nothing carries on by itself: the task keeps waiting,
+    // and the owner answers the plan, then carries on. So too for an agreed plan stopped at a check-back (NAS dead082):
+    // its "go ahead" would clear the next step. Only the plan's own task asking carries on (pausePlan keeps its runId).
+    const plan = app.runtime.orchestration.plan(run.sessionId);
+    if (plan && (!plan.approved || (plan.waitingOnOwner && plan.runId !== run.id))) return "still-waiting";
+    // NAS 166fbe3: only the conversation's newest task carries on. A newer one there may have stopped on its own
+    // question (`user.ask` takes the owner's next message as the answer), and "Yes, go ahead." would answer it.
+    if (app.store.newestIn(run.owner, run.sessionId)?.id !== run.id) return "still-waiting";
+    // NAS 3fd7700: nor after words written there with no task behind them (a heartbeat's note, a Trunk routine's
+    // report): the carry-on's model reads the conversation, so "Yes, go ahead." would answer them. A task with no
+    // record of where it stopped (asked before this was kept) is left for the owner too.
+    const stopped = app.store.events(run.id).filter((event) => event.kind === "run.stopped_to_ask").at(-1)?.data.lastMessageId;
+    if (typeof stopped !== "number" || app.store.lastMessageId(run.sessionId) !== stopped) return "still-waiting";
+    // The conversation busy with another task: the carry-on is not started, and this task keeps waiting (the one-time
+    // yes is still there for the owner's next message), rather than being marked done with its work undone.
+    // A carry-on refused as it starts (the monthly budget, the owner's inlet filter, a closing app) leaves the task waiting
+    // and writes down why, where the task's own record shows it (NAS bd6cf44).
+    let refused = false;
+    const carry = runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined })
+      .catch((error: unknown) => { refused = true; app.store.event(run.id, "run.carry_on_refused", { reason: errorText(error).slice(0, 300) }); });
+    // NAS 0adb368: a refusal as it starts (the budget, an inlet filter, a busy conversation) settles within microtasks,
+    // so one turn of the event loop tells it apart, and the window never says "it carries on" when nothing did.
+    await Promise.race([carry, new Promise((resolve) => setTimeout(resolve, 0))]);
+    return refused ? "still-waiting" : "carrying-on";
+  }
+  app.store.finish(run.id, decision === "allow" ? "completed" : "cancelled", run.output);
+  return "settled";
+}
 function attention(app: Branch) {
   type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; canContinue?: true; who?: string; room?: string; open?: string };
   return app.store.waitingRuns(app.runtime.owner).map((run): Waiting => {
@@ -1197,6 +1246,8 @@ async function api(
       store: app.store, owner: app.runtime.owner, workspace: app.runtime.workspace, appVersion: app.version,
       // One set of writers for the window and for the assistant changing a setting (src/settings-kit/writers.ts).
       writers: settingsKitWriters(app),
+      // A move of the approval preset is weighed on the tools Branch has (src/preset-moves.ts).
+      tools: app.registry,
       guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
         workspace: app.runtime.workspace }, app.runtime.protectedAreas),
     }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {
@@ -1514,8 +1565,21 @@ async function api(
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.store.profiles.scope())
       throw new HttpError(404, "Run not found");
-    if (request.method === "POST" && match[2] === "cancel")
-      return { cancelled: app.runtime.cancel(run.id) };
+    if (request.method === "POST" && match[2] === "cancel") {
+      // Q221, Q226 (NAS 39e8973, 9ec0d3a): a short-lived key stops only a task it started, working or waiting, as it answers one.
+      const keyRefusal = keyStopRefusal(app.store, run.id);
+      if (keyRefusal) throw new HttpError(401, keyRefusal);
+      if (app.runtime.cancel(run.id)) return { cancelled: true };
+      // Dogfood F8: a task waiting for an answer, or cut off by a restart, is stopped too, and its question goes with it.
+      if (run.status !== "needs_input" && run.status !== "interrupted") return { cancelled: false };
+      // Q222: by the task, so a question with no fingerprint never takes another task's question with it.
+      app.runtime.approvals.dropFor(run.sessionId, run.id);
+      // Q229 (NAS d157ab3): a plan waiting for the owner's yes, or stopped at a check-back, goes with its task, so a
+      // later "ok" in the conversation never starts a plan the owner stopped.
+      if (app.runtime.orchestration.plan(run.sessionId)?.runId === run.id) app.runtime.orchestration.clearPlan(run.sessionId);
+      app.store.finish(run.id, "cancelled", run.output);
+      return { cancelled: true };
+    }
     if (request.method === "POST" && match[2] === "resume")
       return app.runtime.resume(run.id);
     // Steering a task that is working, and editing or approving the plan it is waiting on.
@@ -1616,6 +1680,9 @@ async function api(
       reason: "Everything except the saved secrets was written out as one file", outcome: "saved" });
     return app.store.backup(app.version);
   }
+  // Q168 B: what a restore is waiting to hear about, and the owner's answer; the owner's alone (checked inside).
+  if (path === "/api/restore/held" && request.method === "GET") return app.store.restoreHeld.list();
+  if (path === "/api/restore/held" && request.method === "POST") return app.store.restoreHeld.answer(await readBody(request));
   if (request.method === "POST" && path === "/api/restore") {
     const replaceExisting = new URL(request.url ?? "/", "http://local").searchParams.get("replace") === "1";
     return restoreBackup(app, () => readBody(request, maximumBackupBytes), replaceExisting);
@@ -1758,7 +1825,10 @@ async function api(
       // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
       fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional(),
       // mac7/r17-g: the six-digit code from the owner's authenticator app, for a yes that needs one.
-      code: z.string().max(12).optional() }).strict().parse(await readBody(request));
+      code: z.string().max(12).optional(),
+      // Dogfood A6/B6: the window's own cards ask for the task to be settled (carried on, or its wait ended).
+      // Scripts, the terminal and phones send their next message themselves, as before.
+      carryOn: z.boolean().optional() }).strict().parse(await readBody(request));
     // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
     if (input.remember === "always" && startedWithShortLivedKey())
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
@@ -1775,7 +1845,9 @@ async function api(
     // mac7/r17-g: a code typed with the answer is checked first; a wrong one is said plainly.
     if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
       throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
-    return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
+    const answered = app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
+    if (asked && input.carryOn) return { ...answered, task: await settleAsked(app, asked, input.decision) };
+    return answered;
   }
   if (request.method === "GET" && path === "/api/governance")
     return { settings: app.store.governance.settings(), setAside: app.store.governance.exclusions(), benchmarks: app.store.governance.benchmarks() };
@@ -3929,6 +4001,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   app.scheduler.start();
   // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
   if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
+    settleLostQuestions(app); // dogfood F8, before recoverOnStart asks its own questions
     void app.neverBreak.recoverOnStart(options.dataDir).catch((error: unknown) => console.error(`Could not pick up interrupted work: ${errorText(error)}`));
     void app.neverBreak.telegram.connect().then((why) => { if (why && !/switched off/.test(why)) console.log(why); });
   }
@@ -3964,10 +4037,38 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     },
   };
 }
-/** Records whether a version that has just replaced another one came up healthy the first time. */
+/** What a stop leaves a task waiting on: the last of these events says which question it was. */
+const askedKinds = new Set(["policy.ask", "user.ask", "attention.needed", "plan.awaiting_approval", "folder.trust_needed", "web.challenge"]);
+export const lostQuestionNote = "Branch restarted before you answered its question. Continue it to be asked again, or stop it.";
+/**
+ * Dogfood F8: an approval question is held in memory, so a task left waiting on one when Branch stopped could never be
+ * answered again ("Nothing … is waiting"), could not be stopped, and held every update. On a real start each such task
+ * is marked as cut off, with the note the window shows: the owner carries it on (it asks again) or stops it. A question
+ * that outlives a restart (one the owner's next message answers, a plan, a check after a restart) is left alone.
+ */
+function settleLostQuestions(app: Branch): void {
+  const waiting = app.store.sqlite.prepare("SELECT id FROM tasks WHERE status='needs_input'").all() as { id: unknown }[];
+  for (const row of waiting) {
+    const run = app.store.run(String(row.id));
+    if (!run) continue;
+    // Every question also writes "attention.needed" after it; that one is a question of its own only after a restart.
+    const asked = app.store.events(run.id)
+      .filter((event) => askedKinds.has(event.kind) && (event.kind !== "attention.needed" || event.data.afterRestart === true)).at(-1);
+    if (asked?.kind !== "policy.ask" || app.runtime.approvals.waiting(run.sessionId).some((question) => question.runId === run.id)) continue;
+    app.store.finish(run.id, "interrupted", run.output);
+    // The call it asked about never ran, so carrying on repeats it without a check first (src/runtime.ts resumeNote).
+    // Q223: only when the question was about that call's own tool. The network wall asks about a site after its
+    // command has already run, under the command's id, and that command did run.
+    const call = typeof asked.data.id === "string"
+      ? app.store.events(run.id).find((event) => event.kind === "tool.started" && event.data.id === asked.data.id) : undefined;
+    if (call && call.data.name === asked.data.name) app.store.event(run.id, "run.call_not_run", { id: asked.data.id });
+    app.store.event(run.id, "run.can_continue", { note: lostQuestionNote });
+  }
+}
+/** Records whether a version that has just replaced another one came up healthy the first time (dogfood F6: the program's own checks). */
 async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
   if ((await readFirstStart(dataDir))?.version === app.version) return;
-  await recordFirstStart(dataDir, app.version, (await healthReport(app)).ok);
+  await recordFirstStart(dataDir, app.version, startedCleanly(await healthReport(app)));
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {

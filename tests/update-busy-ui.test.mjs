@@ -150,3 +150,31 @@ test("slow answers while waiting, and a double press, still install exactly once
   await page.waitForTimeout(5000);
   assert.equal(await installs(page), 1, "a double press starts one update");
 });
+
+// Dogfood F4: the Updates card said "5 tasks are working" for five conversations waiting hours for an answer. A
+// question left longer than an hour no longer holds an update, and a fresh one is called a question, not work.
+const askedAgo = (app, run, ms) =>
+  app.store.sqlite.prepare("UPDATE tasks SET updated_at=? WHERE id=?").run(new Date(Date.now() - ms).toISOString(), run.id);
+test("F4 a question left for hours does not hold an update, and a fresh one is called a question", async (t) => {
+  const { app, page, errors } = await openApp(t);
+  const old = app.store.createRun(app.runtime.owner, "change a setting");
+  app.store.finish(old.id, "needs_input", "May I change it?");
+  askedAgo(app, old, 3 * 60 * 60 * 1000);
+  await page.locator("#updates-install").click();
+  await page.waitForFunction(() => globalThis.__installs === 1);
+  assert.equal(await page.locator("#updates-busy").isHidden(), true, "an old question does not hold the update");
+
+  const fresh = app.store.createRun(app.runtime.owner, "send the email");
+  app.store.finish(fresh.id, "needs_input", "May I send it?");
+  await page.locator("#updates-install").click();
+  await page.locator("#updates-busy").waitFor({ state: "visible" });
+  assert.match(await page.locator("#updates-busy-text").textContent(), /^A task is waiting for your answer\. Answer it first/);
+  await page.locator("#updates-busy-cancel").click();
+
+  app.store.createRun(app.runtime.owner, "a long job");
+  await page.locator("#updates-install").click();
+  await page.locator("#updates-busy").waitFor({ state: "visible" });
+  assert.match(await page.locator("#updates-busy-text").textContent(), /^1 working and 1 waiting for your answer/);
+  assert.equal(await installs(page), 1, "nothing more went ahead on its own");
+  assert.deepEqual(errors, []);
+});

@@ -81,6 +81,8 @@ const cards = [
   ["/api/comfort", { card: "notify", values: { method: "window", sound: "chime" } }, "comfort-notify.method"],
   ["/api/comfort", { card: "files", values: { respectGitignore: false } }, "comfort-files.respectGitignore"],
   ["/api/comfort", { card: "mcp", values: { startupTimeoutSeconds: 20 } }, "comfort-mcp.startupTimeoutSeconds"],
+  ["/api/knobs", { card: "limits", values: { maxModelRounds: 20 } }, "round-limit.maxModelRounds"],
+  ["/api/knobs", { card: "limits", reset: true }, "round-limit.maxModelRounds"],
   // The switch families: every part that is a Settings setting, through its family's one route.
   ...catalogueKeys.filter((key) => key.startsWith("reach-")).map((key) => ["/api/reach/switch", { part: key.slice(6), mode: "on" }, `${key}.mode`]),
   ...catalogueKeys.filter((key) => key.startsWith("asks-")).map((key) => ["/api/asks/switch", { part: key.slice(5), mode: "on" }, `${key}.mode`]),
@@ -142,6 +144,7 @@ const unreadKeys = {
   "src/add-ons/export.ts": "one record per add-on folder",
   "src/add-ons/lists.ts": "one record per add-on list address",
   "src/agent-export.ts": "an assistant file's approval rules, including policy: recorded (runtime guard below)",
+  "src/restore-held.ts": "rows a restore held for the owner's yes, including policy and chat-permissions: recorded",
   "src/autonomy/orders.ts": "standing orders, one record each",
   "src/autonomy/procedures.ts": "procedures, one record each",
   "src/deferred.ts": "deferred work, one record each",
