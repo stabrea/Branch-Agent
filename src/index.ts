@@ -591,7 +591,11 @@ export async function createBranch(options: {
     name: "user.ask", permission: "user.ask",
     description: "Stop and ask the person a question when you cannot proceed without their answer. The task pauses; their next message in this conversation is the answer.",
     parameters: z.object({ question: z.string().trim().min(1).max(2000) }).strict(),
-    execute: async ({ question }) => { throw new NeedsInputError(question); },
+    execute: async ({ question }) => {
+      const asked = new NeedsInputError(question);
+      asked.spoken = true;
+      throw asked;
+    },
   });
   // Handing something to the person and carrying on: the plainest deferred tool call there is.
   registerHumanTasks(registry);

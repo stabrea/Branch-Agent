@@ -260,6 +260,8 @@ export class NeedsInputError extends Error {
   override name = "NeedsInputError";
   /** The tool call that asked, when a tool asked; a question from anywhere else (a stuck model, a plan to approve) has none. */
   callId?: string;
+  /** Dogfood B21: the assistant's own question (user.ask), which belongs in the conversation as its message. */
+  spoken?: boolean;
   constructor(readonly question: string) { super(question); }
 }
 export class Budget {
