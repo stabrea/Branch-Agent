@@ -8,9 +8,9 @@ import { tabBar } from "./parts.js";
 
 const tabs = [["trunks", "Trunks"], ["tools", "Tools"], ["specialists", "Specialists"],
   ["channels", "Channels"], ["everywhere", "Everywhere"]];
-const tab = S.tabs.customize || "trunks";
 
 export function draw() {
+  const tab = S.tabs.customize || "trunks";
   if (!E.state) return `<div class="scroll"><div class="place"></div></div>`;
 
   let html = `<div class="scroll"><div class="place">

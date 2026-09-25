@@ -31,14 +31,19 @@ function bot(m, first) {
 }
 
 /* The approval card, 1:1 with the prototype's: the action's verb (allow once), "Always allow for …" (a standing rule,
-   greyed out until the engine can scope a rule to one Trunk), and "Don't …" (deny). The fingerprint is always sent. */
+   greyed out until the engine can scope a rule to one Trunk), and "Don't …" (deny). The verb comes from the tool alone,
+   never from the label, which can carry a reviewer's or hook's words; the label is the card's body. Each button names
+   its request by session and fingerprint, and only that exact request is answered. */
+const VERBS = { files: "Change it", shell: "Run it", code: "Run it", device: "Allow", browser: "Go ahead", channels: "Send it", memory: "Save it" };
+const verbOf = (tool) => (tool === "files.read" ? "Read it" : VERBS[String(tool ?? "").split(".")[0]] ?? "Allow");
 function askCard(q) {
-  const verb = q.label || "Allow";
+  const verb = verbOf(q.tool);
+  const id = `data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}"`;
   const trunk = q.trunk ? E.trunks.find((t) => t.id === q.trunk) : null;
   const always = trunk ? `Always allow for ${esc(trunk.name)}` : "Always allow";
   return `<div class="b"><div class="gut"></div><div><div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.question || q.label)}</span><span class="pill work ml"><i></i>Needs you</span></div>
-    ${q.bytes ? `<dl class="kv"><dd class="mailbody">${esc(q.bytes)}</dd></dl>` : ""}
-    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" data-fp="${esc(q.fingerprint || "")}">${esc(verb)}</button><button class="btn" type="button" data-act="ask-always" data-fp="${esc(q.fingerprint || "")}" data-trunk="${esc(q.trunk || "")}">${always}</button><button class="btn ghost" type="button" data-act="ask" data-v="deny" data-fp="${esc(q.fingerprint || "")}">Don’t allow</button></div></div></div></div>`;
+    ${(q.question && q.label) || q.bytes ? `<dl class="kv">${q.question && q.label ? `<dd class="mailbody">${esc(q.label)}</dd>` : ""}${q.bytes ? `<dd class="mailbody">${esc(q.bytes)}</dd>` : ""}</dl>` : ""}
+    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" ${id}>${esc(verb)}</button><button class="btn" type="button" data-act="ask-always" ${id} data-trunk="${esc(q.trunk || "")}">${always}</button><button class="btn ghost" type="button" data-act="ask" data-v="deny" ${id}>Don’t allow</button></div></div></div></div>`;
 }
 
 function thread() {
@@ -136,7 +141,9 @@ async function send() {
 }
 
 async function answer(el, decision, extra = {}) {
-  const q = C.waiting.find((w) => (w.fingerprint || "") === el.dataset.fp) ?? C.waiting[0];
+  if (!el.dataset.sid) return;
+  await loadWaiting();
+  const q = C.waiting.find((w) => w.sessionId === el.dataset.sid && (w.fingerprint || "") === el.dataset.fp);
   if (!q) return;
   let said = null;
   try {

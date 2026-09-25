@@ -1,4 +1,5 @@
 /* Settings › general: bind real engine data and wire controls. */
+import { esc } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
@@ -26,7 +27,7 @@ export function draw() {
     for (const project of projects) {
       const count = project.conversationCount || 0;
       const hasInstructions = project.hasInstructions ? " · its own instructions" : "";
-      html += `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"></path></svg></span><span class="grow"><b>${project.name}</b><small>${count} conversation${count !== 1 ? "s" : ""}${hasInstructions}</small></span><button class="btn sm" type="button" data-act="g-edit-proj" data-v="${project.id}">Edit</button></div>`;
+      html += `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"></path></svg></span><span class="grow"><b>${esc(project.name)}</b><small>${count} conversation${count !== 1 ? "s" : ""}${hasInstructions}</small></span><button class="btn sm" type="button" data-act="g-edit-proj" data-v="${esc(project.id)}">Edit</button></div>`;
     }
   }
 

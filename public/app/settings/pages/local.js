@@ -1,4 +1,5 @@
 /* Settings › local: bind real engine data and wire controls. */
+import { esc } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 
@@ -47,8 +48,8 @@ export function draw() {
                         model.fit === 'ok' ? 'Runs, a little slower (uses memory)' :
                         'Too big for this computer';
 
-      html += `<div class="lm12 ${fitClass}"><div class="lm-h12"><b>${model.name}</b><span class="pill ${statusClass}"><i></i>${statusText}</span></div>`;
-      html += `<p>${model.description}</p>`;
+      html += `<div class="lm12 ${fitClass}"><div class="lm-h12"><b>${esc(model.name)}</b><span class="pill ${statusClass}"><i></i>${statusText}</span></div>`;
+      html += `<p>${esc(model.description)}</p>`;
       html += `<div class="lm-tags12">`;
       if (model.tags) {
         model.tags.forEach(tag => {
@@ -60,18 +61,18 @@ export function draw() {
       if (model.versions) {
         html += `<div class="seg lm-v12">`;
         model.versions.forEach((version) => {
-          html += `<button type="button" data-act="lm-v" data-id="${model.id}" data-v="${version.key}" aria-pressed="${version.selected ? 'true' : 'false'}">${version.label}</button>`;
+          html += `<button type="button" data-act="lm-v" data-id="${esc(model.id)}" data-v="${esc(version.key)}" aria-pressed="${version.selected ? 'true' : 'false'}">${esc(version.label)}</button>`;
         });
         html += `</div>`;
       }
 
       html += `<div class="acts">`;
       if (model.running) {
-        html += `<span class="pill done"><i></i>Running · port ${model.port}</span><button class="btn sm" type="button" data-act="lm-chat">Say hello</button><button class="btn ghost sm" type="button" data-act="lm-rm" data-id="${model.id}">Remove</button>`;
+        html += `<span class="pill done"><i></i>Running · port ${model.port}</span><button class="btn sm" type="button" data-act="lm-chat">Say hello</button><button class="btn ghost sm" type="button" data-act="lm-rm" data-id="${esc(model.id)}">Remove</button>`;
       } else if (model.fit !== 'no') {
-        html += `<button class="btn pri sm" type="button" data-act="lm-get" data-id="${model.id}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Install ${model.size}</button>`;
+        html += `<button class="btn pri sm" type="button" data-act="lm-get" data-id="${esc(model.id)}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Install ${esc(model.size)}</button>`;
       } else {
-        html += `<button class="btn ghost sm" type="button" data-act="lm-get" data-id="${model.id}" disabled=""><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Install ${model.size}</button>`;
+        html += `<button class="btn ghost sm" type="button" data-act="lm-get" data-id="${esc(model.id)}" disabled=""><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Install ${esc(model.size)}</button>`;
       }
       html += `</div></div>`;
     });
@@ -98,12 +99,12 @@ export function draw() {
     const statusText = found ? 'Found' : 'Not found';
 
     html += `<div class="prow"><span class="logo" data-css="width:30px;height:30px;background:${rt.bg}"><b data-css="font:700 11px var(--sans);color:#fff">${rt.abbr}</b></span>`;
-    html += `<span class="grow"><b>${rt.name}</b><small>${rt.desc}</small></span>`;
+    html += `<span class="grow"><b>${esc(rt.name)}</b><small>${esc(rt.desc)}</small></span>`;
 
     if (found) {
       html += `<span class="pill ${status}"><i></i>${statusText}</span>`;
     } else {
-      html += `<button class="btn ghost sm" type="button" data-act="toast" data-msg="Looking for ${rt.name} on this computer… not found. Branch can use it as soon as it runs.">Look for it</button>`;
+      html += `<button class="btn ghost sm" type="button" data-act="toast" data-msg="Looking for ${esc(rt.name)} on this computer… not found. Branch can use it as soon as it runs.">Look for it</button>`;
     }
 
     html += `</div>`;

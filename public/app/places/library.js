@@ -7,9 +7,9 @@ import { markLive } from "../core/features.js";
 import { tabBar } from "./parts.js";
 
 const tabs = [["memory", `Memory ${E.state?.memory?.length || 0}`], ["documents", "Documents"], ["made", "Made for you"]];
-const tab = S.tabs.library || "memory";
 
 export function draw() {
+  const tab = S.tabs.library || "memory";
   if (!E.state) return `<div class="scroll"><div class="place"></div></div>`;
 
   let html = `<div class="scroll"><div class="place">

@@ -3,11 +3,13 @@ import { level } from "../../core/state.js";
 import { E } from "../../core/state.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
+import { esc } from "../../core/dom.js";
+import { av } from "../../core/ui.js";
 
 function buildTrunkRow(trunk) {
-  const id = trunk.id || "";
-  const name = (trunk.name || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const avatar = `<span class="av look12" style="--s:32px" aria-hidden="true"><img src="art/avatars/${id}.webp" alt="" draggable="false"></span>`;
+  const id = esc(trunk.id || "");
+  const name = esc(trunk.name || "");
+  const avatar = av(trunk, 32);
 
   return `<div class="prow percomp8">${avatar}<span class="grow"><b>${name}</b><span class="chips8"><button type="button" class="chip6" data-act="comp-chip" data-id="${id}" aria-pressed="false">This computer</button></span></span><label class="max8"><small>At once</small><span class="seg"><button type="button" data-act="comp-max" data-id="${id}" data-v="1" aria-pressed="true">1</button><button type="button" data-act="comp-max" data-id="${id}" data-v="2" aria-pressed="false">2</button><button type="button" data-act="comp-max" data-id="${id}" data-v="3" aria-pressed="false">3</button><button type="button" data-act="comp-max" data-id="${id}" data-v="4" aria-pressed="false">4</button></span></label></div>`;
 }

@@ -8,9 +8,9 @@ import { tabBar } from "./parts.js";
 
 const tabs = [["live", "Live now"], ["people", "People"], ["shared", "Shared"],
   ["agents", "Teams of Trunks"], ["activity", "Activity"], ["usage", "Usage"], ["rules", "Rules"]];
-const tab = S.tabs.team || "live";
 
 export function draw() {
+  const tab = S.tabs.team || "live";
   if (!E.state) return `<div class="scroll"><div class="place"></div></div>`;
 
   let html = `<div class="scroll"><div class="place" data-note="team6">
