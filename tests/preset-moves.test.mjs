@@ -211,7 +211,7 @@ test("moving from the workspace preset to Ask before changes is less careful too
   const { app, owner, as, policy, move } = await fixture(t);
   savePolicy(app.store, owner, { preset: "workspace" });
   assert.equal(move("ask-before-changes").changes[0].loosens, true);
-  // Q235: the whole-app Careful preset no longer makes this move; from the workspace default it loosens nothing.
+  // Q235: the whole-app Careful preset no longer makes this move: it has approvals of its own.
   const careful = changesFor(app.store, owner, presets.find((preset) => preset.id === "careful").sets, app.registry).changes;
   assert.ok(!careful.some((change) => change.loosens), "applying Careful from the workspace preset makes nothing less careful");
   // In the train with dogfood A1: the catalogue sees this move as possibly looser, so its one question is asked every
@@ -306,4 +306,16 @@ test("a command no rule mentions still asks, so leaving the workspace preset for
   assert.equal(change.loosens, true);
   assert.match(change.looser ?? "", /look things up/i);
   assert.doesNotMatch(change.looser ?? "", /run commands/i);
+});
+
+test("Careful asks before every change and before web lookups, and moving to it from either neighbour loosens nothing (Q235)", async (t) => {
+  const { app, owner, answer, move } = await fixture(t);
+  for (const from of ["workspace", "ask-before-changes"]) {
+    savePolicy(app.store, owner, { preset: from });
+    assert.equal(move("careful").changes[0].loosens, false, `from ${from} nothing gets looser`);
+  }
+  savePolicy(app.store, owner, { preset: "careful" });
+  for (const tool of ["files.write", "files.delete", "web.search", "web.fetch", "browser.navigate", "shell.execute"])
+    assert.equal(answer(tool), "ask", `${tool} is asked about under Careful`);
+  assert.equal(answer("files.read"), "allow", "reading on this computer is free");
 });

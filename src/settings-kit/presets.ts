@@ -61,12 +61,12 @@ export const presets: readonly Preset[] = [
   },
   {
     id: "careful", name: "Careful", t: "settings-kit.preset.careful",
-    about: "Asks before commands, clicks and websites, checks folders and add-ons, and keeps programs behind the wall.",
+    about: "Asks before any change and before new websites, checks folders and add-ons, and keeps programs behind the wall.",
     aboutT: "settings-kit.preset.careful-about",
-    // Q235: a preset named Careful never makes anything less careful. "Ask before changes" lets web lookups through
-    // that the workspace preset asks about, so Careful keeps the workspace approvals and adds its guards on top.
+    // Q235: a preset named Careful never makes anything less careful: its own approvals ask before every change and
+    // before web lookups, so it is no looser than the workspace default or Ask before changes.
     sets: [
-      set("policy", "preset", "workspace"), set("policy", "unmatchedCommands", "ask"),
+      set("policy", "preset", "careful"), set("policy", "unmatchedCommands", "ask"),
       set("approval_reviewer", "mode", "on"), set("loop_guard", "mode", "on"), set("folder_trust_mode", "mode", "on"),
       set("security-check", "audit", "when-needed"), set("security-check", "malware", "on"),
       set("os-sandbox", "mode", "on"),

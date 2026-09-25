@@ -79,7 +79,7 @@ export type PolicyLimits = z.infer<typeof PolicyLimitsSchema>;
  * deciding a whole kind of thing at once (see src/tool-categories.ts) writes one rule per tool.
  */
 export const maximumPolicyRules = 300;
-export const PolicyPresetSchema = z.enum(["off", "ask-before-changes", "workspace", "read-only", "custom"]);
+export const PolicyPresetSchema = z.enum(["off", "ask-before-changes", "workspace", "read-only", "careful", "custom"]);
 export type PolicyPresetName = z.infer<typeof PolicyPresetSchema>;
 export const PolicySchema = z
   .object({
@@ -144,6 +144,24 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
       // The lines above are what an owner saved when they picked this preset, and saved lines are
       // never rewritten: a conversation that follows the owner's setting keeps exactly these, so
       // there an outbound tool not named here (x.search, gmail.search, remote.read, ...) does not ask.
+    ],
+  },
+  // Q235 (Mac mini's review): what the whole-app Careful preset picks. Every change asks, as Ask before changes does,
+  // and looking things up or opening a website is checked with the owner once per site, as the workspace preset does,
+  // so moving to it from either loosens nothing. Ask before changes itself stays the cap for work from outside.
+  careful: {
+    label: "Careful",
+    description: "Anything that changes a file, runs a command, sends a message or acts on a web page waits for your yes, and looking something up on a new website is checked with you once.",
+    rules: [
+      { tool: "*", applies: "changes", decision: "ask", remember: "session" },
+      { tool: "shell.execute", decision: "ask", remember: "session" },
+      { tool: "shell.session.*", decision: "ask", remember: "session" },
+      { tool: "remote.run", decision: "ask", remember: "session" },
+      { tool: "browser.click", decision: "ask", remember: "session" },
+      { tool: "browser.fill", decision: "ask", remember: "session" },
+      { tool: "browser.upload", decision: "ask", remember: "session" },
+      { tool: "browser.navigate", decision: "ask", remember: "always" },
+      { tool: "web.*", decision: "ask", remember: "always" },
     ],
   },
   "read-only": {
