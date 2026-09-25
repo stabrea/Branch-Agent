@@ -7,9 +7,9 @@ import { markLive } from "../core/features.js";
 import { tabBar } from "./parts.js";
 
 const tabs = [["scheduled", "Scheduled"], ["procedures", "Procedures"], ["triggers", "Triggers"]];
-const tab = S.tabs.automations || "scheduled";
 
 export function draw() {
+  const tab = S.tabs.automations || "scheduled";
   if (!E.state) return `<div class="scroll"><div class="place"></div></div>`;
 
   let html = `<div class="scroll"><div class="place">

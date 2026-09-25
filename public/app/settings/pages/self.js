@@ -63,7 +63,7 @@ function timelineSection() {
   const SVG_PERSON = "<svg class=\"i s\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"9\" cy=\"8.5\" r=\"3\"></circle><path d=\"M3.5 19a5.5 5.5 0 0 1 11 0M15.5 5.5a3 3 0 0 1 0 6M17 13.5a5.5 5.5 0 0 1 3.5 5.5\"></path></svg>";
   const items = history.slice(0, 3).map(item => {
     const icon = item.ok ? SVG_CHECK : SVG_PERSON;
-    const time = item.time || "unknown";
+    const time = esc(item.time || "");
     const desc = esc(item.description || "A change");
     const okClass = item.ok ? "ok" : "";
     const rollback = item.ok ? "" : "<button class=\"btn ghost sm\" type=\"button\" data-act=\"toast\" data-msg=\"Rolled back to before that change.\">Roll back</button>";

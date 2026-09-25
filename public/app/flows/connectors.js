@@ -10,7 +10,7 @@ import { markLive } from "../core/features.js";
 let connectors = null;
 
 export function init() {
-  markLive(["tool-add", "mcp-cat", "mcp-add"]);
+  markLive(["tool-add", "mcp-cat"]);
   on("tool-add", () => openConnectorCatalog());
   on("mcp-cat", (el) => { S.mcp = S.mcp || {}; S.mcp.cat = el.dataset.v; drawConnectorCatalog(); });
   on("mcp-add", (el) => addConnector(el.dataset.v));

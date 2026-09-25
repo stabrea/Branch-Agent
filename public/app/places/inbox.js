@@ -1,13 +1,27 @@
-/* Inbox: approvals, finished tasks, history - matches reference place-inbox-*.html */
+/* Inbox: approvals, finished tasks, history - matches reference place-inbox-*.html.
+   "Needs you" lists two kinds of request, each answered only by its own route: a task waiting on a yes (GET /api/policy;
+   Allow names it by session and fingerprint, the chat's exact-match "ask"), and a message one Trunk wants to send
+   another (state.trunkWaiting; POST /api/trunks/messages/<id>/answer or /decline). */
 
-import { esc } from "../core/dom.js";
-import { S, E } from "../core/state.js";
-import { ic, av } from "../core/ui.js";
+import { esc, renderNow } from "../core/dom.js";
+import { S, E, refresh } from "../core/state.js";
+import { ic, av, toast } from "../core/ui.js";
+import { api } from "../core/api.js";
+import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 
-const tab = S.tabs.inbox || "needs";
+let asks = [];
+const trunkName = (id) => (Array.isArray(E.trunks) ? E.trunks : []).find((t) => t.id === id || t.name === id)?.name ?? id ?? "";
+
+function askRow(q) {
+  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(q.question || q.label || "")}</b><small>${esc([trunkName(q.trunk), q.question ? q.label : q.target].filter(Boolean).join(" · "))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(q.sessionId)}">Open</button><button class="btn pri sm" type="button" data-act="ask" data-v="allow" data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}">Allow</button></div>`;
+}
+function messageRow(m) {
+  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(m.message)}</b><small>${esc(trunkName(m.from))} → ${esc(trunkName(m.to))}</small></span><button class="btn ghost sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="decline">Don’t</button><button class="btn pri sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="answer">Allow</button></div>`;
+}
 
 export function draw() {
+  const tab = S.tabs.inbox || "needs";
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
 
   const waiting = E.state.trunkWaiting || [];
@@ -20,8 +34,9 @@ export function draw() {
     <div class="rows">`;
 
   if (tab === "needs") {
-    if (waiting.length > 1) html += `<div class="acts" data-css="margin:4px 0 6px"><button class="btn" type="button" data-act="allowall">Allow all ${waiting.length}…</button></div>`;
-    html += waiting.length ? waiting.map((w, i) => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(w.title || 'Request')}</b><small>${esc(w.trunk || '')}${w.detail ? ' · ' + esc(w.detail) : ''}</small></span><button class="btn ghost sm" type="button" data-act="xdo" data-id="${esc(w.id || i)}" data-v="denied">Don't</button><button class="btn pri sm" type="button" data-act="ask" data-id="${esc(w.id || i)}" data-v="allowed">Allow</button></div>`).join('') : `<p class="empty">Nothing is waiting for you. Trunks show up here when they need a yes.</p>`;
+    const count = asks.length + waiting.length;
+    if (count > 1) html += `<div class="acts" data-css="margin:4px 0 6px"><button class="btn" type="button" data-act="allowall">Allow all ${count}…</button></div>`;
+    html += count ? asks.map(askRow).join("") + waiting.map(messageRow).join("") : `<p class="empty">Nothing is waiting for you. Trunks show up here when they need a yes.</p>`;
   } else if (tab === "finished") {
     html += finished.length ? finished.slice(0, 20).map(r => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(r.title || 'Task')}</b><small>${esc(r.trunk || '')}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(r.id || '')}">Open</button></div>`).join('') : `<p class="empty">Nothing finished.</p>`;
   } else if (tab === "history") {
@@ -32,6 +47,18 @@ export function draw() {
   return html;
 }
 
+/* After a draw: re-read the tasks waiting on a yes, and draw again only if the list changed. */
+export async function after() {
+  const fresh = (await api("policy").catch(() => ({}))).waiting ?? [];
+  const key = (list) => list.map((q) => q.sessionId + q.fingerprint).join();
+  if (key(fresh) !== key(asks)) { asks = fresh; renderNow(); }
+}
+
 export function init() {
-  markLive(["ptab", "ask", "chat", "lock"]);
+  markLive(["ptab", "chat", "tmsg"]);
+  on("tmsg", async (el) => {
+    try { await api(`trunks/messages/${encodeURIComponent(el.dataset.id)}/${el.dataset.v === "answer" ? "answer" : "decline"}`, {}); } catch (error) { toast(error.message); }
+    await refresh().catch(() => {});
+    renderNow();
+  });
 }

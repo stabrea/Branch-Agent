@@ -1,6 +1,9 @@
 /* Settings › people: bind real engine data and wire controls. */
+import { esc } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
+
+const hex = (c) => (/^#[0-9a-f]{3,8}$/i.test(String(c ?? "")) ? c : "#56616B");
 
 let profiles = null;
 let selectedProfile = null;
@@ -42,9 +45,9 @@ function renderProfileList() {
       html += `<div class="grp8">On this computer</div>`;
       for (const p of groups.local) {
         const isSelected = selectedProfile && selectedProfile.id === p.id;
-        const initials = p.initials || p.name.split(" ").map(w => w[0]).join("");
-        const color = p.color || "#56616B";
-        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${p.id}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${p.status || "online"}"></i></span><span class="grow"><b>${p.name}${p.isOwner ? " · you" : ""}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
+        const initials = esc(p.initials || String(p.name ?? "").split(" ").map((w) => w[0]).join(""));
+        const color = hex(p.color);
+        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${esc(p.id)}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${esc(p.status || "online")}"></i></span><span class="grow"><b>${esc(p.name)}${p.isOwner ? " · you" : ""}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
       }
     }
 
@@ -52,9 +55,9 @@ function renderProfileList() {
       html += `<div class="grp8">On their own device</div>`;
       for (const p of groups.remote) {
         const isSelected = selectedProfile && selectedProfile.id === p.id;
-        const initials = p.initials || p.name.split(" ").map(w => w[0]).join("");
-        const color = p.color || "#56616B";
-        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${p.id}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${p.status || "online"}"></i></span><span class="grow"><b>${p.name}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
+        const initials = esc(p.initials || String(p.name ?? "").split(" ").map((w) => w[0]).join(""));
+        const color = hex(p.color);
+        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${esc(p.id)}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${esc(p.status || "online")}"></i></span><span class="grow"><b>${esc(p.name)}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
       }
     }
 
@@ -62,9 +65,9 @@ function renderProfileList() {
       html += `<div class="grp8">From your keepoak.com team</div>`;
       for (const p of groups.team) {
         const isSelected = selectedProfile && selectedProfile.id === p.id;
-        const initials = p.initials || p.name.split(" ").map(w => w[0]).join("");
-        const color = p.color || "#56616B";
-        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${p.id}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${p.status || "online"}"></i></span><span class="grow"><b>${p.name}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
+        const initials = esc(p.initials || String(p.name ?? "").split(" ").map((w) => w[0]).join(""));
+        const color = hex(p.color);
+        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${esc(p.id)}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${esc(p.status || "online")}"></i></span><span class="grow"><b>${esc(p.name)}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
       }
     }
   }
@@ -77,12 +80,12 @@ function renderProfileList() {
 function renderProfileDetail() {
   if (!selectedProfile) return "";
 
-  const initials = selectedProfile.initials || selectedProfile.name.split(" ").map(w => w[0]).join("");
-  const color = selectedProfile.color || "#56616B";
+  const initials = esc(selectedProfile.initials || String(selectedProfile.name ?? "").split(" ").map((w) => w[0]).join(""));
+  const color = hex(selectedProfile.color);
 
-  let html = `<div class="t9-detail pcard10"><div class="t9-dh"><span class="tav6" data-css="--c:${color};width:44px;height:44px;font-size:17px">${initials}<i class="st st-${selectedProfile.status || "online"}"></i></span><span class="grow"><b>${selectedProfile.name}</b><small>${selectedProfile.device || "Unknown device"} · ${selectedProfile.signInMethod || "sign-in method"}</small></span><span class="pill ${selectedProfile.role?.toLowerCase() || "user"}">${selectedProfile.role || "User"}</span></div>
+  let html = `<div class="t9-detail pcard10"><div class="t9-dh"><span class="tav6" data-css="--c:${color};width:44px;height:44px;font-size:17px">${initials}<i class="st st-${esc(selectedProfile.status || "online")}"></i></span><span class="grow"><b>${esc(selectedProfile.name)}</b><small>${selectedProfile.device || "Unknown device"} · ${selectedProfile.signInMethod || "sign-in method"}</small></span><span class="pill ${selectedProfile.role?.toLowerCase() || "user"}">${selectedProfile.role || "User"}</span></div>
     <div class="sec"><h2>Permissions</h2><div class="acts10">
-      ${selectedProfile.permissions ? selectedProfile.permissions.map(p => `<label class="chk ${!p.allowed ? "no10" : ""}"><input type="checkbox" ${p.allowed ? "checked" : ""} aria-label="${p.name}"> ${p.name}</label>`).join("") : ""}
+      ${selectedProfile.permissions ? selectedProfile.permissions.map(p => `<label class="chk ${!p.allowed ? "no10" : ""}"><input type="checkbox" ${p.allowed ? "checked" : ""} aria-label="${esc(p.name)}"> ${esc(p.name)}</label>`).join("") : ""}
     </div></div>
     <dl class="kv" data-css="margin-top:14px">
       ${selectedProfile.trunks ? `<dt>Trunks</dt><dd>${selectedProfile.trunks.join(", ")}</dd>` : ""}
@@ -92,7 +95,7 @@ function renderProfileDetail() {
       ${selectedProfile.signedInOn ? `<dt>Signed in on</dt><dd>${selectedProfile.signedInOn}</dd>` : ""}
     </dl>
     <div class="acts" data-css="margin-top:14px">
-      <button class="btn sm" type="button" data-act="p-switch" data-v="${selectedProfile.id}">Switch to ${selectedProfile.name}</button>
+      <button class="btn sm" type="button" data-act="p-switch" data-v="${esc(selectedProfile.id)}">Switch to ${esc(selectedProfile.name)}</button>
       <span class="seg"><button type="button" data-act="p-role" data-v="Adult" aria-pressed="${selectedProfile.role === "Adult"}">Adult</button><button type="button" data-act="p-role" data-v="Child" aria-pressed="${selectedProfile.role === "Child"}">Child</button></span>
       <button class="btn ghost sm" type="button" data-act="p-code">Make a one-time code</button>
       <button class="btn ghost sm" type="button" data-act="p-signout">Sign out everywhere</button>

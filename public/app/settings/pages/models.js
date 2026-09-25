@@ -1,4 +1,5 @@
 /* Settings › models: bind real engine data and wire controls. */
+import { esc } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
@@ -30,7 +31,7 @@ function renderAccountGroup(provider, logoColor, logoSvg) {
     accts.forEach((acct, i) => {
       const status = i === 0 ? 'ok' : 'idle';
       const statusText = i === 0 ? 'Answers first' : 'Next in line';
-      html += `<div class="acct-r"><span class="grow"><b>${acct.label || `${provider} Account ${i + 1}`}</b><small>${acct.plan || 'Plan'} · used by anyone</small></span><span class="pill ${status}"><i></i>${statusText}</span><button class="icon-btn" type="button" aria-label="More for ${acct.label}" data-act="acct-menu" data-i="${i}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="18" cy="12" r="1"></circle></svg></button></div>`;
+      html += `<div class="acct-r"><span class="grow"><b>${acct.label || `${provider} Account ${i + 1}`}</b><small>${acct.plan || 'Plan'} · used by anyone</small></span><span class="pill ${status}"><i></i>${statusText}</span><button class="icon-btn" type="button" aria-label="More for ${esc(acct.label)}" data-act="acct-menu" data-i="${i}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="18" cy="12" r="1"></circle></svg></button></div>`;
     });
     html += `<button class="add-row" type="button" data-act="addacct" data-v="${provider.toLowerCase().replace(' ', '')}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add another ${provider} account</button>`;
   } else {

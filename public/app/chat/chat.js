@@ -9,7 +9,7 @@ import { ic, av, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { text } from "./markdown.js";
 
-const C = { sessionId: null, messages: [], waiting: [], sending: false };
+const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
 
 const current = () => E.sessions.find((s) => (s.sessionId ?? s.id) === C.sessionId);
@@ -31,14 +31,19 @@ function bot(m, first) {
 }
 
 /* The approval card, 1:1 with the prototype's: the action's verb (allow once), "Always allow for …" (a standing rule,
-   greyed out until the engine can scope a rule to one Trunk), and "Don't …" (deny). The fingerprint is always sent. */
+   greyed out until the engine can scope a rule to one Trunk), and "Don't …" (deny). The verb comes from the tool alone,
+   never from the label, which can carry a reviewer's or hook's words; the label is the card's body. Each button names
+   its request by session and fingerprint, and only that exact request is answered. */
+const VERBS = { files: "Change it", shell: "Run it", code: "Run it", device: "Allow", browser: "Go ahead", channels: "Send it", memory: "Save it" };
+const verbOf = (tool) => (tool === "files.read" ? "Read it" : VERBS[String(tool ?? "").split(".")[0]] ?? "Allow");
 function askCard(q) {
-  const verb = q.label || "Allow";
+  const verb = verbOf(q.tool);
+  const id = `data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}"`;
   const trunk = q.trunk ? E.trunks.find((t) => t.id === q.trunk) : null;
   const always = trunk ? `Always allow for ${esc(trunk.name)}` : "Always allow";
   return `<div class="b"><div class="gut"></div><div><div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.question || q.label)}</span><span class="pill work ml"><i></i>Needs you</span></div>
-    ${q.bytes ? `<dl class="kv"><dd class="mailbody">${esc(q.bytes)}</dd></dl>` : ""}
-    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" data-fp="${esc(q.fingerprint || "")}">${esc(verb)}</button><button class="btn" type="button" data-act="ask-always" data-fp="${esc(q.fingerprint || "")}" data-trunk="${esc(q.trunk || "")}">${always}</button><button class="btn ghost" type="button" data-act="ask" data-v="deny" data-fp="${esc(q.fingerprint || "")}">Don’t allow</button></div></div></div></div>`;
+    ${(q.question && q.label) || q.bytes ? `<dl class="kv">${q.question && q.label ? `<dd class="mailbody">${esc(q.label)}</dd>` : ""}${q.bytes ? `<dd class="mailbody">${esc(q.bytes)}</dd>` : ""}</dl>` : ""}
+    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" ${id}>${esc(verb)}</button><button class="btn" type="button" data-act="ask-always" ${id} data-trunk="${esc(q.trunk || "")}">${always}</button><button class="btn ghost" type="button" data-act="ask" data-v="deny" ${id}>Don’t allow</button></div></div></div></div>`;
 }
 
 function thread() {
@@ -49,7 +54,8 @@ function thread() {
     return html;
   });
   const asks = C.waiting.filter((q) => q.sessionId === C.sessionId).map(askCard);
-  const typing = C.sending ? `<div class="b"><div class="gut">${av({ kind: "main" }, 28)}</div><div><span class="typing" aria-label="Typing"><i></i><i></i><i></i></span></div></div>` : "";
+  const think = C.sending && C.thinking ? `<div class="think">${ic("spark", "s")}<span>${esc(C.thinking)}</span></div>` : "";
+  const typing = C.sending ? `<div class="b"><div class="gut">${av({ kind: "main" }, 28)}</div><div>${think || '<span class="typing" aria-label="Typing"><i></i><i></i><i></i></span>'}</div></div>` : "";
   return rows.join("") + asks.join("") + typing;
 }
 
@@ -91,6 +97,19 @@ export function startConversation() {
   $("#prompt")?.focus();
 }
 
+/* While a task runs, what its model is thinking now (GET /api/activity; held in memory by the engine, never recorded). */
+let thinkTimer = null;
+function watchThinking(on) {
+  clearInterval(thinkTimer);
+  C.thinking = "";
+  if (!on) return;
+  thinkTimer = setInterval(async () => {
+    const live = await api("activity").catch(() => []);
+    const mine = (Array.isArray(live) ? live : []).find((a) => a.sessionId === C.sessionId) ?? (C.sessionId ? null : live[0]);
+    if ((mine?.thinking ?? "") !== C.thinking) { C.thinking = mine?.thinking ?? ""; render(); }
+  }, 1000);
+}
+
 async function loadWaiting() {
   try { C.waiting = (await api("policy")).waiting ?? []; } catch { C.waiting = []; }
 }
@@ -102,6 +121,7 @@ async function send() {
   C.messages.push({ role: "user", content: prompt });
   S.drafts[C.sessionId ?? "new"] = "";
   C.sending = true;
+  watchThinking(true);
   renderNow();
   try {
     const run = await api("run", { prompt, ...(C.sessionId ? { sessionId: C.sessionId } : {}) });
@@ -113,6 +133,7 @@ async function send() {
     C.messages.push({ role: "assistant", content: error.message });
   } finally {
     C.sending = false;
+    watchThinking(false);
     await refresh().catch(() => {});
     renderNow();
     $("#prompt")?.focus();
@@ -120,7 +141,9 @@ async function send() {
 }
 
 async function answer(el, decision, extra = {}) {
-  const q = C.waiting.find((w) => (w.fingerprint || "") === el.dataset.fp) ?? C.waiting[0];
+  if (!el.dataset.sid) return;
+  await loadWaiting();
+  const q = C.waiting.find((w) => w.sessionId === el.dataset.sid && (w.fingerprint || "") === el.dataset.fp);
   if (!q) return;
   let said = null;
   try {
@@ -138,6 +161,7 @@ const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 async function follow(id) {
   C.sessionId = id;
   C.sending = true;
+  watchThinking(true);
   renderNow();
   for (let waited = 0; waited < 600; waited++) {
     await pause(1000);
@@ -148,6 +172,7 @@ async function follow(id) {
     if (!busy(id)) break;
   }
   C.sending = false;
+  watchThinking(false);
   renderNow();
 }
 

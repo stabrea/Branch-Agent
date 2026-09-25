@@ -6,10 +6,9 @@ import { S } from "../core/state.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 
-export function init() {
-  markLive(["pair"]);
-  on("pair", () => pairPhone());
-}
+/* Phone pairing is the phone app's (design doc A.15); there is no computer-side pairing screen yet, so "pair" stays
+   greyed out rather than drawing a code that pairs nothing. */
+export function init() {}
 
 function pairPhone() {
   const html = `<div data-css="text-align:center;padding:16px">

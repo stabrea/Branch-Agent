@@ -41,12 +41,6 @@ export function draw() {
   return main + TECHNICAL_EXTRA;
 }
 
-on("gw-mode", (el) => {
-  // POST /api/gateway/mode with { mode: el.dataset.v }
-});
 
-on("gw-restart", () => {
-  // POST /api/gateway/restart
-});
 
-markLive(["gw-mode", "gw-restart",]);
+markLive([]);
