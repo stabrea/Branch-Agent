@@ -58,4 +58,4 @@ on("comp-max", (el) => {
   // Set max parallel tasks for Trunk
 });
 
-markLive(["comp-add", "comp-chip", "comp-max", "c-screen", "c-ask", "b-new", "b-watch", "f15-record-browser-tasks", "f15-number-the-clickable-things", "f15-page-notes-and-send-to-branch-", "f15-try-ideas-on-a-branch", "f15-code-map", "sw:c-screen", "sw:c-ask", "sw:b-new", "sw:b-watch", "sw:f15-record-browser-tasks", "sw:f15-number-the-clickable-things", "sw:f15-page-notes-and-send-to-branch-", "sw:f15-try-ideas-on-a-branch", "sw:f15-code-map"]);
+markLive(["comp-add", "comp-chip", "comp-max",]);

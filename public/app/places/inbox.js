@@ -33,5 +33,5 @@ export function draw() {
 }
 
 export function init() {
-  markLive(["ptab", "allowall", "ask", "xdo", "chat", "toast", "lock"]);
+  markLive(["ptab", "ask", "chat", "lock"]);
 }

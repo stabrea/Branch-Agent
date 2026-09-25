@@ -15,7 +15,7 @@ async function loadProjects() {
   }
 }
 
-function draw() {
+export function draw() {
   const lv = level();
 
   let html = `<h1>General</h1><p class="lede">How Branch starts and behaves on this computer.</p><div class="status"><span class="sdot "></span><div><b>Branch starts with Windows</b><p>It waits in the tray and keeps scheduled work running when the window is closed.</p></div></div>
@@ -53,13 +53,4 @@ export function init() {
 }
 
 export const live = {
-  "sw:g-start": true,
-  "sw:g-tray": true,
-  "g-edit-proj": true,
-  "shortcuts": true,
-  "sw:f15-vim-keys-in-the-message-box": true,
-  "g-times": true,
-  "sw:f15-summarise-older-turns-by-themselves": true,
-  "g-plan": true,
-  "sw:f15-repair-the-history-before-each-call": true,
 };

@@ -16,9 +16,9 @@ async function loadFiles() {
   }
 }
 
-function draw() {
+export function draw() {
   let html = `<h1>Instructions &amp; personality</h1><p class="lede">Plain files every Trunk reads before it works. They work the same as in other agents, so a file written for one of them works here.</p>
-  <div class="fld" data-css="margin-top:6px"><span>Whose files</span><span class="acts" data-css="gap:6px"><button class="chip6" type="button" data-act="if-owner" data-v="branch" aria-pressed="true">Every Trunk</button><button class="chip6" type="button" data-act="if-owner" data-v="scout" aria-pressed="false">Scout</button><button class="chip6" type="button" data-act="if-owner" data-v="ledger" aria-pressed="false">Ledger</button><button class="chip6" type="button" data-act="if-owner" data-v="ada" aria-pressed="false">Ada</button><button class="chip6" type="button" data-act="if-owner" data-v="field" aria-pressed="false">Fieldnotes</button></span></div>
+  <div class="fld" data-css="margin-top:6px"><span>Whose files</span><span class="acts" data-css="gap:6px"><button class="chip6" type="button" data-act="if-owner" data-v="branch" aria-pressed="${selectedOwner === "branch"}">Every Trunk</button>${E.trunks.map((t) => `<button class="chip6" type="button" data-act="if-owner" data-v="${t.id}" aria-pressed="${selectedOwner === t.id}">${t.name}</button>`).join("")}</span></div>
   <div class="rows" data-css="margin-top:8px">`;
 
   if (files && files.files) {
@@ -44,6 +44,4 @@ export function init() {
 }
 
 export const live = {
-  "if-owner": true,
-  "if-open": true,
 };

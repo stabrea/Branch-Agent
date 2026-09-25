@@ -6,28 +6,8 @@ import { esc } from "../../core/dom.js";
 import { markLive } from "../../core/features.js";
 import { on } from "../../core/actions.js";
 
-let devSettings = { address: "127.0.0.1:3210", sessionKey: null };
-
-async function loadDevSettings() {
-  try {
-    const data = await api("dev-settings");
-    devSettings = data;
-  } catch (e) {
-    console.error("Failed to load dev settings:", e);
-  }
-}
-
 export function init() {
-  markLive(["dv-ls", "dv-dbg"]);
-  loadDevSettings();
-  for (const id of ["dv-ls", "dv-dbg"]) {
-    on("sw:" + id, (el) => {
-      api("dev-setting", { id, enabled: el.checked }).catch(e => {
-        el.checked = !el.checked;
-        console.error("Failed to update setting:", e);
-      });
-    });
-  }
+  // No live controls yet - waiting for engine routes for developer settings
 }
 
 function draw() {

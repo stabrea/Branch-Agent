@@ -40,5 +40,5 @@ export function draw() {
 }
 
 export function init() {
-  markLive(["ptab", "forget", "toast"]);
+  markLive(["ptab",]);
 }

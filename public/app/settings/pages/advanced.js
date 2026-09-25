@@ -7,15 +7,7 @@ import { markLive } from "../../core/features.js";
 import { on } from "../../core/actions.js";
 
 export function init() {
-  markLive(["sw:ad-think", "sw:ad-log", "sw:ad-crash"]);
-  for (const id of ["ad-think", "ad-log", "ad-crash"]) {
-    on("sw:" + id, (el) => {
-      api("advanced-setting", { id, enabled: el.checked }).catch(e => {
-        el.checked = !el.checked;
-        console.error("Failed to update setting:", e);
-      });
-    });
-  }
+  // No live controls yet - waiting for engine routes for advanced settings
 }
 
 function draw() {

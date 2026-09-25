@@ -15,7 +15,7 @@ async function loadVoiceSettings() {
   }
 }
 
-function draw() {
+export function draw() {
   if (!voiceSettings) {
     voiceSettings = { listening: 'push-to-talk', voice: 'Oak', dictation: true };
   }
