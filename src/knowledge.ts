@@ -536,7 +536,7 @@ export function registerKnowledge(
   registry.register({
     name: "knowledge.list",
     description:
-      "List stored procedures and specialists for the current owner.",
+      "List the owner's saved recipes (procedures) and specialists.",
     permission: "memory.read",
     parameters: z.object({}).strict(),
     execute: async (_a, c) => ({

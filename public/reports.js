@@ -91,6 +91,11 @@ globalThis.branchReports = { reportButtons, saveReport, saveEpisode };
 const $ = (id) => document.getElementById(id);
 const sayInCard = (message) => { const box = $("report-status"); if (box) box.textContent = message; };
 
+/** A task's state in words (Mac mini's E2 review: the picker read "look around — needs_input"). */
+function statusWords(status) {
+  const said = t(`reports.status.${status}`);
+  return said === `reports.status.${status}` ? String(status).replace(/_/g, " ") : said;
+}
 /** Fills the "which task" picker from the tasks the app already lists. */
 async function fillTasks() {
   const picker = $("report-run");
@@ -101,7 +106,7 @@ async function fillTasks() {
     const { runs } = await api("state");
     picker.replaceChildren();
     for (const run of (runs ?? []).slice(0, 30))
-      picker.append(new Option(`${run.prompt.slice(0, 60)} — ${run.status}`, run.id));
+      picker.append(new Option(`${run.prompt.slice(0, 60)} — ${statusWords(run.status)}`, run.id));
     if (!picker.options.length) picker.append(new Option("No tasks yet", ""));
   } catch (error) { sayInCard(error.message); }
 }

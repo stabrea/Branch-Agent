@@ -50,5 +50,10 @@ test("the record names each step in words, keeps the step's own sentence, and fo
   assert.ok(seen.folded, "the details are folded away");
   assert.ok(seen.options.every((option) => !/^[a-z]+\.[a-z_]+$/.test(option)), `the picker offers words: ${seen.options.join(" | ")}`);
   assert.equal(seen.unknown, "Some new kind", "a kind with no words of its own is spelled out from its name");
+  // Mac mini's E2 review: the "Which task" picker read "list the folder — completed".
+  await page.evaluate(() => document.querySelector('[data-view="runs"]')?.click()); // the picker fills when its place opens
+  await page.waitForFunction(() => [...document.querySelectorAll("#report-run option")].some((option) => option.value));
+  const tasks = await page.locator("#report-run option").allTextContents();
+  assert.ok(tasks.some((text) => text === "list the folder — done"), tasks.join(" | "));
   assert.deepEqual(errors, []);
 });

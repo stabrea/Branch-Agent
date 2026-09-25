@@ -200,7 +200,7 @@ test("replaying a saved recipe asks about the steps inside it before any of them
   const first = (await api("POST", "/api/run", { prompt: "replay it" })).body;
   assert.equal(first.status, "needs_input");
   // Dogfood E2 part 2: the step is put in its own words (its description's first sentence), not its tool name.
-  assert.match(first.output, /Before I go ahead: Execute a verified recipe/);
+  assert.match(first.output, /Before I go ahead: Repeating a saved recipe/);
   await api("POST", "/api/policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "session" });
   provider.reset();
   const paused = (await api("POST", "/api/run", { prompt: "replay it", sessionId: first.sessionId })).body;

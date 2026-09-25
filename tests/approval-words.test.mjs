@@ -65,3 +65,10 @@ test("a built-in tool is put in its own words, and a tool from outside never wor
   assert.equal(app.registry.plainWords("outside.tool"), null);
   assert.equal(describeToolCall("outside.tool", {}, app.registry.plainWords("outside.tool")), "Using outside.tool");
 });
+
+test("steps whose first sentence read badly have words of their own (Mac mini's E2 part 2 review)", () => {
+  assert.equal(describeToolCall("labels.list", {}), "Looking at the labels");
+  assert.equal(describeToolCall("troubleshoot.run", {}), "Running a failed command again to find out why");
+  assert.equal(describeToolCall("desktop.click", { name: "Save" }), "Pressing “Save” on screen");
+  assert.equal(describeToolCall("procedures.replay", {}), "Repeating a saved recipe");
+});
