@@ -31,7 +31,7 @@ async function openApp(t, status, before = async () => {}) {
   await page.addInitScript((first) => {
     globalThis.__status = first;
     window.branchDesktop = {
-      updateStatus: async () => globalThis.__status,
+      updateStatus: async () => { if (globalThis.__slow) await new Promise((done) => setTimeout(done, globalThis.__slow)); return globalThis.__status; },
       checkForUpdates: async () => globalThis.__status,
       installUpdate: async () => {
         const stopped = globalThis.__status.stopsEngine === true;
@@ -162,4 +162,25 @@ test("a Stable release published without notes says so", async (t) => {
   await page.waitForFunction(() => document.querySelector("#updates-notes-text")?.textContent !== "");
   assert.equal(await text(page, "#updates-notes-title"), "What's new in 9.9.9");
   assert.equal(await text(page, "#updates-notes-text"), "No notes were published for this version.");
+});
+
+test("dogfood F9: the window's refresh never blanks the installed build while the desktop's status is on its way", async (t) => {
+  const { page, errors } = await openApp(t, { phase: "available", message: "Version 9.9.9 is ready to install.", progress: null,
+    installed: { version: "0.19.3", commit: COMMIT }, outcome: null, release: offered });
+  await page.waitForFunction((short) => document.querySelector("#updates-build-commit")?.textContent === short, COMMIT.slice(0, 12));
+  // The desktop's answer now takes a while, and the window refreshes every 3 s: watch both rows through a refresh.
+  const seen = await page.evaluate(async () => {
+    globalThis.__slow = 300;
+    const commit = document.querySelector("#updates-build-commit"), notes = document.querySelector("#updates-notes");
+    const texts = new Set([commit.textContent]), hidden = new Set([notes.hidden]);
+    const watch = new MutationObserver(() => { texts.add(commit.textContent); hidden.add(notes.hidden); });
+    watch.observe(commit, { childList: true, characterData: true, subtree: true });
+    watch.observe(notes, { attributes: true, attributeFilter: ["hidden"] });
+    await new Promise((done) => setTimeout(done, 4500));
+    watch.disconnect();
+    return { texts: [...texts], hidden: [...hidden] };
+  });
+  assert.deepEqual(seen.texts, [COMMIT.slice(0, 12)], "the commit is never blanked to not recorded by a refresh");
+  assert.deepEqual(seen.hidden, [false], "and the offered release's notes stay shown");
+  assert.deepEqual(errors, []);
 });
