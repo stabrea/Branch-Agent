@@ -1,8 +1,8 @@
 /* Library: memory, documents, generated files. */
 
 import { esc, renderNow } from "../core/dom.js";
-import { S, E } from "../core/state.js";
-import { ic } from "../core/ui.js";
+import { S, E, refresh } from "../core/state.js";
+import { ic, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
@@ -83,14 +83,11 @@ export async function after() {
 
 export function init() {
   markLive(["ptab", "forget"]);
+  /* One memory, by its id, through the engine's own memory.delete (POST /api/action); nothing else is forgotten. */
   on("forget", async (el) => {
-    const i = +el.dataset.i;
-    if (i >= 0 && i < (E.state?.memory?.length || 0)) {
-      try {
-        const mem = E.state.memory[i];
-        await api("memory/forget", { id: mem.id || mem });
-        location.reload();
-      } catch (e) { /* silently fail */ }
-    }
-  });
-}
+    const id = el.dataset.id;
+    if (!id) return;
+    try { await api("action", { tool: "memory.delete", args: { id } }); } catch (error) { toast(error.message); return; }
+    await refresh().catch(() => {});
+    renderNow();
+  });}
