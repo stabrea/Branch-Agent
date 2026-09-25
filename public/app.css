@@ -2685,3 +2685,6 @@ body.pet-dock15 .dock>.petbox{position:absolute;left:calc(50% - min(430px,50% - 
 .m-poster15 video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .m-poster15 .m-big15{position:relative}
 .media15.video .m-poster15{--g:var(--ink)}
+
+/* area: places and customize leftovers */
+.replay6 .rp-path{overflow-x:auto}
