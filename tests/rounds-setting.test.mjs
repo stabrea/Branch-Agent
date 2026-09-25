@@ -89,9 +89,9 @@ test("settings.find and settings.list find the round limit by plain words, with 
   assert.equal(row.name, "Round limit");
   assert.equal(row.where, "settings:advanced");
   assert.equal(row.value, "auto");
-  assert.equal(row.startsAs, "auto");
+  assert.equal("startsAs" in row, false, "it still starts as it is, auto, so a search does not repeat it (dogfood A5)");
   assert.deepEqual(row.choices, { min: 2, max: 60, or: "auto" });
-  assert.equal(row.lessCareful, null, "more rounds spend only on the connected model, so it is an ordinary change");
+  assert.equal("lessCareful" in row, false, "more rounds spend only on the connected model, so it is an ordinary change");
   const advanced = await tool("settings.list", { search: "settings:advanced" });
   assert.ok(advanced.shown.some((one) => one.setting === setting), "it is listed with the other Advanced settings");
   const ready = await tool("settings.find", { request: "round limit", value: 40 });
