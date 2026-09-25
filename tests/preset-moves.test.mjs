@@ -334,7 +334,10 @@ test("Careful is saved in a shape an older build reads, so a rollback keeps ever
   const older = olderReader.safeParse(saved);
   assert.ok(older.success, "an older build reads it without falling back to no rules");
   assert.deepEqual(older.data.rules, readPolicy(app.store, owner).rules, "and keeps every rule: the owner's refusal, Careful's lines and the standing yes");
-  assert.equal(readPolicy(app.store, owner).preset, "careful", "this build still calls it Careful, standing answers and all");
+  // NAS af0a751: a yes of the owner's own makes it their own list; with only their refusal it is still Careful.
+  assert.equal(readPolicy(app.store, owner).preset, "custom", "a standing yes in front of Careful's lines is the owner's own list");
+  savePolicy(app.store, owner, { preset: "careful" });
+  assert.equal(readPolicy(app.store, owner).preset, "careful", "picked again: the yes goes, the owner's refusal stays, and it is Careful");
   savePolicy(app.store, owner, { preset: "workspace" });
   assert.equal(app.store.get("settings", owner, "policy").data.preset, "workspace");
   assert.equal(readPolicy(app.store, owner).preset, "workspace");
@@ -356,4 +359,16 @@ test("Careful ranks with Ask before changes: a conversation mode looser than ask
   assert.equal(looserThan("plan", "careful"), false);
   assert.equal(looserThan("auto", "careful"), true);
   assert.equal(looserThan("full", "careful"), true);
+});
+
+test("a yes added on the rules card under Careful makes it the owner's own list, so picking Careful again asks nothing looser (NAS af0a751)", async (t) => {
+  const { app, owner, answer, move } = await fixture(t);
+  savePolicy(app.store, owner, { preset: "careful" });
+  savePolicy(app.store, owner, { rules: [{ tool: "files.write", match: "*", decision: "allow", remember: "always" }, ...readPolicy(app.store, owner).rules] });
+  assert.equal(readPolicy(app.store, owner).preset, "custom", "the card's edit is the owner's own list, as for every preset");
+  assert.equal(answer("files.write"), "allow");
+  assert.equal(move("careful").changes.length, 1, "picking Careful again is a real move");
+  savePolicy(app.store, owner, { preset: "careful" });
+  assert.equal(answer("files.write"), "ask", "and it takes the yes away");
+  assert.equal(readPolicy(app.store, owner).preset, "careful");
 });

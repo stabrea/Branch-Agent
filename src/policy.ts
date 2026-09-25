@@ -386,12 +386,16 @@ const policyKey = "policy";
  * falls back to no rules at all when a name is new to it, so a rollback would have dropped every rule under Careful.
  * Careful is therefore saved as "custom" with its own lines, which every build reads, and read back as Careful from
  * those lines: a custom list holding every line of Careful and no other preset's is Careful, however it was made.
+ * NAS's adversarial (af0a751): only when everything else in it is a refusal of the owner's, as a move to Careful
+ * leaves it. A yes (or an "ask") of the owner's own makes it their own list, as a rules edit does for every preset,
+ * so picking Careful again is a real move that drops the yes, never a no-op that leaves it letting things through.
  */
 const carefulKeys = new Set(presetRules("careful").map(ruleKey));
 function named(policy: Policy): Policy {
   if (policy.preset !== "custom") return policy;
   const lines = new Set(policy.rules.map(ruleKey).filter((key) => presetLineKeys.has(key)));
-  const careful = lines.size === carefulKeys.size && [...carefulKeys].every((key) => lines.has(key));
+  const careful = lines.size === carefulKeys.size && [...carefulKeys].every((key) => lines.has(key))
+    && policy.rules.every((rule) => presetLineKeys.has(ruleKey(rule)) || rule.decision === "deny");
   return careful ? { ...policy, preset: "careful" } : policy;
 }
 /** Every save of the policy goes through here, so no build is ever handed a preset name it may not know. */
