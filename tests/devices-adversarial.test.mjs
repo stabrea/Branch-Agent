@@ -253,7 +253,8 @@ test("a yes to the camera, the screen, the microphone or a command is offered fo
   const camera = { name: "camera-each-time", async complete(request) {
     turn += 1;
     return request.messages.at(-1)?.role === "tool" ? { content: "Done.", toolCalls: [] }
-      : { content: "", toolCalls: [{ id: `c${turn}`, name: "device.camera", arguments: JSON.stringify({ device: "Kitchen Mac" }) }] };
+      : { content: "", toolCalls: [{ id: `c${turn}`, name: /listen/.test(String(request.messages.at(-1)?.content)) ? "device.listen" : "device.camera",
+        arguments: JSON.stringify({ device: "Kitchen Mac" }) }] };
   } };
   const root = await realpath(await mkdtemp(join(tmpdir(), "branch-devices-ask-")));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: camera });
@@ -267,14 +268,30 @@ test("a yes to the camera, the screen, the microphone or a command is offered fo
   const asked = app.store.events(first.id).filter((e) => e.kind === "policy.ask");
   assert.equal(asked.at(-1).data.remember, "never", "the question offers this one call");
   app.runtime.approve(first.sessionId, "allow", asked.at(-1).data.remember);
-  const second = await app.runtime.run({ prompt: "and another", sessionId: first.sessionId });
-  assert.equal(second.status, "needs_input", "the next photo asks again");
-  assert.equal(sent.length, 0, "nothing reached the device");
-  // Only if the owner picks "for this conversation" does the next one go ahead.
-  app.runtime.approve(first.sessionId, "allow", "session");
+  // Dogfood A6: "just this once" is that one photo: the task carrying on takes it, and the next one asks again.
+  const second = await app.runtime.run({ prompt: "take it", sessionId: first.sessionId });
+  assert.equal(second.status, "completed", "the photo the yes was for is taken");
+  assert.equal(sent.length, 1, "once");
+  const next = await app.runtime.run({ prompt: "and another", sessionId: first.sessionId });
+  assert.equal(next.status, "needs_input", "the next photo asks again");
+  assert.equal(sent.length, 1, "nothing more reached the device");
+  // The same bytes sent to another device tool are another request (NAS 618407c): the yes is for the camera.
+  app.runtime.approve(next.sessionId, "allow", "never");
+  const listen = await app.runtime.run({ prompt: "now listen", sessionId: first.sessionId });
+  assert.equal(listen.status, "needs_input", "a just-now yes for the camera does not let the microphone listen");
+  assert.equal(sent.length, 1, "nothing reached the device");
+  app.runtime.approve(listen.sessionId, "deny", "session");
+  const photo = await app.runtime.run({ prompt: "take it", sessionId: first.sessionId });
+  assert.equal(photo.status, "completed", "the camera's yes is still there for the camera");
+  assert.equal(sent.length, 2);
+  // Only if the owner picks "for this conversation" do the ones after it go ahead.
   const third = await app.runtime.run({ prompt: "one more", sessionId: first.sessionId });
-  assert.equal(third.status, "completed");
-  assert.equal(sent.length, 1);
+  assert.equal(third.status, "needs_input", "control: nothing kept yet");
+  app.runtime.approve(third.sessionId, "allow", "session");
+  const fourth = await app.runtime.run({ prompt: "one more", sessionId: first.sessionId });
+  const fifth = await app.runtime.run({ prompt: "and one more", sessionId: first.sessionId });
+  assert.deepEqual([fourth.status, fifth.status], ["completed", "completed"]);
+  assert.equal(sent.length, 4);
 });
 
 test("the phone checks a page's address itself, whatever Branch sent", async () => {

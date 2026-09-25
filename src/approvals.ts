@@ -157,6 +157,12 @@ export class ApprovalGate {
   private readonly heldOnce = new Map<string, string>();
   /** Wave mac3 (tool-safety): one-time overrules the owner gave, as conversation and fingerprint. */
   private readonly overrules = new Set<string>();
+  /**
+   * Dogfood A6: a "Yes, just now" to an ordinary question, as conversation, tool and fingerprint, with when it
+   * lapses. The tool is part of the key: the fingerprint covers only the argument bytes, and the same bytes can
+   * go to another tool (NAS 618407c). An unused one lapses as a "for this conversation" yes does.
+   */
+  private readonly justNow = new Map<string, { lapses: number; asker: string }>();
   /** mac7/coding-next: a "Once" given to a question that is used by the next attempt and then gone. */
   private readonly passes = new Set<string>();
   /** Keeps one pass for this conversation's next attempt at `tool` on `target`. */
@@ -229,6 +235,7 @@ export class ApprovalGate {
     const count = [...this.answers.values()].reduce((total, forSession) => total + forSession.size, 0);
     this.answers.clear();
     this.overrules.clear();
+    this.justNow.clear();
     this.passes.clear();
     return count;
   }
@@ -288,6 +295,7 @@ export class ApprovalGate {
     this.answers.delete(sessionId);
     this.pending.delete(sessionId);
     for (const key of this.overrules) if (key.startsWith(sessionId + "\u0000")) this.overrules.delete(key);
+    for (const key of this.justNow.keys()) if (key.startsWith(sessionId + "\u0000")) this.justNow.delete(key);
     for (const key of this.passes) if (key.startsWith(sessionId + "\u0000")) this.passes.delete(key);
   }
 
@@ -308,16 +316,35 @@ export class ApprovalGate {
    * may be allowed only "just now": that yes is kept as a single pass for this very request in this
    * conversation, and anything longer-lasting is refused. Other questions are not touched.
    */
-  settleOverrule(sessionId: string, question: PendingApproval, decision: "allow" | "deny", remember: PolicyRemember): void {
+  settleOverrule(sessionId: string, question: PendingApproval, decision: "allow" | "deny", remember: PolicyRemember, asker = ""): void {
     // The question itself carries the mark, so two conversations stopped on the same request are
     // each held to it, however many other requests were advised against since.
     const fingerprint = question.fingerprint;
-    if (!question.onceOnly || !fingerprint) return;
+    if (!fingerprint) return;
+    if (!question.onceOnly) {
+      // Dogfood A6: "Yes, just now" to an ordinary question kept nothing, and a task stops on its question, so the
+      // yes was lost when it carried on. It is now one pass for these exact bytes in this conversation, used by the
+      // next attempt (reviewCall), as a once-only question's yes already is.
+      if (decision === "allow" && remember === "never") {
+        if (this.justNow.size >= 500) this.justNow.delete(this.justNow.keys().next().value!);
+        this.justNow.set(`${sessionId}\u0000${question.tool}\u0000${fingerprint}`, { lapses: Date.now() + sessionGrantMs, asker });
+      }
+      return;
+    }
     if (decision === "allow" && remember !== "never") {
       const held = this.heldOnce.get(fingerprint);
       throw new Error(held && !this.advisedAgainst.has(fingerprint) ? `${held}. Choose "Yes, just now" to go ahead.` : onceOnlyRefusal);
     }
     if (decision === "allow") this.overrules.add(`${sessionId}\u0000${fingerprint}`);
+  }
+  /** Uses up a "Yes, just now" for this tool and these exact bytes in this conversation, if one is still good. */
+  takeJustNow(sessionId: string, tool: string, fingerprint: string | undefined, asker = ""): boolean {
+    if (fingerprint === undefined) return false;
+    const key = `${sessionId}\u0000${tool}\u0000${fingerprint}`, pass = this.justNow.get(key);
+    // Another asker's task (the owner's turn after a person's yes in a shared room) neither uses it nor spends it.
+    if (pass === undefined || pass.asker !== asker) return false;
+    this.justNow.delete(key);
+    return pass.lapses > Date.now();
   }
   /** Uses up the owner's one-time overrule for this request, if there is one. */
   takeOverrule(sessionId: string, fingerprint: string | undefined): boolean {

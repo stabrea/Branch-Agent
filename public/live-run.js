@@ -136,7 +136,7 @@ function askCard(question) {
       /* The yes is tied to the exact bytes shown, so a changed request has to ask again. */
       await api("policy/approve", {
         sessionId: question.sessionId, decision, remember,
-        ...(question.fingerprint ? { fingerprint: question.fingerprint } : {}),
+        ...(question.fingerprint ? { fingerprint: question.fingerprint } : {}), carryOn: true,
       });
       card.replaceChildren(el("p", decision === "allow" ? t("live.steered") : t("live.stopped"), "meta"));
     })));

@@ -175,7 +175,7 @@ import { People } from "./people/index.js";
 import { peopleEnabled } from "./people/settings.js";
 import { interopMode } from "./interop/settings.js";
 import { requireBoundSession } from "./people/access.js";
-import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
+import { keyAnswerRefusal, runOrigin, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
 // ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
@@ -914,6 +914,51 @@ function toolInventory(app: Branch) {
  * and it can be continued. Read with store.waitingRuns, as the Activity list reads its waiting tasks, so the two lists
  * agree and a question stays listed however much other work finishes after it.
  */
+/** What a yes to the owner's own waiting task says in the conversation, as if the owner had typed it. */
+export const carryOnWords = "Yes, go ahead.";
+/**
+ * Dogfood A6/B6: an answer settles the task that stopped to ask. A task stops on its question, so a yes alone
+ * carried nothing on, and the task went on waiting in the banner. Now a yes to the owner's own task, given in the
+ * owner's window, carries it on in that conversation as pressing Send would; any other answer (a no, or a yes to a
+ * chat's or a schedule's task, which carries on from where it came) ends its wait. A task with another question
+ * still waiting is left for that one.
+ */
+/** What an answer did to the task that asked (NAS bd6cf44): the window says so, rather than always "it carries on". */
+type Settled = "carrying-on" | "still-waiting" | "settled";
+function settleAsked(app: Branch, asked: { runId: string; sessionId: string; source: string }, decision: "allow" | "deny"): Settled {
+  const run = app.store.run(asked.runId);
+  if (!run || run.status !== "needs_input" || app.runtime.approvals.waiting(asked.sessionId).length) return "still-waiting";
+  // Only the owner's own task, answered by the owner at the window: never a key's (it records source "owner" too,
+  // and a carry-on would lose its key mark), a household person's, or one that came from elsewhere (NAS 618407c).
+  const origin = runOrigin(app.store, run.id);
+  const owners = asked.source === "owner" && origin.source === "owner" && !origin.shortLivedKey && !origin.keyIds.length
+    && !origin.personProfileId && !origin.lentTo;
+  if (decision === "allow" && owners && app.store.profiles.isOwner() && !startedWithShortLivedKey()) {
+    // NAS 06a9508: the carry-on reads as the owner saying yes, so with a plan waiting for the owner's own answer in
+    // that conversation it would agree to the plan too. Then nothing carries on by itself: the task keeps waiting,
+    // and the owner answers the plan, then carries on. So too for an agreed plan stopped at a check-back (NAS dead082):
+    // its "go ahead" would clear the next step. Only the plan's own task asking carries on (pausePlan keeps its runId).
+    const plan = app.runtime.orchestration.plan(run.sessionId);
+    if (plan && (!plan.approved || (plan.waitingOnOwner && plan.runId !== run.id))) return "still-waiting";
+    // NAS 166fbe3: only the conversation's newest task carries on. A newer one there may have stopped on its own
+    // question (`user.ask` takes the owner's next message as the answer), and "Yes, go ahead." would answer it.
+    if (app.store.newestIn(run.owner, run.sessionId)?.id !== run.id) return "still-waiting";
+    // NAS 3fd7700: nor after words written there with no task behind them (a heartbeat's note, a Trunk routine's
+    // report): the carry-on's model reads the conversation, so "Yes, go ahead." would answer them. A task with no
+    // record of where it stopped (asked before this was kept) is left for the owner too.
+    const stopped = app.store.events(run.id).filter((event) => event.kind === "run.stopped_to_ask").at(-1)?.data.lastMessageId;
+    if (typeof stopped !== "number" || app.store.lastMessageId(run.sessionId) !== stopped) return "still-waiting";
+    // The conversation busy with another task: the carry-on is not started, and this task keeps waiting (the one-time
+    // yes is still there for the owner's next message), rather than being marked done with its work undone.
+    // A carry-on refused as it starts (the monthly budget, the owner's inlet filter, a closing app) leaves the task waiting
+    // and writes down why, where the task's own record shows it (NAS bd6cf44).
+    void runForCurrentPerson(app, { prompt: carryOnWords, sessionId: run.sessionId, onTextDelta: () => undefined })
+      .catch((error: unknown) => app.store.event(run.id, "run.carry_on_refused", { reason: errorText(error).slice(0, 300) }));
+    return "carrying-on";
+  }
+  app.store.finish(run.id, decision === "allow" ? "completed" : "cancelled", run.output);
+  return "settled";
+}
 function attention(app: Branch) {
   type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; canContinue?: true; who?: string; room?: string; open?: string };
   return app.store.waitingRuns(app.runtime.owner).map((run): Waiting => {
@@ -1758,7 +1803,10 @@ async function api(
       // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
       fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional(),
       // mac7/r17-g: the six-digit code from the owner's authenticator app, for a yes that needs one.
-      code: z.string().max(12).optional() }).strict().parse(await readBody(request));
+      code: z.string().max(12).optional(),
+      // Dogfood A6/B6: the window's own cards ask for the task to be settled (carried on, or its wait ended).
+      // Scripts, the terminal and phones send their next message themselves, as before.
+      carryOn: z.boolean().optional() }).strict().parse(await readBody(request));
     // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
     if (input.remember === "always" && startedWithShortLivedKey())
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
@@ -1775,7 +1823,9 @@ async function api(
     // mac7/r17-g: a code typed with the answer is checked first; a wrong one is said plainly.
     if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
       throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
-    return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
+    const answered = app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
+    if (asked && input.carryOn) return { ...answered, task: settleAsked(app, asked, input.decision) };
+    return answered;
   }
   if (request.method === "GET" && path === "/api/governance")
     return { settings: app.store.governance.settings(), setAside: app.store.governance.exclusions(), benchmarks: app.store.governance.benchmarks() };

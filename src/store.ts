@@ -414,11 +414,25 @@ export class Store {
               OR (newer.created_at = current.created_at AND newer.rowid > current.rowid)))
       ORDER BY current.created_at DESC LIMIT ?`).all(owner, limit).map((row) => this.toRun(row));
   }
+  /** The newest message written in one conversation, by anyone, or 0 when there is none (NAS 3fd7700). */
+  lastMessageId(sessionId: string): number {
+    const row = this.db.prepare("SELECT MAX(id) AS id FROM messages WHERE session_id=?").get(sessionId) as { id: number | null } | undefined;
+    return Number(row?.id ?? 0);
+  }
+  /** The newest task in one conversation (A6, NAS 166fbe3), read on its own, however much other work came after it. */
+  newestIn(owner: string, sessionId: string): Run | undefined {
+    const row = this.db.prepare("SELECT * FROM tasks WHERE owner=? AND session_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(owner, sessionId);
+    return row ? this.toRun(row) : undefined;
+  }
   finish(id: string, status: RunStatus, output: string): Run {
     const run = this.run(id);
     if (!run) throw new Error("Run not found");
     const added = this.reconcileMessages(run.sessionId, status);
     if (added) this.event(id, "session.reconciled", { added, reason: status });
+    // NAS 3fd7700: where the conversation stood when this task stopped to ask, so a yes carries it on only while
+    // nothing else (a heartbeat's note, a Trunk routine's report) has been written there since.
+    if (status === "needs_input") this.event(id, "run.stopped_to_ask", { lastMessageId: this.lastMessageId(run.sessionId) });
     this.db
       .prepare("UPDATE tasks SET status=?,output=?,updated_at=? WHERE id=?")
       .run(status, output, new Date().toISOString(), id);
