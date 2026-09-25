@@ -32,7 +32,7 @@ function create(c) {
 }
 
 function paste(c) {
-  const rows = inputs(c).map((f) => `<label class="fld chf12"><span>${esc(f.what)}</span><span class="chf-in12"><input class="inp" data-chf="${esc(f.key)}" type="${f.secret ? "password" : "text"}" value="${f.secret ? "" : esc(vals[f.key] ?? "")}" autocomplete="off" spellcheck="false" placeholder="${f.key === "TELEGRAM_BOT_TOKEN" ? "123456789:AAF…" : f.secret ? "Paste it here" : ""}">${f.secret ? `<button type="button" class="icon-btn" data-act="chf-eye" data-k="${esc(f.key)}" aria-label="Show or hide">${ic("eye", "s")}</button>` : ""}</span></label>`).join("");
+  const rows = inputs(c).map((f) => `<label class="fld chf12"><span>${esc(f.what)}</span><span class="chf-in12"><input class="inp" data-chf="${esc(f.key)}" type="${f.secret ? "password" : "text"}" value="${f.secret ? "" : esc(vals[f.key] ?? "")}" autocomplete="off" spellcheck="false" placeholder="${f.secret ? "Paste it here" : ""}">${f.secret ? `<button type="button" class="icon-btn" data-act="chf-eye" data-k="${esc(f.key)}" aria-label="Show or hide">${ic("eye", "s")}</button>` : ""}</span></label>`).join("");
   return `<p data-css="margin:0 0 6px">Paste what ${esc(c.name)} gave you. Secrets go straight into your password manager; Branch shows only the last four characters afterwards.</p>${rows || '<p class="hint">Nothing to paste for this one.</p>'}`;
 }
 
@@ -140,7 +140,7 @@ function onInput(e) {
 }
 
 export function init() {
-  markLive(["ch-open", "chw-next", "chw-back", "chw-save", "chf-eye"]);
+  markLive(["ch-open", "chw-next", "chw-back", "chw-save", "chf-eye"]); // the eye shows only what the owner just pasted, never a saved secret
   on("ch-open", (el) => openChatWizard(el.dataset.v));
   on("chw-next", () => next());
   on("chw-back", () => { const w = S.chw; vals = {}; w.step = Math.max(0, w.step - 1); w.error = ""; w.result = null; draw(); });

@@ -9,6 +9,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { chatMenuTop } from "../chat/beside.js";
+import { trunkMenu, trunkMenuEnd } from "../flows/trunk.js";
 
 const MODES = [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]];
 const SAID = { off: "Off. When you close Branch, your Trunks stop, and Telegram and automations go quiet until you open it again.", "when-needed": "Starts by itself when a chat app, your phone or an automation needs Branch, and rests otherwise.", on: "On. Telegram, your phone and automations keep working when the window is closed." };
@@ -38,8 +39,9 @@ function showShortcuts() {
   openDlg({ title: "Keyboard shortcuts", body: `<div class="shortcuts">${KEYS.map(([a, b]) => `<span>${a}</span><span>${b.split(" ").map((x) => `<kbd>${x}</kbd>`).join(" ")}</span>`).join("")}</div>` });
 }
 
+/* A Trunk's or a room's own conversation gets its items from flows/trunk.js; pinning any other conversation stays greyed. */
 function chatMenu() {
-  return chatMenuTop() + mi("pin", "pin", "Pin to top") + mi("call", "wave", "Talk out loud") + mi("inspect", "eye", "Look inside the last reply") + mi("export-conv", "copy", "Export conversation");
+  return chatMenuTop() + (trunkMenu() || mi("pin-conv", "pin", "Pin to top")) + mi("call", "wave", "Talk out loud") + mi("inspect", "eye", "Look inside the last reply") + mi("export-conv", "copy", "Export conversation") + trunkMenuEnd();
 }
 
 async function exportConversation() {
