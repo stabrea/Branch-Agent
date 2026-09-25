@@ -158,7 +158,10 @@ export const heldSettings: readonly string[] = ["accounts", "model-connections",
   // NAS f30facf: where the owner's words and records are sent: the trace export's endpoint and the memory service.
   "trace_export", "memory-provider",
   // NAS 2a15d6b: the month's spending limit and pause, and how a skill with findings is handled (block → review).
-  "usage_budget", "skill-scan"];
+  "usage_budget", "skill-scan",
+  // NAS 0f26219: the Schedules check-in (its switch, the words it runs and the chat its news goes to) and the daily
+  // brief (its template and the chat it is sent to) run by themselves, as a heartbeat does. `heartbeat-state` travels.
+  "quiet-jobs", "heartbeat", "brief"];
 /** One row per automatic job: a loop, a heartbeat, a standing order or a procedure runs its words by itself (as a schedule does, Q168 C). */
 const heldPrefixes: readonly string[] = ["channel-pair:", "profile-role:", "autonomy-loop:", "autonomy-heartbeat:", "autonomy-order:", "autonomy-procedure:",
   // NAS f30facf: each outside service the assistant may call, by its address.
