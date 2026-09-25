@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { Completion, CompletionRequest, Provider } from "../contracts.js";
 import { refuseSignInForTrunk } from "../accounts/context.js"; // mac7/lockdown-fix
+import { startCall } from "../windows-command.js";
 
 /**
  * Batch 20 (wave 8): using a coding assistant already installed on this computer as a model.
@@ -102,7 +103,7 @@ export const cliAgentCatalog: CliAgentRow[] = [
 
 /** Only what a program needs to find itself and its own sign-in; nothing else of the owner's. */
 const passedThrough = ["PATH", "PATHEXT", "SYSTEMROOT", "APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOME", "TEMP", "TMP"];
-function strippedEnvironment(): NodeJS.ProcessEnv {
+export function strippedEnvironment(): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
   for (const name of passedThrough) if (process.env[name]) result[name] = process.env[name];
   return result;
@@ -161,10 +162,10 @@ const limitWords = /usage limit|rate limit|limit reached|quota exceeded|exceeded
 
 export const runCliAgent: SpawnAgent = (row, prompt, signal, limits, home) =>
   new Promise((resolve) => {
-    const child = spawn(row.command, row.args, {
-      stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false,
-      env: home ? { ...strippedEnvironment(), [home.name]: home.path } : strippedEnvironment(),
-    });
+    const env = home ? { ...strippedEnvironment(), [home.name]: home.path } : strippedEnvironment();
+    // An npm-installed program is a .cmd launcher on Windows, which cannot be started without a shell (src/windows-command.ts).
+    const start = startCall(row.command, row.args, env);
+    const child = spawn(start.command, start.args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false, env });
     let stdout = "", stderr = "", settled = false;
     const finish = (code: number | null, missing?: boolean): void => {
       if (settled) return;
