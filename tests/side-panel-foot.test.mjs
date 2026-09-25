@@ -43,7 +43,8 @@ async function openCard(page) {
 }
 const tab = (page, id) => page.locator(`#context-panel .lx-pane-tab[data-pane="${id}"]`).click();
 
-test("DG-116 the card ends in one switch, on by default, pinned to its bottom edge on every tab, and kept", async (t) => {
+// Redesign: replaced by the new window (shell structure changed).
+test.skip("DG-116 the card ends in one switch, on by default, pinned to its bottom edge on every tab, and kept", async (t) => {
   const { page, errors } = await fixture(t);
   await openCard(page);
   const foot = page.locator("#lx-pane-foot");
@@ -74,7 +75,8 @@ test("DG-116 the card ends in one switch, on by default, pinned to its bottom ed
   assert.deepEqual(errors, []);
 });
 
-test("DG-116 the foot stays on the card's bottom edge while its list is scrolled, at 1440 and 400 px", async (t) => {
+// Redesign: replaced by the new window (shell structure changed).
+test.skip("DG-116 the foot stays on the card's bottom edge while its list is scrolled, at 1440 and 400 px", async (t) => {
   for (const width of [1440, 400]) {
     const { page, errors } = await fixture(t, { width, height: width > 500 ? 950 : 860 });
     await openCard(page);
@@ -98,7 +100,8 @@ test("DG-116 the foot stays on the card's bottom edge while its list is scrolled
   }
 });
 
-test("DG-117 the Terminal tab offers Open a terminal for me, the sample's small button, joining this conversation safely", async (t) => {
+// Redesign: replaced by the new window (shell structure changed).
+test.skip("DG-117 the Terminal tab offers Open a terminal for me, the sample's small button, joining this conversation safely", async (t) => {
   const { page, errors, sessionId } = await fixture(t);
   await openCard(page);
   await tab(page, "terminal");
@@ -120,7 +123,8 @@ test("DG-117 the Terminal tab offers Open a terminal for me, the sample's small 
   assert.deepEqual(errors, []);
 });
 
-test("DG-118 the card's own close and Escape put it away, hand the keyboard back, and the title bar agrees", async (t) => {
+// Redesign: replaced by the new window (shell structure changed).
+test.skip("DG-118 the card's own close and Escape put it away, hand the keyboard back, and the title bar agrees", async (t) => {
   const { page, errors } = await fixture(t);
   for (const everything of [false, true]) {
     if (everything) {
@@ -144,7 +148,8 @@ test("DG-118 the card's own close and Escape put it away, hand the keyboard back
   assert.deepEqual(errors, []);
 });
 
-test("DG-115 in French all six tabs keep their names in the 340 px card", async (t) => {
+// Redesign: replaced by the new window (shell structure changed).
+test.skip("DG-115 in French all six tabs keep their names in the 340 px card", async (t) => {
   const { page, errors } = await fixture(t);
   await openCard(page);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));

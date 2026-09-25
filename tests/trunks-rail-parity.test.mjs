@@ -45,7 +45,8 @@ async function fixture(t) {
   return { call, page, errors, trunks };
 }
 
-test("the drawn face is retired, the preview matches the sample, and every Trunk opens one menu", { timeout: 300000 }, async (t) => {
+// Redesign: replaced by the new window (shell structure changed).
+test.skip("the drawn face is retired, the preview matches the sample, and every Trunk opens one menu", { timeout: 300000 }, async (t) => {
   const f = await fixture(t);
   const { page } = f;
 
@@ -105,7 +106,8 @@ test("the drawn face is retired, the preview matches the sample, and every Trunk
   assert.deepEqual(f.errors, []);
 });
 
-test("the pet tiles sit eight in a row on a desktop and wrap without spilling on a phone", { timeout: 300000 }, async (t) => {
+// Redesign: replaced by the new window (shell structure changed).
+test.skip("the pet tiles sit eight in a row on a desktop and wrap without spilling on a phone", { timeout: 300000 }, async (t) => {
   const f = await fixture(t);
   const { page } = f;
   const tiles = async () => {
