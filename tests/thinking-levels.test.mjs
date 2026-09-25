@@ -78,7 +78,7 @@ async function fixture(t) {
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 950 }, serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
@@ -89,7 +89,22 @@ async function fixture(t) {
 }
 const values = (page, id) => page.locator(`#${id} option`).evaluateAll((nodes) => nodes.map((node) => node.value));
 
-test("K3 the /api/state models carry their levels, and the default list follows the chosen model", async (t) => {
+/* Redesign: the engine's half of K3 and K4, which no window control is needed for; the window's halves are the
+   originals below, skipped until Settings › Models › Defaults and the model chip's menu are live. */
+test("K3 the /api/state models carry their levels (the engine, for the new window)", async (t) => {
+  const { errors, server } = await fixture(t);
+  const state = await (await fetch(new URL("/api/state", server.url), { headers: { authorization: `Bearer ${server.token}` } })).json();
+  const byId = Object.fromEntries(state.models.presets.map((preset) => [preset.id, preset.thinking]));
+  assert.deepEqual(byId["think-claude"], { how: "budget", levels: all, sent: true });
+  assert.deepEqual(byId["think-local"], { how: "none", levels: [], sent: false });
+  const knobs = await (await fetch(new URL("/api/knobs", server.url), { headers: { authorization: `Bearer ${server.token}` } })).json();
+  const local = knobs.connections.find((one) => one.id === "think-local");
+  assert.deepEqual(local.thinking, { how: "none", levels: [], sent: false }, "the per-model levels carry the same map");
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: Coming soon (mtab=defaults, Settings › Models › Defaults, and its thinking level), checked at afa6ad94.
+test.skip("K3 the /api/state models carry their levels, and the default list follows the chosen model", async (t) => {
   const { page, errors, server } = await fixture(t);
   const state = await (await fetch(new URL("/api/state", server.url), { headers: { authorization: `Bearer ${server.token}` } })).json();
   const byId = Object.fromEntries(state.models.presets.map((preset) => [preset.id, preset.thinking]));
@@ -121,7 +136,8 @@ test("K3 the /api/state models carry their levels, and the default list follows 
   assert.deepEqual(errors, []);
 });
 
-test("K4 a conversation's list follows its own model, and a per-model level offers only what that model takes", async (t) => {
+// Redesign: Coming soon (modelmenu2, the model chip's menu with its thinking levels), checked at afa6ad94.
+test.skip("K4 a conversation's list follows its own model, and a per-model level offers only what that model takes", async (t) => {
   const { page, errors, server } = await fixture(t);
   const call = (path, body) => fetch(new URL(path, server.url), { method: "POST",
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
@@ -141,7 +157,8 @@ test("K4 a conversation's list follows its own model, and a per-model level offe
   assert.deepEqual(errors, []);
 });
 
-test("K5 dogfood B9: the model chip carries the thinking level, chosen from its menu, and the long row is not drawn", async (t) => {
+// Redesign: Coming soon (modelmenu2, the model chip's menu), checked at afa6ad94.
+test.skip("K5 dogfood B9: the model chip carries the thinking level, chosen from its menu, and the long row is not drawn", async (t) => {
   const { page, errors, server } = await fixture(t);
   const call = (path, body) => fetch(new URL(path, server.url), { method: body ? "POST" : "GET",
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) }).then((r) => r.json());
