@@ -25,6 +25,24 @@ async function loadData() {
 
 export function init() {
   loadData();
+
+  on("doctor", (el) => {
+    api("deployment/doctor?fix=1")
+      .then(() => {
+        loadData();
+      })
+      .catch((e) => console.error("Doctor check failed:", e));
+  });
+
+  on("gw-restart", (el) => {
+    api("dashboard/restart", {})
+      .then(() => {
+        loadData();
+      })
+      .catch((e) => console.error("Gateway restart failed:", e));
+  });
+
+  markLive(["doctor", "gw-restart"]);
 }
 
 export async function load() {
@@ -32,6 +50,8 @@ export async function load() {
 }
 
 export const live = {
+  "doctor": true,
+  "gw-restart": true,
 };
 
 const SVG_CHECK = "<svg class=\"i s\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12.5l4.5 4.5L19 7.5\"></path></svg>";

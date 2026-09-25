@@ -1,5 +1,5 @@
 /* Settings › appearance: bind real engine data and wire controls. */
-import { level, S, E } from "../../core/state.js";
+import { level, S, E, refresh } from "../../core/state.js";
 import { esc, render } from "../../core/dom.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
@@ -38,6 +38,7 @@ async function savePreferences(updates) {
     const merged = { ...prefs, ...updates };
     await api("preferences", merged);
     prefs = merged;
+    refresh();
     render();
   } catch (err) {
     toast(err.message || "Failed to save preferences");
@@ -79,6 +80,11 @@ export function draw() {
 export function init() {
   loadSettings();
 
+  on("themeset", (el) => {
+    const value = el.dataset.v;
+    savePreferences({ appearance: value });
+  });
+
   on("widthset", (el) => {
     const value = el.dataset.v;
     savePreferences({ conversationWidth: value });
@@ -103,6 +109,14 @@ export function init() {
       saveDelight({ pets: { ...delight.pets, on: true, kind: value } });
     }
   });
+
+  markLive([
+    "themeset",
+    "widthset",
+    "size",
+    "bgset",
+    "petset",
+  ]);
 }
 
 export async function load() {

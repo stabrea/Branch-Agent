@@ -101,6 +101,8 @@ export function init() {
     const value = el.dataset.v === "true";
     saveVoiceSettings({ autoReadAloud: value });
   });
+
+  markLive(["sys-voice", "auto-read"]);
 }
 
 export async function load() {
