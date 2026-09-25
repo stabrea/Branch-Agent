@@ -34,7 +34,7 @@ const PAGES = {
   advanced, developer, achievements, self
 };
 
-const NAV = [
+export const NAV = [
   ["General", [["general", "General"], ["people", "People"], ["appearance", "Appearance"], ["notifications", "Notifications"]]],
   ["Your assistant", [["instructions", "Instructions & personality"], ["models", "Models"], ["local", "On this computer"], ["accounts", "Accounts"], ["voice", "Voice"]]],
   ["Safety", [["permissions", "Permissions"], ["computer", "Computer & browser"], ["secrets", "Saved sign-ins"]]],
@@ -110,6 +110,16 @@ export function init() {
     S.view = "settings";
     S.setPage = el.dataset.v;
     closePop();
+    open(S.setPage);
+    renderNow();
+  });
+
+  /* The status bar's update menu: close it and open Settings › Updates & about (navigation only). The menu is drawn
+     by the shell (shell/usage.js), which marks the item live when it draws it. */
+  on("updmenu-go", () => {
+    closePop();
+    S.view = "settings";
+    S.setPage = "updates";
     open(S.setPage);
     renderNow();
   });

@@ -2,9 +2,9 @@
    Bind real engine data and wire controls in place; never add text that is not here. */
 import { E, level } from "../../core/state.js";
 import { api } from "../../core/api.js";
-import { esc, render, $ } from "../../core/dom.js";
+import { esc, render } from "../../core/dom.js";
 import { markLive } from "../../core/features.js";
-import { on } from "../../core/actions.js";
+import { toast } from "../../core/ui.js";
 
 let comfortData = null;
 
@@ -14,24 +14,24 @@ async function loadComfort() {
     comfortData = res.values || {};
     render();
   } catch (e) {
-    console.error("Failed to load comfort settings:", e);
+    toast(e.message);
   }
+}
+
+/* The switch is drawn after init, so its change is caught on the document (POST /api/comfort merges the one value
+   into the notify card). */
+async function saveAutoUpdate(on) {
+  try {
+    comfortData = (await api("comfort", { card: "notify", values: { autoUpdate: on ? "check" : "off" } })).values ?? comfortData;
+  } catch (e) {
+    toast(e.message);
+  }
+  render();
 }
 
 export function init() {
   loadComfort();
-  const uAuto = $("u-auto");
-  if (uAuto) {
-    uAuto.addEventListener("change", async () => {
-      const newValue = uAuto.checked ? "check" : "off";
-      try {
-        await api("comfort", { card: "notify", values: { autoUpdate: newValue } });
-        if (comfortData) comfortData.notify = { ...comfortData.notify, autoUpdate: newValue };
-      } catch (e) {
-        console.error("Failed to save autoUpdate:", e);
-      }
-    });
-  }
+  document.addEventListener("change", (e) => { if (e.target.id === "u-auto") saveAutoUpdate(e.target.checked); });
   markLive(["sw:u-auto"]);
 }
 

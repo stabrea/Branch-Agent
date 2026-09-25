@@ -104,10 +104,12 @@ test("add an account in Settings › Accounts: the engine keeps it and the key n
   await page.getByRole("button", { name: "Add an account", exact: true }).click();
   await page.locator('[data-act="aa-prov"][data-v="openai-work"]').click();
   const key = "sk-redesign-gate-000000000000000042";
-  await page.getByLabel("Name", { exact: true }).fill("Work key");
+  // The prototype's wizard: the key on its own step ("Add key" sends it), then the name on the next ("Add account").
   await page.getByLabel("Key", { exact: true }).fill(key);
+  await page.getByRole("button", { name: "Add key", exact: true }).click();
+  await page.getByLabel("Call it", { exact: true }).fill("Work key");
   await page.getByRole("button", { name: "Add account", exact: true }).click();
-  await page.getByRole("button", { name: "Done", exact: true }).waitFor({ timeout: 30000 });
+  await page.locator(".dlg").waitFor({ state: "detached", timeout: 30000 });
   const pool = (await call("/api/accounts")).pools.find((p) => p.pool === "openai-work");
   assert.ok(pool.accounts.some((a) => a.label === "Work key"), "the engine kept the new account");
   assert.equal((await page.content()).includes(key), false, "the key is never on the page");
