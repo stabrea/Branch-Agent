@@ -246,7 +246,7 @@ async function install() {
   try {
     if (before === "off") await api("local-models/install/switch", { mode: "when-needed" });
     const answer = await api("local-models/one-button", { agreedPlan: plan.install.fingerprint, name });
-    if (answer.needsAgreement) { LP.plan = { ...plan, install: answer.needsAgreement }; LP.phase = "plan"; toast(answer.message); paint(); return; }
+    if (answer.needsAgreement) { await restoreInstall(before); LP.plan = { ...plan, install: answer.needsAgreement }; LP.phase = "plan"; toast(answer.message); paint(); return; }
     await restoreInstall(before);
     await loadPick();
     if (!answer.job) return setup(name, LP.req?.force);
