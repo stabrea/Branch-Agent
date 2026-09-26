@@ -104,10 +104,13 @@ export async function tokenNotExposed(page, home) {
  * when the engine says so: the task begun with `prompt` has completed.
  */
 export async function taskDone(page, prompt, timeout = 120000) {
-  await page.waitForFunction(async (prompt) => {
+  // waitForFunction does not await an async predicate (its Promise is truthy), so the engine is polled from here.
+  const status = () => page.evaluate(async (prompt) => {
     const state = await (await fetch("/api/state")).json();
-    return state.runs?.find((run) => run.prompt === prompt)?.status === "completed";
-  }, prompt, { timeout, polling: 500 });
+    return state.runs?.find((run) => run.prompt === prompt)?.status;
+  }, prompt);
+  for (const end = Date.now() + timeout; (await status()) !== "completed"; await page.waitForTimeout(500))
+    if (Date.now() > end) throw new Error(`"${prompt}" did not complete in ${timeout} ms`);
   return page.evaluate(async (prompt) => {
     const state = await (await fetch("/api/state")).json();
     const run = state.runs.find((item) => item.prompt === prompt);

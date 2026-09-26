@@ -66,6 +66,13 @@ async function launchWithDialog(name) {
 }
 
 const dialogsShown = (electron) => electron.evaluate(() => globalThis.fixtureExportDialogs);
+/* The file is written after the dialog answers, so it is read again until it is whole (it once read mid-write). */
+async function savedJson(path) {
+  for (let waited = 0; ; waited += 100) {
+    try { return JSON.parse(await readFile(path, 'utf8')); }
+    catch (error) { if (waited >= 10000) throw error; await new Promise((done) => setTimeout(done, 100)); }
+  }
+}
 async function windowAskedForFile(electron, what) {
   for (let waited = 0; waited < 15000 && !(await dialogsShown(electron)).length; waited += 250)
     await new Promise((done) => setTimeout(done, 250));
@@ -89,7 +96,7 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     await page.locator('[data-act="chatmenu"]').first().click();
     await page.locator('.pop [data-act="export-conv"]').click();
     await windowAskedForFile(electron, 'Export conversation');
-    const saved = JSON.parse(await readFile(path, 'utf8'));
+    const saved = await savedJson(path);
     assert.equal(saved.format, 'branch-agent-conversation');
     assert.equal(saved.messages[0].content, 'Export the demo conversation');
     assert.equal(saved.messages.at(-1).role, 'assistant');
@@ -117,7 +124,7 @@ test('native memory export from Library uses guarded IPC', { timeout: 360000 }, 
     await page.getByRole('button', { name: 'More for memory', exact: true }).click();
     await page.locator('.pop [data-act="memexp15"][data-v="archive"]').click();
     await windowAskedForFile(electron, 'Library › Memory, "Save a full archive"');
-    const saved = JSON.parse(await readFile(path, 'utf8'));
+    const saved = await savedJson(path);
     assert.equal(saved.format, 'branch-agent-memory');
     assert.equal(saved.records[0].data.text, 'Native exported memory');
     assert.equal(saved.records[0].revision, 1);
