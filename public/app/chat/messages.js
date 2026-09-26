@@ -8,7 +8,8 @@
      through POST /api/flows-boards/waiting/followups/move|remove|edit);
    - Room left and today's spend in the status bar (GET /api/sessions/{id}/context, GET /api/usage);
    - choosing the active project from the sidebar (POST /api/projects/active).
-   Copy, Try again, Branch from here, Report a problem and Tidy up stay greyed until each has its own real action. */
+   Copy, Try again, Report a problem and Tidy up stay greyed until each has its own real action; Branch from here and
+   More are chat/branches.js and chat/more.js (pass 17). */
 
 import { $, esc, render, renderNow } from "../core/dom.js";
 import { S, E } from "../core/state.js";
@@ -16,6 +17,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { ic, av, mi, toast, openPop, closePop, openDlg, closeDlg } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { moreButton } from "./more.js";
 
 const M = { sid: null, pins: [], followUps: [], room: null, spend: null, commands: null, slashI: 0, edit: null };
 /* What the conversation module hands over: its state, a way to send words, and a way to re-read a conversation. */
@@ -50,7 +52,7 @@ function latestRun(wanted) {
 
 export function msgActs(m) {
   if (!m.messageId) return "";
-  const branch = `<button type="button" aria-label="Branch from here" data-act="toast">${ic("branch")}</button>`;
+  const branch = `<button type="button" aria-label="Branch from here" data-act="br17c" data-mid="${esc(m.messageId)}">${ic("branch")}</button>${moreButton(m)}`; // pass 17: chat/branches.js, chat/more.js
   if (m.role === "user")
     return `<div class="msg-acts"><button type="button" aria-label="Edit" data-act="u-edit" data-mid="${esc(m.messageId)}">${ic("edit")}</button>${branch}${pinButton(m)}</div>`;
   const run = runFor(m);

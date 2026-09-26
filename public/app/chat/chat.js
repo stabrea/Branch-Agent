@@ -28,6 +28,10 @@ import { goalStrip, loadGoal, initGoal } from "./goal.js";
 import { goHome } from "./goto.js";
 import { routeFor, authorOf, countsAsReply, replyWords, readRoom, roomView, roomAsks, answerRoom } from "./rooms.js";
 import { planBlock, loadPlan, failedLine } from "./runview.js";
+import { pathBar, pathMarks, loadPaths, initBranches } from "./branches.js"; // pass 17
+import { outClass, outBadge, initLeaveOut } from "./leaveout.js";
+import { initMore } from "./more.js";
+import { initDiagram } from "./diagram.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -46,12 +50,12 @@ export function head() {
 }
 
 const mid = (m) => (m.messageId ? ` data-i15="${esc(m.messageId)}"` : "");
-function user(m) { return `<div class="u${pinnedClass(m)}"${mid(m)}>${esc(m.content)}${msgActs(m)}</div>${mediaRows(m)}`; }
+function user(m) { return `<div class="u${pinnedClass(m)}${outClass(m)}"${mid(m)}>${esc(m.content)}${msgActs(m)}</div>${outBadge(m)}${mediaRows(m)}`; }
 /* A reply is signed as the prototype's are: the face of whoever wrote it when the speaker changes (a Trunk's, or Branch's),
    and in a room the Trunk's name above it. */
 function bot(m, first, who, info) {
   const from = first && who && info?.kind === "room" ? `<div class="from">${esc(who.name)}</div>` : "";
-  return `<div class="b${pinnedClass(m)}"${mid(m)}><div class="gut">${first ? av(who ?? { kind: "main" }, 28) : ""}</div><div>${from}<div class="txt">${text(replyWords(m, info))}</div></div>${msgActs(m)}</div>`;
+  return `<div class="b${pinnedClass(m)}${outClass(m)}"${mid(m)}><div class="gut">${first ? av(who ?? { kind: "main" }, 28) : ""}</div><div>${from}<div class="txt">${text(replyWords(m, info))}</div></div>${msgActs(m)}</div>${outBadge(m)}`;
 }
 
 /* The approval card, 1:1 with the prototype's: the action's verb (allow once), "Always allow for …" (a standing rule,
@@ -82,18 +86,19 @@ function thread() {
   let replies = 0;
   for (const m of C.messages) { index.set(m, replies); if (countsAsReply(m)) replies++; }
   let lastRole = null, lastWho = null;
+  const marks = pathMarks(C.messages);
   const rows = C.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.from !== "branch").map((m) => {
     const who = m.role === "assistant" ? authorOf(m, index.get(m), info) : null;
     const first = lastRole !== "assistant" || (who?.id ?? null) !== (lastWho?.id ?? null);
     const html = m.role === "user" ? user(m) : bot(m, first, who, info) + checkpointRows(m, C.messages) + selfCard(m, C.messages);
     lastRole = m.role;
     lastWho = who;
-    return html;
+    return marks.before(m) + html + marks.after(m);
   });
   const asks = C.waiting.filter((q) => q.sessionId === C.sessionId).map(askCard).concat(roomAsks(info, (q) => answering.has(roomKey(info.room.id, q.memberId, q.fingerprint))));
   const think = C.sending && C.thinking ? `<div class="think">${ic("spark", "s")}<span>${esc(C.thinking)}</span></div>` : "";
   const typing = C.sending ? `<div class="b"><div class="gut">${av({ kind: "main" }, 28)}</div><div>${think || '<span class="typing" aria-label="Typing"><i></i><i></i><i></i></span>'}</div></div>` : "";
-  return rows.join("") + planBlock(liveRun()) + failedLine(E.state?.runs, C.sessionId, C.sending) + rememberCards(C.sessionId) + asks.join("") + typing;
+  return marks.start + rows.join("") + planBlock(liveRun()) + failedLine(E.state?.runs, C.sessionId, C.sending) + rememberCards(C.sessionId) + asks.join("") + typing;
 }
 
 function composer() {
@@ -112,7 +117,7 @@ export const sendingPrompt = () => (C.sending && !C.sessionId ? C.prompt : null)
 
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
-  return `${narrowHead}${recBar()}${teachBar(C.sessionId)}${findBar()}${pinsBar()}${besideWrap(`<div class="scroll" id="scroll">${goalStrip(C.sessionId)}<div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
+  return `${narrowHead}${recBar()}${teachBar(C.sessionId)}${findBar()}${pinsBar()}${pathBar(C.sessionId)}${besideWrap(`<div class="scroll" id="scroll">${goalStrip(C.sessionId)}<div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
 }
 export function after(main) {
   /* Newest at the bottom stays in view only while the reader is at the bottom; someone reading back keeps their place. */
@@ -130,6 +135,7 @@ export function after(main) {
   loadWho();
   loadSelfChange(C.sessionId, C.messages);
   loadPlan(liveRun());
+  loadPaths(C.sessionId);
   const info = whoHere();
   if (info?.kind === "room" && !roomView(info)) readRoom(info).then((view) => { if (view) render(); });
 }
@@ -156,6 +162,12 @@ export function startConversation() {
   loadExtras(null);
   renderNow();
   $("#prompt")?.focus();
+}
+
+/* Pass 17, Quick ask (chat/quick.js): a new conversation, or the one just made for a Trunk, that starts with these words. */
+export async function startWith(words, sessionId) {
+  if (sessionId) await openConversation(sessionId); else startConversation();
+  await send(words);
 }
 
 /* While a task runs, what its model is thinking now (GET /api/activity; held in memory by the engine, never recorded). */
@@ -397,6 +409,10 @@ export function init() {
   initMedia();
   initBeside();
   initMessages({ state: () => C, sendText: (words) => send(words), reopen: openConversation });
+  initMore({ state: () => C });
+  initLeaveOut({ state: () => C, reopen: openConversation });
+  initBranches({ state: () => C, sendText: (words) => send(words), reopen: openConversation });
+  initDiagram();
   initRemember();
   initGoal();
   initRec();

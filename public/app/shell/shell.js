@@ -21,6 +21,8 @@ import { ACT, working, readActivity } from "./activity.js";
 import { K, loadKeys, pressed, binding, spoken } from "./keys.js";
 import { M, machineName, loadMachineName } from "./machines.js";
 import { chatOwner, pinChat, renameDlg } from "../flows/trunk.js";
+import { unreadDot, recentClass, markAllButton, unreadItem, initUnread } from "../chat/unread.js"; // pass 17
+import { initQuick, quickItem } from "../chat/quick.js";
 
 const WIDE = matchMedia("(min-width: 761px)");
 const PLACES = [["overview", "home", "Overview"], ["inbox", "inbox", "Inbox"], ["automations", "clock", "Automations"],
@@ -53,7 +55,7 @@ function row(s) {
   return `<button class="row" type="button" data-act="chat" data-id="${esc(id)}" aria-current="${S.chat === id}"${busy ? ' data-running="true"' : ""}>
     <span class="avw">${av(trunk ?? { kind: "main" }, 40)}</span>
     <b><span class="ellip14">${esc(sessionTitle(s))}</span></b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
-    ${busy ? '<p class="attn">Working</p>' : `<p>${esc(s.lastMessage ?? "")}</p>`}</button>`;
+    ${busy ? '<p class="attn">Working</p>' : `<p>${esc(s.lastMessage ?? "")}</p>`}${unreadDot(s)}</button>`;
 }
 
 /* Typing in search asks the engine for words inside conversations after a short pause; the box keeps focus and caret. */
@@ -99,7 +101,7 @@ function list() {
   return `<nav class="list" aria-label="Conversations">
     ${hidden("projects") ? "" : `<button class="lh lh-btn" type="button" data-act="projtoggle" aria-expanded="${!!S.projOpen}" data-hide="projects">${ic(S.projOpen ? "down" : "chev", "s")}Projects</button>${S.projOpen ? projectRows() : ""}`}
     ${pinned.length ? `<div class="lh">Pinned</div>${pinned.map(row).join("")}` : ""}
-    ${recent.length ? `<div class="lh">Recent</div>${recent.map(row).join("")}` : ""}</nav>`;
+    ${recent.length ? `<div class="lh${recentClass()}">Recent${markAllButton()}</div>${recent.map(row).join("")}` : ""}</nav>`;
 }
 
 function side() {
@@ -177,12 +179,14 @@ export function initShell() {
   initThemes();
   initPalette();
   initPerson();
+  initUnread();
+  initQuick();
   markLive(["chat", "newconv", "newmenu", "places14", "themeset", "theme-flip", "side-toggle", "guide", "focus", "new-with", "pin-id", "rename-id"]);
   // With no id (Settings' back button before any conversation is open) it just goes back to the conversation view.
   // area places: "new" is a new Trunk (flows/trunk.js).
   on("chat", (el) => { closePop(); if (el.dataset.id === "new") return run("new-trunk", el); if (el.dataset.id) openConversation(el.dataset.id); else { S.view = "chat"; renderNow(); } });
   on("newconv", () => { closePop(); startConversation(); });
-  on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", binding("newConversation") ? `<kbd>${esc(spoken(binding("newConversation")))}</kbd>` : "") + mi("new-trunk", "plus", "New Trunk") + mi("new-room", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"')));
+  on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", binding("newConversation") ? `<kbd>${esc(spoken(binding("newConversation")))}</kbd>` : "") + mi("new-trunk", "plus", "New Trunk") + mi("new-room", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"') + quickItem()));
   on("places14", () => { S.placesShut = !S.placesShut; save(); renderNow(); });
   on("themeset", (el) => setTheme(el.dataset.v === "system" ? null : el.dataset.v));
   on("theme-flip", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
@@ -214,7 +218,7 @@ function rowMenu(e) {
   if (!row) return false;
   e.preventDefault();
   const id = esc(row.dataset.id), s = E.sessions.find((x) => sessionId(x) === row.dataset.id), t = s && trunkFor(s), own = chatOwner(row.dataset.id);
-  const base = mi("chat", "chat", "Open", "", `data-id="${id}"`) + mi(own ? "pin-id" : "pin-id-off", "pin", own?.pinned ? "Unpin" : "Pin to top", "", `data-id="${id}"`) + mi(own ? "rename-id" : "rename-id-off", "edit", "Rename", "", `data-id="${id}"`);
+  const base = mi("chat", "chat", "Open", "", `data-id="${id}"`) + unreadItem(row.dataset.id) + mi(own ? "pin-id" : "pin-id-off", "pin", own?.pinned ? "Unpin" : "Pin to top", "", `data-id="${id}"`) + mi(own ? "rename-id" : "rename-id-off", "edit", "Rename", "", `data-id="${id}"`);
   const tid = esc(t?.id ?? "");
   const trunk = t ? mi("new-with", "plus", `New conversation with ${esc(t.name)}`, "", `data-id="${tid}"`) + mi("pausetrunk", "pause", "Pause", "", `data-id="${tid}"`) + mi("edit", "sliders", "Edit Trunk…", "", `data-id="${tid}"`) + "<hr>" + mi("remove", "trash", "Remove…", "", `data-id="${tid}"`) : "";
   openPop(row, base + trunk, { force: true });

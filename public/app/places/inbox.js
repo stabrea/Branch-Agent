@@ -17,6 +17,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { openConversation } from "../chat/chat.js";
 import { recBar } from "../chat/rec.js";
+import { prowOpen, inboxMarkAll } from "../chat/unread.js"; // pass 17: unread dots and Mark all read
 
 let asks = [];
 let installs = [];
@@ -28,15 +29,15 @@ const runById = (id) => (E.state.runs ?? []).find((r) => r.id === id);
 const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
 
 function askRow(q) {
-  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(q.question || q.label || "")}</b><small>${esc([trunkName(q.trunk), q.question ? q.label : q.target].filter(Boolean).join(" · "))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(q.sessionId)}">Open</button><button class="btn pri sm" type="button" data-act="ask" data-v="allow" data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}">Allow</button></div>`;
+  return `${prowOpen(`ask:${q.sessionId}:${q.fingerprint || ""}`, q.createdAt ?? runById(q.runId)?.createdAt)}${av({}, 34)}<span class="grow"><b>${esc(q.question || q.label || "")}</b><small>${esc([trunkName(q.trunk), q.question ? q.label : q.target].filter(Boolean).join(" · "))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(q.sessionId)}">Open</button><button class="btn pri sm" type="button" data-act="ask" data-v="allow" data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}">Allow</button></div>`;
 }
 /* A request for a package or a tool server (GET /api/flows-boards/installs, status waiting). Answering it only writes the
    answer down: a yes comes back with the exact next step, and nothing is installed. */
 function installRow(r) {
-  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(r.ask?.why ?? "")}</b><small>${esc(r.from)} wants “${esc(r.ask?.name ?? "")}”. Nothing is installed until you allow it.</small></span><button class="btn ghost sm" type="button" data-act="xdo-no" data-id="${esc(r.id)}" data-v="denied">Don’t</button><button class="btn pri sm" type="button" data-act="xdo" data-id="${esc(r.id)}" data-v="allowed">Allow</button></div>`;
+  return `${prowOpen(`install:${r.id}`, r.createdAt)}${av({}, 34)}<span class="grow"><b>${esc(r.ask?.why ?? "")}</b><small>${esc(r.from)} wants “${esc(r.ask?.name ?? "")}”. Nothing is installed until you allow it.</small></span><button class="btn ghost sm" type="button" data-act="xdo-no" data-id="${esc(r.id)}" data-v="denied">Don’t</button><button class="btn pri sm" type="button" data-act="xdo" data-id="${esc(r.id)}" data-v="allowed">Allow</button></div>`;
 }
 function messageRow(m) {
-  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(m.message)}</b><small>${esc(trunkName(m.from))} → ${esc(trunkName(m.to))}</small></span><button class="btn ghost sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="decline">Don’t</button><button class="btn pri sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="answer">Allow</button></div>`;
+  return `${prowOpen(`tmsg:${m.id}`, m.createdAt ?? m.at)}${av({}, 34)}<span class="grow"><b>${esc(m.message)}</b><small>${esc(trunkName(m.from))} → ${esc(trunkName(m.to))}</small></span><button class="btn ghost sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="decline">Don’t</button><button class="btn pri sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="answer">Allow</button></div>`;
 }
 
 /* A task Branch closed on, from the engine's attention list; its name is the task's own first line. */
@@ -66,7 +67,7 @@ function needsTab() {
 
 function finishedTab() {
   const finished = E.state.runs?.filter((r) => r.status === "completed") || [];
-  const rows = finished.slice(0, 20).map((r) => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(firstLine(r.output))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(r.sessionId || "")}">Open</button></div>`);
+  const rows = finished.slice(0, 20).map((r) => `${prowOpen(`run:${r.id}`, r.updatedAt)}${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(firstLine(r.output))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(r.sessionId || "")}">Open</button></div>`);
   return `<div class="rows">${rows.join("")}</div>`;
 }
 
@@ -119,15 +120,13 @@ export function draw() {
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
 
   const count = waitingCount();
+  const body = cutCards() + (tab === "needs" ? needsTab() : tab === "finished" ? finishedTab() : tab === "history" ? historyTab() : "");
   let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div><div class="scroll"><div class="place">
     ${recBar()}
     <h1>Inbox</h1><p class="lede">Everything a Trunk is waiting on you for, what finished, and a record of what ran.</p>
-    <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === "needs" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="needs">Needs you<span class="n">${count}</span></button><button class="tab" role="tab" type="button" aria-selected="${tab === "finished" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="finished">Finished</button><button class="tab" role="tab" type="button" aria-selected="${tab === "history" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="history">History</button></div>`;
+    <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === "needs" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="needs">Needs you<span class="n">${count}</span></button><button class="tab" role="tab" type="button" aria-selected="${tab === "finished" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="finished">Finished</button><button class="tab" role="tab" type="button" aria-selected="${tab === "history" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="history">History</button>${inboxMarkAll()}</div>`;
 
-  html += cutCards();
-  if (tab === "needs") html += needsTab();
-  else if (tab === "finished") html += finishedTab();
-  else if (tab === "history") html += historyTab();
+  html += body;
 
   html += `</div></div></main>`;
   return html;
