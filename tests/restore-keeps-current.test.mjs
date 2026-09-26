@@ -31,3 +31,22 @@ test("putting a point back keeps the newer work as its own snapshot, which can b
   await history.restoreSnapshot(back.kept);
   assert.equal(await readFile(file, "utf8"), "an hour of later work\n", "and it can be put back in turn");
 });
+
+test("a file that grew past the snapshot size limit since the point is kept too (Mac mini's attack on #315)", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-restore-keeps-big-"));
+  const provider = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const history = app.store.workspaceHistory;
+  const notes = join(app.runtime.workspace, "notes.md");
+  await writeFile(notes, "short at the point\n");
+  const point = await history.snapshot({ label: "Point one" });
+  const later = "later work\n".repeat(30000); // about 330 KB, past the 256 KB a point keeps
+  await writeFile(notes, later);
+
+  const back = await history.restoreSnapshot(point.id);
+  assert.equal(await readFile(notes, "utf8"), "short at the point\n");
+  assert.ok(back.kept, "the grown file was kept first");
+  await history.restoreSnapshot(back.kept);
+  assert.equal(await readFile(notes, "utf8"), later, "all of its later work comes back");
+});

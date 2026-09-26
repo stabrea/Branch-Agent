@@ -174,20 +174,32 @@ export class WorkspaceHistory {
     }
     return { id, restored, ...(kept ? { kept } : {}) };
   }
-  /** The files a restore is about to write over, as they are now, under a snapshot of their own; null when none exists yet. */
+  /**
+   * The files a restore is about to write over, as they are now, under a snapshot of their own; null when none exists yet.
+   * Every one is kept whatever its size (Mac mini's attack on #315): the size limit is for the points the owner makes,
+   * and a file skipped here would still be written over. All of it is written at once, or none of it.
+   */
   private async keepBeforeRestore(restoring: string, paths: string[]): Promise<string | null> {
     const from = this.db.prepare("SELECT label FROM workspace_snapshots WHERE owner=? AND id=?").get(this.owner, restoring);
-    const id = randomUUID();
-    let files = 0, bytes = 0;
+    const now: [string, Buffer][] = [];
     for (const path of paths) {
       const content = await this.current(path);
-      if (!content || content.length > snapshotLimits.fileBytes) continue;
-      this.insert(path, content, "", "before snapshot restore", id);
-      files++; bytes += content.length;
+      if (content) now.push([path, content]);
     }
-    if (!files) return null;
+    if (!now.length) return null;
+    const id = randomUUID();
+    const bytes = now.reduce((sum, [, content]) => sum + content.length, 0);
     const label = `Before putting back ${String(from?.label ?? "a snapshot")}`.slice(0, 120);
-    this.db.prepare("INSERT INTO workspace_snapshots VALUES(?,?,?,?,?,?)").run(id, this.owner, label, files, bytes, new Date().toISOString());
+    this.db.exec("SAVEPOINT keep_before_restore");
+    try {
+      for (const [path, content] of now) this.insert(path, content, "", "before snapshot restore", id);
+      this.db.prepare("INSERT INTO workspace_snapshots VALUES(?,?,?,?,?,?)").run(id, this.owner, label, now.length, bytes, new Date().toISOString());
+      this.db.exec("RELEASE keep_before_restore");
+    } catch (error) {
+      this.db.exec("ROLLBACK TO keep_before_restore");
+      this.db.exec("RELEASE keep_before_restore");
+      throw error;
+    }
     return id;
   }
   /**
