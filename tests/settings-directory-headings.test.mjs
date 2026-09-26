@@ -28,7 +28,9 @@ async function fixture(t, width) {
 
 const directories = ["connections", "skills", "memory", "automations"];
 for (const width of [1440, 860, 400]) {
-  test(`DG-008 directory headings sit below the Settings page title at ${width}px`, async (t) => {
+  // Redesign: replaced by the new window (the prototype's Settings has no Connections, Skills, Memory or Automations
+  // directory pages; they are places, not Settings pages), and French waits on sw:lang, Coming soon, checked at fc541c24.
+  test.skip(`DG-008 directory headings sit below the Settings page title at ${width}px`, async (t) => {
     const { page, errors } = await fixture(t, width);
     for (const language of ["en", "fr"]) {
       await page.evaluate(async (lang) => (await import("/i18n.js")).setLanguage(lang), language);
