@@ -1,8 +1,10 @@
 /* Answers arrive as Markdown. This draws the safe subset the conversation needs — paragraphs, line breaks, bold,
    italic, inline code, code blocks, headings, lists, tables, links and quotes — from escaped text, so nothing in an
-   answer can become markup. No images, no javascript: links, all hrefs http(s) only with rel="noopener". */
+   answer can become markup. No images, no javascript: links, all hrefs http(s) only with rel="noopener". A ```chart
+   block is drawn as the design's chart card (chart.js). */
 
 import { esc } from "../core/dom.js";
+import { chartCard } from "./chart.js";
 
 const inline = (s) => {
   if (!s) return "";
@@ -65,9 +67,15 @@ function block(chunk) {
   return `<p>${lines.map(inline).join("<br>")}</p>`;
 }
 
+/* A fenced block: a ```chart block that has something to draw becomes the chart card (chart.js); any other is code. */
+function fenced(part) {
+  const lang = /^([a-z0-9-]*)\n/i.exec(part);
+  const body = lang ? part.slice(lang[0].length) : part;
+  return (lang?.[1].toLowerCase() === "chart" && chartCard(body)) || `<pre><code>${esc(body)}</code></pre>`;
+}
+
 export function text(markdown) {
-  const safe = esc(markdown ?? "");
-  return safe.split(/```/).map((part, i) => (i % 2
-    ? `<pre><code>${part.replace(/^[a-z0-9-]*\n/i, "")}</code></pre>`
-    : part.split(/\n{2,}/).map((c) => c.trim()).filter(Boolean).map(block).join(""))).join("");
+  return String(markdown ?? "").split(/```/).map((part, i) => (i % 2
+    ? fenced(part)
+    : esc(part).split(/\n{2,}/).map((c) => c.trim()).filter(Boolean).map(block).join(""))).join("");
 }
