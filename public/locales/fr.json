@@ -6229,5 +6229,19 @@
   "host-bridge.add-first": "Ajoutez d’abord un ordinateur ci-dessus",
   "host-bridge.run-yes": "Oui, lancer",
   "host-bridge.ran-on": "Lancé sur {computer}",
-  "playback.remove-clip": "Retirer {name} de ce message"
+  "playback.remove-clip": "Retirer {name} de ce message",
+  "window.diagram.in-library": "Dans la Bibliothèque",
+  "window.diagram.save-to-library": "Enregistrer dans la Bibliothèque",
+  "window.find.count": "{at} sur {total}",
+  "window.find.none": "Aucun résultat",
+  "window.stage.label": "Vue en grand",
+  "window.first.label": "Bienvenue dans Branch",
+  "window.prompts.blanks": "Demandé à chaque fois : {names}",
+  "window.setup.label": "Configurer Branch",
+  "window.inbox.intact": "Registre intact",
+  "window.models.ready": "Prêt. Il apparaît sous Sur cet ordinateur.",
+  "window.models.downloaded": "{percent} % téléchargés",
+  "window.themes.copied": "Copié. Collez-le sur un autre ordinateur (Thèmes › Coller un code de thème) ou envoyez-le à un ami.",
+  "window.themes.not-a-code": "Ce n’est pas un code de thème Branch. Il commence par {\"branchTheme\":1.",
+  "window.usage.save-progress": "Enregistrer l’avancement ?"
 }

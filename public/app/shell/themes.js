@@ -9,6 +9,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { openDlg, closeDlg, dialog, ic, toast } from "../core/ui.js";
 import { greyOut } from "../core/features.js";
+import { t } from "../../i18n.js";
 import { L, BASE, EF, looks, lookOf, lookEF, wornId, withAccent, effMode, deriveEF, varsFromEF, contrastC, isHex,
   applyLook, setVars, saveLocal, wear, setContrast, swatch } from "./look.js";
 
@@ -144,15 +145,15 @@ function showCode(id) {
   if (!x) return;
   const code = themeCode(x);
   openDlg({ title: `${x.name}: theme code`, body: `<p data-css="margin:0 0 8px" id="code6-say">Select the code below to copy it. Paste it on another computer (Themes › Paste a theme code) or send it to a friend.</p><textarea class="inp code6" readonly rows="6">${esc(code)}</textarea>`, foot: '<button class="btn pri" type="button" data-act="skins">Done</button>' });
-  navigator.clipboard?.writeText(code).then(() => { const s = $("#code6-say"); if (s) s.textContent = "Copied. Paste it on another computer (Themes › Paste a theme code) or send it to a friend."; }, (error) => toast(error.message));
+  navigator.clipboard?.writeText(code).then(() => { const s = $("#code6-say"); if (s) s.textContent = t("window.themes.copied"); }, (error) => toast(error.message));
 }
 function pasteGo() {
-  const t = readThemeCode($("#paste6")?.value || "");
-  if (!t) { $("#paste6-why").textContent = "That isn’t a Branch theme code. It starts with {\"branchTheme\":1."; return; }
-  L.my.push({ id: newId(), base: BASE, ...t });
+  const theme = readThemeCode($("#paste6")?.value || "");
+  if (!theme) { $("#paste6-why").textContent = t("window.themes.not-a-code"); return; }
+  L.my.push({ id: newId(), base: BASE, ...theme });
   saveLocal();
   skinGallery("Yours");
-  toast(`Added ${t.name}.`);
+  toast(`Added ${theme.name}.`);
 }
 function duplicate(id) {
   const x = L.my.find((y) => y.id === id);

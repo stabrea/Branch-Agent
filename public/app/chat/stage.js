@@ -16,6 +16,7 @@ import { api, token } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
 import { work, loadWork } from "./terminal.js";
+import { t } from "../../i18n.js";
 
 const G = { kind: null, pip: null, dock: true, sid: null, messages: [], plan: null, at: 0 };
 const SHOT = new Map(); // picture path → its bytes as a blob: address ("" while loading or after the engine refused it)
@@ -135,7 +136,7 @@ export function drawStage() {
   if (!here) G.kind = null;
   region("stage7", "stage7", here && !!G.kind, () => stageHTML(G.kind));
   $("#stage7")?.setAttribute("role", "region");
-  $("#stage7")?.setAttribute("aria-label", "Full-size view");
+  $("#stage7")?.setAttribute("aria-label", t("window.stage.label"));
   region("pip7", "pip7", here && !G.kind && !!G.pip, pipHTML);
   if (here && (G.kind || G.pip)) load();
 }

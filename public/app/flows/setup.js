@@ -11,6 +11,7 @@ import { api } from "../core/api.js";
 import { on, run } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
 import { logo } from "../core/logos.js";
+import { t } from "../../i18n.js";
 
 const STEPS = ["Welcome", "Where Branch runs", "Models", "Make it yours", "Your first Trunks", "Reach it anywhere", "Tools",
   "Keep it running", "People", "Two more things", "Health check"];
@@ -135,7 +136,7 @@ function draw() {
     el = document.createElement("div");
     el.className = "ob9";
     el.setAttribute("role", "dialog");
-    el.setAttribute("aria-label", "Set up Branch");
+    el.setAttribute("aria-label", t("window.setup.label"));
     app().appendChild(el);
   } else el.classList.add("ob-still12");
   el.innerHTML = frame(o);

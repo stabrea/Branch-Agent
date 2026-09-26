@@ -6228,5 +6228,19 @@
   "host-bridge.add-first": "Add a computer above first",
   "host-bridge.run-yes": "Yes, run it",
   "host-bridge.ran-on": "Ran on {computer}",
-  "playback.remove-clip": "Take {name} off this message"
+  "playback.remove-clip": "Take {name} off this message",
+  "window.diagram.in-library": "In Library",
+  "window.diagram.save-to-library": "Save to Library",
+  "window.find.count": "{at} of {total}",
+  "window.find.none": "No matches",
+  "window.stage.label": "Full-size view",
+  "window.first.label": "Welcome to Branch",
+  "window.prompts.blanks": "Asked each time: {names}",
+  "window.setup.label": "Set up Branch",
+  "window.inbox.intact": "Record intact",
+  "window.models.ready": "Ready. It shows under On this computer.",
+  "window.models.downloaded": "{percent}% downloaded",
+  "window.themes.copied": "Copied. Paste it on another computer (Themes › Paste a theme code) or send it to a friend.",
+  "window.themes.not-a-code": "That isn’t a Branch theme code. It starts with {\"branchTheme\":1.",
+  "window.usage.save-progress": "Save progress?"
 }

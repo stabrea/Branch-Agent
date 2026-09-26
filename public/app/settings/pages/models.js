@@ -14,6 +14,7 @@ import { ctl } from "../parts.js";
 import { A, loadAccounts, ownerOnly } from "../../flows/account.js";
 import { L, loadLocal, gb, DOWNLOAD_ICON } from "./local.js";
 import { sections17, init17 } from "../p17-models.js";
+import { t } from "../../../i18n.js";
 
 const TABS = [["connections", "Connections"], ["defaults", "Defaults"], ["local", "On this computer"], ["second", "Second opinion"], ["media", "Media"]];
 let tab = "connections";
@@ -80,7 +81,7 @@ function show(d) {
   if (!p || !d) return;
   p.hidden = false;
   bar.style.width = `${Math.max(0, Math.min(100, Math.round(d.percent ?? 0)))}%`;
-  text.textContent = d.error ? d.error : d.done ? "Ready. It shows under On this computer." : `${Math.round(d.percent ?? 0)}% downloaded`;
+  text.textContent = d.error ? d.error : d.done ? t("window.models.ready") : t("window.models.downloaded", { percent: Math.round(d.percent ?? 0) });
   stop.style.display = d.done ? "none" : "";
 }
 

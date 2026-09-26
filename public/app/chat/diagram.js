@@ -12,6 +12,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { ic, openDlg, toast } from "../core/ui.js";
 import { ICONS } from "../core/icons.js";
+import { t } from "../../i18n.js";
 
 Object.assign(ICONS, { dia17c: '<rect x="3.5" y="4" width="7" height="5" rx="1.2"/><rect x="13.5" y="15" width="7" height="5" rx="1.2"/><path d="M7 9v4.5h10V15"/>' });
 
@@ -37,7 +38,7 @@ const cardSource = (el) => el.closest("[data-dia17c]")?.querySelector("pre")?.te
 
 function saveButton(run, source) {
   if (!run) return '<button class="btn sm" type="button" data-act="toast">Save to Library</button>';
-  return `<button class="btn sm" type="button" data-act="diasave17c" data-run="${esc(run)}">${kept(run, source) ? "In Library" : "Save to Library"}</button>`;
+  return `<button class="btn sm" type="button" data-act="diasave17c" data-run="${esc(run)}">${kept(run, source) ? t("window.diagram.in-library") : t("window.diagram.save-to-library")}</button>`;
 }
 
 /* The card for a mermaid block. */
@@ -74,7 +75,7 @@ async function save(el) {
   const was = kept(run, source);
   try { await api("artifacts/save", { runId: run, name: nameFor(source), mediaType: "text/plain", code: source }); } catch (error) { toast(error.message); return; }
   await readKept();
-  for (const b of document.querySelectorAll(`[data-act="diasave17c"][data-run="${CSS.escape(run)}"]`)) if (cardSource(b) === source) b.textContent = kept(run, source) ? "In Library" : "Save to Library";
+  for (const b of document.querySelectorAll(`[data-act="diasave17c"][data-run="${CSS.escape(run)}"]`)) if (cardSource(b) === source) b.textContent = kept(run, source) ? t("window.diagram.in-library") : t("window.diagram.save-to-library");
   toast(was ? "Already in Library › Made for you." : `Saved to Library › Made for you as ${nameFor(source)}.`);
 }
 

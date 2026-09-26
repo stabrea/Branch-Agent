@@ -12,6 +12,7 @@ import { api } from "../core/api.js";
 import { on, run } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
 import { logo } from "../core/logos.js";
+import { t } from "../../i18n.js";
 
 const N = 8;
 const TEMPLATES = [["Inbox Manager", "Clears your inbox and drafts replies in your voice", "#4F6FA8"], ["Expense Manager", "Files receipts and builds monthly reports", "#D8612A"],
@@ -48,7 +49,7 @@ function draw() {
   if (F.step == null) return;
   const el = Object.assign(document.createElement("div"), { className: "first" });
   el.setAttribute("role", "dialog");
-  el.setAttribute("aria-label", "Welcome to Branch");
+  el.setAttribute("aria-label", t("window.first.label"));
   const dots = `<div class="dots" aria-hidden="true">${Array.from({ length: N }, (_, i) => `<i class="${i === F.step ? "on" : ""}"></i>`).join("")}</div>`;
   el.innerHTML = `<div class="inner">${dots}${STEPS[F.step]()}</div>`;
   applyCss(el);
