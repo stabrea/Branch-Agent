@@ -97,13 +97,16 @@ async function signedIn(t, { width = 390, height = 844, beforeOpen, provider = c
   const policy = readPolicy(app.store, app.runtime.owner);
   savePolicy(app.store, app.runtime.owner, { ...policy, rules: [{ tool: "files.write", decision: "ask" }, ...policy.rules] });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  // The first-run card (#323) opens under automation on purpose; these tests are about the phone layout.
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
   const browser = await chromium.launch({ headless: true });
   let page = null;
   t.after(async () => {
     await page?.unrouteAll({ behavior: "ignoreErrors" }).catch(() => undefined);
     await browser.close(); await server.close(); await app.close(); await discardTemp(root);
   });
-  page = await browser.newPage({ viewport: { width, height }, hasTouch: width < 900, serviceWorkers: "block" });
+  // Reduced motion: the side list's .22 s slide-out would otherwise race what the tests read.
+  page = await browser.newPage({ viewport: { width, height }, hasTouch: width < 900, serviceWorkers: "block", reducedMotion: "reduce" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await beforeOpen?.(page);
