@@ -67,7 +67,7 @@ async function signOut(el) {
 /* ---------- the wizard ---------- */
 const GROUPS = [["all", "All"], ["plan", "Your plan"], ["code", "Coding assistants"], ["key", "A key"], ["local", "On this computer"], ["custom", "Your own"], ["gone", "Retired"]];
 const KIND_GROUP = { chatgpt: "plan", cli: "code", "api-key": "key" };
-const W = { step: 1, pool: null, group: "all", q: "", saved: null, name: "", trunks: [], pos: "last", error: "" };
+const W = { step: 1, pool: null, service: null, extras: {}, group: "all", q: "", saved: null, name: "", trunks: [], pos: "last", error: "" };
 
 const siteOf = (url) => { try { return new URL(url).host; } catch { return ""; } };
 const httpUrl = (url) => /^https?:\/\//i.test(String(url ?? ""));
@@ -113,14 +113,26 @@ function step1() {
     <div class="aa-list12">${listHtml(all) || "<p class=\"empty\">No service matches. Try “Something else that speaks OpenAI’s shape”.</p>"}</div>`;
 }
 
+/* What a catalogue service asks for besides the key (src/provider-catalog.ts extras), in the engine's words: a fixed
+   choice as a list, anything else as a box. Kept in W.extras between draws; none of it is a secret. */
+function extraField(x) {
+  const now = W.extras[x.key] ?? x.default ?? "";
+  const box = x.choices
+    ? `<select class="inp" data-sw="aaextra" data-k="${esc(x.key)}">${x.choices.map((c) => `<option value="${esc(c)}"${c === now ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`
+    : `<input class="inp" data-sw="aaextra" data-k="${esc(x.key)}" value="${esc(now)}" placeholder="${esc(x.example ?? "")}" autocomplete="off">`;
+  return `<label class="fld" data-css="margin-top:10px"><span>${esc(x.label)}</span>${box}</label>`;
+}
+const extraBoxes = () => [...(dialog()?.querySelectorAll("input, select") ?? [])].filter((el) => el.dataset.sw === "aaextra");
+const keepExtras = () => { for (const el of extraBoxes()) W.extras[el.dataset.k] = el.value; };
+
 /* A key connection: the catalogue's own note and where to get a key; the key field is empty every time it is drawn. */
 function step2() {
   const p = poolById(W.pool);
-  const service = (A.catalog ?? []).find((s) => p && (p.pool === s.id || p.pool.startsWith(s.id + "-")));
+  const service = W.service ?? (A.catalog ?? []).find((s) => p && (p.pool === s.id || p.pool.startsWith(s.id + "-")));
   const note = service?.note ? `<p class="hint12">${esc(service.note)}</p>` : "";
   const site = siteOf(service?.signUp);
   const get = httpUrl(service?.signUp) && site ? `<p class="hint"><a href="${esc(service.signUp)}" target="_blank" rel="noopener">Get a key from ${esc(site)}</a></p>` : "";
-  return `${note}<label class="fld" data-css="margin-top:10px"><span>Key</span><input class="inp" id="aa-key" type="password" autocomplete="off" placeholder="Paste the key" aria-label="Key"></label>${get}${errorLine()}`;
+  return `${note}${W.service ? (W.service.extras ?? []).map(extraField).join("") : ""}<label class="fld" data-css="margin-top:10px"><span>Key</span><input class="inp" id="aa-key" type="password" autocomplete="off" placeholder="Paste the key" aria-label="Key"></label>${get}${errorLine()}`;
 }
 
 const errorLine = () => (W.error ? `<p class="hint" role="alert">${esc(W.error)}</p>` : "");
@@ -150,13 +162,13 @@ function draw() {
   const foot = W.step === 1 ? '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button>'
     : W.step === 2 ? '<button class="btn ghost" type="button" data-act="aa-back">Back</button><button class="btn pri" type="button" data-act="aa-key">Add key</button>'
     : '<button class="btn ghost" type="button" data-act="aa-back">Back</button><button class="btn pri" type="button" data-act="aa-done">Add account</button>';
-  openDlg({ title: W.step === 1 ? "Add an account" : `Add a ${p?.name ?? W.pool} account`, body: dots + body, foot, wide: W.step === 1 });
+  openDlg({ title: W.step === 1 ? "Add an account" : `Add a ${p?.name ?? W.service?.name ?? W.pool} account`, body: dots + body, foot, wide: W.step === 1 });
 }
 
 /* Step 1 draws from the engine's list and catalogue, read fresh each time the wizard opens. */
 async function open(pool = null) {
   S.addAcct = true;
-  Object.assign(W, { step: 1, pool: null, group: "all", q: "", saved: null, name: "", trunks: [], pos: "last", error: "" });
+  Object.assign(W, { step: 1, pool: null, service: null, extras: {}, group: "all", q: "", saved: null, name: "", trunks: [], pos: "last", error: "" });
   const [, catalog] = await Promise.all([loadAccounts(), api("connections/catalog").catch((error) => { toast(error.message); return null; })]);
   A.catalog = catalog?.services ?? [];
   if (pool && poolById(pool)) return pick(pool);
@@ -176,9 +188,36 @@ async function switchOn() {
   if ((await api("accounts")).mode === "off") await api("accounts/settings", { mode: "when-needed" });
 }
 
+/* A catalogue service with no connection yet (the "signin" card), routed by how the service really signs in: every
+   cloud service in the catalogue takes a key (src/provider-catalog.ts authStyles), so it opens the key step; one that
+   takes none is added at once. Either way it is POST /api/connections/from-preset, which checks the key by using it
+   before anything is saved and keeps it in the locker. No catalogue service signs in on its own site. */
+function pickService(id) {
+  const service = (A.catalog ?? []).find((x) => x.id === id);
+  if (!service) return;
+  Object.assign(W, { pool: service.id, service, extras: {}, saved: null, name: "", error: "" });
+  if (service.auth === "none") return addService("");
+  W.step = 2;
+  draw();
+}
+
+/* The key (and any extras) go to the engine at once; the key field is emptied first and the key kept nowhere. Once the
+   engine has made the connection, step 3 names it and places it like any other account. */
+async function addService(key) {
+  keepExtras();
+  const extras = Object.fromEntries(Object.entries(W.extras).filter(([, v]) => String(v).trim()));
+  try {
+    const made = await api("connections/from-preset", { provider: W.service.id, key, extras });
+    await loadAccounts();
+    Object.assign(W, { pool: made.id, service: null, extras: {}, saved: poolById(made.id)?.accounts?.[0] ?? null, step: 3, error: "" });
+  } catch (error) { W.error = error.message; }
+  draw();
+}
+
 /* The key goes to the engine at once, under the account's first name; step 3 renames it if asked. */
 async function addKey() {
   const field = $("#aa-key");
+  if (W.service) { const typed = field?.value ?? ""; if (field) field.value = ""; return addService(typed); }
   const value = field?.value ?? "";
   if (field) field.value = "";
   const p = poolById(W.pool);
@@ -254,10 +293,11 @@ function onSearch(e) {
 export function openAddAcct(pool = null) { return open(pool); }
 
 export function init() {
-  markLive(["sw:aa-q", "sw:aa-key", "sw:aa-name", "addacct", "aa-prov", "aa-back", "aa-done", "aa-key", "aa-grp", "aa-nm", "aa-tr", "aa-pos", "aa-local", "aa-gone", "acct-menu", "acct-first", "acct-out"]);
+  markLive(["sw:aa-q", "sw:aa-key", "sw:aa-name", "sw:aaextra", "signin", "addacct", "aa-prov", "aa-back", "aa-done", "aa-key", "aa-grp", "aa-nm", "aa-tr", "aa-pos", "aa-local", "aa-gone", "acct-menu", "acct-first", "acct-out"]);
   on("addacct", (el) => open(el.dataset.v || null));
   on("aa-prov", (el) => pick(el.dataset.v));
-  on("aa-back", () => { Object.assign(W, { step: 1, pool: null, saved: null, name: "", error: "" }); draw(); });
+  on("aa-back", () => { Object.assign(W, { step: 1, pool: null, service: null, extras: {}, saved: null, name: "", error: "" }); draw(); });
+  on("signin", (el) => pickService(el.dataset.v)); // unhold/people: the catalogue cards
   on("aa-key", () => addKey());
   on("aa-done", () => finish());
   on("aa-grp", (el) => { W.group = el.dataset.v; draw(); });
