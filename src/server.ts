@@ -784,8 +784,8 @@ function attention(app: Branch) {
  * Only a task that exists counts: the learning passes mark their own rows "learning".
  */
 function helperMark(app: Branch, runId: string): { parentRunId?: string } {
-  const parent = runOrigin(app.store, runId).parentRunId;
-  return parent && app.store.run(parent) ? { parentRunId: parent } : {};
+  const parent = app.store.events(runId).find((event) => event.kind === "run.started")?.data.parentRunId;
+  return typeof parent === "string" && app.store.run(parent) ? { parentRunId: parent } : {};
 }
 /** What a waiting task says: its question, or for one Branch closed on, the note that it can be continued. */
 function waitingWords(app: Branch, run: Run): string {

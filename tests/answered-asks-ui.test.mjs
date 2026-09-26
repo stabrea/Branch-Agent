@@ -62,8 +62,8 @@ test("the Inbox says it carries on only when it does, and that it still waits wh
   assert.equal(first.status, "needs_input", "control: the first task waits");
   await allowInInbox(first, 1);
   assert.equal(answers.at(-1), "carrying-on");
-  // It carries on: the task is followed until it has finished, and what it asked for is done.
-  await page.waitForFunction(() => !document.querySelector("#conversation .typing"), null, { timeout: 20000 });
+  // It carries on: its row leaves the Inbox, what it asked for is done, and nothing waits any more.
+  await page.locator(`#main [data-act="ask"][data-sid="${first.sessionId}"]`).waitFor({ state: "detached", timeout: 20000 });
   for (let i = 0; i < 100 && !existsSync(join(workspace, "u1.txt")); i++) await page.waitForTimeout(50);
   assert.equal(existsSync(join(workspace, "u1.txt")), true, "the carry-on wrote the file");
   await badge().waitFor({ state: "detached", timeout: 20000 });

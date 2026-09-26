@@ -49,7 +49,7 @@ function cutCard(a) {
   const name = firstLine(runById(a.runId)?.prompt) || a.question;
   return `<div class="cut15" role="status">${trunk ? av(trunk, 30) : av({ kind: "main" }, 30)}<span class="grow"><b>Pick up what the update cut off</b><small>${esc(name)}</small></span><button class="btn ghost sm" type="button" data-act="cutno15" data-id="${esc(a.runId)}">Leave it</button><button class="btn pri sm" type="button" data-act="cutgo15" data-id="${esc(a.runId)}" data-sid="${esc(a.sessionId)}">Pick it up</button></div>`;
 }
-const cutCards = () => (E.state.attention ?? []).filter((a) => a.canContinue).map(cutCard).join("");
+const cutCards = () => (E.state.attention ?? []).filter((a) => a.canContinue && !a.parentRunId).map(cutCard).join(""); // not a helper (FEATURES17C §4)
 
 function selfCard(r) {
   const stage = r.status === "approved" ? "edits approved, ready to publish" : "waiting for you";
