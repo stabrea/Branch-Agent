@@ -734,6 +734,8 @@ test.skip("the move-in card works at 400 pixels wide, with no sideways scroll an
   const server = await startServer(made.app, { dataDir: join(made.root, "data"), port: 0 });
   const previous = process.env.BRANCH_MOVE_IN_HOME;
   process.env.BRANCH_MOVE_IN_HOME = made.home;
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     if (previous === undefined) delete process.env.BRANCH_MOVE_IN_HOME; else process.env.BRANCH_MOVE_IN_HOME = previous;

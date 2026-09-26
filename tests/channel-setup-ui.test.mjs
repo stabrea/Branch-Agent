@@ -19,6 +19,8 @@ async function signedIn(t, viewport = { width: 1280, height: 800 }) {
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir });
   const server = await startServer(app, { dataDir, port: 0 });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
@@ -39,7 +41,6 @@ async function signedIn(t, viewport = { width: 1280, height: 800 }) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  const call = (path) => fetch(new URL(path, server.url), { headers: { authorization: `Bearer ${server.token}` } }).then((r) => r.json());
   return { page, errors, outside, call };
 }
 

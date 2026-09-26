@@ -531,6 +531,8 @@ test("L19 a person presses Dictate, sees the words appear, and the microphone cl
   const { app, root, store, owner } = await fixture(t);
   saveDictationSettings(store, owner, { mode: "on", silenceSeconds: 30 });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });

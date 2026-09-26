@@ -321,6 +321,8 @@ test("Customize › Channels › More lists every service and fits a 400-pixel-w
   const { chromium } = await import("playwright");
   const context = await fixture(t);
   const server = await startServer(context.app, { dataDir: join(context.root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); });
   const page = await browser.newPage({ viewport: { width: 400, height: 900 }, serviceWorkers: "block" });

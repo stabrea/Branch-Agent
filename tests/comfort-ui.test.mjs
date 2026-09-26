@@ -35,6 +35,8 @@ async function openApp(t, width = 1280, { mac = false, windows = false } = {}) {
      something else, so their conversations follow the setting as before (tests/conversation-mode.test.mjs
      covers Ask first). */
   saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -136,6 +138,8 @@ async function newApp(t, { width = 1280, mac = false, windows = false, keys = nu
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   if (keys) saveComfort(app.store, "local", "keys", keys);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width, height: 900 }, serviceWorkers: "block" });
