@@ -338,12 +338,13 @@ test("U4 the context chip and the cost under the box fill in after a task (DG-10
 test("U5 the playground runs a read-only tool and shows what came back", async (t) => {
   const { page, errors } = await fixture(t);
   await settle(page);
-  /* Redesign: the Playground is a Settings row ("Try any tool through a form.", Open), found by Settings' search. */
+  /* Redesign: the Playground is a row on Settings › Developer ("Try any tool through a form.", Open), shown at Technical.
+     Settings' search filters page names only, so the page is opened directly. */
   await page.locator('#side [data-act="view"][data-v="settings"]').click();
   await page.locator('[data-act="setlevel"][data-v="technical"]').click();
-  await page.locator("#set-q").fill("Playground");
+  await page.locator('[data-act="setpage"][data-v="developer"]').click();
   await page.locator("#main").getByRole("button", { name: "Open", exact: true }).first().click({ timeout: 10000 });
-  await page.waitForFunction(() => document.getElementById("play-tool").options.length > 1);
+  await page.waitForFunction(() => (document.getElementById("play-tool")?.options.length ?? 0) > 1);
   // The playground (claude/unhold-control): its button reads "Run <tool>" as in the prototype.
   await page.locator("#play-tool").selectOption("files.write");
   await page.locator("#play-field-path").fill("playground.txt");
@@ -365,12 +366,13 @@ test("U5 a tool the settings say to ask about stops and asks before it runs", as
     await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) });
   }, await page.evaluate(() => sessionStorage.getItem("branch-token")));
   await settle(page);
-  /* Redesign: the Playground is a Settings row ("Try any tool through a form.", Open), found by Settings' search. */
+  /* Redesign: the Playground is a row on Settings › Developer ("Try any tool through a form.", Open), shown at Technical.
+     Settings' search filters page names only, so the page is opened directly. */
   await page.locator('#side [data-act="view"][data-v="settings"]').click();
   await page.locator('[data-act="setlevel"][data-v="technical"]').click();
-  await page.locator("#set-q").fill("Playground");
+  await page.locator('[data-act="setpage"][data-v="developer"]').click();
   await page.locator("#main").getByRole("button", { name: "Open", exact: true }).first().click({ timeout: 10000 });
-  await page.waitForFunction(() => document.getElementById("play-tool").options.length > 1);
+  await page.waitForFunction(() => (document.getElementById("play-tool")?.options.length ?? 0) > 1);
   await page.locator("#play-tool").selectOption("files.write");
   await page.locator("#play-field-path").fill("asked.txt");
   await page.locator("#play-field-content").fill("only after a yes");
