@@ -19,6 +19,11 @@
  * - While Lockdown is on, a command server is not started, by a switch or as Branch starts ("leaving a program running
  *   ... refused outright", src/lockdown.ts).
  * - A server at a web address reaches outside this computer through the owner's network rules; it is saved on.
+ * - The yes is bound to the launch line, not to the program's bytes, so nothing the line runs may be in the workspace,
+ *   where a task can write: not the program, not the folder it starts in, not a file it is given (src/mcp-workspace-guard.ts).
+ *   Checked when a server is added and again before every start, including the starts as Branch starts.
+ * - Who answered is read when the answer is given (ApprovalGate.onResolved), not when the answer is looked at.
+ * - The waiting question's conversation and fingerprint are listed only to the owner at the window.
  */
 export const lockdownStartRefusal = "Lockdown is on, so Branch does not start a program on this computer. Turn Lockdown off first.";
 import { createHash } from "node:crypto";
@@ -26,8 +31,8 @@ import { z } from "zod";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { audit } from "./audit.js";
-import { approvalQuestion, type ApprovalGate } from "./approvals.js";
-import { askerOf, runOrigin } from "./key-context.js";
+import { approvalQuestion, type ApprovalGate, type PendingApproval } from "./approvals.js";
+import { askerOf, runOrigin, startedWithShortLivedKey } from "./key-context.js";
 import { evaluatePolicy, readPolicy } from "./policy.js";
 import { lockdownActive } from "./lockdown.js";
 import type { NetworkPolicy } from "./network-policy.js";
@@ -36,6 +41,7 @@ import type { Store } from "./store.js";
 import { makeTransport, McpTransportSchema, type McpTransportConfig } from "./integrations/mcp-config.js";
 import { mcpToolName } from "./integrations/mcp.js";
 import { startMcp, type McpHost } from "./integrations/bootstrap.js";
+import { workspaceRefusal } from "./mcp-workspace-guard.js";
 
 export const AddServerSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -73,7 +79,7 @@ const slug = (name: string): string => {
 };
 
 export interface OwnServersDeps {
-  store: Store; owner: () => string; registry: ToolRegistry; approvals: ApprovalGate;
+  store: Store; owner: () => string; registry: ToolRegistry; approvals: ApprovalGate; workspace: () => string;
   env?: NodeJS.ProcessEnv; policy: () => NetworkPolicy | undefined; host: () => McpHost | undefined;
   /** The malware check: throws a plain sentence for a package listed as harmful. */
   vet: (command: string, args: readonly string[]) => Promise<void>;
@@ -81,15 +87,30 @@ export interface OwnServersDeps {
   pollMs?: number;
 }
 
-interface Waiting { runId: string; sessionId: string; fingerprint: string; question: string; timer: NodeJS.Timeout; since: number }
+/** `byOwner`: set when the question is answered, from that answer's own request; unset means no owner answered it. */
+interface Waiting { runId: string; sessionId: string; fingerprint: string; question: string; timer: NodeJS.Timeout; since: number; byOwner?: boolean }
 
 export class OwnMcpServers {
   private readonly live = new Map<string, { close: () => Promise<void>; names: string[] }>();
   private readonly waiting = new Map<string, Waiting>();
   private readonly problems = new Map<string, string>();
   private launchIds: string[] = [];
-  constructor(private readonly deps: OwnServersDeps) {}
+  constructor(private readonly deps: OwnServersDeps) {
+    deps.approvals.onResolved((taken) => this.answered(taken));
+  }
   private get env(): NodeJS.ProcessEnv { return this.deps.env ?? process.env; }
+  /** Refuses a launch that runs anything inside the workspace, in plain words. */
+  private guard(server: McpTransportConfig): void {
+    const refusal = workspaceRefusal(server, this.deps.workspace(), this.env);
+    if (refusal) throw new Error(refusal);
+  }
+  /** A start question answered: whether the owner, at the window, gave the answer is kept with it. */
+  private answered(taken: PendingApproval): void {
+    if (taken.tool !== startTool) return;
+    const pending = this.waiting.get(taken.target);
+    if (pending && pending.sessionId === taken.sessionId && pending.fingerprint === taken.fingerprint)
+      pending.byOwner = this.deps.store.profiles.isOwner() && !startedWithShortLivedKey();
+  }
 
   saved(): OwnServer[] {
     const kept = Saved.safeParse(this.deps.store.get("settings", this.deps.owner(), key)?.data ?? {});
@@ -110,13 +131,15 @@ export class OwnMcpServers {
     return found;
   }
 
-  view(entry: OwnServer) {
+  /** `full`: the owner at the window, who alone is shown what answering the waiting question takes. */
+  view(entry: OwnServer, full = true) {
     const pending = this.waiting.get(entry.id);
+    const waiting = pending ? (full ? { sessionId: pending.sessionId, fingerprint: pending.fingerprint, question: pending.question } : { question: pending.question }) : null;
     return { id: entry.id, name: entry.name, transport: entry.server.transport, how: how(entry.server), on: entry.on,
-      running: this.live.has(entry.id), waiting: pending ? { sessionId: pending.sessionId, fingerprint: pending.fingerprint, question: pending.question } : null,
+      running: this.live.has(entry.id), waiting,
       tools: entry.tools.length, hidden: entry.hidden, error: this.problems.get(entry.id) ?? null, catalogue: entry.catalogue ?? null };
   }
-  list() { return { servers: this.saved().map((entry) => this.view(entry)) }; }
+  list(full: boolean) { return { servers: this.saved().map((entry) => this.view(entry, full)) }; }
 
   /** Written as a connection changing, with what happened in the subject and the outcome. */
   private record(what: string, subject: string, outcome: string): void {
@@ -130,7 +153,7 @@ export class OwnMcpServers {
     const wanted = AddServerSchema.parse(input);
     const servers = this.saved();
     if (servers.length >= maxServers) throw new Error(`Branch keeps at most ${maxServers} servers of your own. Remove one first.`);
-    if (wanted.server.transport === "stdio") await this.deps.vet(wanted.server.command, wanted.server.args);
+    if (wanted.server.transport === "stdio") { this.guard(wanted.server); await this.deps.vet(wanted.server.command, wanted.server.args); }
     const taken = new Set([...this.launchIds, ...servers.map((entry) => entry.id)]);
     let id = slug(wanted.name);
     for (let n = 2; taken.has(id); n++) id = `${slug(wanted.name)}-${n}`;
@@ -152,6 +175,7 @@ export class OwnMcpServers {
       return { server: this.view(this.find(id)), said: `${entry.name} is on.` };
     }
     if (lockdownActive(this.deps.store, this.deps.owner())) throw new Error(lockdownStartRefusal);
+    this.guard(entry.server);
     await this.deps.vet(entry.server.command, entry.server.args);
     const pending = this.waiting.get(id) ?? this.ask(entry);
     return { server: this.view(entry), said: pending.question };
@@ -190,8 +214,9 @@ export class OwnMcpServers {
     const asker = askerOf(runOrigin(store, pending.runId));
     const said = gate.answer(pending.sessionId, startTool, id, pending.fingerprint, true) === "allow"
       || gate.takeJustNow(pending.sessionId, startTool, pending.fingerprint, asker);
-    // A yes from a household profile at the window is not the owner's: the program stays off.
-    const yes = said && store.profiles.isOwner() && !lockdownActive(store, this.deps.owner());
+    // A yes from a household profile at the window is not the owner's: the program stays off. Who answered was read
+    // when the answer was given, so switching back to the owner before this look changes nothing.
+    const yes = said && pending.byOwner === true && !lockdownActive(store, this.deps.owner());
     store.finish(pending.runId, "completed", yes ? "You said yes." : "You said no.");
     if (!yes) return;
     const entry = this.saved().find((item) => item.id === id);
@@ -222,7 +247,7 @@ export class OwnMcpServers {
   /** Starts a server the way the launch file's are started, and marks it on. A failure is kept as its problem. */
   private async open(entry: OwnServer, list: boolean, approved: string | null = entry.approved): Promise<void> {
     try {
-      if (entry.server.transport === "stdio") await this.deps.vet(entry.server.command, entry.server.args);
+      if (entry.server.transport === "stdio") { this.guard(entry.server); await this.deps.vet(entry.server.command, entry.server.args); }
       const found = list ? await this.listTools(entry) : { tools: entry.tools, hidden: entry.hidden, version: entry.version ?? "" };
       if (!found.tools.length) throw new Error("Your approval settings refuse every tool this server offers, so it was not started.");
       if (!found.version) throw new Error("That server did not say which version it is.");

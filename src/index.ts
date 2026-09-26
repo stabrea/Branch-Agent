@@ -1329,7 +1329,7 @@ export async function createBranch(options: {
   };
   // eng-connectors: the owner's own servers (a command asks through the approval gate before it starts), the
   // command-line tools the owner allowed, and replies the owner flagged.
-  const ownMcp = new OwnMcpServers({ store, owner: () => runtime.owner, registry, approvals: runtime.approvals,
+  const ownMcp = new OwnMcpServers({ store, owner: () => runtime.owner, registry, approvals: runtime.approvals, workspace: () => runtime.workspace,
     policy: () => web.policy, host: () => mcpHost, vet: (command, args) => security.malware.vet(command, args) });
   const ownClis = new OwnClis({ store, owner: () => runtime.owner, workspace: () => runtime.workspace });
   const replyFlags = new ReplyFlags(store, () => runtime.owner);

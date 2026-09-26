@@ -5,8 +5,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { discardTemp } from "./temp-dir.mjs";
@@ -14,6 +16,7 @@ import { createBranch, savePolicy } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { mcpToolName } from "../dist/integrations/mcp.js";
 import { OwnClis } from "../dist/own-clis.js";
+import { launchFingerprint } from "../dist/mcp-own-servers.js";
 import { notesFor, releaseNotesFile } from "../dist/release-notes.js";
 import { mcpCatalogue } from "../dist/mcp-catalogue.js";
 
@@ -135,6 +138,86 @@ test("a yes holds across a restart only for the exact launch it was given for", 
   await app.ownMcp.startSaved([]);
   assert.equal(toolsOf(app, id).length, 0, "a changed launch is not started on the old yes");
   assert.equal(app.ownMcp.saved()[0].on, false);
+});
+
+/* Review 2's probe: a yes is bound to the launch line, so a program in the workspace (where a task may write) could be
+   swapped after the yes and run at the next start. Mutation: take `this.guard(entry.server)` out of `open()` in
+   src/mcp-own-servers.ts and this goes red (the swapped script runs as Branch starts and writes the marker). */
+test("a workspace program is refused when added, and one saved before is not started, as Branch starts or by a switch", async (t) => {
+  const { app, root, url, token } = await fixture(t);
+  const workspace = app.runtime.workspace, marker = join(root, "swapped-program-ran.txt");
+  await mkdir(workspace, { recursive: true });
+  const script = join(workspace, "srv.mjs");
+  await writeFile(script, `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "ran");\nawait import(${JSON.stringify(pathToFileURL(notesServer).href)});\n`);
+  const probe = { transport: "stdio", command: process.execPath, args: [script], envKeys: [] };
+  await assert.rejects(api(url, token, "/api/mcp/servers", { name: "Probe", server: probe }), /a file inside the workspace/);
+  assert.deepEqual(app.ownMcp.saved(), [], "nothing is saved");
+
+  // Saved before this check existed, left on, with the owner's yes to this exact launch.
+  const entry = { id: "probe", name: "Probe", server: probe, on: true, approved: launchFingerprint(probe), tools: [], version: null, hidden: [], addedAt: new Date().toISOString() };
+  app.store.save("settings", app.runtime.owner, "mcp-own-servers", { servers: [entry] });
+  await app.ownMcp.startSaved([]);
+  assert.equal(existsSync(marker), false, "the workspace program did not run as Branch started");
+  assert.equal(toolsOf(app, "probe").length, 0);
+  assert.equal(app.ownMcp.saved()[0].on, false);
+  assert.match(app.ownMcp.list(true).servers[0].error, /a file inside the workspace/);
+  assert.equal(app.runtime.approvals.waiting().length, 0, "and no question was asked");
+
+  await assert.rejects(api(url, token, "/api/mcp/servers/probe/start", {}), /a file inside the workspace/);
+  assert.equal(app.runtime.approvals.waiting().length, 0, "switching it on asks nothing: it is refused");
+  assert.equal(existsSync(marker), false);
+});
+
+test("a workspace folder, program or file argument is refused; a folder argument is fine", async (t) => {
+  const { app, url, token } = await fixture(t);
+  const workspace = app.runtime.workspace, exe = process.platform === "win32" ? ".exe" : "";
+  await mkdir(join(workspace, "bin"), { recursive: true });
+  await writeFile(join(workspace, `planted${exe}`), "", { mode: 0o755 });
+  await writeFile(join(workspace, "bin", `planted${exe}`), "", { mode: 0o755 });
+  await writeFile(join(workspace, "settings.json"), "{}");
+  const add = (server) => api(url, token, "/api/mcp/servers", { name: "Try", server: { transport: "stdio", ...server } });
+  // npx in a workspace folder runs the workspace's node_modules/.bin first.
+  await assert.rejects(add({ command: "npx", args: ["some-tool"], cwd: workspace }), /start in a folder inside the workspace/);
+  await assert.rejects(add({ command: process.execPath, args: [notesServer], cwd: join(workspace, "bin") }), /start in a folder inside the workspace/);
+  await assert.rejects(add({ command: join(workspace, `planted${exe}`) }), /program is inside the workspace/);
+  await assert.rejects(add({ command: process.execPath, args: [notesServer, `--config=${join(workspace, "settings.json")}`] }), /settings\.json, a file inside the workspace/);
+  const withPath = app.ownMcp.deps.env;
+  app.ownMcp.deps.env = { ...process.env, PATH: join(workspace, "bin"), Path: join(workspace, "bin") };
+  await assert.rejects(add({ command: "planted" }), /program is inside the workspace/, "a bare name found on PATH in the workspace");
+  app.ownMcp.deps.env = withPath;
+  const pointed = await add({ command: process.execPath, args: [notesServer, workspace] });
+  assert.equal(pointed.server.on, false, "a server given the workspace folder itself is saved, off until the owner's yes");
+});
+
+test("only the owner at the window is shown what answering a start question takes", async (t) => {
+  const { app, url, token } = await fixture(t);
+  const { server: { id } } = await api(url, token, "/api/mcp/servers", notes);
+  await api(url, token, `/api/mcp/servers/${id}/start`, {});
+  const owner = (await api(url, token, "/api/mcp/servers")).servers[0].waiting;
+  assert.ok(owner.sessionId && owner.fingerprint && owner.question);
+  const readKey = app.sessionTokens.create(app.runtime.owner, { name: "wall", scope: "read", minutes: 5 }).token;
+  const byKey = (await api(url, readKey, "/api/mcp/servers")).servers[0].waiting;
+  assert.deepEqual(byKey, { question: owner.question }, "a short-lived key sees the question, not its conversation or fingerprint");
+  app.store.profiles.isOwner = () => false; // the window switched to a household person's profile
+  const byHousehold = (await api(url, token, "/api/mcp/servers")).servers[0].waiting;
+  delete app.store.profiles.isOwner;
+  assert.deepEqual(byHousehold, { question: owner.question }, "nor does a household profile");
+});
+
+/* Who answered is read when the answer is given. Mutation: read `store.profiles.isOwner()` in `check()` again instead of
+   `pending.byOwner`, and this goes red (the look after the switch back sees the owner and starts the program). */
+test("a household yes followed by a switch back to the owner before the answer is looked at starts nothing", async (t) => {
+  const { app, url, token } = await fixture(t);
+  app.ownMcp.deps.pollMs = 1500; // the answer is looked at well after the switch back
+  const { server: { id } } = await api(url, token, "/api/mcp/servers", notes);
+  await api(url, token, `/api/mcp/servers/${id}/start`, {});
+  const question = (await api(url, token, "/api/policy")).waiting.find((q) => q.tool === "mcp.start");
+  app.store.profiles.isOwner = () => false;
+  await api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint });
+  delete app.store.profiles.isOwner; // back to the owner before the look
+  await until(async () => (await api(url, token, "/api/mcp/servers")).servers[0].waiting === null);
+  await new Promise((r) => setTimeout(r, 3000));
+  assert.equal(toolsOf(app, id).length, 0, "the household person's yes stays a no");
 });
 
 test("the malware check refuses a server before it is saved", async (t) => {

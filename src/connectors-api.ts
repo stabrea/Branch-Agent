@@ -9,6 +9,7 @@ import { z } from "zod";
 import { catalogueByCategory, mcpCatalogue } from "./mcp-catalogue.js";
 import { notesFor } from "./release-notes.js";
 import { HttpError, readJsonBody as readBody } from "./server-http.js";
+import { startedWithShortLivedKey } from "./key-context.js";
 import type { OwnMcpServers } from "./mcp-own-servers.js";
 import type { OwnClis } from "./own-clis.js";
 import type { ReplyFlags } from "./reply-flags.js";
@@ -27,7 +28,8 @@ async function serversApi(app: ConnectorsHost, request: IncomingMessage, path: s
     const file = mcpCatalogue();
     return { checked: file.checked, count: file.connectors.length, categories: catalogueByCategory(file) };
   }
-  if (path === "/api/mcp/servers" && request.method === "GET") return app.ownMcp.list();
+  // Keys and household profiles may look, but only the owner at the window sees what answering a start question takes.
+  if (path === "/api/mcp/servers" && request.method === "GET") return app.ownMcp.list(app.store.profiles.isOwner() && !startedWithShortLivedKey());
   if (path === "/api/mcp/servers" && request.method === "POST") {
     app.store.profiles.requireOwner("Adding a tool server");
     return app.ownMcp.add(await readBody(request, 65536));
