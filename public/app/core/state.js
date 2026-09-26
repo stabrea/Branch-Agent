@@ -64,6 +64,9 @@ export async function refresh() {
    owner, whose name is the engine's owner label. */
 export const activeId = () => E.profiles?.active?.id ?? null;
 export const personHere = () => E.profiles?.active?.name || E.profiles?.roleLabels?.owner?.label || "";
+/* Whether the one at the window is the owner, as the engine says (GET /api/profiles isOwner). Owner-only controls are drawn
+   only then: not while the answer is missing, and never for a household person (they are not theirs to use, not "coming soon"). */
+export const ownerHere = () => E.profiles?.isOwner === true;
 
 /* The level control: Regular 0, Advanced 1, Technical 2. */
 export const LEVELS = { regular: 0, advanced: 1, technical: 2 };
