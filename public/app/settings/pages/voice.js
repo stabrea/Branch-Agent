@@ -88,7 +88,7 @@ function listeningMore() {
   return `<div class="sec x15-sec"><h2>Listening, more</h2>${ctl("f15-wake-word", "Wake word", "“Hey Branch”, heard on this computer only. Off until you choose: it keeps the microphone open.", wake)}
     ${num("f15-silence", "Stop listening after silence", "For live dictation.", V.dictation?.silenceSeconds, "s", 'type="number" min="1" max="30" step="0.5"')}
     ${answerAloud()}
-    ${ctl("f15-spoken-morning-brief", "Spoken morning brief", "The written brief, read out at 7:30 on the speaker you choose.", false)}</div>`;
+    ${ctl("f15-spoken-morning-brief", "Spoken morning brief", "The written brief, read out on the speaker you choose.", false)}</div>`;
 }
 
 /* Answer aloud is the engine's read-aloud setting (autoReadAloud), which chat/aloud.js acts on: Always reads each new
