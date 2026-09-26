@@ -21,6 +21,7 @@ import { markLive } from "../core/features.js";
 import { moreButton, addMoreItem } from "./more.js";
 import { loadSteps, everyStepItem } from "./timeline.js"; // pass 17: Look inside and More gain "Every step"
 import { t, language } from "../../i18n.js";
+import { flagOf, loadFlags } from "./flag.js";
 
 const M = { sid: null, pins: [], followUps: [], room: null, spend: null, commands: null, slashBox: null, slashI: 0, edit: null };
 /* What the conversation module hands over: its state, a way to send words, and a way to re-read a conversation. */
@@ -62,7 +63,7 @@ export function msgActs(m) {
     return `<div class="msg-acts"><button type="button" aria-label="${t("prompts.action.edit")}" data-act="u-edit" data-mid="${esc(m.messageId)}">${ic("edit")}</button>${branch}${pinButton(m)}</div>`;
   const run = runFor(m);
   const look = run ? `<button type="button" aria-label="${t("inspector.open")}" data-act="inspect" data-run="${esc(run.id)}">${ic("eye")}</button>` : "";
-  return `<div class="msg-acts"><button type="button" aria-label="${t("asks.examples.copy")}" data-act="copy15" data-mid="${esc(m.messageId)}">${ic("copy")}</button><button type="button" aria-label="${t("first-run-trouble.retry")}" data-act="toast">${ic("retry")}</button>${look}<button type="button" aria-label="${t("settings.card.report")}" data-act="flag">${ic("flag")}</button>${branch}${pinButton(m)}</div>`;
+  return `<div class="msg-acts"><button type="button" aria-label="${t("asks.examples.copy")}" data-act="copy15" data-mid="${esc(m.messageId)}">${ic("copy")}</button><button type="button" aria-label="${t("first-run-trouble.retry")}" data-act="toast">${ic("retry")}</button>${look}<button type="button" aria-label="${t("settings.card.report")}" data-act="flag" data-sid="${esc(sid() ?? "")}" data-mid="${esc(m.messageId)}" aria-pressed="${!!flagOf(sid(), m.messageId)}">${ic("flag")}</button>${branch}${pinButton(m)}</div>`;
 }
 
 /* ---------- Copy: the message's words as they were written (its Markdown) ---------- */
@@ -387,7 +388,7 @@ const drawn = () => JSON.stringify([M.sid, M.pins, M.followUps, M.room, M.spend]
 export async function loadExtras(id) {
   if (M.sid !== id) Object.assign(M, { sid: id, pins: [], followUps: [], room: null });
   const before = drawn();
-  const jobs = [loadSpend()];
+  const jobs = [loadSpend(), loadFlags()];
   if (id) jobs.push(loadPins(id), loadQueue(id), loadRoom(id));
   await Promise.all(jobs);
   if (drawn() !== before) render();

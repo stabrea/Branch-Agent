@@ -134,6 +134,7 @@ import { safetyMode } from "./safety-extras/settings.js";
 import { runSteps } from "./run-steps.js"; // pass 17: Timeline and Helpers
 import { projectsApi, secretsApi } from "./owner-data-api.js";
 import { HttpError, readJsonBody as readBody } from "./server-http.js";
+import { connectorsApi } from "./connectors-api.js"; // eng-connectors
 import { handlesSourceRequestPath, sourceRequestsApi } from "./self-development-requests.js";
 import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
 import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
@@ -1195,6 +1196,9 @@ async function api(
     const kept = await app.artifacts.write(wanted.runId, wanted.name, wanted.mediaType, Buffer.from(wanted.code, "utf8"));
     return { ...kept, name: wanted.name, runId: wanted.runId };
   }
+  // eng-connectors: the connector catalogue, the owner's own servers and command-line tools, What's new, flagged replies.
+  const connectors = await connectorsApi(app, request, path);
+  if (connectors !== undefined) return connectors;
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   // Assistants elsewhere: the ones added, looking for more, and the link that pairs two installs.
@@ -4653,7 +4657,7 @@ async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/commands/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits", "/api/host-bridge/run"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/commands/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits", "/api/host-bridge/run"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin|servers)(\/|$)/.test(path) || /^\/api\/clis(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
     // mac4/bucket-20: an Agent Protocol step, and every change under /api/interop, start or change work.
     || (request.method !== "GET" && handlesInteropPath(path))
     // mac6/bucket-23: every change under /api/asks may start work (an answer, an article, a send).

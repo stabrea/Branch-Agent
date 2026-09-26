@@ -97,6 +97,12 @@ export class McpConnections {
   register(id: string, opener: () => Promise<McpConnection>): void {
     this.openers.set(id, opener);
   }
+  /** Forgets one server: its connection is closed and it is no longer known, so it leaves the health list too. */
+  async forget(id: string): Promise<void> {
+    this.openers.delete(id);
+    const entry = this.entries.get(id);
+    if (entry) await this.shut(entry);
+  }
   /** Every server this manager knows how to open. */
   known(): string[] {
     return [...this.openers.keys()];

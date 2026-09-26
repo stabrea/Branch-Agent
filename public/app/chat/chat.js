@@ -26,6 +26,7 @@ import { dockRow, initBg } from "./bg.js";
 import { mediaRows, initMedia } from "./media.js";
 import { besideWrap, rosterButton, initBeside } from "./beside.js";
 import { msgActs, pinnedClass, pinsBar, queueRow, loadExtras, initMessages } from "./messages.js";
+import { initFlag, flagBadge } from "./flag.js";
 import { rememberCards, initRemember } from "./remember.js";
 import { goalStrip, loadGoal, initGoal } from "./goal.js";
 import { goHome } from "./goto.js";
@@ -71,7 +72,7 @@ function user(m) { return `<div class="u${pinnedClass(m)}${outClass(m)}"${mid(m)
    and in a room the Trunk's name above it. */
 function bot(m, first, who, info) {
   const from = first && who && info?.kind === "room" ? `<div class="from">${esc(who.name)}</div>` : "";
-  return `<div class="b${pinnedClass(m)}${outClass(m)}"${mid(m)}><div class="gut">${first ? av(who ?? { kind: "main" }, 28) : ""}</div><div>${from}<div class="txt">${text(replyWords(m, info))}</div></div>${msgActs(m)}</div>${outBadge(m)}`;
+  return `<div class="b${pinnedClass(m)}${outClass(m)}"${mid(m)}><div class="gut">${first ? av(who ?? { kind: "main" }, 28) : ""}</div><div>${from}<div class="txt">${text(replyWords(m, info))}</div></div>${msgActs(m)}</div>${outBadge(m)}${flagBadge(C.sessionId, m)}`;
 }
 
 /* The approval card, 1:1 with the prototype's: the action's verb (allow once), "Always allow" (a standing rule in the
@@ -462,6 +463,7 @@ export function init() {
   initBranches({ state: () => C, sendText: (words) => send(words), reopen: openConversation });
   initDiagram();
   initRemember();
+  initFlag();
   initGoal();
   initRec();
   initCheckpoints();

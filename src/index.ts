@@ -1,3 +1,6 @@
+import { OwnMcpServers } from "./mcp-own-servers.js"; // eng-connectors
+import { OwnClis } from "./own-clis.js"; // eng-connectors
+import { ReplyFlags } from "./reply-flags.js"; // eng-connectors
 import { mkdir } from "node:fs/promises";
 import { currentTaskRun, currentTool } from "./task-scope.js"; // mac7/walk-rules
 import { allowAll, byFullAddress, WalkRules } from "./walk-rules.js"; // mac7/walk-rules
@@ -1329,6 +1332,27 @@ export async function createBranch(options: {
   security.start();
   vetAddOn = (command, args) => security.malware.vet(command, args); // bucket-15: the add-ons' malware check is ready now
   // ── end mac3/security-check ──
+  // eng-connectors: whether another person's server is started as Branch starts or only when a task needs it, and
+  // what it last said its tools are. The launch file's servers and the owner's own (kept in the store) share it.
+  const mcpHost = {
+    connectWhen: () => readLifecycleSettings(store, store.profiles.scope()).connect,
+    cache: {
+      read: (id: string) =>
+        ((store.get("settings", runtime.owner, `mcp-tools:${id}`)?.data as { tools?: CachedMcpTool[] } | undefined)?.tools) ?? [],
+      write: (id: string, tools: CachedMcpTool[]) =>
+        void store.save("settings", runtime.owner, `mcp-tools:${id}`, { tools, at: new Date().toISOString() }),
+    },
+    connections: mcpConnections,
+    startupTimeoutMs: () => readComfort(store, runtime.owner, "mcp").startupTimeoutSeconds * 1000, // R17-S20
+    // mac3/security-check: a server fetched from a package registry is looked up first.
+    vetLaunch: (command: string, args: readonly string[]) => security.malware.vet(command, args),
+  };
+  // eng-connectors: the owner's own servers (a command asks through the approval gate before it starts), the
+  // command-line tools the owner allowed, and replies the owner flagged.
+  const ownMcp = new OwnMcpServers({ store, owner: () => runtime.owner, registry, approvals: runtime.approvals, workspace: () => runtime.workspace,
+    policy: () => web.policy, host: () => mcpHost, vet: (command, args) => security.malware.vet(command, args) });
+  const ownClis = new OwnClis({ store, owner: () => runtime.owner, workspace: () => runtime.workspace });
+  const replyFlags = new ReplyFlags(store, () => runtime.owner);
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does
   // nothing at all while it is off, so this stays quiet until the owner turns it on.
@@ -1415,6 +1439,10 @@ export async function createBranch(options: {
     },
     /** mac3/security-check: the security self-check, its repairs, and the malware check on add-ons. */
     security,
+    /** eng-connectors: the owner's own MCP servers, allowed command-line tools, and flagged replies. */
+    ownMcp,
+    ownClis,
+    replyFlags,
     /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
     learningCore: {
       settings: () => flyCoreSettings(store, options.owner ?? "local"),
@@ -1629,19 +1657,9 @@ export async function createBranch(options: {
       leftOut: (sections: readonly string[]) => { launchFile.leftOut = [...sections]; },
       // Whether another person's server is started as Branch starts or only when a task really
       // needs it, and what it last said its tools are, so they can be listed either way.
-      mcp: {
-        connectWhen: () => readLifecycleSettings(store, store.profiles.scope()).connect,
-        cache: {
-          read: (id: string) =>
-            ((store.get("settings", runtime.owner, `mcp-tools:${id}`)?.data as { tools?: CachedMcpTool[] } | undefined)?.tools) ?? [],
-          write: (id: string, tools: CachedMcpTool[]) =>
-            void store.save("settings", runtime.owner, `mcp-tools:${id}`, { tools, at: new Date().toISOString() }),
-        },
-        connections: mcpConnections,
-        startupTimeoutMs: () => readComfort(store, runtime.owner, "mcp").startupTimeoutSeconds * 1000, // R17-S20
-        // mac3/security-check: a server fetched from a package registry is looked up first.
-        vetLaunch: (command: string, args: readonly string[]) => security.malware.vet(command, args),
-      },
+      mcp: mcpHost,
+      ownMcp,
+      ownClis,
     },
     /** mac7/wake-mic: the word that starts a turn. The card reads `listening` from this, never guesses it. */
     wake,
@@ -1686,6 +1704,7 @@ export async function createBranch(options: {
       await reachParts.close(); // r17-i: the relay stops asking
       safetyExtras.close(); // mac7/r17-g
       await linuxDesktop.close().catch(() => undefined); // FQ-execution.desktop: no shared desktop outlives the app
+      await ownMcp.closeAll(); // eng-connectors: no question watcher or server of the owner's outlives the app
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);

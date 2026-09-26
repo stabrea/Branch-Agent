@@ -23,6 +23,8 @@
     "data/channels.json",
     "data/local-models.json",
     "data/channel-setup.json",
+    "data/release-notes.json",
+    "data/mcp-catalogue.json",
     "data/add-ons",
     "data/evaluation",
     "data/tool-evaluations",

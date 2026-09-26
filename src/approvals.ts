@@ -288,7 +288,13 @@ export class ApprovalGate {
     if (at < 0) return undefined;
     const [taken] = forSession.splice(at, 1);
     if (!forSession.length) this.pending.delete(sessionId);
+    if (taken) for (const watch of this.resolvedWatchers) watch(taken);
     return taken;
+  }
+  /** eng-connectors: whoever must know who answered a question is told as it is answered, in the answer's own request. */
+  private readonly resolvedWatchers: Array<(taken: PendingApproval) => void> = [];
+  onResolved(watch: (taken: PendingApproval) => void): void {
+    this.resolvedWatchers.push(watch);
   }
   /**
    * The question an answer is for: the one with that fingerprint, or — when none was given — the

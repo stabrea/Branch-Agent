@@ -6,6 +6,7 @@ import * as tour from "./tour.js";
 import * as chat from "./chat.js";
 import * as pair from "./pair.js";
 import * as connectors from "./connectors.js";
+import * as whatsnew from "./whatsnew.js";
 import * as trunk from "./trunk.js";
 import * as flowEditor from "./flow-editor.js";
 import * as prompts from "./prompts.js";
@@ -22,6 +23,7 @@ export function init() {
   chat.init();
   pair.init();
   connectors.init();
+  whatsnew.init();
   trunk.init();
   flowEditor.init();
   prompts.init();
