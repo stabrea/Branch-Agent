@@ -5,7 +5,7 @@
    silence ends it the same way. Where the engine says it cannot dictate (canDictate false), the mic is greyed and
    carries the engine's own words for why. */
 
-import { $, esc, render, renderNow } from "../core/dom.js";
+import { $, esc, renderNow } from "../core/dom.js";
 import { E } from "../core/state.js";
 import { toast, ic } from "../core/ui.js";
 import { api } from "../core/api.js";
@@ -22,7 +22,13 @@ async function read() {
 export function loadDictation() {
   if (D.state || D.reading || !E.loaded) return;
   D.reading = true;
-  read().finally(() => { D.reading = false; render(); });
+  read().finally(() => { D.reading = false; redrawMic(); });
+}
+/* Only the mic changes with what the engine said, so only the mic is drawn again (the rest of the view is left as is). */
+function redrawMic() {
+  const mic = document.querySelector('.composer button[aria-label="Dictate into the box"]');
+  if (!mic) return;
+  mic.outerHTML = micButton();
 }
 
 export const dictating = () => D.on;
