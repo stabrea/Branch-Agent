@@ -139,7 +139,7 @@ function frame(o) {
   const done = o.checks.filter((c) => c.ok != null).length;
   const next = !last ? `<button class="btn pri" type="button" data-act="ob-next" ${i === 0 && !o.trust ? 'data-wait="trust"' : ""}>${i === 0 ? t("personal.tunnel.start") : t("window.flows.chw.continue")}</button>`
     : `<button class="btn pri" type="button" data-act="ob-done" ${done < o.checks.length ? "disabled" : ""}>${done < o.checks.length ? t("window.flows.setup.checking-n", { done, total: o.checks.length }) : t("window.flows.setup.open-walkthrough")}</button>`;
-  return `<aside class="ob-rail"><span class="ob-brand"><span class="mark mark-face" data-css="width:26px;height:26px"></span>${t("window.setup.label")}</span><ol>${rail}</ol><button class="link ob-skip" type="button" data-act="ob-close">${t("window.flows.first.skip")}</button></aside>
+  return `<aside class="ob-rail"><span class="ob-brand"><span class="mark mark-face" data-css="width:26px;height:26px"></span>${t("window.setup.label")}</span><ol>${rail}</ol>${o.i > 0 ? `<button class="link ob-skip" type="button" data-act="ob-close">${t("window.flows.first.skip")}</button>` : ""}</aside>
     <section class="ob-main"><div class="ob-body">${pose(i)}${BODIES[i](o)}</div><footer class="ob-foot">${i ? `<button class="btn ghost" type="button" data-act="ob-go" data-v="${i - 1}">${t("action.back")}</button>` : "<span></span>"}<span class="grow"></span>${next}</footer></section>`;
 }
 
@@ -155,10 +155,30 @@ function draw() {
     app().appendChild(el);
   } else el.classList.add("ob-still12");
   el.setAttribute("aria-label", t("window.setup.label")); // named on every draw, so a language picked here renames it
+  /* A choice within a step redraws the step in place: the moving picture, where the page is scrolled and the control the
+     person just pressed all stay as they were, so a click never looks like the screen starting over. Only a new step
+     starts at its heading. */
+  const sameStep = !fresh && el.dataset.step === String(o.i);
+  const keptArt = sameStep ? [...el.querySelectorAll("video, img.pose11")] : [];
+  const scrolled = sameStep ? [...el.querySelectorAll(".ob-main, .ob-body, [data-scroll]")].map((n) => n.scrollTop) : [];
+  const pressed = sameStep ? document.activeElement : null;
+  const pressedKey = pressed && el.contains(pressed) ? [pressed.id, pressed.dataset?.act, pressed.dataset?.k, pressed.dataset?.v, pressed.dataset?.i] : null;
   el.innerHTML = frame(o);
+  el.dataset.step = String(o.i);
+  const fresh11 = [...el.querySelectorAll("video, img.pose11")];
+  for (const old of keptArt) {
+    const at = fresh11.findIndex((n) => n.tagName === old.tagName && n.getAttribute("src") === old.getAttribute("src"));
+    if (at >= 0) { fresh11[at].replaceWith(old); fresh11.splice(at, 1); }
+  }
+  [...el.querySelectorAll(".ob-main, .ob-body, [data-scroll]")].forEach((n, i) => { if (scrolled[i] != null) n.scrollTop = scrolled[i]; });
   applyCss(el);
   greyOut(el);
-  if (!fresh) el.querySelector("h2")?.focus({ preventScroll: true });
+  if (!fresh && !sameStep) el.querySelector("h2")?.focus({ preventScroll: true });
+  else if (pressedKey) {
+    const [id, act, k, v, i] = pressedKey;
+    const again = id ? el.querySelector(`#${CSS.escape(id)}`) : [...el.querySelectorAll(`[data-act="${act}"]`)].find((n) => n.dataset.k === k && n.dataset.v === v && n.dataset.i === i);
+    again?.focus({ preventScroll: true });
+  }
 }
 
 async function load(o) {

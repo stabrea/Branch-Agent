@@ -3454,3 +3454,10 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .ob-trust.nudge .ob-box{border-color:var(--accent)}
 @keyframes obNudge{20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
 @media (prefers-reduced-motion:reduce){.ob-trust.nudge{animation:none}}
+
+/* area: setup choices — a picked card is plainly picked: accent edge, a light tint and a tick in its corner */
+.ob9 .prov{position:relative;transition:border-color .15s,background .15s,box-shadow .15s}
+.ob9 .prov[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,var(--raise));box-shadow:0 0 0 1px var(--accent) inset}
+.ob9 .prov[aria-pressed="true"]::after{content:"";position:absolute;top:10px;right:10px;width:18px;height:18px;border-radius:50%;background:var(--accent)}
+.ob9 .prov[aria-pressed="true"]::before{content:"";position:absolute;top:14px;right:16px;width:4px;height:8px;border:solid var(--on-btn,#fff);border-width:0 2px 2px 0;transform:rotate(45deg);z-index:1}
+.ob9 .prov[aria-pressed="true"] b{color:var(--ink)}
