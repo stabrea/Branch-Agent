@@ -12,6 +12,7 @@ const M = [
   ["M4 short-lived task routes gain /api/profiles/switch", "dist/short-lived-keys.js", 'post("/api/run", "starts a task"),', 'post("/api/run", "starts a task"), post("/api/profiles/switch", "mutation"),'],
   ["M5 the PIN goes into the added audit subject", "dist/collab-server.js", "subject: `${made.name}'s profile`,", "subject: `${made.name}'s profile ${person.pin}`,"],
   ["M6 the role change is not audited", "dist/collab-server.js", "        audit(app.store, app.runtime.owner, {\n            action: \"policy.changed\", actor: app.runtime.owner, subject: `${name}'s role`,", "        void ({\n            action: \"policy.changed\", actor: app.runtime.owner, subject: `${name}'s role`,"],
+  ["M7 confirmSuggestion leaves the account waiting", "dist/people/index.js", "this.writeSuggestions(waiting.filter((each) => each !== found));", "void 0;"],
 ];
 for (const [name, a, b, c] of M) {
   const edits = Array.isArray(a) ? a : [[a, b, c]];

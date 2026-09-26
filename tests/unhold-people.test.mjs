@@ -2,8 +2,10 @@
  * unhold/people: the window's person controls (switching person, PINs, roles, invites, pinned settings) are live now,
  * so this shows the engine's guards still stand behind them, over HTTP, exactly as the window calls them:
  *   - switching to a person needs that person's PIN, and back to the owner needs the owner's PIN once it is set;
- *   - a household person at the window cannot invite, change a role, set anybody's PIN or pin a setting;
+ *   - a household person at the window cannot invite, change a role, set anybody's PIN, pin a setting, change who may
+ *     sign in from other devices or confirm a waiting account;
  *   - a short-lived key can do none of these, nor switch;
+ *   - a waiting account is confirmed once, and one that is not waiting never (the engine sets no time limit on them);
  *   - a PIN never comes back in a response, the audit record, the engine's output or the data folder.
  * Each test names the mutation that turns it red.
  */
@@ -41,7 +43,10 @@ async function served(t) {
   const sam = (await call("POST", "/api/profiles", { name: "Sam", pin: SAM_PIN, role: "adult" })).body;
   const kid = (await call("POST", "/api/profiles", { name: "Kid", pin: KID_PIN, role: "child" })).body;
   const active = async () => (await call("GET", "/api/profiles")).body.active?.id ?? null;
-  return { app, server, call, sam, kid, active, bodies, dataDir };
+  // An account found by its email, waiting for the owner (what an identity service's sign-in leaves, src/people/index.ts).
+  const waiting = { provider: "family-sso", profileId: kid.id, subject: "sub-kid-1", email: "kid@example.com" };
+  app.store.save("settings", app.runtime.owner, "people-oidc-waiting", { waiting: [{ ...waiting, at: new Date().toISOString() }] });
+  return { app, server, call, sam, kid, active, bodies, dataDir, waiting };
 }
 
 /* Mutation: src/profiles.ts switch() without `this.verifyPin(...)` (switching straight in) → red. */
@@ -75,8 +80,11 @@ test("with the owner's PIN set, going back to the owner needs it, and five wrong
 });
 
 /* What the household person and the short-lived key both try: every owner-only person control the window has. */
-function attempts(sam, kid) {
+function attempts(sam, kid, waiting) {
   return [
+    ["POST", "/api/people/settings", { mode: "on" }],
+    ["POST", "/api/people/settings", { chain: ["passkey"], sessionMinutes: 60 }],
+    ["POST", "/api/people/links/confirm", { provider: waiting.provider, profileId: waiting.profileId, subject: waiting.subject }],
     ["POST", "/api/profiles", { name: "Intruder", pin: NEW_PIN, role: "adult" }],
     ["POST", `/api/profiles/${kid.id}/role`, { role: "adult" }],
     ["POST", `/api/profiles/${sam.id}/role`, { role: "owner" }],
@@ -94,19 +102,20 @@ function attempts(sam, kid) {
 async function snapshot(app) {
   const p = app.store.profiles;
   return JSON.stringify({ list: p.list().map((x) => [x.id, x.name]), ownerPin: p.ownerPinOn(),
-    roles: app.runtime.roles.all(p.list().map((x) => x.id)).map((r) => [r.profileId, r.grant.role]) });
+    roles: app.runtime.roles.all(p.list().map((x) => x.id)).map((r) => [r.profileId, r.grant.role]),
+    signIn: app.people.settings(), waiting: app.people.suggestions().map((w) => w.subject) });
 }
 
 /* Every one of these routes has two locks: the household table (src/household-routes.ts) and the route's own requireOwner.
    Mutation: list own("/api/profiles/owner-pin") in householdOwnRoutes AND drop setOwnerPin's requireOwner → red.
    (Either lock alone keeps this green; listing own("/api/settings-kit/pins") alone is caught by settings-kit's own check.) */
-test("a household person at the window can't invite, change roles, set anybody's PIN or pin a setting", async (t) => {
-  const { app, call, sam, kid, active } = await served(t);
+test("a household person at the window can't invite, change roles, set anybody's PIN, pin a setting, change who may sign in or confirm a link", async (t) => {
+  const { app, call, sam, kid, active, waiting } = await served(t);
   const kitBefore = JSON.stringify((await call("GET", "/api/settings-kit")).body.pins);
   const before = await snapshot(app);
   assert.equal((await call("POST", "/api/profiles/switch", { profileId: sam.id, pin: SAM_PIN })).status, 200);
   const through = [];
-  for (const [method, path, body] of attempts(sam, kid)) {
+  for (const [method, path, body] of attempts(sam, kid, waiting)) {
     const answer = await call(method, path, body);
     if (answer.status < 400 || !/belongs to the owner/.test(answer.body.error ?? "")) through.push(`${method} ${path} → ${answer.status} ${answer.body.error ?? ""}`);
   }
@@ -123,14 +132,14 @@ test("a household person at the window can't invite, change roles, set anybody's
 
 /* Mutation: src/short-lived-keys.ts adding { method: "POST", pattern: /^\/api\/profiles\/switch$/ } to the task routes
    (or /^\/api\/profiles$/) → red. */
-test("a short-lived key can't switch person, invite, change roles, set a PIN or pin a setting", async (t) => {
-  const { app, call, sam, kid, active } = await served(t);
+test("a short-lived key can't switch person, invite, change roles, set a PIN, pin a setting, change who may sign in or confirm a link", async (t) => {
+  const { app, call, sam, kid, active, waiting } = await served(t);
   const keys = [app.sessionTokens.create(app.runtime.owner, { name: "wall", scope: "read", minutes: 5 }).token,
     app.sessionTokens.create(app.runtime.owner, { name: "script", scope: "run", minutes: 5 }).token];
   const before = await snapshot(app);
   const through = [];
   for (const key of keys) {
-    const tries = [...attempts(sam, kid), ["POST", "/api/profiles/switch", { profileId: sam.id, pin: SAM_PIN }]];
+    const tries = [...attempts(sam, kid, waiting), ["POST", "/api/profiles/switch", { profileId: sam.id, pin: SAM_PIN }]];
     for (const [method, path, body] of tries) {
       const answer = await call(method, path, body, key);
       if (answer.status !== 401) through.push(`${method} ${path} → ${answer.status}`);
@@ -139,6 +148,22 @@ test("a short-lived key can't switch person, invite, change roles, set a PIN or 
   assert.deepEqual(through, [], "a short-lived key got through");
   assert.equal(await active(), null, "the window is still the owner's");
   assert.equal(await snapshot(app), before, "nothing changed");
+});
+
+/* Mutation: src/people/index.ts confirmSuggestion() without its writeSuggestions(...) line (the account stays waiting) → red. */
+test("a waiting account is confirmed once by the owner, and one that is not waiting never", async (t) => {
+  const { app, call, waiting } = await served(t);
+  const body = { provider: waiting.provider, profileId: waiting.profileId, subject: waiting.subject };
+  const made = await call("POST", "/api/people/links/confirm", { ...body, subject: "sub-somebody-else" });
+  assert.equal(made.status, 400);
+  assert.match(made.body.error, /Nothing like that is waiting/);
+  const first = await call("POST", "/api/people/links/confirm", body);
+  assert.equal(first.status, 200);
+  assert.ok(first.body.settings.links.some((l) => l.subject === waiting.subject && l.profileId === waiting.profileId), "linked");
+  assert.deepEqual(first.body.waiting, [], "no longer waiting");
+  const again = await call("POST", "/api/people/links/confirm", body);
+  assert.equal(again.status, 400, "the same account cannot be confirmed twice");
+  assert.equal(app.people.settings().links.filter((l) => l.subject === waiting.subject).length, 1);
 });
 
 async function everyFile(dir) {

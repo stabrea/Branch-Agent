@@ -1,10 +1,13 @@
 /* unhold/people: clicks every person control this change made live and reads each change back through the engine.
    It starts its OWN fresh engine (a new temp data folder, allowed to reach this computer so the catalogue card can be
-   proved against a stand-in service) and a stand-in OpenAI-shaped service, then stops both:
+   proved against a stand-in service) and a stand-in OpenAI-shaped service, then stops both. Before the engine starts,
+   the data folder is given one person ("Lee Verify") and one account waiting to be linked to them, which only an
+   identity service's sign-in can leave (src/people/index.ts suggest), so Confirm has something real to confirm:
      npx tsc -p . && PORT=<free port> node design/redesign/tools/verify-unhold-people.cjs
    (the stand-in listens on PORT+1). Covered: invite (Overview) and p-invite (Team › People) with p-inv-role/p-inv-go,
-   p-role, p-code, p-signout, p-remove, pin-add8/pin-do8/pin-rm8, switchto and p-switch with pin-ok (a wrong PIN, the
-   person's PIN, and the owner's PIN on the way back), a household person refused by the engine, and a catalogue card
+   p-role, p-code, p-signout, p-remove, pin-add8/pin-do8/pin-rm8, si-owner/owner-pin-set, switchto and p-switch with pin-ok (a wrong PIN, the
+   person's PIN, and the owner's PIN on the way back), a household person refused by the engine, Team › Signing in
+   (si-mode, si-chain, si-stay, si-link, si-owner/owner-pin-set), and a catalogue card
    (signin) adding a key service end to end. PINs are made up here, never printed, and checked absent from the page,
    the console, browser storage and every request address. */
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
@@ -18,7 +21,7 @@ const os = require("node:os");
 const PORT = Number(process.env.PORT || 3743), STAND = PORT + 1;
 const BASE = `http://127.0.0.1:${PORT}`;
 const pin = () => String(randomInt(100000, 999999)) + String(randomInt(10, 99));
-const SAM_PIN = pin(), KIT_PIN = pin(), OWNER_PIN = pin();
+const SAM_PIN = pin(), KIT_PIN = pin(), OWNER_PIN = pin(), LEE_PIN = pin();
 const KEY = `sk-verify-${randomInt(1e9, 9e9)}`;
 let TOKEN = "";
 const results = [];
@@ -146,8 +149,24 @@ async function switching(page, sam, kit) {
   check("switchto: back to the owner with no owner PIN set", (await profiles()).active === null);
 }
 
+/* Team › Signing in: "Ask for my PIN when switching back to me" (si-owner). */
+async function ownerPinSwitch(page, on) {
+  await act(page, "ptab", { place: "team", v: "signin" });
+  await page.locator("#si-owner").waitFor({ state: "attached" });
+  if (await greyed(page, "#si-owner")) throw new Error("#si-owner is greyed");
+  await page.locator("#si-owner").click();
+  await settle(page);
+  if (!on) return;
+  await page.locator("#owner-pin-new").fill("12");
+  await click(page, '[data-act="owner-pin-set"]');
+  check("si-owner: a PIN that is not four to eight digits is asked again, nothing set", (await page.locator("#owner-pin-new").getAttribute("aria-invalid")) === "true" && (await profiles()).ownerPin === false);
+  await page.locator("#owner-pin-new").fill(OWNER_PIN);
+  await click(page, '[data-act="owner-pin-set"]');
+}
+
 async function ownerPin(page, kit) {
-  await api("profiles/owner-pin", { pin: OWNER_PIN }); // setup: the window has no control for this (the prototype draws none)
+  await ownerPinSwitch(page, true);
+  check("si-owner + owner-pin-set: POST /api/profiles/owner-pin set the owner's PIN, the switch shows it", (await profiles()).ownerPin === true && await page.locator("#si-owner").isChecked());
   await act(page, "ptab", { place: "team", v: "people" });
   await click(page, `.t9-item[data-v="${kit.id}"]`);
   await click(page, '.t9-detail [data-act="p-switch"]');
@@ -165,7 +184,8 @@ async function ownerPin(page, kit) {
   await click(page, '[data-act="pin-ok"]');
   await afterSwitch(page);
   check("pin-ok: the owner's PIN brings the owner back", (await profiles()).active === null);
-  await api("profiles/owner-pin", { pin: null });
+  await ownerPinSwitch(page, false);
+  check("si-owner off: POST /api/profiles/owner-pin {pin: null} switched it off", (await profiles()).ownerPin === false && !(await page.locator("#si-owner").isChecked()));
 }
 
 async function removeKit(page, kit) {
@@ -173,6 +193,28 @@ async function removeKit(page, kit) {
   await click(page, `.t9-item[data-v="${kit.id}"]`);
   await click(page, '.t9-detail [data-act="p-remove"]');
   check("p-remove: POST /api/profiles/:id/remove took Kit off this computer", !(await byName("Kit Verify")) && (await toastText(page)).includes("Removed."));
+}
+
+/* Team › Signing in: who may sign in from their own device, how they prove it, how long they stay, and a waiting account. */
+async function signingIn(page, lee) {
+  await act(page, "ptab", { place: "team", v: "signin" });
+  const card = () => api("people/settings");
+  await click(page, '[data-act="si-mode"][data-v="on"]');
+  check("si-mode: POST /api/people/settings switched signing in from other devices on", (await card()).settings.mode === "on");
+  check("si-mode: the page shows the engine's mode", (await page.locator('[data-act="si-mode"][data-v="on"]').getAttribute("aria-pressed")) === "true");
+  await click(page, '[data-act="si-stay"][data-v="60"]');
+  check("si-stay: stay signed in for 1 hour", (await card()).settings.sessionMinutes === 60);
+  await click(page, '[data-act="si-chain"][data-v="passkey"]');
+  check("si-chain: a passkey is added to every person's checks", JSON.stringify((await card()).settings.chain) === JSON.stringify(["pin", "passkey"]));
+  await click(page, '[data-act="si-chain"][data-v="passkey"]');
+  await click(page, '[data-act="si-chain"][data-v="pin"]');
+  const said = await toastText(page);
+  check("si-chain: taking the last check away is refused by the engine, the PIN stays", JSON.stringify((await card()).settings.chain) === JSON.stringify(["pin"]) && said.length > 0, said.slice(0, 80));
+  await click(page, '[data-act="si-link"]');
+  const after = await card();
+  check("si-link: POST /api/people/links/confirm linked the waiting account to Lee", after.waiting.length === 0 && after.settings.links.some((l) => l.profileId === lee && l.subject === "sub-lee-1"));
+  await click(page, '[data-act="si-mode"][data-v="off"]');
+  check("si-mode off again", (await card()).settings.mode === "off");
 }
 
 async function catalogueCard(page, seen) {
@@ -203,6 +245,19 @@ function startStandIn(seen) {
     }).listen(STAND, "127.0.0.1", () => resolve(server));
   });
 }
+/* One person and one waiting account, written the way the engine keeps them, before the engine starts. */
+async function seed(dir) {
+  const { pathToFileURL } = require("node:url");
+  const { createBranch } = await import(pathToFileURL(join(process.cwd(), "dist/index.js")).href);
+  const provider = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
+  const app = await createBranch({ workspace: join(dir, "workspace"), dataDir: join(dir, "data"), provider });
+  try {
+    const lee = app.store.profiles.create({ name: "Lee Verify", pin: LEE_PIN });
+    app.store.save("settings", app.runtime.owner, "people-oidc-waiting", { waiting: [{ provider: "family-sso", profileId: lee.id, subject: "sub-lee-1", email: "lee@example.com", at: new Date().toISOString() }] });
+    return lee.id;
+  } finally { await app.close(); }
+}
+
 function startEngine(dir) {
   writeFileSync(join(dir, "integrations.json"), JSON.stringify({ web: { allowPrivateAddresses: true } }));
   const engine = spawn(process.execPath, ["dist/cli.js", "start"], { env: { ...process.env, BRANCH_DATA_DIR: join(dir, "data"), BRANCH_PORT: String(PORT), BRANCH_INTEGRATIONS: join(dir, "integrations.json") } });
@@ -217,7 +272,7 @@ function startEngine(dir) {
 async function noPinInWindow(page, logged, urls) {
   const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }));
   const where = [stored, await page.content(), logged.join("\n"), urls.join("\n")];
-  const leaked = [SAM_PIN, KIT_PIN, OWNER_PIN].filter((p) => where.some((w) => w.includes(p)));
+  const leaked = [SAM_PIN, KIT_PIN, OWNER_PIN, LEE_PIN].filter((p) => where.some((w) => w.includes(p)));
   check("no PIN in the page, the console, browser storage or any request address", leaked.length === 0, `${leaked.length} found`);
 }
 
@@ -225,6 +280,7 @@ async function noPinInWindow(page, logged, urls) {
   const dir = mkdtempSync(join(os.tmpdir(), "verify-unhold-people-"));
   const seen = [], errors = [], logged = [], urls = [];
   const stand = await startStandIn(seen);
+  const lee = await seed(dir);
   const { engine, token } = startEngine(dir);
   let browser;
   try {
@@ -246,6 +302,7 @@ async function noPinInWindow(page, logged, urls) {
     await switching(page, sam, kit);
     await ownerPin(page, kit);
     await removeKit(page, kit);
+    await signingIn(page, lee);
     await catalogueCard(page, seen);
     await noPinInWindow(page, logged, urls);
   } catch (error) { check("the run finished", false, error.message); }

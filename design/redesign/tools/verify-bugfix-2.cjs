@@ -140,8 +140,10 @@ async function people(page, person) {
   const card = await api("people/settings");
   check(await seg.locator(`[data-v="${card.settings.mode}"]`).getAttribute("aria-pressed") === "true", `3 Signing in shows the engine's mode (GET /api/people/settings mode: ${card.settings.mode})`);
   check(await page.locator('#main .place [aria-label="How they prove it’s them"] [data-v="pin"]').getAttribute("aria-pressed") === String(card.settings.chain.includes("pin")), "3 Signing in shows the engine's sign-in chain");
-  const greyed = await page.evaluate(() => [...document.querySelectorAll('#main .place [data-act^="si-"], #main .place input[id^="si-"]')].every((el) => el.getAttribute("aria-disabled") === "true"));
-  check(greyed, "3 every sign-in control is greyed (security-sensitive)");
+  // unhold/people: the sign-in controls are live now (proved in verify-unhold-people.cjs); only "Lock a profile after five
+  // wrong PINs" stays greyed, because it shows what the engine always does.
+  const states = await page.evaluate(() => [...document.querySelectorAll('#main .place [data-act^="si-"], #main .place input[id^="si-"]')].map((el) => [el.id || el.dataset.act, el.getAttribute("aria-disabled") === "true"]));
+  check(states.length > 0 && states.every(([id, grey]) => grey === (id === "si-lock")), "3 every sign-in control is live but the fixed PIN lockout", JSON.stringify(states.filter(([id, grey]) => grey !== (id === "si-lock"))));
   await page.locator('#main .place [data-act="ptab"][data-v="people"]').click();
   const row = page.locator('#main .place [data-act="p-sel"]', { hasText: person.name });
   await row.waitFor({ timeout: 10000 });
