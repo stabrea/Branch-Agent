@@ -42,10 +42,10 @@ export const placeRoot = (page) => page.locator("#main .place").first();
 
 /** On a narrow window the side list is slid away; "Show conversations" (data-act="side") slides it in. */
 async function sideControl(page, selector) {
-  const control = page.locator(selector).first();
-  const inView = await control.evaluate((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.left >= 0 && r.right <= innerWidth; });
-  if (!inView) await page.locator('[data-act="side"]').first().click();
-  return control;
+  const toggle = page.locator('[data-act="side"]:visible').first();
+  const open = await page.evaluate(() => document.getElementById("app")?.classList.contains("side-open"));
+  if (!open && await toggle.count()) await toggle.click();
+  return page.locator(selector).first();
 }
 
 /** A place from the side list ("inbox", "library", "team", "customize", "automations", "overview"), then its tab. */

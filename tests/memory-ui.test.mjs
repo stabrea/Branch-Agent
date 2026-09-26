@@ -8,6 +8,24 @@ import { discardTemp } from './temp-dir.mjs';
 import { chromium } from 'playwright';
 import { createBranch } from '../dist/index.js';
 import { startServer } from '../dist/server.js';
+import { newWindow, openPlace as openNewPlace, placeRoot } from './new-window-places.mjs';
+
+/* Redesign: the new window's Library › Memory (public/app/places/library.js) lists what is remembered with Forget, a
+   "N of M remembered" ring, Tidy up, and a More menu that exports (JSON Lines or a full archive) and opens the archive.
+   The prototype has no per-fact editor, no "Save memory" box, no limit field and no import box; tests of those are
+   skipped as replaced, and what they proved of the engine is asked of its routes. */
+async function windowFixture(t, seed = true) {
+  const provider = { name: 'memory-ui', async complete(request) {
+    const reply = request.messages.findLast(message => message.role === 'tool');
+    if (reply) return { content: JSON.parse(reply.content).result[0].data.text, toolCalls: [] };
+    return { content: '', toolCalls: [{ id: 'memory', name: 'memory.search', arguments: '{"query":"Juniper"}' }] };
+  } };
+  const f = await newWindow(t, { provider, seed: seed ? app => app.runtime.executeTool('memory.put', { text: 'Juniper meeting Monday', source: 'Original note' }) : undefined });
+  await openNewPlace(f.page, 'library', 'memory');
+  return f;
+}
+const importArchive = (f, body) => fetch(new URL('/api/memory/import', f.server.url), { method: 'POST',
+  headers: { authorization: `Bearer ${f.server.token}`, 'content-type': 'application/json' }, body }).then(async r => ({ status: r.status, body: await r.json() }));
 
 async function fixture(t, seed = true) {
   const scratch = join(tmpdir(), 'Codex-session-files'); await mkdir(scratch, { recursive: true });
@@ -46,7 +64,8 @@ async function upload(page, archive) {
   await importDone(page);
 }
 
-test('opening the selected memory tab does not send a redundant browser click', async t => {
+test.skip('opening the selected memory tab does not send a redundant browser click', async t => {
+  // Redesign: replaced by the new window (a place's tab is one data-act="ptab" button that redraws the place; there is no .lx-tab panel to click twice).
   const f = await fixture(t);
   await f.page.evaluate(() => {
     window.__memoryTabClicks = 0;
@@ -59,7 +78,8 @@ test('opening the selected memory tab does not send a redundant browser click', 
   assert.deepEqual(f.errors, []);
 });
 
-test('memory edits persist after reload and a new chat retrieves the corrected fact', async t => {
+test.skip('memory edits persist after reload and a new chat retrieves the corrected fact', async t => {
+  // Redesign: replaced by the new window (Library › Memory in prototype.html lists facts with Forget only; there is no per-fact Edit).
   const f = await fixture(t), before = record(f);
   await edit(f.page, 'Juniper meeting Friday', 'Corrected calendar');
   await f.page.getByRole('button', { name: 'Save changes', exact: true }).click();
@@ -82,7 +102,8 @@ test('memory edits persist after reload and a new chat retrieves the corrected f
   assert.deepEqual(f.errors, []);
 });
 
-test('stale edits retain the draft and do not overwrite a newer fact; cancel discards the draft', async t => {
+test.skip('stale edits retain the draft and do not overwrite a newer fact; cancel discards the draft', async t => {
+  // Redesign: replaced by the new window (no per-fact Edit in Library › Memory; prototype.html has none).
   const f = await fixture(t), before = record(f);
   await edit(f.page, 'My unsaved draft', 'Draft source');
   await f.app.runtime.executeTool('memory.update', { id: before.id, expectedRevision: before.revision, text: 'Newer correction', source: 'Other editor' });
@@ -96,7 +117,8 @@ test('stale edits retain the draft and do not overwrite a newer fact; cancel dis
   assert.deepEqual(f.errors, []);
 });
 
-test('polling preserves the open editor, focus, selection and continued typing', async t => {
+test.skip('polling preserves the open editor, focus, selection and continued typing', async t => {
+  // Redesign: replaced by the new window (no per-fact Edit in Library › Memory; prototype.html has none).
   const f = await fixture(t);
   await edit(f.page, 'Juniper draft fact', 'Draft source');
   const input = f.page.getByLabel('Edit memory fact', { exact: true });
@@ -116,7 +138,8 @@ test('polling preserves the open editor, focus, selection and continued typing',
   assert.deepEqual(f.errors, []);
 });
 
-test('an older pending save cannot discard a reopened editor draft', async t => {
+test.skip('an older pending save cannot discard a reopened editor draft', async t => {
+  // Redesign: replaced by the new window (no per-fact Edit in Library › Memory; prototype.html has none).
   const f = await fixture(t);
   let release, received;
   const held = new Promise(resolve => { release = resolve; });
@@ -145,7 +168,8 @@ test('an older pending save cannot discard a reopened editor draft', async t => 
   assert.deepEqual(f.errors, []);
 });
 
-test('failed pending memory save restores both fields with the original draft intact', async t => {
+test.skip('failed pending memory save restores both fields with the original draft intact', async t => {
+  // Redesign: replaced by the new window (no per-fact Edit in Library › Memory; prototype.html has none).
   const f = await fixture(t);
   let release, received;
   const held = new Promise(resolve => { release = resolve; });
@@ -172,26 +196,28 @@ test('failed pending memory save restores both fields with the original draft in
 });
 
 test('memory capacity rejects additional facts and cannot drop below the saved count', async t => {
-  const f = await fixture(t);
-  await f.page.locator('#memory-capacity').fill('1');
-  await f.page.getByRole('button', { name: 'Update memory limit', exact: true }).click();
-  await f.page.locator('#memory-count').filter({ hasText: '1 of 1 saved facts' }).waitFor();
-  await f.page.locator('#memory-text').fill('Extra fact');
-  await f.page.getByRole('button', { name: 'Save memory', exact: true }).click();
-  await f.page.locator('#toast').filter({ hasText: /capacity reached/ }).waitFor();
+  // Redesign: the limit is set through the engine (POST /api/memory/capacity; prototype.html has no limit field), and the
+  // window's ring reads what the engine keeps.
+  const f = await windowFixture(t), ring = placeRoot(f.page).locator('.memst15');
+  assert.deepEqual(await f.call('/api/memory/capacity', { maxFacts: 1 }), { count: 1, maxFacts: 1 });
+  await f.page.reload(); await f.page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
+  await openNewPlace(f.page, 'library', 'memory');
+  await ring.filter({ hasText: '1 of 1 remembered' }).waitFor();
+  const refused = await f.call('/api/action', { tool: 'memory.put', args: { text: 'Extra fact', source: 'Typed here' } });
+  assert.match(JSON.stringify(refused), /capacity reached/);
   assert.equal(f.app.store.list('memory', 'local').length, 1);
-  await f.page.locator('#memory-capacity').fill('2');
-  await f.page.getByRole('button', { name: 'Update memory limit', exact: true }).click();
-  await f.page.locator('#memory-count').filter({ hasText: '1 of 2 saved facts' }).waitFor();
-  await f.page.getByRole('button', { name: 'Save memory', exact: true }).click();
-  await f.page.locator('#memory-count').filter({ hasText: '2 of 2 saved facts' }).waitFor();
-  await f.page.locator('#memory-capacity').fill('1');
-  await f.page.getByRole('button', { name: 'Update memory limit', exact: true }).click();
-  await f.page.locator('#toast').filter({ hasText: /below the current count/ }).waitFor();
+  assert.deepEqual(await f.call('/api/memory/capacity', { maxFacts: 2 }), { count: 1, maxFacts: 2 });
+  await f.call('/api/action', { tool: 'memory.put', args: { text: 'Extra fact', source: 'Typed here' } });
+  await f.page.reload(); await f.page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
+  await openNewPlace(f.page, 'library', 'memory');
+  await ring.filter({ hasText: '2 of 2 remembered' }).waitFor();
+  assert.match(await placeRoot(f.page).innerText(), /Juniper meeting Monday[\s\S]*Extra fact|Extra fact[\s\S]*Juniper meeting Monday/);
+  assert.match(JSON.stringify(await f.call('/api/memory/capacity', { maxFacts: 1 })), /below the current count/);
   assert.deepEqual(f.errors, []);
 });
 
-test('capacity draft survives blur and polling, and a pending save preserves newer input', async t => {
+test.skip('capacity draft survives blur and polling, and a pending save preserves newer input', async t => {
+  // Redesign: replaced by the new window (the limit is read in the "N of M remembered" ring; prototype.html has no limit field to draft in).
   const f = await fixture(t), input = f.page.locator('#memory-capacity');
   const submit = f.page.getByRole('button', { name: 'Update memory limit', exact: true });
   await input.fill('2'); await input.press('Tab');
@@ -214,25 +240,27 @@ test('capacity draft survives blur and polling, and a pending save preserves new
 });
 
 test('memory file export/import preserves metadata in an empty store and conflicts merge atomically', async t => {
-  const source = await fixture(t), destination = await fixture(t, false);
+  // Redesign: the archive is saved from Library › Memory's More menu ("Save a full archive"); prototype.html has no import
+  // box, so the file goes back in through the engine's own route (POST /api/memory/import).
+  const source = await windowFixture(t), destination = await windowFixture(t, false);
+  await placeRoot(source.page).locator('[data-act="memmore15"]').click();
   const download = source.page.waitForEvent('download');
-  await source.page.getByRole('button', { name: 'Export memory JSON', exact: true }).click();
+  await source.page.locator('.pop [data-act="memexp15"][data-v="archive"]').click();
   const file = await download, path = join(source.root, 'memory.json'); await file.saveAs(path);
   const archive = JSON.parse(await readFile(path, 'utf8'));
-  await destination.page.locator('#memory-import').setInputFiles(path);
-  await destination.page.locator('#memory-import-result').filter({ hasText: '1 facts imported; 0 unchanged.' }).waitFor();
-  await importDone(destination.page);
+  assert.deepEqual(await importArchive(destination, JSON.stringify(archive)), { status: 200, body: { imported: 1, unchanged: 0 } });
   assert.deepEqual(record(destination), record(source));
-  await upload(destination.page, archive);
-  assert.match(await destination.page.locator('#memory-import-result').innerText(), /0 facts imported; 1 unchanged/);
+  await destination.page.reload(); await destination.page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
+  await openNewPlace(destination.page, 'library', 'memory');
+  await placeRoot(destination.page).getByText('Juniper meeting Monday').waitFor();
+  assert.deepEqual((await importArchive(destination, JSON.stringify(archive))).body, { imported: 0, unchanged: 1 });
   const snapshot = JSON.stringify(destination.app.store.list('memory', 'local'));
   const conflict = structuredClone(archive);
   conflict.records.unshift({ ...structuredClone(archive.records[0]), id: 'new-fact' });
   conflict.records[1].data.text = 'Conflicting text';
-  await upload(destination.page, conflict);
-  assert.match(await destination.page.locator('#memory-import-result').innerText(), /conflicts/);
+  assert.match((await importArchive(destination, JSON.stringify(conflict))).body.error, /conflicts/);
   assert.equal(JSON.stringify(destination.app.store.list('memory', 'local')), snapshot);
-  await destination.page.locator('#memory-import').setInputFiles({ name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('{broken') });
-  await destination.page.locator('#memory-import-result').filter({ hasText: /valid memory JSON/ }).waitFor();
+  const broken = await importArchive(destination, '{broken');
+  assert.equal(broken.status, 400);
   assert.deepEqual([...source.errors, ...destination.errors], []);
 });
