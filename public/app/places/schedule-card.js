@@ -89,7 +89,13 @@ async function confirm() {
   keepWhat();
   const p = P;
   if (!p || !ready(p)) return;
-  try { await api("schedules", { ...p.proposal.schedule, prompt: p.what.trim() || p.proposal.schedule.prompt }); } catch (error) { toast(error.message); return; }
+  // Read once more just before saving, so the first run is worked out from now and not from when the card opened.
+  const s = p.proposal.schedule, when = Object.fromEntries(["dailyAt", "weekdays", "monthDay", "intervalMs"].filter((k) => s[k] !== undefined).map((k) => [k, s[k]]));
+  try {
+    const fresh = (await api("schedules/propose", { edit: { prompt: p.what.trim() || s.prompt, ...when }, timezone: s.timezone })).proposal;
+    p.proposal = fresh;
+    await api("schedules", fresh.schedule);
+  } catch (error) { toast(error.message); return; }
   P = null;
   const box = $("#nl-in");
   if (box) box.value = "";

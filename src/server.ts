@@ -2141,18 +2141,18 @@ async function schedulesApi(app: Branch, request: IncomingMessage, path: string)
 }
 /**
  * One question to the model in use, with no tools and a fixed answer shape, for words the engine cannot
- * read itself. It is asked under a temporary task that is discarded afterwards, so nothing of it stays
- * in the conversation list or the activity.
+ * read itself. It is asked under a task of its own, kept like the morning brief's, so what it spent
+ * counts in the owner's usage and spending limits like any other model call.
  */
 async function askAside(app: Branch, question: string, shape: AnswerShape): Promise<ShapedAnswer> {
-  const owner = app.runtime.owner;
-  const run = app.store.createRun(owner, "Reading a schedule from your words", undefined, true, "owner");
+  const run = app.store.createRun(app.runtime.owner, "Reading a schedule from your words", undefined, false, "owner");
+  let answer: ShapedAnswer | undefined;
   try {
     const context = app.runtime.context({ runId: run.id, permissions: [], signal: AbortSignal.timeout(60_000) });
-    return await app.runtime.shaped(run, context, question, shape);
+    answer = await app.runtime.shaped(run, context, question, shape);
+    return answer;
   } finally {
-    app.store.finish(run.id, "completed", "");
-    app.store.discardSession(owner, run.sessionId);
+    app.store.finish(run.id, answer?.status === "resolved" ? "completed" : "failed", answer?.status === "refused" ? answer.reason : "");
   }
 }
 /** The owner's own hands, for a schedule they are adding or removing from the command line. */

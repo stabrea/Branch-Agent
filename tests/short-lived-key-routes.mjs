@@ -26,7 +26,6 @@ export const ROUTES = {
   "/ap/v1/agent/tasks/:id/steps": "task POST",
   "/ap/v1/agent/tasks/:id/steps/:id": "look",
   "/mcp": "task POST,DELETE",
-  "/mcp.js": "look",
   "/v1/chat/completions": "task POST",
   "/v1/models": "look",
 

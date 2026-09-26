@@ -91,8 +91,6 @@ test("the route proposes and saves nothing; the owner's yes is POST /api/schedul
       headers: { authorization: "Bearer " + key, origin: server.url, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, body: await response.json() };
   };
-  const rows = () => app.store.sqlite.prepare("SELECT (SELECT count(*) FROM sessions) + (SELECT count(*) FROM tasks) AS n").get().n;
-  const rowsBefore = rows();
   const proposed = await call("/api/schedules/propose", { text: "every weekday at 8, check my inbox for invoices", timezone: "Europe/Paris" });
   assert.equal(proposed.status, 200, JSON.stringify(proposed.body));
   assert.equal(proposed.body.proposal.schedule.dailyAt, "08:00");
@@ -104,7 +102,8 @@ test("the route proposes and saves nothing; the owner's yes is POST /api/schedul
   assert.deepEqual([byModel.body.proposal.source, byModel.body.proposal.schedule.dailyAt], ["model", "17:45"]);
   assert.equal(said.length, 1);
   assert.equal(said[0].tools.length, 0, "the model is asked with no tools");
-  assert.equal(rows(), rowsBefore, "the side question leaves no conversation behind");
+  const spent = app.store.sqlite.prepare("SELECT t.status, u.estimated_input AS input FROM tasks t JOIN usage u ON u.run_id = t.id WHERE t.prompt = ?").get("Reading a schedule from your words");
+  assert.ok(spent && spent.status === "completed" && spent.input > 0, "what the side question spent is kept in the usage, like any model call");
 
   const saved = await call("/api/schedules", proposed.body.proposal.schedule);
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
