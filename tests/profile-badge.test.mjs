@@ -12,9 +12,9 @@ import { closeSettings, openPlace } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
-/* The new window: the person button at the foot of the list says whose profile the window is on. Switching from the
-   window (the person menu's people, data-act "switchto") is Coming soon, so the engine switches here: before the window
-   opens, and then back while it is open. */
+/* The new window: the person button at the foot of the list says whose profile the window is on. Here the engine
+   switches, before the window opens and then back while it is open; switching from the window itself (the person menu's
+   people, data-act "switchto", live since unhold/people) is the owner's-PIN test further down. */
 const onSam = (app) => {
   const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
   app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
@@ -78,8 +78,8 @@ async function fixture(t, everything) {
 
 for (const everything of [false, true]) {
   const layout = everything ? "full" : "calm";
-  // Redesign: Coming soon (switchto, the person menu's way back), checked at fc541c24; the title-bar badge is replaced by
-  // the person button, re-pointed above.
+  // Redesign: the title-bar badge is replaced by the person button, re-pointed above; the person menu's way back
+  // (switchto) is re-pointed below.
   test.skip(`${layout} window: the title bar says whose profile it is, and switches back`, async (t) => {
     const f = await fixture(t, everything);
     const badge = f.page.locator("#profile-badge");
@@ -96,23 +96,26 @@ for (const everything of [false, true]) {
   });
 }
 
-// Redesign: Coming soon (switchto, the person menu's way back), checked at fc541c24.
-test.skip("with the owner's PIN set, the title bar's way back asks for it", async (t) => {
-  const f = await fixture(t, false);
-  await f.call("/api/profiles/owner-pin", { pin: "9753" });
-  await f.call("/api/profiles/switch", { profileId: f.sam.id, pin: "2468" });
-  const badge = f.page.locator("#profile-badge");
-  await badge.waitFor({ state: "visible", timeout: 15000 });
-  const pin = badge.getByLabel("The owner's PIN");
-  await pin.fill("0000");
-  await badge.getByRole("button", { name: "Switch back" }).click();
-  await f.page.getByText("That PIN is not right").first().waitFor({ state: "visible" });
-  assert.equal(f.app.store.profiles.isOwner(), false, "a wrong PIN let the window back to the owner");
-  if (shots) await f.page.screenshot({ path: join(shots, "profile-badge-pin.png") });
-  await pin.fill("9753");
-  await badge.getByRole("button", { name: "Switch back" }).click();
-  await badge.waitFor({ state: "hidden", timeout: 15000 });
-  assert.equal(f.app.store.profiles.isOwner(), true);
+/* unhold/people: the person menu's way back to the owner (switchto) asks for the owner's PIN once it is set, and a wrong
+   one leaves the window on Sam. */
+test("with the owner's PIN set, the person menu's way back asks for it", async (t) => {
+  const { settingsWindow } = await import("./settings-window.mjs");
+  const before = (app) => { app.store.profiles.setOwnerPin({ pin: "9753" }); onSam(app); };
+  const { app, page, errors } = await settingsWindow(t, { name: "profile-badge-pin", before });
+  await page.locator(".owner .who14", { hasText: "Sam" }).waitFor({ timeout: 15000 });
+  await page.locator('#side [data-act="owner"]').click();
+  await page.locator('.pop [data-act="switchto"][data-v=""]').click();
+  await page.getByRole("dialog", { name: "The owner’s PIN" }).waitFor();
+  await page.locator("#pin-try").fill("0000");
+  await page.locator('[data-act="pin-ok"]').click();
+  await page.getByText("That PIN is not right").first().waitFor({ state: "visible" });
+  assert.equal(app.store.profiles.isOwner(), false, "a wrong PIN let the window back to the owner");
+  assert.equal(await page.locator("#pin-try").inputValue(), "", "the PIN is not left in its field");
+  await page.locator("#pin-try").fill("9753");
+  await page.locator('[data-act="pin-ok"]').click();
+  await page.waitForFunction(() => !/Sam/.test(document.querySelector(".owner .who14")?.textContent ?? ""), undefined, { timeout: 15000 });
+  assert.equal(app.store.profiles.isOwner(), true);
+  assert.deepEqual(errors, []);
 });
 
 // Redesign: replaced by the new window (no chat-app card loads by itself in Settings; not asking on somebody else's
