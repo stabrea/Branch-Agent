@@ -9,6 +9,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { readPolicy, savePolicy } from "../dist/policy.js";
 import { openSettings, pressUntil } from "./places.mjs";
 
 const quiet = { name: "scripted", async complete() { return { content: "Hello.", toolCalls: [] }; } };
@@ -39,7 +40,47 @@ async function fixture(t, { width = 1440, height = 950 } = {}) {
   return { page, errors };
 }
 
-test("DG-140: the Inbox's Needs you tab carries the live count, and hides it at none", async (t) => {
+/* ---------- the new window (public/app/**, design/redesign/prototype.html) ---------- */
+/* Redesign: the prototype's Inbox tabs (tabsHtml) always carry Needs you's count, 0 included; the side list's Inbox
+   carries the same number once something waits. */
+const writing = { name: "scripted", async complete(request) {
+  if (request.messages.at(-1)?.role === "tool") return { content: "Written.", toolCalls: [] };
+  return { content: "", toolCalls: [{ id: "c1", name: "files.write", arguments: JSON.stringify({ path: "note.txt", content: "hi" }) }] };
+} };
+test("DG-140 (new window): the Inbox's Needs you tab carries the live count, the side list's own number", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-places-phone-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: writing });
+  const policy = readPolicy(app.store, app.runtime.owner);
+  savePolicy(app.store, app.runtime.owner, { ...policy, rules: [{ tool: "files.write", decision: "ask" }, ...policy.rules] });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 950 }, serviceWorkers: "block" });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  const inbox = page.locator('#side [data-act="view"][data-v="inbox"]');
+  const tabCount = page.locator('#main [data-act="ptab"][data-place="inbox"][data-v="needs"] .n');
+  await inbox.click();
+  assert.equal(await tabCount.innerText(), "0", "none waiting");
+  assert.equal(await inbox.locator(".cnt").count(), 0, "and the side list says nothing");
+  await page.locator('[data-act="newmenu"]').first().click();
+  await page.locator('[data-act="newconv"]').first().click();
+  await page.locator("#prompt").fill("write the note");
+  await page.locator("#send").click();
+  await page.locator("#live-ask").waitFor({ state: "visible", timeout: 30000 });
+  await page.waitForFunction(() => document.querySelector('#side [data-act="view"][data-v="inbox"] .cnt')?.textContent === "1", undefined, { timeout: 30000 });
+  await inbox.click();
+  await page.waitForFunction(() => document.querySelector('#main [data-act="ptab"][data-place="inbox"][data-v="needs"] .n')?.textContent === "1", undefined, { timeout: 30000 });
+  assert.equal(await tabCount.innerText(), await inbox.locator(".cnt").innerText(), "the same number as the side list's");
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the prototype's tab shows 0 at none; checked above).
+test.skip("DG-140: the Inbox's Needs you tab carries the live count, and hides it at none", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(() => globalThis.branchLayout.go("runs"));
   assert.equal(await page.locator('.lx-tab[data-place="inbox"][data-tab="needs"] #lx-needs-tab-count').count(), 1, "one count, on the Needs you tab");
@@ -60,7 +101,8 @@ test("DG-140: the Inbox's Needs you tab carries the live count, and hides it at 
   assert.deepEqual(errors, []);
 });
 
-test("DG-143: a phone's bar ends in Customize, and Settings is still behind the gear", async (t) => {
+// Redesign: replaced by the new window (no places bar in the prototype; the side list, with Settings, slides over on a phone: phone-layout).
+test.skip("DG-143: a phone's bar ends in Customize, and Settings is still behind the gear", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 844 });
   const bar = page.locator("#ew-places");
   await bar.waitFor({ state: "visible" });
@@ -74,7 +116,8 @@ test("DG-143: a phone's bar ends in Customize, and Settings is still behind the 
   assert.deepEqual(errors, []);
 });
 
-test("DG-143: the bar reads in French", async (t) => {
+// Redesign: replaced by the new window (no places bar); French is Coming soon (sw:lang), checked at fc541c24.
+test.skip("DG-143: the bar reads in French", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 844 });
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
   await page.waitForFunction(() => document.documentElement.lang === "fr");
@@ -94,7 +137,8 @@ const crumbsOnScreen = (page) => page.evaluate(() => {
   };
 });
 
-test("DG-141: one crumb, the picked computer / the place, and a phone keeps only its face", async (t) => {
+// Redesign: replaced by the new window (the prototype's title bar has no crumbs; public/topbar-crumbs.js is gone).
+test.skip("DG-141: one crumb, the picked computer / the place, and a phone keeps only its face", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(() => globalThis.branchLayout.go("memory"));
   await page.locator("#library").waitFor({ state: "visible" });
@@ -116,7 +160,8 @@ test("DG-141: one crumb, the picked computer / the place, and a phone keeps only
   assert.deepEqual(errors, []);
 });
 
-test("DG-145: on a phone the same usage ring sits in the title bar before search; wider it stays under the message box", async (t) => {
+// Redesign: replaced by the new window (the prototype keeps the usage ring in the status bar, data-act="usagepop", at every width).
+test.skip("DG-145: on a phone the same usage ring sits in the title bar before search; wider it stays under the message box", async (t) => {
   const { page, errors } = await fixture(t);
   const where = () => page.evaluate(() => {
     const ring = document.getElementById("status-bar");
