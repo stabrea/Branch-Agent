@@ -336,10 +336,10 @@ async function agentPortability(app: Awaited<ReturnType<typeof configuredApp>>["
   if (command === "export-agent") {
     const withMemory = process.argv.includes("--memory");
     const redact = process.argv.includes("--redact") ? (text: string) => applyPiiGuard(text, "mask").text : undefined;
-    const { bytes, manifest } = exportAgent(app.store, app.runtime.owner, app.version, { memory: withMemory, ...(redact ? { redact } : {}) });
+    const { bytes, manifest } = await exportAgent(app.store, app.runtime.owner, app.version, { memory: withMemory, ...(redact ? { redact } : {}) });
     await writeFile(target, bytes, { mode: 0o600 });
     for (const section of manifest.sections) console.log(`  ${section.name}: ${section.summary}`);
-    console.log(`Written to ${target}. No secret is inside: the locker was never opened.`);
+    console.log(`Written to ${target}. Every part was checked for your saved keys before it was written.`);
     return;
   }
   const opened = openAgent(await readFile(target));

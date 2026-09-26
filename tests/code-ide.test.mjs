@@ -444,7 +444,7 @@ test("an assistant is written to one file and read back with nothing secret insi
   await source.app.store.secrets.resolve("local", "default", ["DEPLOY_TOKEN"], { purpose: "test" });
   source.app.store.save("specialists", "local", "leaky", { name: "Leaky", instructions: "Use tok_live_super_secret_42 to deploy." });
 
-  const { bytes, manifest } = exportAgent(source.app.store, "local", source.app.version);
+  const { bytes, manifest } = await exportAgent(source.app.store, "local", source.app.version);
   assert.equal(manifest.format, "branch-agent");
   assert.deepEqual(manifest.sections.map((section) => section.name), ["specialists", "procedures", "skills", "routing", "permissions"]);
   assert.equal(manifest.sections.some((section) => section.name === "memory"), false, "what it remembers stays behind unless asked for");
@@ -472,7 +472,7 @@ test("an assistant is written to one file and read back with nothing secret insi
 test("a file whose parts do not match its manifest is refused", async (t) => {
   const { app } = await fixture(t);
   app.store.save("specialists", "local", "one", { name: "One" });
-  const { bytes } = exportAgent(app.store, "local", app.version);
+  const { bytes } = await exportAgent(app.store, "local", app.version);
   const damaged = Buffer.from(bytes);
   const at = damaged.indexOf(Buffer.from("branch-agent"));
   assert.ok(at > 0);

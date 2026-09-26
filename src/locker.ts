@@ -68,12 +68,26 @@ export class Locker {
     for (const name of new Set(names)) {
       const row = this.db.prepare("SELECT iv,tag,ciphertext FROM locker WHERE owner=? AND project=? AND name=?").get(owner, project, name);
       if (!row) throw new Error(`Secret ${name} is not available in the active project (${project})`);
-      const decipher = createDecipheriv("aes-256-gcm", key, row.iv as Buffer);
-      decipher.setAuthTag(row.tag as Buffer);
-      values[name] = Buffer.concat([decipher.update(row.ciphertext as Buffer), decipher.final()]).toString("utf8");
+      values[name] = decrypt(key, row);
     }
     return values;
   }
+  /**
+   * Every value the owner keeps, in every project, read in one pass. Only for checking that none of
+   * them is in something about to leave this computer (see Secrets.valuesToHide); never for injection.
+   */
+  async everyValue(owner: string): Promise<{ project: string; name: string; value: string }[]> {
+    const rows = this.db.prepare("SELECT project,name,iv,tag,ciphertext FROM locker WHERE owner=? ORDER BY project,name").all(owner);
+    if (!rows.length) return [];
+    const key = await this.keys.key();
+    return rows.map((row) => ({ project: String(row.project), name: String(row.name), value: decrypt(key, row) }));
+  }
+}
+
+function decrypt(key: Buffer, row: Record<string, unknown>): string {
+  const decipher = createDecipheriv("aes-256-gcm", key, row.iv as Buffer);
+  decipher.setAuthTag(row.tag as Buffer);
+  return Buffer.concat([decipher.update(row.ciphertext as Buffer), decipher.final()]).toString("utf8");
 }
 
 /** Replaces every secret value in text with a placeholder naming the secret. */

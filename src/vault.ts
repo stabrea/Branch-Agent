@@ -156,6 +156,15 @@ export class Secrets {
     return values;
   }
   /**
+   * Every value the owner keeps in the locker, in every project, so a file about to leave this
+   * computer can be checked for them (src/agent-export.ts). It waits for the session lock like a
+   * look-up does, but nothing is used: no use is written down and this launch's scrubber is not told.
+   */
+  async valuesToHide(owner: string): Promise<{ name: string; value: string }[]> {
+    this.gate();
+    return (await this.locker.everyValue(owner)).map(({ name, value }) => ({ name, value }));
+  }
+  /**
    * Replaces every `secret://project/NAME` reference inside a value with the real secret, at the
    * moment of the call and nowhere earlier. A reference to another project is refused.
    */

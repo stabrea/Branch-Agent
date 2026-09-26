@@ -3914,8 +3914,11 @@ MCP server if the service ships one) are still the way in; nothing here takes th
 **Handing the assistant over.** `branch export-agent <file>` writes one file holding your
 specialists, your saved procedures, your installed skills, which model does what, and your approval
 rules. Add `--memory` to include what it remembers and `--redact` to mask personal details on the
-way out. **No secret is ever inside**: the locker is not opened at all, and everything written goes
-through the same scrubber that keeps unlocked passwords out of the record. `branch import-agent
+way out. **No saved key is ever inside**: before a part is written it is checked against every value
+in your locker, in every project, whether or not Branch has used it since it started, and a value
+found there is replaced by its name. Key-shaped text the locker never held (a key pasted into a
+fact, say) is then hidden the way the leak guard hides it everywhere else. The check needs the
+locker open, so while Branch is locked the export refuses and writes nothing. `branch import-agent
 <file>` always prints what is inside first and brings in nothing until you say which parts you want
 with `--sections specialists,routing`; every part is checked against its fingerprint before a byte
 is written, and a skill arrives as its own document so it is installed and scanned the ordinary way.

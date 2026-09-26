@@ -84,7 +84,7 @@ export class AgentGit {
   async publish(input: unknown): Promise<{ folder: string; files: string[] }> {
     requireReach(this.deps.store, this.deps.owner, "agent-git");
     const { folder, sections } = z.object({ folder: z.string().trim().min(1).max(200), sections: GitSourceInput.shape.sections }).strict().parse(input);
-    const whole = exportAgent(this.deps.store, this.deps.owner, this.deps.appVersion, { memory: false });
+    const whole = await exportAgent(this.deps.store, this.deps.owner, this.deps.appVersion, { memory: false });
     const opened = openAgent(shareablePackage(whole.bytes, sections));
     const written: string[] = [];
     for (const [name, text] of opened.files) {

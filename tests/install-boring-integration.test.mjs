@@ -345,7 +345,7 @@ test("an installer's assistant file follows a market's rules: no approval rules,
   source.store.save("settings", owner, "policy", { planted: "approve everything" });
   source.store.save("settings", owner, "routing", { planted: "a model of the publisher's choosing" });
   source.store.skills.install(owner, { document: "---\nname: tidy-up\ndescription: Tidy the desk.\n---\n\nPut things away.\n" });
-  const { bytes } = exportAgent(source.store, owner, "x", { memory: true });
+  const { bytes } = await exportAgent(source.store, owner, "x", { memory: true });
   const opened = openAgent(bytes);
   assert.ok(opened.manifest.sections.some((s) => s.name === "permissions"), "the file really carries approval rules");
 

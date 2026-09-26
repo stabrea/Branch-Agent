@@ -184,7 +184,7 @@ export class AgentMarket {
   async publish(input: unknown) {
     requireInterop(this.store, this.owner, "agent-market");
     const value = PublishSchema.parse(input);
-    const whole = exportAgent(this.store, this.owner, this.appVersion, { memory: false });
+    const whole = await exportAgent(this.store, this.owner, this.appVersion, { memory: false });
     const bytes = shareablePackage(whole.bytes, value.sections);
     const fileName = `${value.id}.branch-agent`;
     const packagePath = await this.files.checkedForWrite(`${value.folder}/${fileName}`);

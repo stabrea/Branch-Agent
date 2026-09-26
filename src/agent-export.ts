@@ -5,15 +5,19 @@ import { audit } from "./audit.js";
 import { zipRead, zipWrite, type ZipLimits } from "./skill-package.js";
 import { recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 import type { ChangeOrigin } from "./settings-kit/history.js";
+import { scrubSecrets } from "./locker.js";
+import { redactLeaks } from "./leak-guard.js";
 
 /**
  * Handing the assistant itself to someone else, or to another computer. One file holds the
  * specialists, the saved procedures, the installed skills, which model does what, the approval
  * rules, and — only if it is asked for — what the assistant remembers.
  *
- * Nothing that is a secret ever goes in. The locker is not read at all, and everything written is
- * put through the same scrubber that keeps saved passwords out of the event log, so a fact that
- * happens to quote a key comes out with the key replaced by its name.
+ * Nothing that is a secret ever goes in. Before a part is written it is checked against every
+ * value the owner keeps in the locker, in every project, whether or not Branch has used it since it
+ * started, so a fact that happens to quote a key comes out with the key replaced by its name. Then
+ * key-shaped text the locker never held (a key pasted into a fact, say) is hidden the way the leak
+ * guard hides it everywhere else. The check needs the locker open, so a locked Branch writes no file.
  */
 export const agentSections = ["specialists", "procedures", "skills", "routing", "permissions", "memory"] as const;
 export type AgentSection = (typeof agentSections)[number];
@@ -55,7 +59,7 @@ export interface ExportOptions {
 }
 
 /** Everything one section holds, as the text that goes into the file. */
-function sectionData(store: Store, owner: string, section: AgentSection, options: ExportOptions): { items: number; text: string; summary: string } {
+function sectionData(store: Store, owner: string, section: AgentSection): { items: number; text: string; summary: string } {
   if (section === "specialists" || section === "procedures") {
     const records = store.list(section, owner).map((record) => ({ id: record.id, data: record.data }));
     return { items: records.length, text: JSON.stringify(records), summary: `${records.length} ${section === "specialists" ? "specialist" : "saved procedure"}${records.length === 1 ? "" : "s"}` };
@@ -70,8 +74,7 @@ function sectionData(store: Store, owner: string, section: AgentSection, options
     // p17: the memory archive keeps its facts under "records" (src/memory.ts); "facts" read nothing.
     const exported = store.exportMemory(owner) as { records?: unknown[]; facts?: unknown[] } | unknown[];
     const facts = Array.isArray(exported) ? exported : (exported.records ?? exported.facts ?? []);
-    const text = options.redact ? options.redact(JSON.stringify(facts)) : JSON.stringify(facts);
-    return { items: facts.length, text, summary: `${facts.length} remembered fact${facts.length === 1 ? "" : "s"}` };
+    return { items: facts.length, text: JSON.stringify(facts), summary: `${facts.length} remembered fact${facts.length === 1 ? "" : "s"}` };
   }
   const keys = settingKeys[section];
   const found = keys.map((key) => ({ key, data: store.get("settings", owner, key)?.data ?? null })).filter((entry) => entry.data !== null);
@@ -85,21 +88,53 @@ function sectionData(store: Store, owner: string, section: AgentSection, options
  */
 export function agentSummary(store: Store, owner: string): { name: AgentSection; items: number; summary: string }[] {
   return agentSections.map((section) => {
-    const { items, summary } = sectionData(store, owner, section, {});
+    const { items, summary } = sectionData(store, owner, section);
     return { name: section, items, summary };
   });
 }
 
-/** Writes the one file. The locker is never touched, so no secret can be inside it. */
-export function exportAgent(store: Store, owner: string, appVersion: string, options: ExportOptions = {}): { bytes: Buffer; manifest: AgentManifest } {
+/** What the export answers while Branch is locked: the check reads the locker, which stays shut until then. */
+export const unlockFirst = "Unlock Branch first, so it can check the file for your saved keys.";
+
+/**
+ * Every value the owner keeps in the locker, each also the way JSON writes it inside the file (a
+ * quote or a backslash comes out escaped there), longest first so a value holding another is taken
+ * out whole. A value under four characters is left alone, as everywhere else: it would match words.
+ */
+async function lockerValues(store: Store, owner: string): Promise<[value: string, name: string][]> {
+  const secrets = store.secrets;
+  try { secrets.gate(); } catch { throw new Error(unlockFirst); }
+  const byValue = new Map<string, string>();
+  for (const { name, value } of await secrets.valuesToHide(owner)) {
+    if (value.length < 4) continue;
+    byValue.set(value, name);
+    byValue.set(JSON.stringify(value).slice(1, -1), name);
+  }
+  return [...byValue].sort(([a], [b]) => b.length - a.length);
+}
+
+/** One part's text with every locker value replaced by its name, then every key-shaped value hidden. */
+function cleaned(store: Store, text: string, values: [value: string, name: string][]): string {
+  let result = text;
+  for (const [value, name] of values) result = scrubSecrets(result, { [name]: value });
+  return redactLeaks(store.secrets.scrubber.text(result)).text;
+}
+
+/**
+ * Writes the one file, each part checked first (see `cleaned`). While Branch is locked it refuses
+ * with `unlockFirst` before anything is read or written down.
+ */
+export async function exportAgent(store: Store, owner: string, appVersion: string, options: ExportOptions = {}): Promise<{ bytes: Buffer; manifest: AgentManifest }> {
+  const values = await lockerValues(store, owner);
   const entries: [string, string][] = [];
   const sections: AgentManifest["sections"] = [];
   for (const section of agentSections) {
     if (section === "memory" && !options.memory) continue;
     if (options.sections && !options.sections.includes(section)) continue;
-    const collected = sectionData(store, owner, section, options);
-    const { items, summary } = collected;
-    const text = store.secrets.scrubber.text(collected.text);
+    const { items, summary, text: raw } = sectionData(store, owner, section);
+    // Personal details are masked after the check, so masking part of a saved value cannot hide the rest of it.
+    const checked = cleaned(store, raw, values);
+    const text = section === "memory" && options.redact ? options.redact(checked) : checked;
     const file = `${section}.json`;
     entries.push([file, text]);
     sections.push({ name: section, items, file, sha256: sha256(text), summary });

@@ -1698,7 +1698,7 @@ async function api(
     if (request.method === "GET") return { sections: agentSummary(app.store, app.runtime.owner) };
     if (request.method !== "POST") throw new HttpError(405, "Use GET or POST");
     const { sections } = AgentExportSchema.parse(await readBody(request));
-    const { bytes, manifest } = exportAgent(app.store, app.runtime.owner, app.version, {
+    const { bytes, manifest } = await exportAgent(app.store, app.runtime.owner, app.version, {
       sections, memory: sections.includes("memory"), redact: (text) => applyPiiGuard(text, "mask").text });
     return { manifest, data: bytes.toString("base64") };
   }

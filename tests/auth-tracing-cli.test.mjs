@@ -257,7 +257,7 @@ test("T5 every widening moment reaches the record: exports, profile switches, lo
   const owner = app.runtime.owner;
   const actions = () => app.store.audit.list(owner, { limit: 200 }).map((entry) => entry.action);
 
-  exportAgent(app.store, owner, "0.0.0");
+  await exportAgent(app.store, owner, "0.0.0");
   assert.ok(actions().includes("data.exported"), "exporting the whole assistant was not written down");
 
   setLockdown(app.store, owner, { on: true });

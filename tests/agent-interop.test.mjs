@@ -315,7 +315,7 @@ test("A1857 an assistant is published to a folder and brought in elsewhere, only
   const installed = await market.install("https://example.test/market.json", "helper", ["specialists"]);
   assert.equal(installed.reports[0].section, "specialists");
   assert.equal(g.app.store.get("specialists", g.owner, "writer-1").data.marker, "from the publisher");
-  served = shareablePackage(exportAgent(g.app.store, g.owner, "x").bytes, ["skills"]);
+  served = shareablePackage((await exportAgent(g.app.store, g.owner, "x")).bytes, ["skills"]);
   await assert.rejects(market.install("https://example.test/market.json", "helper", ["specialists"]), /does not match the fingerprint/);
 });
 

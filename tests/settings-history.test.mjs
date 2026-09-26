@@ -238,7 +238,7 @@ test("an assistant file and --save-preset are recorded; a --preset for one task 
   // The file carries "read-only"; this Branch starts elsewhere.
   const { savePolicy } = await import("../dist/policy.js");
   savePolicy(app.store, owner, { preset: "read-only" });
-  const file = openAgent(exportAgent(app.store, owner, "test").bytes);
+  const file = openAgent((await exportAgent(app.store, owner, "test")).bytes);
   savePolicy(app.store, owner, { preset: "workspace" });
   importAgent(app.store, owner, file, ["permissions"], { writer: "owner-by-command", source: "import", detail: "branch import-agent mine.branch" });
   const imported = await why("policy.preset");
