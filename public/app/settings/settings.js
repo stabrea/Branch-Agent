@@ -69,7 +69,7 @@ export function draw() {
         .map(([id, l]) => `<button class="nav" type="button" data-act="setpage" data-v="${id}" aria-current="${S.setPage === id}">${esc(l)}</button>`)
         .join("")}`
     )
-    .join("");
+    .join("") || '<p class="hint" data-css="padding:0 10px">No page matches.</p>';
 
   const page = PAGES[S.setPage];
   const pageContent = page?.draw?.() ?? "";
