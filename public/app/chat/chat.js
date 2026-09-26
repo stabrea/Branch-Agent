@@ -21,6 +21,7 @@ import { teachBar, teachAdopt, initTeach } from "./teach.js";
 import { findBar, applyFind, initFind } from "./find.js";
 import { initToolsHub } from "./toolshub.js";
 import { initDictate, loadDictation, dictating, micButton, dictRow } from "./dictate.js";
+import { initTalkLive } from "./talklive.js";
 import { replyMark, readNewReply } from "./aloud.js";
 import { dockRow, initBg } from "./bg.js";
 import { mediaRows, initMedia } from "./media.js";
@@ -457,6 +458,7 @@ export function init() {
   initFind();
   initToolsHub();
   initDictate();
+  initTalkLive({ state: () => C, reopen: openConversation });
   initBg();
   initMedia();
   initBeside();
