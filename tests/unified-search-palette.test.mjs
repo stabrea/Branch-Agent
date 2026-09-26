@@ -50,13 +50,9 @@ async function fixture(t) {
     reason: "Palette fixture for unified search", outcome: "saved",
   });
 
-  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST",
-    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
-    .then((response) => response.json());
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await call("/api/onboarding", { done: true });
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();

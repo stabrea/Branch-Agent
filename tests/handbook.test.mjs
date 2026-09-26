@@ -37,7 +37,6 @@ async function fixture(t) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await call("/api/onboarding", { done: true });
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();

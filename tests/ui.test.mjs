@@ -22,13 +22,9 @@ test("browser UI connects, runs demo, finds it again, and fits mobile viewport",
   saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
-  const call = (path, body) => fetch(new URL(path, server.url), { method: body ? "POST" : "GET",
-    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) })
-    .then((response) => response.json());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await call("/api/onboarding", { done: true });
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -91,7 +87,6 @@ test.skip("browser UI connects, runs demo, saves memory, and fits mobile viewpor
     }),
     errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await call("/api/onboarding", { done: true });
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();

@@ -259,7 +259,6 @@ async function openDashboard(browser, server, key, width = 1440) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.addInitScript((value) => { if (value) sessionStorage.setItem("branch-token", value); }, key);
-  await call("/api/onboarding", { done: true });
   await page.goto(server.url + "/dashboard");
   await page.locator("body.db-ready").waitFor({ state: "attached" });
   return { page, errors };
@@ -387,7 +386,6 @@ test("the dashboard's links open the right place in the new window", async (t) =
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });
-  await call("/api/onboarding", { done: true });
   await page.goto(f.server.url + "/#open=settings:data");
   await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -404,7 +402,6 @@ test.skip("the switch lives in Customize → Channels, and the dashboard's links
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await call("/api/onboarding", { done: true });
   await page.goto(f.server.url + "/#open=settings:data");
   await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();

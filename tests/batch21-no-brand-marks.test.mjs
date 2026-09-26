@@ -33,7 +33,6 @@ async function fixture(t) {
     await discardTemp(root);
   });
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
-  await call("/api/onboarding", { done: true });
   await page.goto(server.url, { timeout: 120000, waitUntil: "domcontentloaded" });
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   const workspace = page.locator("#workspace");
