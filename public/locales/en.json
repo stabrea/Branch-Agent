@@ -8841,5 +8841,13 @@
   "window.p17d.make-skill": "Make it a skill",
   "window.p17d.skill-made-toast": "Skill “{name}” made.",
   "window.p17d.whatsapp-styles": "WhatsApp styles",
-  "window.p17d.signal-styles": "Signal styles"
+  "window.p17d.signal-styles": "Signal styles",
+  "window.places.project.conversations": "Conversations",
+  "window.places.project.conversation-one": "{n} conversation",
+  "window.places.project.conversations-many": "{n} conversations",
+  "window.places.project.line-one": "{n} line",
+  "window.places.project.lines-many": "{n} lines",
+  "window.places.project.read-before": "Read before any task in {name}",
+  "window.places.project.new-conversation-in": "New conversation in {name}",
+  "window.places.project.remove-confirm": "Remove {name}? Its conversations stay in your history. The secrets saved in it are removed with it."
 }
