@@ -24,7 +24,7 @@ const RULES = [
   [/aria-(pressed|checked)=\\?"true\\?"|<input[^>]*\schecked[\s>]|<option[^>]*\sselected[\s>]/, "state written into markup (compute it)"],
   [/\|\|\s*["']\$\d/, "amount written in as a fallback"],
   // bugfix-9 ("no nonsense demo language"): what the demo-language sweep took out must not come back.
-  [/\b[\w-]+\.example\b/, "example address written in (leave the field empty)"],
+  [/["'`\/@][\w.-]*\.example\b/, "example address written in (leave the field empty)"],
   [/\.length\s*\?\s*\w+\s*:\s*\[\s*\[\s*["']/, "made-up rows drawn when the engine has none (show nothing)"],
   [/\b\d+ of them\b/, "count written into words (use the engine's count or none)"],
   [/data-act=\\?["'](ckpt-demo|proto-reset|notes-toggle|note)\\?["']/, "prototype-only control (it has no feature behind it)"],
