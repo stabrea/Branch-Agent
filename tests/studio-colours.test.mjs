@@ -17,6 +17,11 @@ import { startServer } from "../dist/server.js";
 const SAMPLE = ["#1F5139", "#133524", "#E07033", "#E4BA94", "#B0D0E0", "#D4A73A", "#FF6B8A", "#3AA7F5", "#B4A2FF", "#5FD3A0",
   "#FF8A5B", "#8DB082", "#F97316", "#BD93F9", "#88C0D0", "#FE8019", "#EBBCBA", "#7AA2F7", "#CBA6F7", "#A7C080"];
 
+/* Redesign: in the new window a Trunk's studio is "Edit Trunk…" (flows/trunk.js), opened from its conversation row's
+   menu; "New Trunk" is Coming soon (new-trunk). Its colours are prototype.html's eight swatches (COLOURS), each named by
+   its colour; there is no "any colour" picker, no Letters face and no "Follow my theme" in the design. */
+const PROTOTYPE = ["#2F8C86", "#D8612A", "#8A5AA8", "#5E8C4A", "#4F6FA8", "#C9982E", "#B84A6B", "#56616B"];
+
 async function signedIn(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-studio-colours-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
@@ -29,7 +34,7 @@ async function signedIn(t) {
   await call("POST", "/api/onboarding", { done: true });
   /* Trunks ship off; the studio shows its colours once they are on, as the Trunks switch in Settings does it. */
   await call("POST", "/api/trunks/switch", { part: "trunks", mode: "on" });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce", serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   /* After a reload the tab still holds the key, so the window opens without asking for it again. */
@@ -39,13 +44,55 @@ async function signedIn(t) {
       await page.getByRole("button", { name: "Connect", exact: true }).click();
     }
     await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-    await page.evaluate(async () => { await (await import("/strip.js")).refresh(); });
   };
   await page.goto(server.url);
   await connect();
   errors.length = 0; // what failed before the key was given is the login page's business
   return { page, errors, call, connect };
 }
+/** "Edit Trunk…" from the Trunk's own conversation row, the way a person opens it. */
+async function openEditor(page, trunk) {
+  const row = page.locator(`#side .row[data-id="${trunk.chatSessionId}"]`);
+  await row.waitFor();
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Edit Trunk…" }).click();
+  await page.getByRole("dialog", { name: `Edit ${trunk.name}` }).waitFor();
+}
+const pressedColours = (page) => page.locator('.dlg [data-act="st-colour"][aria-pressed="true"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.v));
+
+test("DG-105 the studio offers the prototype's colours in its order, each named by its colour", async (t) => {
+  const { page, errors, call } = await signedIn(t);
+  const made = (await (await call("POST", "/api/trunks", { name: "Gardener" })).json()).trunk;
+  await page.reload();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await openEditor(page, made);
+  assert.deepEqual(await page.locator('.dlg [data-act="st-colour"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.v)), PROTOTYPE);
+  for (const colour of PROTOTYPE) assert.equal(await page.getByRole("button", { name: `Colour ${colour}`, exact: true }).count(), 1, `${colour} is named by its colour`);
+  assert.equal(await page.locator(".dlg .swatch").evaluateAll((nodes) => nodes.every((node) => getComputedStyle(node).backgroundColor !== "rgba(0, 0, 0, 0)")), true, "each is drawn in its colour");
+  assert.deepEqual(errors, []);
+});
+
+test("DG-105 a chosen colour is kept as #rrggbb and comes back chosen after a reload", async (t) => {
+  const { page, errors, call, connect } = await signedIn(t);
+  const made = (await (await call("POST", "/api/trunks", { name: "Gardener" })).json()).trunk;
+  await page.reload();
+  await connect();
+  await openEditor(page, made);
+  await page.getByRole("button", { name: "Colour #D8612A", exact: true }).click();
+  assert.deepEqual(await pressedColours(page), ["#D8612A"]);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator(".dlg").waitFor({ state: "detached" });
+  const [kept] = (await (await call("GET", "/api/trunks")).json()).trunks;
+  /* Kept beside the look, whose own colour stays empty so a build from before this can still read it. */
+  assert.deepEqual([kept.chosenColour, kept.look.colour], ["#d8612a", null]);
+  await page.reload();
+  await connect();
+  await openEditor(page, made);
+  assert.deepEqual(await pressedColours(page), ["#D8612A"]);
+  assert.deepEqual(errors, []);
+});
+
+/* The old window's studio, for the skipped bodies below. */
 const openAdd = (page) => page.evaluate(async () => (await import("/studio.js")).openAdd("trunk")).then(() => page.locator("#studio-follow").waitFor());
 const openEdit = (page, id) => page.evaluate(async (one) => (await import("/studio.js")).openEdit(one), id).then(() => page.locator("#studio-follow").waitFor());
 
@@ -74,7 +121,9 @@ const previewContrast = (page) => page.evaluate(() => {
 });
 const trunks = async (call) => (await (await call("GET", "/api/trunks")).json()).trunks;
 
-test("DG-105 the studio offers the sample's twenty colours in its order, then any colour", async (t) => {
+// Redesign: replaced by the new window (prototype.html's studio has eight colours and no "any colour" circle; a new
+// Trunk's studio is Coming soon, new-trunk; the eight are checked live above).
+test.skip("DG-105 the studio offers the sample's twenty colours in its order, then any colour", async (t) => {
   const { page, errors } = await signedIn(t);
   await openAdd(page);
   const seen = await swatches(page);
@@ -86,7 +135,9 @@ test("DG-105 the studio offers the sample's twenty colours in its order, then an
   assert.deepEqual(errors, []);
 });
 
-test("DG-105 a chosen colour is kept as #rrggbb and comes back chosen after a reload", async (t) => {
+// Redesign: replaced by the new window (the new-Trunk studio is Coming soon, new-trunk, and there is no "any colour"
+// picker; keeping a chosen colour through a reload is checked live above).
+test.skip("DG-105 a chosen colour is kept as #rrggbb and comes back chosen after a reload", async (t) => {
   const { page, errors, call, connect } = await signedIn(t);
   await openAdd(page);
   await page.locator("#studio-name").fill("Gardener");
@@ -112,7 +163,8 @@ test("DG-105 a chosen colour is kept as #rrggbb and comes back chosen after a re
   assert.deepEqual(errors, []);
 });
 
-test("DG-105 a face in any of the colours stays readable, in a light and a dark theme", async (t) => {
+// Redesign: replaced by the new window (prototype.html's studio has no Letters face and no any-colour picker).
+test.skip("DG-105 a face in any of the colours stays readable, in a light and a dark theme", async (t) => {
   const { page, errors } = await signedIn(t);
   for (const theme of ["forest", "daylight"]) {
     await page.evaluate(async (wanted) => {
@@ -153,7 +205,8 @@ test("DG-105 the server keeps only a real colour, and never inside the look", as
   assert.deepEqual([cleared.trunk.chosenColour, cleared.trunk.look.colour], [null, "theme"]);
 });
 
-test("DG-105 Follow my theme switched off again gives back the colour it had", async (t) => {
+// Redesign: replaced by the new window (no "Follow my theme" in prototype.html's studio).
+test.skip("DG-105 Follow my theme switched off again gives back the colour it had", async (t) => {
   const { page, errors } = await signedIn(t);
   await openAdd(page);
   await page.getByRole("button", { name: "Colour #7AA2F7", exact: true }).click();

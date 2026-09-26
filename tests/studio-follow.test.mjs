@@ -55,7 +55,9 @@ const row = (page) => page.evaluate(() => {
   };
 });
 
-test("DG-106 Follow my theme is the sample's switch row, and still follows the theme", async (t) => {
+// Redesign: replaced by the new window (prototype.html's Trunk studio, flows/trunk.js "Edit Trunk…", has no "Follow my
+// theme" row; a new Trunk's studio is Coming soon, new-trunk).
+test.skip("DG-106 Follow my theme is the sample's switch row, and still follows the theme", async (t) => {
   const { page, errors } = await studio(t);
   const seen = await row(page);
   assert.deepEqual({ words: seen.words, note: seen.note, role: seen.role, size: seen.size }, {
@@ -76,7 +78,9 @@ test("DG-106 Follow my theme is the sample's switch row, and still follows the t
   assert.deepEqual(errors, []);
 });
 
-test("DG-106 in French the row's words are French", async (t) => {
+// Redesign: replaced by the new window (no "Follow my theme" row), and its French is Coming soon (sw:lang), checked at
+// fc541c24.
+test.skip("DG-106 in French the row's words are French", async (t) => {
   const { page, errors } = await studio(t);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   const words = await page.evaluate(async () => { const { t } = await import("/i18n.js"); return { words: t("studio.follow"), note: t("studio.follow.note") }; });
