@@ -201,6 +201,9 @@ async function proposals(browser) {
     moss: { name: "Moss", title: "Garden", description: "Keeps the garden notes.", why: "You asked." } };
   const provider = { name: "scripted", async complete(request) {
     const last = request.messages.at(-1);
+    /* Like a real model, it can only call a tool the request offers; without it, it would answer in words. */
+    const offered = (request.tools ?? []).some((tool) => tool.name === "trunk.propose");
+    if (last?.role === "user" && /^Make me a Trunk: /.test(last.content) && !offered) return { content: "I cannot propose a Trunk here.", toolCalls: [] };
     if (last?.role === "user" && /^Make me a Trunk: /.test(last.content)) {
       const which = /another/.test(last.content) ? PROPOSE.wren : /garden/.test(last.content) ? PROPOSE.moss : PROPOSE.quill;
       return { content: "", toolCalls: [{ id: `p-${which.name}`, name: "trunk.propose", arguments: JSON.stringify(which) }] };
