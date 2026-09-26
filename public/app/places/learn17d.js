@@ -1,8 +1,8 @@
 /* Pass 17 part D §3: "Learn this app or workflow", the behaviour-workbook skill, in Customize › Tools › Skills, 1:1 with
    the prototype's patch17d.js. Everything is the engine's (src/workbooks.ts): the switch (GET /api/workbooks,
-   POST /api/workbooks/settings), Start learning (POST /api/workbooks/learn: a real task, narrowed to the browser and the
-   web, that saves the workbook), each workbook (GET /api/workbooks/<id>), Run the checks again (POST .../rerun), Make it
-   a skill (POST .../skill: installed switched off, for the owner to review), and Save the workbook (GET .../markdown,
+   POST /api/workbooks/settings), Start learning (POST /api/workbooks/learn: a real task, sealed: its own browser tools only,
+   every browser step asked about each time, nothing of the owner's in its conversation; it saves the workbook), each
+   workbook (GET /api/workbooks/<id>), Run the checks again (POST .../rerun), Make it a skill (POST .../skill: installed switched off, for the owner to review), and Save the workbook (GET .../markdown,
    saved as a Markdown file). While a workbook is learning the window asks again every two seconds; no stage or count is
    drawn that the engine did not say. Every word a workbook holds came from the pages it read, so all of it is escaped.
    Where the checks run is only Branch's own browser: a private computer is not in this build, so that choice is greyed. */

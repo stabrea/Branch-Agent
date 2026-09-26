@@ -531,6 +531,7 @@ export async function createBranch(options: {
   // P17-D §3: learn an app or workflow and prove it, as a narrowed task that saves a workbook (src/workbooks.ts).
   const workbooks = new Workbooks({ store, owner: runtime.owner, registry, run: (options) => runtime.run(options) });
   registerWorkbookTools(registry, workbooks);
+  runtime.learningRules = (sessionId) => workbooks.rules(sessionId); // sealed: only its own tools, every browser step asks
   // P17-D §4: small decisions on the owner's own connections, asked with no tools (src/decision-models.ts).
   const decisionModels = new DecisionModels(store, runtime.owner, runtime.models, async (text, shape, preset) => {
     // Temporary, so a decision never adds a conversation to the list.

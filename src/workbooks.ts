@@ -6,17 +6,22 @@ import type { ToolRegistry } from "./registry.js";
 import type { RunOptions } from "./runtime.js";
 import { describeFindings, scanSkill } from "./skill-scan.js";
 import type { Store } from "./store.js";
-import { categoryOf } from "./tool-categories.js";
 
 /**
  * P17-D §3: "Learn this app or workflow", the behaviour-workbook skill. Branch reads an app, a site or a workflow,
  * writes what it MUST do (one behaviour each), derives checks for every point, runs them on the real thing, and saves
  * a workbook the owner reviews: each MUST marked pass, fails or not proved, with what really happens.
  *
- * A learning run is an ordinary task in its own conversation, started by the owner's own click, with its tools
- * narrowed to looking things up and using a web page, plus `workbook.save`. It cannot message anyone, spend, change
- * files, run commands or change settings, whatever it reads; a check that would send, buy or delete is written down
- * and marked not proved. Every click on a page still goes through the owner's approvals, with no standing yes.
+ * A learning run is an ordinary task in its own conversation, started by the owner's own click. It is sealed
+ * (src/runtime.ts, `learningRules`):
+ *   - it may use only LEARN_TOOLS (reading pages, clicking and typing in Branch's own browser, and `workbook.save`);
+ *     every other tool is refused, whatever it was granted: no upload, files, clipboard, messages, spending,
+ *     commands, settings, desktop or devices;
+ *   - every browser step asks the owner, once, each time: no standing or earlier yes answers it, and no "always"
+ *     is offered;
+ *   - nothing of the owner's goes into its conversation (no memory, facts, files, skills or instructions), and
+ *     nothing it read is learned from.
+ * A check that would send, buy or delete is written down and marked not proved.
  * Everything a workbook says came from outside and is kept as data. "Make it a skill" writes a skill from it, scanned
  * like any drafted skill, installed switched off so the owner reviews it first.
  *
@@ -47,6 +52,8 @@ export interface Workbook {
   id: string; name: string; where: "browser";
   status: "learning" | "ready" | "failed";
   sessionId: string; runId: string | null;
+  /** Every conversation a learning task of this workbook ran in, so each stays sealed afterwards too. */
+  sessions?: string[];
   source: string; pages: number; must: Must[];
   /** After a rerun: whether any MUST's result differs from the run before. */
   changed: boolean | null;
@@ -62,9 +69,14 @@ export interface WorkbookDeps {
 
 const key = (id: string): string => `workbook:${id}`;
 const settingsKey = "workbooks";
-const allowedKinds = new Set(["read", "browse"]);
-/** Where a learning run may reach at all: the browser and reading the web. */
-const learnReach = (permission: string): boolean => permission.startsWith("browser.") || permission === "web.read";
+/**
+ * The only tools a learning task may use. Page tools that could hand the page something of this computer's (an
+ * upload, a saved PDF, the owner's browser profile or borrowed window, page notes, recordings, several steps in one
+ * call) are left out.
+ */
+export const LEARN_TOOLS: ReadonlySet<string> = new Set(["browser.navigate", "browser.snapshot", "browser.extract", "browser.screenshot",
+  "browser.wait", "browser.click", "browser.fill", "browser.tab", "computer.look", "computer.press", "computer.type", "workbook.save",
+  "tools.search", "tools.describe", "tools.note", "tools.expand"]);
 
 /**
  * Last time's list came from pages the task read, so it goes back in fenced as data: markers carrying a fresh random
@@ -110,25 +122,24 @@ export class Workbooks {
     if (!found) throw Object.assign(new Error("There is no workbook with that id."), { status: 404 });
     return found;
   }
+  private sealed: Set<string> | null = null;
   private put(book: Workbook): Workbook {
+    this.sealed = null;
     const next = { ...book, updatedAt: new Date().toISOString() };
     this.deps.store.save("governance", this.deps.owner, key(book.id), next as unknown as Record<string, unknown>);
     return next;
   }
 
-  /**
-   * The tools a learning run may use, "sealed browser only": the browser's and reading the web, and the workbook's own
-   * save. A permission is left out whole when any tool holding it messages people, spends, changes files, runs
-   * commands or changes settings; this computer's screen, the owner's devices, mail and chats are never included.
-   */
+  /** The permissions a learning run is started with: those of LEARN_TOOLS, and nothing else. */
   permissions(): string[] {
-    const byPermission = new Map<string, boolean>();
-    for (const tool of this.deps.registry.inventory()) {
-      if (!learnReach(tool.permission)) continue;
-      const fits = allowedKinds.has(categoryOf(tool.name, tool.permission));
-      byPermission.set(tool.permission, (byPermission.get(tool.permission) ?? true) && fits);
-    }
-    return [...[...byPermission].filter(([, fits]) => fits).map(([permission]) => permission), "workbooks.write"];
+    const found = this.deps.registry.inventory().filter((tool) => LEARN_TOOLS.has(tool.name)).map((tool) => tool.permission);
+    return [...new Set([...found, "workbooks.write"])];
+  }
+  /** The runtime's hook: a conversation a learning task runs in is sealed, and may use only LEARN_TOOLS. */
+  rules(sessionId: string): { tools: ReadonlySet<string> } | null {
+    // Asked on every tool call of every task, so the set is kept in memory and read again only after a change here.
+    this.sealed ??= new Set(this.list().flatMap((book) => [book.sessionId, ...(book.sessions ?? [])]));
+    return this.sealed.has(sessionId) ? { tools: LEARN_TOOLS } : null;
   }
 
   /** Starts learning something new: a workbook marked learning, and its task in a conversation of its own. */
@@ -137,7 +148,7 @@ export class Workbooks {
     const { what, where } = LearnSchema.parse(input);
     const now = new Date().toISOString();
     const book = this.put({ id: randomUUID(), name: what, where, status: "learning", sessionId: this.deps.store.createSession(this.deps.owner),
-      runId: null, source: "", pages: 0, must: [], changed: null, error: "", skillId: null, createdAt: now, updatedAt: now });
+      runId: null, sessions: [], source: "", pages: 0, must: [], changed: null, error: "", skillId: null, createdAt: now, updatedAt: now });
     return this.start(book, null);
   }
   /** Runs the same checks again; the workbook says afterwards whether any result changed. */
@@ -146,20 +157,21 @@ export class Workbooks {
     if (book.status === "learning") throw Object.assign(new Error("It is still learning. Wait for it to finish."), { status: 409 });
     if (!book.must.length) throw Object.assign(new Error("There is nothing to run again yet."), { status: 409 });
     // A conversation of its own each time, so the last task (which may still be finishing) is never in the way.
-    return this.start(this.put({ ...book, status: "learning", error: "", sessionId: this.deps.store.createSession(this.deps.owner) }), book.must);
+    return this.start(this.put({ ...book, status: "learning", error: "", sessionId: this.deps.store.createSession(this.deps.owner),
+      sessions: [...(book.sessions ?? []), book.sessionId] }), book.must);
   }
   private start(book: Workbook, before: Must[] | null): Workbook {
     let started: Workbook = book;
     void this.deps.run({ prompt: learnPrompt(book, before), sessionId: book.sessionId, permissions: this.permissions(), timeoutMs: 15 * 60_000,
       onStarted: (run) => { started = this.put({ ...this.get(book.id), runId: run.id }); } })
-      .then((run) => this.settle(book.id, run.status === "completed" ? "" : `The learning task ended as ${run.status} before it saved the workbook.`))
-      .catch((error: unknown) => this.settle(book.id, error instanceof Error ? error.message : String(error)));
+      .then((run) => this.settle(book.id, book.sessionId, run.status === "completed" ? "" : `The learning task ended as ${run.status} before it saved the workbook.`))
+      .catch((error: unknown) => this.settle(book.id, book.sessionId, error instanceof Error ? error.message : String(error)));
     return started;
   }
   /** A run that ended without saving leaves the workbook failed, in its own words; one that saved is left alone. */
-  private settle(id: string, why: string): void {
+  private settle(id: string, sessionId: string, why: string): void {
     const book = this.get(id);
-    if (book.status !== "learning") return;
+    if (book.status !== "learning" || book.sessionId !== sessionId) return; // a later run of the same workbook is not this one
     this.put({ ...book, status: "failed", error: why || "The learning task finished without saving a workbook." });
   }
 
