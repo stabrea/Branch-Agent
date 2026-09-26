@@ -56,6 +56,9 @@ import { refreshShortcutsFlag, refreshWindowsIdentity, windowsAppId } from "../i
 // Redesign phase 1: asking before a Quit that would stop work (src/desktop/quit-guard.ts).
 import { asksBeforeQuit, quitChoice, quitQuestion, runningTaskCount, type QuitReason } from "./quit-guard.js";
 import { signedHeaders } from "./signed-headers.js";
+// Pass 17: the quick-ask keys, from any app (src/desktop/quick-ask.ts).
+import { globalShortcut } from "electron";
+import { quickAskKeys, registerQuickAsk } from "./quick-ask.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -185,6 +188,8 @@ async function createWindow(
     quitReason = "restart";
     app.quit();
   });
+  registerQuickAsk({ shortcuts: globalShortcut, ipc: ipcMain, window, origin: url, keys: () => quickAskKeys(url, token),
+    log: (line) => console.error(line) });
   // Redesign phase 1 (integration review): Windows ending the session never waits for the quit question.
   window.on("query-session-end", () => { quitReason = "system"; });
   window.on("session-end", () => { quitReason = "system"; });
@@ -471,6 +476,7 @@ else {
     window?.focus();
   });
   app.on("activate", () => window?.show());
+  app.on("will-quit", () => globalShortcut.unregisterAll()); // pass 17: quick-ask keys go with the app
   app.on("before-quit", (event) => {
     if (quitting) return;
     event.preventDefault();

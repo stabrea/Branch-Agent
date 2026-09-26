@@ -29,6 +29,8 @@ export const shortcutDefaults = {
   stopTask: "",
   searchHistory: "",
   lookInside: "",
+  /** Pass 17: the small ask box from any app. The desktop app registers it system-wide; ⌥ Space on a Mac. */
+  quickAsk: "Ctrl+Shift+Space",
 } as const;
 export type ShortcutAction = keyof typeof shortcutDefaults;
 export const shortcutActions = Object.keys(shortcutDefaults) as ShortcutAction[];
@@ -45,6 +47,7 @@ export const ComfortKeysSchema = z.object({
   stopTask: keyCombo.default(shortcutDefaults.stopTask),
   searchHistory: keyCombo.default(shortcutDefaults.searchHistory),
   lookInside: keyCombo.default(shortcutDefaults.lookInside),
+  quickAsk: keyCombo.default(shortcutDefaults.quickAsk),
   /** Esc leaves typing for moving (h j k l, w b, 0 $, x, dd, i a o), as in vim. */
   vim: z.boolean().default(false),
 }).strict().superRefine((value, context) => {

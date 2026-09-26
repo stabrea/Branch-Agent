@@ -27,6 +27,9 @@ import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
 // Wave 6 (collaboration and workflows): labels and project notes, share links, household profiles.
 import { Labels } from "./labels.js";
+import { LeftOutMessages } from "./left-out.js";
+import { ReadMarks } from "./read-marks.js";
+import { ConversationPaths } from "./conversation-paths.js";
 import { MediaComments } from "./media-comments.js";
 import { ShareLinks } from "./conversation-share.js";
 import { Profiles } from "./profiles.js";
@@ -52,6 +55,10 @@ export class Store {
   private readonly library: SessionLibrary;
   readonly summaries: SessionSummaries;
   readonly working: WorkingSessions;
+  /** Pass 17: messages left out of what the model sees, read marks, and named paths of a conversation. */
+  readonly leftOut: LeftOutMessages;
+  readonly readMarks: ReadMarks;
+  readonly paths: ConversationPaths;
   private readonly memories: MemoryFacts;
   readonly review: MemoryReview;
   private governanceStore: SkillGovernance | undefined;
@@ -148,6 +155,9 @@ export class Store {
     this.library = new SessionLibrary(this.db, () => this.files);
     this.summaries = new SessionSummaries(this.db);
     this.working = new WorkingSessions(this.db);
+    this.leftOut = new LeftOutMessages(this.db);
+    this.readMarks = new ReadMarks(this.db);
+    this.paths = new ConversationPaths(this.db);
     this.recoverInterruptedRuns();
     this.interruptSchedules();
     this.interruptWorkflows();
@@ -180,11 +190,13 @@ export class Store {
       this.closed = true;
     }
   }
-  branchSession(owner: string, input: Parameters<SessionBranches["branch"]>[1], agent?: string) {
-    return this.branches.branch(owner, input, agent);
+  branchSession(owner: string, input: Parameters<SessionBranches["branch"]>[1], agent?: string, before = false) {
+    return this.branches.branch(owner, input, agent, before);
   }
   sessionView(owner: string, sessionId: string) {
-    return { ...this.branches.view(owner, sessionId), imported: this.library.imported(sessionId), temporary: this.sessionTemporary(sessionId) };
+    const view = this.branches.view(owner, sessionId), out = this.leftOut.ids(sessionId);
+    const messages = out.size ? view.messages.map((m) => (out.has(m.messageId) ? { ...m, leftOut: true } : m)) : view.messages;
+    return { ...view, messages, imported: this.library.imported(sessionId), temporary: this.sessionTemporary(sessionId) };
   }
   /** `agent` narrows the list to the conversations that agent took part in (src/history.ts); unset for the owner. */
   searchSessions(owner: string, input: unknown, agent?: string) {
@@ -357,6 +369,11 @@ export class Store {
       const messages = this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId).changes;
       this.db.prepare("DELETE FROM compactions WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM session_pins WHERE session_id=?").run(sessionId);
+      this.db.prepare("DELETE FROM session_left_out WHERE session_id=?").run(sessionId);
+      this.readMarks.forgetSession(sessionId);
+      this.paths.forgetSession(sessionId);
+      // Pass 17: a path, or the conversation paths came off, can be thrown away; what came off it stands alone.
+      this.db.prepare("DELETE FROM session_branches WHERE session_id=? OR parent_session_id=?").run(sessionId, sessionId);
       this.db.prepare("DELETE FROM session_summaries WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM session_work WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM sessions WHERE id=?").run(sessionId);
@@ -469,8 +486,10 @@ export class Store {
     const after = compaction ? Number(compaction.through_id) : 0;
     const pinned = [...this.summaries.pinnedMessageIds(sessionId)];
     const keep = pinned.length ? ` OR id IN (${pinned.map(() => "?").join(",")})` : "";
-    const rows = this.db.prepare(`SELECT id, body FROM messages WHERE session_id=? AND (id>?${keep}) ORDER BY id`)
-      .all(sessionId, after, ...pinned)
+    // Pass 17: a message the owner left out of context stays in the conversation but is never sent.
+    const rows = this.db.prepare(`SELECT id, body FROM messages WHERE session_id=? AND (id>?${keep})
+        AND COALESCE(source_id,id) NOT IN (SELECT source_id FROM session_left_out WHERE session_id=?) ORDER BY id`)
+      .all(sessionId, after, ...pinned, sessionId)
       .map((row) => ({ id: Number(row.id), message: JSON.parse(String(row.body)) as Message }));
     return { summary: compaction ? String(compaction.summary) : null, rows };
   }

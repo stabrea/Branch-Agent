@@ -55,4 +55,6 @@ export async function saveKey(action, combo) {
   const c = await api("comfort", { card: "keys", values: { [action]: combo } });
   K.keys = c.values?.keys ?? K.keys;
   K.defaults = c.shortcutDefaults ?? K.defaults;
+  // Pass 17: the desktop app reads the quick-ask keys again itself (src/desktop/quick-ask.ts); nothing is handed over.
+  if (action === "quickAsk") await window.branchDesktop?.quickAskKeysChanged?.();
 }

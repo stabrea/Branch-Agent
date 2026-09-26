@@ -54,7 +54,12 @@ export class SessionBranches {
       parent_session_id TEXT NOT NULL REFERENCES sessions(id),
       branch_point_message_id INTEGER NOT NULL, created_at TEXT NOT NULL)`);
   }
-  branch(owner: string, input: BranchInput, agent?: string) {
+  /**
+   * `before` (pass 17, "Branch from here" on one of your own messages): the copy stops just before
+   * that message, so the new path can answer it again without the words appearing twice. The branch
+   * record still names the message it came off.
+   */
+  branch(owner: string, input: BranchInput, agent?: string, before = false) {
     const { sessionId: parentSessionId, messageId } = BranchSessionSchema.parse(input);
     this.requireOwner(owner, parentSessionId);
     if (agent && !canAccessSession(this.db, parentSessionId, agent))
@@ -67,7 +72,8 @@ export class SessionBranches {
     const selected = JSON.parse(String(point.body)) as Message;
     if (!["user", "assistant"].includes(selected.role) || selected.toolCalls?.length)
       throw new Error("Choose a user message or an assistant reply without tool requests");
-    const rows = this.rows(parentSessionId, Number(point.id));
+    if (before && selected.role !== "user") throw new Error("Only one of your own messages can be answered again");
+    const rows = this.rows(parentSessionId, Number(point.id) - (before ? 1 : 0));
     if (reconcileTranscript(rows.map(row => JSON.parse(String(row.body)) as Message), "branch check").added)
       throw new Error("The selected conversation contains unfinished tool requests");
     const sessionId = randomUUID(), createdAt = new Date().toISOString();

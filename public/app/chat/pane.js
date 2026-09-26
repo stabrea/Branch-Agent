@@ -61,7 +61,10 @@ function files() {
 }
 
 const BODY = { activity, plan, files, memory: () => '<p class="empty">Nothing remembered was used here.</p>', terminal: () => terminalBody(S.chat) };
-const tabAct = (id) => (REAL.has(id) ? "ptabp" : id === "browser" ? "stage" : "ptabp-" + id);
+/* Tabs other areas add (pass 17): [id, label, draw, shown]; each draws its own body and says when it is shown. */
+export const extraTabs = [];
+const extraShown = () => extraTabs.filter(([, , , shown]) => shown());
+const tabAct = (id) => (REAL.has(id) || extraShown().some(([x]) => x === id) ? "ptabp" : id === "browser" ? "stage" : "ptabp-" + id);
 
 export function drawPane() {
   const pane = $("#pane"), body = $("#body");
@@ -70,8 +73,9 @@ export function drawPane() {
   pane.hidden = !open;
   body?.classList.toggle("pane-on", open);
   if (!open) { pane.innerHTML = ""; return; }
-  const tab = REAL.has(S.pane) ? S.pane : "activity";
-  pane.innerHTML = `<div class="pane-h"><div class="ptabs" role="tablist">${TABS.map(([id, l]) => `<button class="ptab" role="tab" type="button" aria-selected="${tab === id}" data-act="${tabAct(id)}" data-p="${id}" data-v="${id}">${l}</button>`).join("")}</div><button class="icon-btn" type="button" aria-label="Close the side panel" data-act="pane" data-p="close">${ic("x")}</button></div><div class="pane-b">${BODY[tab]()}</div>`;
+  const extra = extraShown(), own = extra.find(([id]) => id === S.pane);
+  const tab = REAL.has(S.pane) || own ? S.pane : "activity";
+  pane.innerHTML = `<div class="pane-h"><div class="ptabs" role="tablist">${[...TABS, ...extra].map(([id, l]) => `<button class="ptab" role="tab" type="button" aria-selected="${tab === id}" data-act="${tabAct(id)}" data-p="${id}" data-v="${id}">${l}</button>`).join("")}</div><button class="icon-btn" type="button" aria-label="Close the side panel" data-act="pane" data-p="close">${ic("x")}</button></div><div class="pane-b">${own ? own[2]() : BODY[tab]()}</div>`;
   applyCss(pane);
   greyOut(pane);
   loadPane();

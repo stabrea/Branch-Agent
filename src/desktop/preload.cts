@@ -15,4 +15,10 @@ contextBridge.exposeInMainWorld("branchDesktop", Object.freeze({
   openExternal: (url: unknown) => ipcRenderer.invoke("branch:open-external", url),
   restartBranch: () => ipcRenderer.invoke("branch:restart"),
   windowLook: (dark: unknown) => ipcRenderer.invoke("branch:window-look", dark),
+  // Pass 17: the quick-ask keys pressed in any app open the box; the page never sees the event itself.
+  onQuickAsk: (callback: unknown) => {
+    if (typeof callback !== "function") return;
+    ipcRenderer.on("branch:quick-ask", () => (callback as () => void)());
+  },
+  quickAskKeysChanged: () => ipcRenderer.invoke("branch:quick-ask-keys"),
 }));

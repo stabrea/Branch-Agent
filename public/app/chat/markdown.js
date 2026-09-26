@@ -1,10 +1,11 @@
 /* Answers arrive as Markdown. This draws the safe subset the conversation needs — paragraphs, line breaks, bold,
    italic, inline code, code blocks, headings, lists, tables, links and quotes — from escaped text, so nothing in an
    answer can become markup. No images, no javascript: links, all hrefs http(s) only with rel="noopener". A ```chart
-   block is drawn as the design's chart card (chart.js). */
+   block is drawn as the design's chart card (chart.js), a ```mermaid block as the diagram card (diagram.js). */
 
 import { esc } from "../core/dom.js";
 import { chartCard } from "./chart.js";
+import { diagramCard } from "./diagram.js";
 
 const inline = (s) => {
   if (!s) return "";
@@ -71,6 +72,7 @@ function block(chunk) {
 function fenced(part) {
   const lang = /^([a-z0-9-]*)\n/i.exec(part);
   const body = lang ? part.slice(lang[0].length) : part;
+  if (lang?.[1].toLowerCase() === "mermaid" && body.trim()) return diagramCard(body.trimEnd()); // pass 17: chat/diagram.js
   return (lang?.[1].toLowerCase() === "chart" && chartCard(body)) || `<pre><code>${esc(body)}</code></pre>`;
 }
 
