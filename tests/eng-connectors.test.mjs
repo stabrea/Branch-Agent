@@ -168,6 +168,23 @@ test("a workspace program is refused when added, and one saved before is not sta
   assert.equal(existsSync(marker), false);
 });
 
+/* The same swap through a folder that is the program: `node <folder>` runs the folder's package. Mutation: take the
+   `runsAFolder` check out of src/mcp-workspace-guard.ts and this goes red. */
+test("a workspace folder given to node as the thing to run is refused, at add and as Branch starts", async (t) => {
+  const { app, root, url, token } = await fixture(t);
+  const folder = join(app.runtime.workspace, "srvdir"), marker = join(root, "swapped-folder-ran.txt");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "package.json"), JSON.stringify({ type: "module", main: "index.js" }));
+  await writeFile(join(folder, "index.js"), `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "ran");\nawait import(${JSON.stringify(pathToFileURL(notesServer).href)});\n`);
+  const probe = { transport: "stdio", command: process.execPath, args: [folder], envKeys: [] };
+  await assert.rejects(api(url, token, "/api/mcp/servers", { name: "Probe", server: probe }), /the folder srvdir, inside the workspace/);
+  const entry = { id: "probe", name: "Probe", server: probe, on: true, approved: launchFingerprint(probe), tools: [], version: null, hidden: [], addedAt: new Date().toISOString() };
+  app.store.save("settings", app.runtime.owner, "mcp-own-servers", { servers: [entry] });
+  await app.ownMcp.startSaved([]);
+  assert.equal(existsSync(marker), false, "the workspace folder's program did not run as Branch started");
+  assert.equal(toolsOf(app, "probe").length, 0);
+});
+
 test("a workspace folder, program or file argument is refused; a folder argument is fine", async (t) => {
   const { app, url, token } = await fixture(t);
   const workspace = app.runtime.workspace, exe = process.platform === "win32" ? ".exe" : "";
