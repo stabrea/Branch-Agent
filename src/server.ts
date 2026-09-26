@@ -156,10 +156,11 @@ import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"
 import { PolicyRememberSchema, nextPolicy, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { policyChangeRefusal, withoutConfirm } from "./policy-change-guard.js"; // Q257
 import { mayAnswerHere, nothingWaitingRefusal, unnamedAnswerRefusal } from "./household-approvals.js"; // Q257
+import { householdStateParts, ownerStateParts } from "./household-state.js"; // Q258
 import { archiveBodyLimit } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
-import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
+import { saveAssistantIdentity } from "./identity.js";
 import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
 // mac3/reflection-skills: the learning loop's routes.
 import { reflectionApi } from "./reflection/api.js";
@@ -295,8 +296,6 @@ import { unifiedSearch } from "./unified-search.js";
 import { proposeSchedule } from "./schedule-words.js";
 import { workbooksRoute } from "./workbooks.js"; // P17-D §3
 import type { AnswerShape, ShapedAnswer } from "./answer-shape.js";
-import { askFirstSettings } from "./ask-first.js";
-import { decisionsFromRules } from "./tool-categories.js";
 // Wave 6 (collaboration and workflows): sharing pages and links, labels and notes, workflows,
 // the waiting line for tasks, days off and quiet hours, and the household's profiles.
 import { collabApi, collabState, notCollab, runForCurrentPerson } from "./collab-server.js";
@@ -843,49 +842,22 @@ function state(app: Branch): unknown {
     attention: attention(app),
     // mac7/residuals (integration): a Trunk's message whose task stopped to ask; its card offers Answer and Not now. The owner's alone.
     trunkWaiting: app.store.profiles.isOwner() && !startedWithShortLivedKey() ? app.trunks.messages.waiting() : [],
-    project: { active: app.store.projects.active(owner), all: app.store.projects.list(owner) },
     version: app.version,
     chatgpt: { configured: Boolean(app.chatgpt) },
     preferences: preferences(app.store, owner),
-    identity: assistantIdentity(app.store, owner),
-    workspace: app.runtime.workspace,
     runs: app.store
       .runs(scope)
       .map((run) => ({ ...run, usage: app.store.usage(run.id), cost: runCost(app, run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
-    learning: app.store.review.settings(owner),
-    // Batch 19 (wave 6)
-    allowed: { counts: app.store.audit.counts(owner), recent: app.store.audit.list(owner, { limit: 20 }) },
-    approvalCategories: decisionsFromRules(app.registry, readPolicy(app.store, owner).rules),
-    askFirst: askFirstSettings(app.store, owner),
-    practice: app.practice.state(owner),
-    reranking: app.retrieval.view(owner),
-    providerPlugins: app.providerPlugins.list(),
-    issueTrackers: app.issues?.available() ?? [],
-    orchestration: orchestrationSettings(app.store, owner),
-    secondOpinion: secondOpinionSettings(app.store, owner),
-    background: app.runtime.backgroundResults,
-    hooks: app.hooks.list(),
-    setAside: app.store.governance.exclusions(),
-    consolidation: app.store.review.cursor(owner),
-    network: app.web.policy.settings(),
-    memoryProposals: app.store.review.proposals(owner),
-    memoryCheckpoints: app.store.review.checkpoints(owner),
-    snapshots: app.store.workspaceHistory.snapshots(),
     models: app.runtime.models.summary(owner),
     memory: app.store.list("memory", scope),
     memoryCapacity: app.store.memoryCapacity(scope),
-    skills: app.store.skills.list(owner),
-    skillPolicy: app.store.skills.policy(owner),
-    specialists: app.store.list("specialists", owner),
-    procedures: app.store.list("procedures", owner),
-    schedules: app.store.list("schedules", owner),
-    triggers: app.triggers.list(owner),
-    webhooks: app.webhooks.list(owner),
     // The app's own tool list is for a person to read, so it keeps the full description.
     tools: app.registry.descriptions(new Set(app.registry.permissions()), { diet: false }),
     lock: app.sessionLock.state(),
-    privacy: app.privacy.settings(),
-    secretReminders: app.store.secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)),
+    // Q258: the owner's own records and settings (what was allowed, approval categories, projects, automations, skills,
+    // secret reminders, the assistant's instructions, every owner setting) go to the owner only. A household person at
+    // the window gets the same keys holding their own tasks' part, or nothing (src/household-state.ts).
+    ...(app.store.profiles.isOwner() ? ownerStateParts(app) : householdStateParts(app)),
   };
 }
 /** mac7/diagnostics: what kind of install this engine is, and when it started, for the report. */
