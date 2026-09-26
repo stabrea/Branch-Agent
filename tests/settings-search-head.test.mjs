@@ -34,6 +34,29 @@ async function settings(t) {
   return { page, errors };
 }
 
+/* The new window: the prototype's Settings search (design/redesign/prototype.html renderSettings) narrows the list of
+   pages to those whose name holds what was typed, says "No page matches." when none does, and gives every page back
+   when the box is cleared. */
+test("DG-061 search narrows the pages to those that match, says when none does, and clears", async (t) => {
+  const { settingsWindow, openSettingsPage } = await import("./settings-window.mjs");
+  const { page, errors } = await settingsWindow(t, { name: "search-head" });
+  await openSettingsPage(page, "general");
+  const pages = () => page.locator('.set-nav [data-act="setpage"]').evaluateAll((all) => all.map((node) => node.dataset.v));
+  const all = await pages();
+  assert.ok(all.length > 10, "every page is listed");
+  const box = page.getByRole("textbox", { name: "Search settings", exact: true });
+  await box.fill("voice");
+  await page.waitForFunction(() => document.querySelectorAll('.set-nav [data-act="setpage"]').length === 1);
+  assert.deepEqual(await pages(), ["voice"]);
+  assert.equal(await box.inputValue(), "voice", "the box keeps what was typed while the list is drawn again");
+  await box.fill("zzqqxx");
+  await page.waitForFunction(() => document.querySelectorAll('.set-nav [data-act="setpage"]').length === 0);
+  await page.locator(".set-nav").getByText("No page matches.", { exact: true }).waitFor({ timeout: 5000 });
+  await box.fill("");
+  await page.waitForFunction((n) => document.querySelectorAll('.set-nav [data-act="setpage"]').length === n, all.length);
+  assert.deepEqual(errors, []);
+});
+
 const search = async (page, words) => {
   await page.locator("#lx-settings-search").fill(words);
   await page.waitForFunction((typed) => !typed || document.getElementById("sg-results"), words);
@@ -58,7 +81,9 @@ const head = (page) => page.evaluate(() => {
   };
 });
 
-test("DG-061 search results open under the sample's head: the count, then what was searched for", async (t) => {
+// Redesign: replaced by the new window (the prototype's search narrows the list of pages, re-pointed above; it has no
+// results head or count).
+test.skip("DG-061 search results open under the sample's head: the count, then what was searched for", async (t) => {
   const { page, errors } = await settings(t);
   await search(page, "voice");
   const seen = await head(page);
@@ -82,7 +107,8 @@ test("DG-061 search results open under the sample's head: the count, then what w
   assert.deepEqual(errors, []);
 });
 
-test("DG-061 in French the head, its plural and the empty line are French", async (t) => {
+// Redesign: Coming soon (sw:lang), checked at fc541c24.
+test.skip("DG-061 in French the head, its plural and the empty line are French", async (t) => {
   const { page, errors } = await settings(t);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await search(page, "voix");
@@ -97,7 +123,9 @@ test("DG-061 in French the head, its plural and the empty line are French", asyn
   assert.deepEqual(errors, []);
 });
 
-test("DG-061 every setting the search can find has French words, drawn or not", async (t) => {
+// Redesign: replaced by the new window (/settings-index.js is gone; the prototype searches page names), and French waits on
+// sw:lang, Coming soon, checked at fc541c24.
+test.skip("DG-061 every setting the search can find has French words, drawn or not", async (t) => {
   const { page, errors } = await settings(t);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   const missing = await page.evaluate(async () => {
@@ -115,7 +143,9 @@ test("DG-061 every setting the search can find has French words, drawn or not", 
 });
 
 /* Codex's review of e0d40067: the head followed typing only, so it outlived its search. */
-test("DG-061 the head goes with its search when Settings opens again, and speaks the new language", async (t) => {
+// Redesign: replaced by the new window (no results head; the prototype keeps what was typed in the box, S.setQ, across
+// openings).
+test.skip("DG-061 the head goes with its search when Settings opens again, and speaks the new language", async (t) => {
   const { page, errors } = await settings(t);
   await search(page, "zzqqxx");
   assert.equal((await head(page)).title, "0 results");
@@ -146,7 +176,8 @@ test("DG-061 the head goes with its search when Settings opens again, and speaks
   assert.deepEqual(errors, []);
 });
 
-test("DG-061 a card drawn again during a search keeps the count true", async (t) => {
+// Redesign: replaced by the new window (no results head or count).
+test.skip("DG-061 a card drawn again during a search keeps the count true", async (t) => {
   const { page, errors } = await settings(t);
   await search(page, "voice");
   const before = await head(page);
