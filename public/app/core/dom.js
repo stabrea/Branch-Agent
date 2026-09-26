@@ -52,10 +52,13 @@ function keepFocus(draw) {
 
 /* Regions register a draw function; render() redraws all of them on the next frame, once, however often it is asked. */
 const painters = [];
+const afterDraws = [];
 let queued = false;
 export function onRender(draw) { painters.push(draw); }
+/* Runs after every region is drawn (core/ui.js: an open popover takes the button drawn in its opener's place). */
+export function afterDraw(fn) { afterDraws.push(fn); }
 function drawAll() {
-  for (const draw of painters) {
+  for (const draw of [...painters, ...afterDraws]) {
     try { draw(); } catch (error) { console.error(error); }
   }
 }
