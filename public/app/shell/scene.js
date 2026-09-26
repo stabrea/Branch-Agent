@@ -11,6 +11,7 @@ import { api } from "../core/api.js";
 import { toast } from "../core/ui.js";
 import { effMode } from "./look.js";
 import { OWN, loadOwn } from "./ownbg.js";
+import { pet17, media17 } from "../core/art17.js";
 
 const KEY = "branch-scene";
 export const W = { bg: "painted", scene: "auto", season: "auto", petWhere: "side" };
@@ -120,13 +121,18 @@ const PETS = {
 };
 const P = { x: 0, dir: 1, frame: 0, say: "", until: 0, cool: 0 };
 const hidden = (part) => (E.state?.preferences?.hidden ?? []).includes(part);
-export function petShown() { const p = D.settings?.pets; return !!(p?.on && PETS[p.kind] && !hidden("pet")); }
+/* Pass 17: a picture pet (core/art17.js) walks the same way, as its walk loop, or its still when motion is reduced. */
+const petName = (kind) => (PETS[kind] ?? pet17(kind))?.name ?? "";
+export function petShown() { const p = D.settings?.pets; return !!(p?.on && (PETS[p.kind] || pet17(p.kind)) && !hidden("pet")); }
 
 /* The pet's markup, drawn inside the list's foot or the status bar by whichever region W.petWhere names. */
 export function petHTML(where) {
   if (!petShown() || W.petWhere !== where) return "";
-  const p = D.settings.pets, speaking = P.say && Date.now() < P.until;
-  const box = `<div class="petbox ${P.dir < 0 ? "flip" : ""}" data-hide="pet" ${where === "side" ? `data-css="left:${8 + P.x}px"` : ""}><span class="pet-say" id="pet-say" ${speaking ? "" : "hidden"}>${esc(P.say)}</span><canvas id="pet-cv" width="24" height="20" role="button" tabindex="0" aria-label="${esc(p.name)} the ${esc(PETS[p.kind].name.toLowerCase())}. Click for a tip." data-act="pat"></canvas></div>`;
+  const p = D.settings.pets, speaking = P.say && Date.now() < P.until, pic = pet17(p.kind);
+  const label = `${esc(p.name)} the ${esc(petName(p.kind).toLowerCase())}. Click for a tip.`;
+  const body = pic ? `<span class="pet17" role="button" tabindex="0" aria-label="${label}" data-act="pat">${media17(pic.still, pic.walk, "pet-vid11 pet12")}</span>`
+    : `<canvas id="pet-cv" width="24" height="20" role="button" tabindex="0" aria-label="${label}" data-act="pat"></canvas>`;
+  const box = `<div class="petbox ${P.dir < 0 ? "flip" : ""}" data-hide="pet" ${where === "side" ? `data-css="left:${8 + P.x}px"` : ""}><span class="pet-say" id="pet-say" ${speaking ? "" : "hidden"}>${esc(P.say)}</span>${body}</div>`;
   return where === "side" ? `<div class="keeper">${box}</div>` : box;
 }
 export function drawPet() {
