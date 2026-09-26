@@ -404,7 +404,7 @@ async function tabStops(page, count) {
   return stops;
 }
 
-test("Tab walks the rail first, then the title bar, the messages and the composer", async (t) => {
+test("Tab walks the title bar first, then the side list, the messages and the composer", async (t) => {
   // Redesign: the prototype's markup puts the title bar first (.titlebar, then #side, then #main), so Tab walks the
   // title bar, then the side list, then the conversation and its message box.
   const f = await fixture(t);
@@ -429,7 +429,7 @@ test("Escape leaves the message box without throwing away what was typed", async
   assert.deepEqual(f.errors, []);
 });
 
-test("a folded Projects group stays folded, remembered for this workspace", async (t) => {
+test("a folded Places group stays folded, remembered for this workspace", async (t) => {
   // Redesign: the prototype remembers its folded Places group (S.placesShut, kept by public/app/core/state.js), which
   // folds the places into one row of icons whose names become their labels, hiding nothing; its Projects group opens
   // fresh each time.

@@ -7,7 +7,7 @@
  * the level is the prototype's Regular / Advanced / Technical switch at the foot of the page list. The old window's index
  * of every setting (public/settings-index.js, public/settings-buckets.js), its "N more" lines, directory pages, mirrors
  * and theme strip are gone; the tests about them are skipped one by one below, each saying what the prototype has
- * instead. The security checks (a household person, Regular keeping the safety controls in sight, the page's own
+ * instead. The security checks (a household person, Regular keeping the prototype's Regular safety controls in sight, the page's own
  * Content Security Policy) are ported and kept strict.
  */
 import nodeTest from "node:test";
@@ -87,7 +87,7 @@ test.skip("S4 Settings search finds every one of the 530 settings, at any level"
 // Redesign: with no search results for single settings there is no "Go there" to press.
 test.skip("S5 Go there opens the place and shows the card, even above the level", async () => {});
 
-test("S6 Regular shows the essentials; each level shows more; the choice is kept with Show everything", async (t) => {
+test("S6 Regular shows the essentials; each level shows more; the choice is kept after a reload", async (t) => {
   // Redesign: the prototype's level is this window's own choice (kept by public/app/core/state.js), not the engine's
   // Show everything; each level adds the prototype's sections to a page.
   const f = await fixture(t);
@@ -111,7 +111,7 @@ test("S6 Regular shows the essentials; each level shows more; the choice is kept
 // Redesign: the engine's Show everything no longer picks the level, and search finds pages, not single settings.
 test.skip("S7 someone who already had Show everything on starts on Advanced, and search ignores the level", async () => {});
 
-test("S8 somebody else's profile sees Regular, cannot change the level, and search never names the owner's settings", async (t) => {
+test("S8 somebody else's profile is not drawn the owner's controls, search never names the owner's settings, and the engine refuses their look and level", async (t) => {
   // Redesign: the new window starts again from nothing when the person changes (public/app/main.js watchPerson). The
   // owner's settings stay the owner's at the engine, and the owner-only controls are not drawn for somebody else.
   const f = await fixture(t);
@@ -135,7 +135,7 @@ test("S8 somebody else's profile sees Regular, cannot change the level, and sear
   assert.deepEqual(f.errors, []);
 });
 
-test("a household profile redirected from Instructions keeps the phone page strip in sync", async (t) => {
+test("a household profile switched in while Instructions was open starts again on General, marked in the phone page strip", async (t) => {
   // Redesign: when the person changes, the new window starts again from nothing, so Settings opens on General again,
   // not on the owner's Instructions, with General's button marked in the phone's page strip.
   const f = await fixture(t, { width: 390, height: 844 });
@@ -165,7 +165,7 @@ for (const [width, height] of [[1440, 950], [390, 844]]) {
   test.skip(`S9 directories at ${width}x${height} open their real Branch places`, async () => {});
 }
 
-test("S10 Settings is a cog at the right end of the icon line over the account row, in the calm and the full window, and draws every card", async (t) => {
+test("S10 Settings is a gear at the right end of the account row, and opens every page", async (t) => {
   // Redesign: the prototype's gear is at the right end of the account row at the foot of the side list.
   const f = await fixture(t);
   const placed = await f.page.evaluate(() => {
@@ -250,7 +250,7 @@ function sweep() {
   return out;
 }
 
-test("S13 Appearance: two live mirrors of your own window, Moonlight and Daylight, that follow the tile you point at", async (t) => {
+test("S13 Appearance: light and dark pictures of the window, each wearing its look when pressed", async (t) => {
   // Redesign: the prototype's "Light or dark" draws two small pictures of the window, light and dark, and a third for
   // following the computer; pressing one wears it. The theme gallery previews in its own dialog.
   const f = await fixture(t);
@@ -282,7 +282,7 @@ const SAFETY = {
   updates: ["#u-auto"],
 };
 for (const [width, height] of [[1440, 950], [390, 844]]) {
-  test(`S15 at ${width}×${height} Regular, with nothing peeked, shows Lockdown, what Branch may do, approvals, updates and background work`, async (t) => {
+  test(`S15 at ${width}×${height} Regular, with nothing peeked, shows Lockdown, what Branch may do, seeing the screen and update by itself`, async (t) => {
     const f = await fixture(t, { width, height });
     await openSettingsPage(f.page, "general");
     await setLevel(f.page, "regular");
@@ -331,7 +331,7 @@ for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
   test.skip(`S18 at ${width}×${height} the preview stays in sight while you scroll down the themes and point at one`, async () => {});
 }
 
-test("S19 in French, a setting found elsewhere is named in French, from the words beside its control", async (t) => {
+test("S19 in French, search finds a Settings page by its French name", async (t) => {
   // Redesign: search finds pages by name; in French, the French name finds the page.
   const f = await fixture(t);
   const fr = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
