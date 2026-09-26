@@ -1,13 +1,19 @@
 /* Settings › Computer & browser, 1:1 with the prototype at each level. The computers are this one and the owner's other
    devices (GET /api/devices); the Trunks are the engine's. A switch shows the engine's own value; it is live only where a
    route changes it (WIRES below), and a three-way feature switch reads as on unless its mode is "off", turns on as
-   "when-needed" and off as "off". Letting Trunks use the screen, approvals, sandboxes, borrowing your own browser and
-   stopping a device's lending change what Branch may do, so those stay greyed. */
+   "when-needed" and off as "off". Letting Trunks use the screen, approvals, sandboxes and borrowing your own browser
+   change what Branch may do and have no route here, so those stay greyed.
+   Paired devices (GET /api/devices): "Stop lending" switches off everything a phone lends (POST
+   /api/devices/<id>/switch, on: false, for each), and "Remove" unpairs a device after a confirm (POST
+   /api/devices/<id>/revoke; its key stops working at once). Both are the owner's alone in the engine. */
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { markLive } from "../../core/features.js";
 import { esc, render } from "../../core/dom.js";
-import { av, toast, ic } from "../../core/ui.js";
+import { av, toast, ic, openDlg, closeDlg } from "../../core/ui.js";
+import { on } from "../../core/actions.js";
+import { onPaired } from "../../flows/pair.js";
+import { t } from "../../../i18n.js";
 import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
 import { computer17 } from "../p17-more.js";
 
@@ -42,7 +48,12 @@ async function loadAll() {
 export function init() {
   markLive(["sw:f15-page-notes-and-send-to-branch-", "sw:f15-try-ideas-on-a-branch", "sw:f15-check-and-format-files-after-editing",
     "sw:f15-draft-a-pull-request-from-a-task", "sw:f15-remember-the-shell", "sw:f15-read-a-file-before-editing-it",
-    "sw:f15-keep-large-tool-outputs", "sw:f15-read-jupyter-notebooks", "sw:f15-review-checks-and-a-checklist-per-task"]);
+    "sw:f15-keep-large-tool-outputs", "sw:f15-read-jupyter-notebooks", "sw:f15-review-checks-and-a-checklist-per-task",
+    "lend15", "dev-remove", "dev-remove-yes"]);
+  on("lend15", (el) => stopLending(el.dataset.v));
+  on("dev-remove", (el) => removeDialog(el.dataset.v));
+  on("dev-remove-yes", (el) => removeDevice(el.dataset.v));
+  onPaired.add(() => loadAll());
   document.addEventListener("change", async (e) => {
     const wire = WIRES[e.target.id];
     if (!wire) return;
@@ -59,12 +70,13 @@ export const live = {};
 /* ---------- computers ---------- */
 const DESKTOP = ["win32", "darwin", "linux"];
 const PLATFORM = { win32: "Windows", darwin: "macOS", linux: "Linux", ios: "iOS", android: "Android" };
-const card = (icon, name, sub, extra = "") => `<div class="comp7-card"><span class="ico-tile">${ic(icon, "s")}</span><span class="grow"><b>${name}</b><small>${sub}</small>${extra}</span></div>`;
+const card = (icon, name, sub, extra = "", side = "") => `<div class="comp7-card"><span class="ico-tile">${ic(icon, "s")}</span><span class="grow"><b>${name}</b><small>${sub}</small>${extra}</span>${side}</div>`;
+const removeBtn = (d) => `<button class="btn ghost sm" type="button" data-act="dev-remove" data-v="${esc(d.id)}">${esc(t("devices.paired.remove"))}</button>`;
 
 function computers() {
   const others = (D.devices?.devices ?? []).filter((d) => DESKTOP.includes(d.platform));
   const mine = card("monitor", "This computer", "Your Windows desktop", `<span class="c7-reach">Your screen, mouse and apps. It asks before an app it hasn’t used, and you can take over any time.</span>`);
-  const theirs = others.length ? `<div class="grp8">Your other computers</div><div class="comps7">${others.map((d) => card("monitor", esc(d.name), esc(PLATFORM[d.platform] ?? d.platform))).join("")}</div>` : "";
+  const theirs = others.length ? `<div class="grp8">Your other computers</div><div class="comps7">${others.map((d) => card("monitor", esc(d.name), esc(PLATFORM[d.platform] ?? d.platform), "", removeBtn(d))).join("")}</div>` : "";
   const cloud = `<div class="grp8">In the cloud</div><div class="comps7"><div class="comp7-card off7"><span class="ico-tile">${ic("globe", "s")}</span><span class="grow"><b>KeepOak computer</b><small>Linux · in the cloud · stays on</small><span class="c7-reach">Keeps working while this PC sleeps. Hermes Agent and OpenClaw run there too.</span></span><button class="btn sm" type="button" data-act="ko-start">Connect keepoak.com</button></div></div>`;
   return `<div class="sec"><h2>Computers they may use</h2><div class="grp8">On this PC</div><div class="comps7">${mine}</div>${theirs}${cloud}
     <div class="acts" data-css="margin-top:10px"><button class="btn pri" type="button" data-act="comp-add">${ic("plus", "s")}Add a computer</button></div></div>`;
@@ -85,11 +97,42 @@ const ON_A_COMPUTER = `<div class="sec"><h2>On a computer</h2><div class="ctl"><
 
 const BROWSER = `<div class="sec"><h2>The browser</h2>${seg15("Which browser", "Its own profile keeps your tabs and sign-ins separate.", [["own", "Branch’s own"], ["chrome", "Your Chrome"]], null)}<div class="ctl"><b>Ask before a site it hasn’t visited</b><input class="sw" type="checkbox" id="b-new" aria-label="Ask before a site it hasn’t visited" data-sw="set"><small>You say yes once per site.</small></div><div class="ctl"><b>Open the browser full size when a task starts</b><input class="sw" type="checkbox" id="b-watch" aria-label="Open the browser full size when a task starts" data-sw="set"><small>Otherwise it stays small in the corner.</small></div></div>`;
 
-/* Phones lent to Branch: the owner's paired phones. Stopping one takes back a pairing, so it stays greyed. */
+/* Phones lent to Branch: every paired phone, with what it lends in the engine's words, so one lending nothing can
+   still be removed. */
+const phoneList = () => (D.devices?.devices ?? []).filter((d) => !DESKTOP.includes(d.platform));
+const capLabel = (id) => (D.devices?.capabilities ?? []).find((c) => c.id === id)?.label?.toLowerCase() ?? id;
 function phones() {
-  const list = (D.devices?.devices ?? []).filter((d) => !DESKTOP.includes(d.platform));
-  const rows = list.map((d) => `<div class="prow"><span class="ico-tile">${ic("phone", "s")}</span><span class="grow"><b>${esc(d.name)}</b><small>${esc((d.enabled ?? []).join(", "))}</small></span><button class="btn ghost sm" type="button" data-act="lend15" data-v="${esc(d.id)}">Stop lending</button></div>`).join("");
-  return `<div class="sec x15-sec"><h2>Phones lent to Branch</h2><div class="rows">${rows}</div></div>`;
+  const rows = phoneList().map((d) => {
+    const lent = d.enabled ?? [];
+    const stop = lent.length ? `<button class="btn ghost sm" type="button" data-act="lend15" data-v="${esc(d.id)}">Stop lending</button>` : "";
+    return `<div class="prow"><span class="ico-tile">${ic("phone", "s")}</span><span class="grow"><b>${esc(d.name)}</b><small>${esc(lent.map(capLabel).join(", ") || "nothing switched on")}</small></span>${stop}${removeBtn(d)}</div>`;
+  }).join("");
+  const empty = D.devices && !rows ? '<p class="empty">No phone is lent. Turn it on from the phone: Settings › Lend this phone.</p>' : "";
+  return `<div class="sec x15-sec"><h2>Phones lent to Branch</h2><div class="rows">${rows}${empty}</div></div>`;
+}
+
+/* Stop lending: everything the phone lends goes off, one switch at a time, as the engine keeps them. */
+async function stopLending(id) {
+  const device = phoneList().find((d) => d.id === id);
+  if (!device) return;
+  try {
+    for (const capability of device.enabled ?? []) await api(`devices/${encodeURIComponent(id)}/switch`, { capability, on: false });
+    toast("Stopped. Branch can’t use this phone’s camera, location or photos now.");
+  } catch (error) { toast(error.message); }
+  await loadAll();
+}
+
+/* Remove: unpairing asks first, naming the device. */
+function removeDialog(id) {
+  const device = (D.devices?.devices ?? []).find((d) => d.id === id);
+  if (!device) return;
+  openDlg({ title: t("devices.device.remove"), body: `<p data-css="margin:0"><b>${esc(device.name)}</b></p>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn bad" type="button" data-act="dev-remove-yes" data-v="${esc(id)}">${esc(t("devices.paired.remove"))}</button>` });
+}
+async function removeDevice(id) {
+  try { await api(`devices/${encodeURIComponent(id)}/revoke`, {}); } catch (error) { toast(error.message); return; }
+  closeDlg();
+  await loadAll();
 }
 
 const browserMore = () => sec15("The browser, more",

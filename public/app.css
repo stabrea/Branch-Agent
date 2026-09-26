@@ -3283,3 +3283,9 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .new17e{position:relative}
 .new17e::after{content:"New";position:absolute;top:6px;right:6px;font-size:10px;font-weight:600;line-height:1.5;padding:0 6px;border-radius:999px;background:var(--accent-tint);color:var(--accent-ink);pointer-events:none}
 @media (max-width:480px){.slot17e{width:96px;height:96px}}
+
+/* area: pairing and devices */
+.pair-cmd15{display:block;font:12.5px/1.45 var(--mono);padding:8px 10px;border-radius:10px;background:var(--fill);border:1px solid var(--line);overflow-wrap:anywhere;user-select:all}
+.pair-match15{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.pair-match15 input{width:16px;height:16px;margin:0}
+.dlg-f [data-act="pair-letin"]:disabled{opacity:.45;cursor:not-allowed}

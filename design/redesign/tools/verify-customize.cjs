@@ -174,7 +174,9 @@ async function computers(page) {
   await page.locator('[data-act="view"][data-v="settings"]').first().click();
   await page.locator('[data-act="setpage"][data-v="computer"]').first().click();
   await page.locator('#main [data-act="comp-add"]').click();
-  check("comp-add: Add a computer opens; every kind stays greyed", (await page.locator(".dlg h2").innerText()) === "Add a computer" && await disabled(page.locator('.dlg [data-act="comp-add-go"]').first()));
+  // unhold-pairing: "Another computer with Branch" pairs for real now (verify-unhold-pairing.cjs); the other kinds stay greyed.
+  check("comp-add: Add a computer opens; pairing is live and the other kinds stay greyed", (await page.locator(".dlg h2").innerText()) === "Add a computer"
+    && await disabled(page.locator('.dlg [data-act="comp-add-go"][data-v="sandbox"]')) && !(await disabled(page.locator('.dlg [data-act="comp-add-go"][data-v="pair"]'))));
   await page.locator('.dlg [data-act="dlg-close"]').first().click();
 }
 
