@@ -137,7 +137,7 @@ test("owner routes are refused while locked; only the lock's status and unlock a
   assert.equal(upgrade, 423);
 });
 
-// Mutation: revert touch() to `if (this.lockedAt === null) this.lastActive = this.now();` and move the gate after it
+// Mutation: make touch() `if (this.lockedAt === null) this.lastActive = this.now();` for a PIN too, and move the gate after it
 // → the first POST after the quiet period restarts it and is answered, red.
 test("the quiet period locks by itself, and a request after it cannot start it again", async (t) => {
   const { call, step } = await withPin(t);
@@ -262,6 +262,25 @@ test("without a PIN nothing changes: locking closes only the locker, and unlocki
   assert.equal(unlocked.status, 200);
   assert.equal(unlocked.body.locked, false);
   assert.equal(unlocked.body.pinSet, false);
+});
+
+// Mutation: make touch() call locked() first with no PIN too (`if (!this.locked()) …`) → the request after the
+// quiet period locks Branch instead of starting the quiet period again, red.
+test("without a PIN, a request after the quiet period starts it again, as before App lock", async (t) => {
+  const { app, call, step } = await served(t);
+  assert.equal((await call("POST", "/api/lock/settings", { idleMinutes: 15, secretsWhileLocked: false, lockOnOpen: false })).status, 200);
+  step(16 * 60_000);
+  // A change that is not the lock's own (those reset the quiet period themselves).
+  const answer = await call("POST", "/api/firewall/test", { address: "https://example.com" });
+  assert.equal(answer.status, 200, answer.text.slice(0, 200));
+  const now = (await call("GET", "/api/lock")).body;
+  assert.equal(now.locked, false, "the request restarted the quiet period");
+  assert.equal(now.idleSeconds, 0);
+  assert.doesNotThrow(() => app.sessionLock.require(), "the locker stays open");
+  // With nothing done for the whole quiet period, it still locks by itself on a look, as before.
+  step(16 * 60_000);
+  assert.equal((await call("GET", "/api/lock")).body.locked, true);
+  assert.equal((await call("GET", "/api/state")).status, 200, "and without a PIN the window is still answered");
 });
 
 // Mutation: drop the lockOnOpen line in the SessionLock constructor → the reopened Branch starts unlocked, red.

@@ -98,9 +98,10 @@ export class SessionLock {
   }
   /** Called whenever the owner does something in the app, so the quiet period starts again. */
   touch(): void {
-    // locked() first: a quiet period that has already run out locks here, rather than being
-    // started again by the very request that arrives after it.
-    if (!this.locked()) this.lastActive = this.now();
+    // With an App lock PIN, locked() first: a quiet period that has already run out locks here,
+    // rather than being started again by the very request that arrives after it. Without a PIN,
+    // exactly as before App lock: a request restarts the quiet period unless Branch is locked already.
+    if (this.hasPin ? !this.locked() : this.lockedAt === null) this.lastActive = this.now();
   }
   /**
    * Called the moment Branch locks, so anything held only for "while I am here" is let go: the
