@@ -15,7 +15,9 @@ import { openPlace, openSettingFor, openSettings } from "./places.mjs";
 /* Q48/Q49 in the window, at phone width: the recent changes card lists a preset's change, refuses an
    undo that loosens without its own yes, undoes it with that yes, and says why a setting is set. */
 
-test("Q48/Q49 recent changes: undo needs the separate yes to loosen, and why names the preset", async (t) => {
+// Redesign: replaced by the new window (the prototype has no recent-changes card with undo or "Why is it set like this?";
+// Branch itself › Every change lists Branch's own changes to itself).
+test.skip("Q48/Q49 recent changes: undo needs the separate yes to loosen, and why names the preset", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-history-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const owner = app.runtime.owner;
@@ -65,7 +67,9 @@ test("Q48/Q49 recent changes: undo needs the separate yes to loosen, and why nam
   assert.deepEqual(errors, []);
 });
 
-test("Q48/Q49 in French: the why answer names the preset in French, not by its English name", async (t) => {
+// Redesign: replaced by the new window (no recent-changes card), and French waits on the Language select, Coming soon
+// (sw:lang), checked at fc541c24.
+test.skip("Q48/Q49 in French: the why answer names the preset in French, not by its English name", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-history-fr-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const deps = { store: app.store, owner: app.runtime.owner, workspace: join(root, "workspace"), appVersion: "test" };
