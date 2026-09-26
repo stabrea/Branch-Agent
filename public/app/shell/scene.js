@@ -150,10 +150,18 @@ function say(text) {
   if (el) { el.textContent = text; el.hidden = false; }
 }
 /* Something the window saw, told to the engine (POST /api/delight/noticed, the shapes in src/delight.ts NoticeSchema).
-   The engine keeps it only while achievements are on, so nothing is sent while they are off. */
+   The engine keeps it only while achievements are on, so nothing is sent while they are off. The switch may have been
+   turned on elsewhere since it was read, so "off" is asked again before anything is dropped. A flag is told once per
+   window: the engine counts it once (src/delight.ts notice). */
+const toldFlags = new Set();
 export async function noticed(what) {
+  if (what.what === "flag" && toldFlags.has(what.flag)) return;
+  if (!D.settings?.achievements?.on) await rereadDelight();
   if (!D.settings?.achievements?.on) return;
-  try { await api("delight/noticed", what); } catch (error) { toast(error.message); }
+  try {
+    const answer = await api("delight/noticed", what);
+    if (answer?.kept && what.what === "flag") toldFlags.add(what.flag);
+  } catch (error) { toast(error.message); }
 }
 export async function pat() {
   say(petWords());

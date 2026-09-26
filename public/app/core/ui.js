@@ -30,10 +30,22 @@ export const radio = (act, value, text, sub, on) =>
 /* ---------- popovers ---------- */
 let popEl = null;
 let popAnchor = null;
-export function closePop() {
+/* Escape hands the keyboard back to the button that opened it ({ refocus: true }); a redraw may have replaced that
+   button, so then the one drawn in its place (same data-act, data-v and data-id) is used. A click outside leaves the
+   keyboard where the click put it, as the browser does. */
+export function closePop(opt = {}) {
+  const anchor = popAnchor, open = !!popEl;
   popEl?.remove();
   popAnchor?.setAttribute("aria-expanded", "false");
   popEl = popAnchor = null;
+  if (opt.refocus && open && anchor) openerOf(anchor)?.focus({ preventScroll: true });
+}
+function openerOf(anchor) {
+  if (anchor.isConnected) return anchor;
+  const { act, v, id } = anchor.dataset;
+  if (!act) return null;
+  const same = (el) => el.dataset.v === v && el.dataset.id === id && el.getClientRects().length > 0;
+  return [...document.querySelectorAll(`[data-act="${CSS.escape(act)}"]`)].find(same) ?? null;
 }
 export function openPop(anchor, html, opt = {}) {
   const same = popAnchor === anchor, fresh = !popEl || (!same && !opt.force);
@@ -44,6 +56,7 @@ export function openPop(anchor, html, opt = {}) {
   popEl = document.createElement("div");
   popEl.className = "pop";
   popEl.setAttribute("role", "menu");
+  if (opt.label) popEl.setAttribute("aria-label", opt.label); /* a menu that is someone's says whose, to a screen reader */
   popEl.innerHTML = html;
   applyCss(popEl);
   greyOut(popEl);

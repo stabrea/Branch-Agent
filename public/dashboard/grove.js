@@ -19,11 +19,12 @@ let motes = [];
 
 /* ---------- colour ---------- */
 const probe = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
-/** Any CSS colour the theme wrote, as [r, g, b]. */
-function rgb(value, fallback) {
+/** Any CSS colour the theme wrote, as [r, g, b]. Every name read here is on :root in /tokens.css, which the page links
+    first, so no colour is written down in this file. */
+function rgb(value) {
   probe.clearRect(0, 0, 1, 1);
-  probe.fillStyle = fallback;
-  probe.fillStyle = value || fallback;
+  probe.fillStyle = "transparent"; /* nothing left over from the last colour read */
+  if (value) probe.fillStyle = value;
   probe.fillRect(0, 0, 1, 1);
   const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
   return [r, g, b];
@@ -31,9 +32,9 @@ function rgb(value, fallback) {
 const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
 function palette() {
   const style = getComputedStyle(document.documentElement);
-  const read = (name, fallback) => rgb(style.getPropertyValue(name).trim(), fallback);
-  const ground = read("--ground", "#03140b"), text = read("--text", "#edf1ea");
-  const accent = read("--copper", "#e07033"), green = read("--ok", "#86d6a0");
+  const read = (name) => rgb(style.getPropertyValue(name).trim());
+  const ground = read("--ground"), text = read("--text");
+  const accent = read("--copper"), green = read("--ok");
   const dark = look.mode !== "light";
   /* Night skies deepen toward the top; day skies pale toward the top. */
   const sky = dark ? [mix(ground, [0, 0, 0], 0.35), mix(ground, text, 0.08)] : [mix(ground, [255, 255, 255], 0.55), ground];
