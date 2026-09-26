@@ -587,10 +587,12 @@ test("hostile input: prototype names and deep nesting in TOML, links out of a fo
   assert.match((await response.json()).error, /damaged|could not/);
 });
 
-test("the move-in switch ships off and keeps only the three settings", async (t) => {
+test("the move-in switch ships at when needed and keeps only the three settings", async (t) => {
   const { app, owner } = await fixture(t);
   const { moveInMode, saveMoveInMode, requireMoveInAllowed } = await import("../dist/migrate/switch.js");
-  assert.equal(moveInMode(app.store, owner), "off");
+  // p17: it ships at "when needed" (it looks at nothing until asked). Mutation note: returning "off" as the
+  // default in moveInMode (src/migrate/switch.ts) turns this line and the API test below red.
+  assert.equal(moveInMode(app.store, owner), "when-needed");
   assert.throws(() => requireMoveInAllowed("off"), /switched off/);
   assert.doesNotThrow(() => requireMoveInAllowed("when-needed"));
   assert.equal(saveMoveInMode(app.store, owner, { mode: "on" }), "on");
@@ -640,8 +642,10 @@ test("the move-in screens: list, preview, bring over, and what came, behind the 
     return { status: response.status, body: await response.json() };
   };
   assert.equal((await api("GET", "/api/move-in", undefined, "wrong")).status, 401);
-  // It ships off: nothing is looked at, nothing is offered, and a preview is refused.
-  assert.deepEqual((await api("GET", "/api/move-in/switch")).body, { mode: "off" });
+  // p17: it ships at "when needed": nothing is looked at or offered until asked. Off refuses a preview.
+  assert.deepEqual((await api("GET", "/api/move-in/switch")).body, { mode: "when-needed" });
+  assert.deepEqual((await api("GET", "/api/move-in")).body, { mode: "when-needed", sources: [], offer: null });
+  assert.deepEqual((await api("POST", "/api/move-in/switch", { mode: "off" })).body, { mode: "off" });
   assert.deepEqual((await api("GET", "/api/move-in")).body, { mode: "off", sources: [], offer: null });
   const refused = await api("POST", "/api/move-in/preview", { source: "claude-code" });
   assert.equal(refused.status, 403);

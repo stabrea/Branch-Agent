@@ -27,7 +27,7 @@ import { MediaProgramsSchema } from "../media-programs.js";
 import { SpeechEngineSettingsSchema } from "../speech-engines.js";
 import { executionMetricsSettings, saveExecutionMetricsSettings } from "../execution-metrics.js";
 import { askMode, type AskPart } from "../asks/settings.js";
-import { moveInMode, saveMoveInMode } from "../migrate/switch.js";
+import { moveInMode, moveInShipsAs, saveMoveInMode } from "../migrate/switch.js";
 import { MemoryHistorySettingsSchema } from "../memory-git.js";
 import { PullRequestHookSettingsSchema } from "../pr-hook.js";
 import { SkillInstallSettingsSchema } from "../skill-installs.js";
@@ -342,7 +342,8 @@ const reach: SettingSpec[] = [
     read: ownListen,
   },
   one("move-in-switch", "Looking at other assistants' folders", "settings-kit.name.move-in", "settings:data", "reach",
-    { ...modeFrom(moveInMode), write: (store, owner, patch) => { saveMoveInMode(store, owner, { mode: moveInMode(store, owner), ...patch }); } }),
+    { fields: [{ ...sw("mode", "Switch", "settings-kit.field.switch", "reach"), initial: moveInShipsAs }], // p17: ships at "when needed"
+      ...modeFrom(moveInMode), write: (store, owner, patch) => { saveMoveInMode(store, owner, { mode: moveInMode(store, owner), ...patch }); } }),
   one("memory-history", "Keeping the history of what it remembers", "settings-kit.name.memory-history", "library:memory", "reach",
     parsedBy("memory-history", () => MemoryHistorySettingsSchema)),
   one("pull-request-hook", "Pull requests from changes", "settings-kit.name.pull-requests", "settings:advanced", "reach",
