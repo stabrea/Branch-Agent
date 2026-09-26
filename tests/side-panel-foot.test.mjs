@@ -12,6 +12,8 @@ import { startServer } from "../dist/server.js";
 
 const quiet = { name: "scripted", async complete() { return { content: "Here is a short answer.", toolCalls: [] }; } };
 
+/* Redesign: the new window's side panel (chat/pane.js, #pane), opened by the conversation header's side-panel button.
+   prototype.html's panel has no foot switch; its Terminal tab draws "Open a terminal for me" greyed out. */
 async function fixture(t, { width = 1440, height = 950 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-side-foot-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: quiet });
@@ -24,26 +26,29 @@ async function fixture(t, { width = 1440, height = 950 } = {}) {
   await fetch(new URL("/api/onboarding", server.url), {
     method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }),
   });
-  const page = await browser.newPage({ viewport: { width, height }, reducedMotion: "reduce" });
+  const page = await browser.newPage({ viewport: { width, height }, reducedMotion: "reduce", serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  await page.waitForFunction(() => globalThis.branchPanels);
   errors.length = 0;
-  await page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, run.sessionId);
-  await page.locator(".message.assistant").first().waitFor();
+  if (width <= 760) await page.locator('[data-act="side"]').filter({ visible: true }).first().click();
+  await page.locator(`#side [data-act="chat"][data-id="${run.sessionId}"]`).click();
+  await page.locator("#conversation .b").first().waitFor();
   return { page, errors, sessionId: run.sessionId };
 }
+const paneToggle = (page) => page.locator('.head [data-act="pane"][data-p="activity"]');
 async function openCard(page) {
-  await page.locator("#aside-toggle").click();
-  await page.locator("#context-panel").waitFor({ state: "visible" });
+  await paneToggle(page).click();
+  await page.waitForFunction(() => document.getElementById("pane")?.hidden === false);
 }
-const tab = (page, id) => page.locator(`#context-panel .lx-pane-tab[data-pane="${id}"]`).click();
+const tab = (page, id) => page.locator(`#pane .ptab[data-p="${id}"]`).click();
 
-test("DG-116 the card ends in one switch, on by default, pinned to its bottom edge on every tab, and kept", async (t) => {
+// Redesign: replaced by the new window (prototype.html's side panel has no foot switch "Open this by itself while a
+// task works").
+test.skip("DG-116 the card ends in one switch, on by default, pinned to its bottom edge on every tab, and kept", async (t) => {
   const { page, errors } = await fixture(t);
   await openCard(page);
   const foot = page.locator("#lx-pane-foot");
@@ -74,7 +79,9 @@ test("DG-116 the card ends in one switch, on by default, pinned to its bottom ed
   assert.deepEqual(errors, []);
 });
 
-test("DG-116 the foot stays on the card's bottom edge while its list is scrolled, at 1440 and 400 px", async (t) => {
+// Redesign: replaced by the new window (prototype.html's side panel has no foot switch "Open this by itself while a
+// task works").
+test.skip("DG-116 the foot stays on the card's bottom edge while its list is scrolled, at 1440 and 400 px", async (t) => {
   for (const width of [1440, 400]) {
     const { page, errors } = await fixture(t, { width, height: width > 500 ? 950 : 860 });
     await openCard(page);
@@ -98,7 +105,8 @@ test("DG-116 the foot stays on the card's bottom edge while its list is scrolled
   }
 });
 
-test("DG-117 the Terminal tab offers Open a terminal for me, the sample's small button, joining this conversation safely", async (t) => {
+// Redesign: Coming soon (shell), checked at e5b8a610: the Terminal tab draws "Open a terminal for me" greyed out.
+test.skip("DG-117 the Terminal tab offers Open a terminal for me, the sample's small button, joining this conversation safely", async (t) => {
   const { page, errors, sessionId } = await fixture(t);
   await openCard(page);
   await tab(page, "terminal");
@@ -120,7 +128,23 @@ test("DG-117 the Terminal tab offers Open a terminal for me, the sample's small 
   assert.deepEqual(errors, []);
 });
 
-test("DG-118 the card's own close and Escape put it away, hand the keyboard back, and the title bar agrees", async (t) => {
+test("DG-118 the panel's own close puts it away, hands the keyboard back, and the title bar agrees", async (t) => {
+  // Redesign: prototype.html's Escape closes a menu, a dialog, a note or Focus mode, not the side panel.
+  const { page, errors } = await fixture(t);
+  await openCard(page);
+  const close = page.getByRole("button", { name: "Close the side panel", exact: true });
+  await close.click();
+  await page.waitForFunction(() => document.getElementById("pane")?.hidden === true);
+  assert.deepEqual(errors, []);
+  assert.equal(await paneToggle(page).getAttribute("aria-pressed"), "false", "the switch says closed (prototype.html: aria-pressed)");
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.act), "pane", "the keyboard goes back to the side-panel switch");
+  await openCard(page);
+  assert.equal(await paneToggle(page).getAttribute("aria-pressed"), "true", "and open");
+});
+
+// Redesign: replaced by the new window (the old card's #lx-pane-close and #aside-toggle, Escape closing it and Show
+// everything; the close and the switch are checked live above).
+test.skip("DG-118 the card's own close and Escape put it away, hand the keyboard back, and the title bar agrees", async (t) => {
   const { page, errors } = await fixture(t);
   for (const everything of [false, true]) {
     if (everything) {
@@ -144,7 +168,8 @@ test("DG-118 the card's own close and Escape put it away, hand the keyboard back
   assert.deepEqual(errors, []);
 });
 
-test("DG-115 in French all six tabs keep their names in the 340 px card", async (t) => {
+// Redesign: Coming soon (sw:lang), checked at e5b8a610.
+test.skip("DG-115 in French all six tabs keep their names in the 340 px card", async (t) => {
   const { page, errors } = await fixture(t);
   await openCard(page);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));

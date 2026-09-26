@@ -4,7 +4,7 @@
  * chapter to itself, and that Help opens the right chapter for the section a person is looking at.
  */
 import test from "node:test";
-import { openPlace, showEverything } from "./places.mjs";
+import { openPlace } from "./places.mjs"; // the old window's helper, for the skipped bodies only
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
@@ -34,15 +34,14 @@ async function fixture(t) {
     await app.close();
     await discardTemp(root);
   });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
-  await showEverything(page);
+  // Redesign: the new window has no "Show everything"; every control is always drawn.
   return { app, page, server, errors };
 }
 
@@ -148,7 +147,9 @@ test("H4 the help route needs the session key like every other route", async (t)
   assert.equal(answer.status, 401);
 });
 
-test("H4 Help opens the chapter for the section you are on", async (t) => {
+// Redesign: replaced by the new window (prototype.html has no handbook chapters in the window: its person menu's
+// "Guide: why each thing is here" starts the walkthrough, and Ctrl K offers actions, conversations, places and settings).
+test.skip("H4 Help opens the chapter for the section you are on", async (t) => {
   const { page, errors } = await fixture(t);
   await settle(page);
 
@@ -172,7 +173,9 @@ test("H4 Help opens the chapter for the section you are on", async (t) => {
   assert.deepEqual(errors, []);
 });
 
-test("H4 the palette offers every chapter by name", async (t) => {
+// Redesign: replaced by the new window (prototype.html has no handbook chapters in the window: its person menu's
+// "Guide: why each thing is here" starts the walkthrough, and Ctrl K offers actions, conversations, places and settings).
+test.skip("H4 the palette offers every chapter by name", async (t) => {
   const { page, errors } = await fixture(t);
   await settle(page);
   await page.keyboard.press("ControlOrMeta+k");

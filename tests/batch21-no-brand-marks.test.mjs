@@ -43,7 +43,9 @@ async function fixture(t) {
   return { page };
 }
 
-test("B1 no brand marks on Accounts page", async (t) => {
+// Redesign: replaced by the new window (prototype.html draws each service's own mark again: its logo() tiles on
+// Accounts, Models, Saved sign-ins and the chat apps, core/logos.js in the window).
+test.skip("B1 no brand marks on Accounts page", async (t) => {
   const { page } = await fixture(t);
 
   // Open Accounts page
@@ -63,7 +65,9 @@ test("B1 no brand marks on Accounts page", async (t) => {
 
 });
 
-test("B2 no brand marks on Secrets page", async (t) => {
+// Redesign: replaced by the new window (prototype.html draws each service's own mark again: its logo() tiles on
+// Accounts, Models, Saved sign-ins and the chat apps, core/logos.js in the window).
+test.skip("B2 no brand marks on Secrets page", async (t) => {
   const { page } = await fixture(t);
 
   // Open Secrets page
@@ -83,7 +87,9 @@ test("B2 no brand marks on Secrets page", async (t) => {
 
 });
 
-test("B3 no brand marks on Models connection tab", async (t) => {
+// Redesign: replaced by the new window (prototype.html draws each service's own mark again: its logo() tiles on
+// Accounts, Models, Saved sign-ins and the chat apps, core/logos.js in the window).
+test.skip("B3 no brand marks on Models connection tab", async (t) => {
   const { page } = await fixture(t);
 
   // Open Models page
@@ -108,7 +114,9 @@ test("B3 no brand marks on Models connection tab", async (t) => {
 
 });
 
-test("B4 no brand marks on channel/service cards", async (t) => {
+// Redesign: replaced by the new window (prototype.html draws each service's own mark again: its logo() tiles on
+// Accounts, Models, Saved sign-ins and the chat apps, core/logos.js in the window).
+test.skip("B4 no brand marks on channel/service cards", async (t) => {
   const { page } = await fixture(t);
 
   // Newer builds give these cards their own page; older builds keep them under Customize.
