@@ -23,10 +23,11 @@
  *   M10 POST /api/approvals/categories: delete the `policyChangeRefusal` throw          → "categories"
  *   M11 saveCredentialSettings: delete the audit() call                                 → "password manager"
  *   M12 saveCredentialSettings: `choose` replaces the list ([choose]) instead of keeping → "password manager"
- *   M13 policyChangeLooser: drop the unmatched-commands check → stays GREEN: the rules weighing also catches it
- *       (a command tool asks, then does not); the check is kept for a registry with no command tool
+ *   M13 policyChangeLooser: drop the unmatched-commands check                            → "no command tool"
  *   M14 policyChangeLooser: drop the per-minute limit check                              → "POST /api/policy"
  *   M15 POST /api/policy/approve: delete the unnamed-answer (no fingerprint) check       → "names no request"
+ *   M16 choosePreset (/preset): delete its Lockdown check                                → "POST /api/policy"
+ * Run them all: node design/redesign/tools/mutate-q257.mjs (after npx tsc -p .).
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -40,6 +41,7 @@ import { startServer } from "../dist/server.js";
 import { runForCurrentPerson } from "../dist/collab-server.js";
 import { readPolicy, savePolicy } from "../dist/policy.js";
 import { readCredentialSettings } from "../dist/credential-cli.js";
+import { policyChangeLooser } from "../dist/preset-moves.js";
 
 /** A model that writes one file when asked to, then says it is done. */
 const writer = { name: "writer", async complete(request) {
@@ -139,22 +141,27 @@ test("a household person cannot answer the owner's question on any route, with a
   assertUntouched(app, owners, live, "after POST /api/policy/approve");
 
   // The other ways to answer, carry on or settle a task are closed to a household person already; kept closed here.
+  // Each is refused for its own reason, read from the body: the household gate (src/household-routes.ts), the route's
+  // requireOwner, or the owner's run and conversation not being found in the household person's scope.
+  const gate = /^This belongs to the owner\. Switch back to the owner's profile to use it\.$/;
+  const owner = /belongs to the owner\. Switch back to the owner's profile/;
   const closed = [
-    ["POST", "/api/safety-extras/codes/confirm", { sessionId, fingerprint: live.fingerprint, code: "123456" }],
-    ["POST", `/api/trunks/messages/${randomUUID()}/answer`, {}],
-    ["POST", `/api/trunks/rooms/${randomUUID()}/answer`, { memberId: randomUUID(), decision: "allow" }],
-    ["POST", `/api/runs/${owners.id}/resume`, {}],
-    ["POST", `/api/runs/${owners.id}/cancel`, {}],
-    ["POST", `/api/sessions/${sessionId}/followups`, { prompt: "yes, go ahead" }],
-    ["POST", "/api/deferred/settle", { id: randomUUID(), outcome: "done" }],
-    ["POST", `/api/flows/${randomUUID()}/resume`, {}],
-    ["POST", `/api/workflows/${randomUUID()}/resume`, {}],
-    ["POST", "/api/personal/voice/answer", { decision: "allow" }],
-    ["POST", "/api/run", { prompt: "yes, go ahead", sessionId }],
+    ["/api/safety-extras/codes/confirm", { sessionId, fingerprint: live.fingerprint, code: "123456" }, 400, /^The safety extras belongs to the owner/],
+    [`/api/trunks/messages/${randomUUID()}/answer`, {}, 400, gate],
+    [`/api/trunks/rooms/${randomUUID()}/answer`, { memberId: randomUUID(), decision: "allow" }, 400, gate],
+    [`/api/runs/${owners.id}/resume`, {}, 404, /^Run not found$/],
+    [`/api/runs/${owners.id}/cancel`, {}, 404, /^Run not found$/],
+    [`/api/sessions/${sessionId}/followups`, { prompt: "yes, go ahead" }, 404, /^Session not found$/],
+    ["/api/deferred/settle", { id: randomUUID(), outcome: "done" }, 400, owner],
+    [`/api/flows/${randomUUID()}/resume`, {}, 400, owner],
+    [`/api/workflows/${randomUUID()}/resume`, {}, 400, gate],
+    ["/api/personal/voice/answer", { decision: "allow" }, 400, gate],
+    ["/api/run", { prompt: "yes, go ahead", sessionId }, 400, /^Conversation not found$/],
   ];
-  for (const [method, path, body] of closed) {
-    const answer = await call(method, path, body);
-    assert.ok(answer.status >= 400 && answer.status < 500, `${path} → ${answer.status} ${answer.text}`);
+  for (const [path, body, status, words] of closed) {
+    const answer = await call("POST", path, body);
+    assert.equal(answer.status, status, `${path} → ${answer.status} ${answer.text}`);
+    assert.match(String(answer.body.error), words, `${path} is refused for its own reason: ${answer.text}`);
   }
   assertUntouched(app, owners, live, "after every other route");
   asOwner();
@@ -212,6 +219,7 @@ test("an answer that names no request is refused when the question has a fingerp
 test("POST /api/policy: a loosening needs confirmLoosening, and nothing is changed under Lockdown", async (t) => {
   const { app, call } = await served(t);
   const preset = () => readPolicy(app.store, app.runtime.owner).preset;
+  assert.equal((await call("POST", "/api/commands/settings", { mode: "on" })).status, 200, "typed commands on, for /preset below");
   const loose = await call("POST", "/api/policy", { preset: "off" });
   assert.equal(loose.status, 409, loose.text.slice(0, 300));
   assert.match(loose.body.error, /less careful/);
@@ -231,12 +239,22 @@ test("POST /api/policy: a loosening needs confirmLoosening, and nothing is chang
     assert.equal(refused.status, 409, refused.text);
     assert.match(refused.body.error, /Lockdown is on/);
   }
+  const typed = await call("POST", "/api/commands/run", { surface: "window", line: "/preset off" });
+  assert.match(typed.text, /Lockdown is on/, `the /preset command is refused too: ${typed.text.slice(0, 200)}`);
   assert.deepEqual(readPolicy(app.store, app.runtime.owner), locked, "Lockdown's policy is untouched");
   assert.equal((await call("POST", "/api/lockdown", { on: false })).status, 200);
   assert.equal(preset(), "read-only", "the owner's own policy comes back");
   const confirmed = await call("POST", "/api/policy", { preset: "off", confirmLoosening: true });
   assert.equal(confirmed.status, 200, confirmed.text.slice(0, 300));
   assert.equal(preset(), "off", "control: the owner's yes loosens");
+});
+
+/* M13 */
+test("letting a command no rule mentions run without asking is less careful even where no command tool is registered", () => {
+  const before = { preset: "custom", rules: [], limits: { toolCallsPerMinute: 0, modelRoundsPerMinute: 0 }, unmatchedCommands: "ask" };
+  const none = { inventory: () => [] };
+  assert.match(String(policyChangeLooser(before, { ...before, unmatchedCommands: "allow" }, none)), /command no rule mentions/);
+  assert.equal(policyChangeLooser(before, { ...before }, none), null, "control: no change, nothing looser");
 });
 
 /* M8, M9, M10 */
