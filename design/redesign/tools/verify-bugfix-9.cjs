@@ -8,7 +8,8 @@
      second, in-process engine with a scripted model that answers with the trunk.propose tool: its own temp folder, a
      free port);
    4 a room is drawn as a stack of two member faces;
-   5 the demo language taken out is not served.
+   5 the demo language taken out is not served;
+   6 after a reload the "New to Branch?" card stays clear of the message box and Send (wide and phone-sized).
    Test data it makes through the engine: Trunks "Scout" (a chosen colour) and "Plain", the job Trunk "Inbox Manager",
    a room "Pair", and on the scripted engine "Quill" (made), "Wren" (declined) and "Moss" (Change it first). Nothing launches a desktop window. */
 const { mkdtempSync, rmSync } = require("node:fs");
@@ -180,10 +181,46 @@ async function roomFaces(page, scout, plain) {
   check("4 the room's header draws the same stack", head === 2, `${head} faces`);
 }
 
+/* 6: after a reload the "New to Branch?" card never covers the message box or Send, on a wide and a phone-sized window. */
+async function welcomeCard(browser) {
+  for (const [width, height] of [[1280, 860], [390, 800]]) {
+    const context = await browser.newContext({ viewport: { width, height } });
+    const { page, errors } = await signIn(context, BASE, TOKEN, api);
+    await page.evaluate(() => { localStorage.setItem("branch-setup-seen", "1"); localStorage.removeItem("branch-welcomed"); });
+    await page.reload();
+    await page.locator("#prompt").waitFor();
+    const card = page.locator(".welcome10");
+    await card.waitFor({ timeout: 10000 });
+    await page.waitForTimeout(500);
+    const geo = await page.evaluate(() => {
+      const r = (s) => document.querySelector(s)?.getBoundingClientRect();
+      const c = r(".welcome10"), box = r("#composer"), send = r("#send");
+      const apart = (a, b) => a.bottom <= b.top || b.bottom <= a.top || a.right <= b.left || b.right <= a.left;
+      const hit = document.elementFromPoint(send.left + send.width / 2, send.top + send.height / 2);
+      return { clear: apart(c, box) && apart(c, send), sendOnTop: !!hit?.closest("#send"), card: Math.round(c.bottom), box: Math.round(box.top) };
+    });
+    check(`6 at ${width}px the New to Branch? card sits clear of the message box and Send`, geo.clear, `card bottom ${geo.card}, box top ${geo.box}`);
+    check(`6 at ${width}px Send is what a click there reaches`, geo.sendOnTop);
+    await page.locator("#prompt").fill("line one\nline two\nline three\nline four");
+    await page.waitForTimeout(300);
+    const grown = await page.evaluate(() => {
+      const c = document.querySelector(".welcome10").getBoundingClientRect(), box = document.querySelector("#composer").getBoundingClientRect();
+      return c.bottom <= box.top;
+    });
+    check(`6 at ${width}px it stays clear while the message box grows`, grown);
+    await page.locator('.welcome10 [data-act="welcome-x"]').click();
+    check(`6 at ${width}px no page errors`, errors.length === 0, errors.join(" | "));
+    await context.close();
+  }
+}
+
 /* 5: the demo language taken out is not what the window serves. */
 async function served() {
   const gone = [["/app/flows/setup.js", "Google Drive"], ["/app/settings/p17-permissions.js", "unknown.example"], ["/app/flows/tour.js", "55 of them"],
     ["/app/flows/tour.js", "GPT-6 Sol"], ["/app/flows/tour.js", "Five places"], ["/app/settings/pages/usage.js", 'data-act="ckpt-demo"'], ["/app/settings/pages/voice.js", "read out at 7:30"]];
+  /* The window's words now live in the locale files too (t()), so the English and French files are read as well. */
+  gone.push(["/locales/en.json", "55 of them"], ["/locales/en.json", "GPT-6 Sol"], ["/locales/en.json", "Five places"], ["/locales/en.json", "read out at 7:30"],
+    ["/locales/en.json", "window.settings.usage.show-me"], ["/locales/en.json", "window.flows.setup.mail-cal"], ["/locales/fr.json", "55 au total"], ["/locales/fr.json", "lu à 7 h 30"]);
   for (const [path, words] of gone) {
     const text = await (await fetch(BASE + path, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
     check(`5 ${path} no longer carries “${words}”`, text.length > 200 && !text.includes(words), `${text.length} bytes`);
@@ -288,6 +325,7 @@ async function proposals(browser) {
     await served();
   } catch (e) { check("script finished", false, e.stack); }
   check("no page errors", errors.length === 0, errors.join(" | "));
+  try { await welcomeCard(browser); } catch (e) { check("welcome card checks finished", false, e.stack); }
   await proposals(browser);
   await browser.close();
   const failed = results.filter((r) => !r.ok);
