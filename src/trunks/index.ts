@@ -5,6 +5,7 @@ import type { Scheduler } from "../scheduler.js";
 import { noAccounts, keyPlan, type TrunkAccountsPort } from "./accounts.js";
 import { pictureAddress } from "./avatar.js";
 import { TrunkMessages, registerTrunkMessage } from "./messages.js";
+import { registerTrunkPropose, trunkProposeTool } from "./propose.js";
 import { setSharedFacts, trunkAgent } from "./memory-scope.js";
 import { TrunkCreateSchema, TrunkEditSchema, TrunkRecords, TrunkSchema, type Trunk } from "./record.js";
 import { StartsInSchema, cannotStartThere, checkStartsIn, requireStartsHere, startTarget, type Computer, type ComputersPort, type StartElsewhere } from "./starts-in.js"; // Q44
@@ -131,6 +132,9 @@ export class Trunks {
   private syncTools(): void {
     for (const part of trunkParts) for (const name of trunkTools[part]) this.deps.registry.unregister(name);
     if (this.mode("messages") !== "off") registerTrunkMessage(this.deps.registry, this.messages);
+    // "Have Branch make a Trunk": the assistant may propose one while Trunks are on; the owner makes it.
+    this.deps.registry.unregister(trunkProposeTool);
+    if (this.mode("trunks") !== "off") registerTrunkPropose(this.deps.registry, () => this.require("trunks"));
   }
 
   /** Which conversations belong to a Trunk; asked on every task, so it is kept in memory. */
