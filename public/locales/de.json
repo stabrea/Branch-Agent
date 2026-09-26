@@ -6408,6 +6408,7 @@
   "window.chat.mode.full-hint": "Tut alles auf diesem Computer ohne Nachfrage: Dateien, Befehle, das Internet.",
   "window.chat.mode.mode-tip": "Wie viel es in dieser Unterhaltung darf (Umschalt+Tab)",
   "window.chat.mode.model-tip": "Modell und wie lange es nachdenkt",
+  "window.chat.mode.no-model": "Noch kein Modell",
   "window.chat.mode.plan-hint": "Schreibt einen Plan und wartet auf dein Okay, bevor es etwas tut.",
   "window.chat.mode.thinking-hint": "Die Denkoptionen hängen vom Modell ab.",
   "window.chat.mode.this-conversation": "Diese Unterhaltung",

@@ -6409,6 +6409,7 @@
   "window.chat.mode.full-hint": "Fait tout sur cet ordinateur sans demander : fichiers, commandes, Internet.",
   "window.chat.mode.mode-tip": "Ce qu’il peut faire dans cette conversation (Maj+Tab)",
   "window.chat.mode.model-tip": "Modèle et durée de réflexion",
+  "window.chat.mode.no-model": "Aucun modèle pour l’instant",
   "window.chat.mode.plan-hint": "Rédige un plan et attend votre accord avant de faire quoi que ce soit.",
   "window.chat.mode.thinking-hint": "Les options de réflexion dépendent du modèle.",
   "window.chat.mode.this-conversation": "Cette conversation",
