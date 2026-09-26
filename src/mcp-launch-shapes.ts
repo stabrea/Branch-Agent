@@ -55,15 +55,49 @@ export function optionValues(args: readonly string[], options: readonly string[]
   return values;
 }
 
-/** The words of a command line, with simple quoting: `"a b"`, `'a b'`. */
-function words(line: string): string[] {
-  return [...line.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g)].map((found) => found[1] ?? found[2] ?? found[3] ?? "");
+/**
+ * The words of a command line, split the way the shell that reads it does: quoted and unquoted pieces next to each other
+ * make one word (`work"sp"ace`, `'wo'rk`). With `posix` (sh, bash …), a backslash outside single quotes escapes the next
+ * character, and inside double quotes escapes `"`, `\`, `$` and a backtick; elsewhere (cmd, PowerShell) a backslash is
+ * part of a path.
+ */
+function words(line: string, posix: boolean): string[] {
+  const all: string[] = [];
+  let word: string | null = null;
+  for (let at = 0; at < line.length; at++) {
+    const letter = line[at]!;
+    if (/\s/.test(letter)) { if (word !== null) all.push(word); word = null; continue; }
+    word ??= "";
+    if (posix && letter === "\\") { word += line[++at] ?? ""; continue; }
+    if (letter !== '"' && letter !== "'") { word += letter; continue; }
+    for (at++; at < line.length && line[at] !== letter; at++) {
+      if (posix && letter === '"' && line[at] === "\\" && '"\\$`'.includes(line[at + 1] ?? "")) at++;
+      word += line[at] ?? "";
+    }
+  }
+  if (word !== null) all.push(word);
+  return all;
 }
 /** A command line as a program and its arguments; PowerShell's `&` and `.` and a shell's `exec` or cmd's `call` step aside. */
-function fromLine(line: string): string[] {
-  const all = words(line);
+function fromLine(line: string, posix: boolean): string[] {
+  const all = words(line, posix);
   while (all.length && ["&", ".", "exec", "call"].includes(all[0]!.toLowerCase())) all.shift();
   return all;
+}
+/** cmd reads `^x` as `x` outside quotes; PowerShell reads `` `x `` as `x`. */
+const uncaret = (text: string): string => text.replace(/\^([\s\S])/g, "$1");
+const unbacktick = (text: string): string => text.replace(/`([\s\S])/g, "$1");
+
+/**
+ * A command string a launch is given: kept as text as written, as its escapes read (cmd's `^`, PowerShell's backtick),
+ * and as the words its shell makes of it joined up again, so a name split by quotes or escapes reads whole. Returns the
+ * program and arguments it runs.
+ */
+function commandLine(own: Launch, text: string, how: "posix" | "cmd" | "powershell"): string[] {
+  const read = how === "cmd" ? uncaret(text) : how === "powershell" ? unbacktick(text) : text;
+  const argv = fromLine(read, how === "posix");
+  own.texts.push(...new Set([text, read, words(read, how === "posix").join(" ")]));
+  return argv;
 }
 
 /** Node (and bun, tsx): the inline code (-e/--eval/-p/--print, `-pe`) or the entry, whichever comes first. `bun run x` runs x. */
@@ -150,40 +184,36 @@ function readWsl(args: readonly string[]): { inner?: readonly string[]; folders:
   return { folders };
 }
 
-/** cmd: what follows /c, /k or /r, as a program and its arguments; one argument is a command line, kept as text too. */
-function readCmd(args: readonly string[]): { inner?: readonly string[]; text?: string } {
+/** cmd: what follows /c, /k or /r: one argument is a command line; several are a program and its arguments. */
+function readCmd(args: readonly string[]): { rest?: string[] } {
   const at = args.findIndex((arg) => /^\/[ckr]/i.test(arg));
   if (at < 0) return {};
   const attached = args[at]!.slice(2);
-  const rest = [...(attached ? [attached] : []), ...args.slice(at + 1)];
-  return rest.length === 1 ? { inner: fromLine(rest[0]!), text: rest[0]! } : { inner: rest };
+  return { rest: [...(attached ? [attached] : []), ...args.slice(at + 1)] };
 }
 
 /** The program a launch starts inside itself, if any, filling in the text and folders the outer one is given. */
 function innerOf(name: string, own: Launch): { argv: readonly string[]; module: boolean } | null {
+  const run = (argv: readonly string[]) => ({ argv, module: false });
   if (name === "cmd") {
-    const { inner, text } = readCmd(own.args);
-    if (text !== undefined) own.texts.push(text);
-    return inner ? { argv: inner, module: false } : null;
+    const { rest } = readCmd(own.args);
+    if (!rest) return null;
+    return run(rest.length === 1 ? commandLine(own, rest[0]!, "cmd") : rest.map(uncaret));
   }
   if (shells.has(name)) {
     const text = readShell(own.args);
-    if (text === undefined) return null;
-    own.texts.push(text);
-    return { argv: fromLine(text), module: false };
+    return text === undefined ? null : run(commandLine(own, text, "posix"));
   }
   if (name === "powershell" || name === "pwsh") {
     const { text, folders } = readPowershell(name, own.args);
     own.folders.push(...folders);
-    if (text === undefined) return null;
-    own.texts.push(text);
-    return { argv: fromLine(text), module: false };
+    return text === undefined ? null : run(commandLine(own, text, "powershell"));
   }
   if (name === "wsl") {
     const { inner, folders } = readWsl(own.args);
     own.folders.push(...folders);
-    if (inner?.length === 1 && /\s/.test(inner[0]!)) { own.texts.push(inner[0]!); return { argv: fromLine(inner[0]!), module: false }; }
-    return inner ? { argv: inner, module: false } : null;
+    if (inner?.length === 1 && /\s/.test(inner[0]!)) return run(commandLine(own, inner[0]!, "posix"));
+    return inner ? run(inner) : null;
   }
   if (isPython(name)) {
     const { module, rest } = readPython(own.args);
