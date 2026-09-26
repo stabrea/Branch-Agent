@@ -2,7 +2,7 @@
    sidebar (machine, search, Places, the conversation list, the person) and the status bar. Real data only. */
 
 import { $, esc, paint, renderNow } from "../core/dom.js";
-import { S, E, refresh, save, activeId, personHere } from "../core/state.js";
+import { S, E, refresh, save, activeId, personHere, ownName, chatFace } from "../core/state.js";
 import { on, run } from "../core/actions.js";
 import { ic, av, mi, openPop, closePop, openDlg, toast } from "../core/ui.js";
 import { greyOut, markLive } from "../core/features.js";
@@ -55,8 +55,7 @@ function waitingCount() {
 /* A conversation with a task still going (E.state.runs) reads Working in its row, as the conversation header does. */
 const runningIn = (id) => (E.state?.runs ?? []).some((r) => r.sessionId === id && ["running", "queued"].includes(r.status));
 
-/* The prototype's rowHtml names a Trunk's or a room's own conversation by the Trunk or room (c.name). */
-const ownName = (id) => E.trunks.find((t) => t.chatSessionId === id || (t.retiredChats ?? []).includes(id))?.name ?? E.rooms.find((r) => r.sessionId === id)?.name;
+/* The prototype's rowHtml names and draws a Trunk's or a room's own conversation by the Trunk or room (core/state.js). */
 
 function row(s) {
   const id = sessionId(s);
@@ -64,8 +63,8 @@ function row(s) {
   const busy = runningIn(id);
   const waits = E.rooms.some((r) => r.sessionId === id && r.needsYou); // GET /api/trunks rooms[].needsYou: the prototype's p.attn
   return `<button class="row" type="button" data-act="chat" data-id="${esc(id)}" aria-current="${S.chat === id}"${busy ? ' data-running="true"' : ""}>
-    <span class="avw">${av(trunk ?? { kind: "main" }, 40)}</span>
-    <b><span class="ellip14">${esc(ownName(id) ?? sessionTitle(s))}</span>${trunk?.paused ? '<span class="paused">paused</span>' : ""}</b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
+    <span class="avw">${av(trunk ?? chatFace(id), 40)}</span>
+    <b><span class="ellip14">${esc(ownName(id) || sessionTitle(s))}</span>${trunk?.paused ? '<span class="paused">paused</span>' : ""}</b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
     ${busy ? '<p class="attn">Working</p>' : `<p${waits ? ' class="attn"' : ""}>${esc(s.lastMessage ?? "")}</p>`}${unreadDot(s)}</button>`;
 }
 

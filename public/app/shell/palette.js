@@ -3,7 +3,7 @@
    offered. */
 
 import { $, esc, applyCss, renderNow } from "../core/dom.js";
-import { S, E } from "../core/state.js";
+import { S, E, ownName } from "../core/state.js";
 import { on, run, has } from "../core/actions.js";
 import { markLive, isLive } from "../core/features.js";
 import { app, ic, closePop, closeDlg } from "../core/ui.js";
@@ -28,7 +28,7 @@ function all() {
     ...ACTIONS.filter(([, , , a]) => has(a) && isLive(a)).map(([l, sub, i, a]) => go(l, sub, i, () => run(a)))];
   return [
     ["Actions", actions],
-    ["Conversations", E.sessions.map((s) => go(s.opening || s.title || "", "", "chat", () => openConversation(s.sessionId ?? s.id)))],
+    ["Conversations", E.sessions.map((s) => go(ownName(s.sessionId ?? s.id) || s.opening || s.title || "", "", "chat", () => openConversation(s.sessionId ?? s.id)))],
     ["Places", PLACES.map(([v, l, i]) => go(l, "Place", i, () => { S.view = v; renderNow(); }))],
     ["Settings", NAV.flatMap((g) => g[1]).map(([id, l]) => go(l, "Settings", "gear", () => openPage(id)))],
   ];

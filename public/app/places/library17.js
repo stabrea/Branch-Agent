@@ -21,7 +21,7 @@
    /api/memory/checkpoints) and bringing memories in from a JSON Lines file (POST /api/memory/import). */
 
 import { esc, renderNow } from "../core/dom.js";
-import { E, level, refresh } from "../core/state.js";
+import { E, level, refresh, ownName } from "../core/state.js";
 import { ic, toast, openDlg, closeDlg, dialog } from "../core/ui.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
@@ -221,7 +221,7 @@ async function restoreVersion() {
 async function openForget(sessionId = FC.session) {
   FC.session = sessionId;
   FC.remove = sessionId ? (await api("memory/forget/preview", { sessionId })).remove ?? [] : [];
-  const title = (s) => s.opening || s.title || "";
+  const title = (s) => ownName(s.sessionId ?? s.id) || s.opening || s.title || "";
   const chips = E.sessions.slice(0, 12).map((s) => `<button type="button" class="chip-b17" data-act="fconvb17" data-v="${esc(s.sessionId ?? s.id)}" aria-pressed="${(s.sessionId ?? s.id) === FC.session}">${esc(title(s))}</button>`).join("");
   demoDlg17("forgetconv", { title: "Forget what one conversation taught", go: FC.remove.length ? `Forget these ${FC.remove.length}` : undefined, rows: FC.remove.map((m) => [m.text, when17(m.createdAt), ["idle", "Fact"]]) });
   dialog()?.querySelector(".dlg-b")?.insertAdjacentHTML("afterbegin", `<div class="chips-b17">${chips}</div>`);

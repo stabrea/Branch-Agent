@@ -8,7 +8,7 @@
    Marking read never answers or dismisses anything. */
 
 import { esc, render, onRender } from "../core/dom.js";
-import { S, E, refresh } from "../core/state.js";
+import { S, E, refresh, ownName } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { mi, toast, closePop } from "../core/ui.js";
@@ -17,7 +17,7 @@ import { markLive } from "../core/features.js";
 const U = { inbox: null, at: 0, keep: new Set(), last: null, marking: new Set(), drawn: new Set() };
 const sid = (s) => s.sessionId ?? s.id;
 const find = (id) => E.sessions.find((s) => sid(s) === id);
-const nameOf = (s) => s?.title || s?.opening || "New conversation";
+const nameOf = (s) => (s && ownName(sid(s))) || s?.title || s?.opening || "New conversation";
 const KEY = /^[a-z]{2,12}:[A-Za-z0-9:_-]{1,200}$/;
 
 /* ---------- conversations ---------- */

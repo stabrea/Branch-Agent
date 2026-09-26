@@ -6,7 +6,7 @@
      greyed until the window can do them. */
 
 import { $, esc, render } from "../core/dom.js";
-import { S, E } from "../core/state.js";
+import { S, E, ownName, chatFace, trunkIntro } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { ic, av, mi, openPop, closePop, toast } from "../core/ui.js";
@@ -16,7 +16,8 @@ import { mediaRows } from "./media.js";
 
 const V = { id: null, messages: [], loaded: null };
 const sid = (s) => s.sessionId ?? s.id;
-const nameOf = (id) => E.sessions.find((s) => sid(s) === id)?.opening || "";
+/* A Trunk's or a room's own conversation by its name and face, as the list's rows are (core/state.js). */
+const nameOf = (id) => ownName(id) || E.sessions.find((s) => sid(s) === id)?.opening || "";
 
 /* ---------- the conversation beside ---------- */
 export function chatMenuTop() {
@@ -24,13 +25,13 @@ export function chatMenuTop() {
 }
 
 function besidePop() {
-  const rows = E.sessions.filter((s) => sid(s) !== S.chat).slice(0, 8).map((s) => `<button class="mi" type="button" data-act="beside15" data-v="${esc(sid(s))}">${av({ kind: "main" }, 22)}<span><span class="mi-t">${esc(s.opening || "")}</span><span class="mi-s">${esc(String(s.lastMessage || "").slice(0, 44))}</span></span></button>`).join("");
+  const rows = E.sessions.filter((s) => sid(s) !== S.chat).slice(0, 8).map((s) => `<button class="mi" type="button" data-act="beside15" data-v="${esc(sid(s))}">${av(chatFace(sid(s)), 22)}<span><span class="mi-t">${esc(nameOf(sid(s)))}</span><span class="mi-s">${esc(String(s.lastMessage || "").slice(0, 44))}</span></span></button>`).join("");
   return `<div class="ph">Open beside this one</div>${rows}`;
 }
 
 function thread(messages, session) {
   let last = null;
-  return messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.from !== "branch").map((m) => {
+  return messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.from !== "branch" && !trunkIntro(m)).map((m) => {
     const html = m.role === "user"
       ? `<div class="u">${esc(m.content)}</div>${mediaRows(m, session)}`
       : `<div class="b"><div class="gut">${last !== "assistant" ? av({ kind: "main" }, 28) : ""}</div><div><div class="txt">${text(m.content)}</div></div></div>`;

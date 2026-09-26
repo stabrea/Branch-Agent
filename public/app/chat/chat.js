@@ -2,7 +2,7 @@
    composer, sending through POST /api/run, and the approval card for a task waiting on a yes (GET /api/policy). */
 
 import { $, esc, renderNow, render, onRender } from "../core/dom.js";
-import { S, E, refresh } from "../core/state.js";
+import { S, E, refresh, chatFace, trunkIntro } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { ic, av, toast } from "../core/ui.js";
@@ -48,15 +48,14 @@ const ownTrunk = (sid = C.sessionId) => E.trunks.find((t) => t.chatSessionId ===
 const speaker = () => ownTrunk() ?? (whoHere()?.trunk ? E.trunks.find((t) => t.id === whoHere().trunk.id) : null);
 /* The prototype's renderChat names a Trunk's or a room's conversation by the Trunk or room (c.name). */
 const title = () => ownTrunk()?.name || E.rooms.find((r) => r.sessionId === C.sessionId)?.name || current()?.opening || C.messages.find((m) => m.role === "user")?.content?.slice(0, 70) || "New conversation";
-/* The engine starts a Trunk's own conversation by asking it to introduce itself (src/trunks/index.ts introPrompt). The
-   prototype's Trunk conversation opens with the Trunk's hello, so that prompt is not drawn as the owner's message. */
-const INTRO = "Introduce yourself to the owner in two or three short sentences: your name, your role, and what you can help with. This is the first message of your own conversation.";
-const enginePrompt = (m) => m.role === "user" && m.content === INTRO && !!ownTrunk();
+/* The engine starts a Trunk's own conversation by asking it to introduce itself, a message it marks (core/state.js
+   trunkIntro). The prototype's Trunk conversation opens with the Trunk's hello, so that ask is not drawn as the owner's. */
+const enginePrompt = (m) => trunkIntro(m) && !!ownTrunk();
 
 export function head() {
   const working = C.sending, paused = E.trunks.find((t) => t.chatSessionId === C.sessionId)?.paused;
   return `<div class="head"><button class="icon-btn menu-only" type="button" aria-label="Show conversations" data-act="side">${ic("menu")}</button>
-    ${av(speaker() ?? { kind: "main" }, 32)}<div class="who"><b>${esc(title())}</b><small class="${working ? "attn" : ""}">${working ? "<i></i>Working" : paused ? "Paused · won’t start anything new" : ""}</small></div>
+    ${av(speaker() ?? chatFace(C.sessionId), 32)}<div class="who"><b>${esc(title())}</b><small class="${working ? "attn" : ""}">${working ? "<i></i>Working" : paused ? "Paused · won’t start anything new" : ""}</small></div>
     <span class="tb-grow"></span>
     <button class="icon-btn" type="button" aria-label="Side panel: Activity, Plan, Files, Memory, Browser, Terminal${binding("sidePane") ? ` (${esc(binding("sidePane"))})` : ""}" aria-pressed="${!!S.pane && S.pane !== "browser"}" data-act="pane" data-p="activity">${ic("sidebar")}</button>
     ${rosterButton()}<button class="icon-btn" type="button" aria-label="Find in this conversation (Ctrl+F)" data-tip="Find in this conversation" data-act="find-open">${ic("search")}</button>

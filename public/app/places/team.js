@@ -11,7 +11,7 @@
    may read it. */
 
 import { esc, render, renderNow } from "../core/dom.js";
-import { S, E, personHere } from "../core/state.js";
+import { S, E, personHere, ownName, trunkIntro } from "../core/state.js";
 import { av, closePop } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { on } from "../core/actions.js";
@@ -33,6 +33,12 @@ function person() {
   return `<span class="tav6" data-css="--c:var(--accent);width:30px;height:30px;font-size:11px">${esc(initials(name))}<i class="st st-online"></i></span><span class="grow"><b>${esc(name)}</b><small>This computer${version}</small></span>`;
 }
 
+/* What a task is on: its conversation's opening, or for a Trunk's own conversation (which opens with the engine's ask,
+   core/state.js trunkIntro) the task's own words, never that ask. */
+const doing = (r, session) => {
+  const said = ownName(r.sessionId) ? r.prompt : session?.opening || r.prompt;
+  return trunkIntro({ role: "user", content: said }) ? "" : firstLine(said);
+};
 function liveRow(r, i) {
   const waiting = r.status === "needs_input";
   const trunk = (Array.isArray(E.trunks) ? E.trunks : []).find((t) => t.chatSessionId === r.sessionId);
@@ -41,7 +47,7 @@ function liveRow(r, i) {
   const name = trunk?.name ?? E.state?.identity?.name ?? "";
   const pill = waiting ? `<span class="pill work"><i></i>Needs you</span>` : `<span class="pill ok"><i></i>Working</span>`;
   return `<div class="run6 ${waiting ? "wait6" : ""}"><div class="run-h">${person()}${pill}</div>
-    <div class="run-b">${who}<span class="grow"><b>${esc(name)}</b><span>${esc(firstLine(session?.opening) || firstLine(r.prompt))}</span>${r.model ? `<small>${esc(r.model)}</small>` : ""}</span></div>
+    <div class="run-b">${who}<span class="grow"><b>${esc(name)}</b><span>${esc(doing(r, session))}</span>${r.model ? `<small>${esc(r.model)}</small>` : ""}</span></div>
     <div class="acts"><button class="btn sm" type="button" data-act="run-watch" data-i="${i}">${EYE}Watch</button><button class="btn ghost sm" type="button" data-act="toast">Ask to join</button></div></div>`;
 }
 

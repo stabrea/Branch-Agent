@@ -37,6 +37,13 @@ export function faceOf(t) {
 export function av(trunk, size = 40) {
   if (!trunk) return "";
   if (trunk.kind === "main" || trunk.isBranch) return `<span class="av brand" data-css="--s:${size}px;--r:30%" aria-hidden="true"><span class="peb"></span><span class="mark mark-face"></span></span>`;
+  /* A room (core/state.js roomFace): the prototype's stack of two member faces, drawn idle; one member alone, none Branch. */
+  if (trunk.kind === "room") {
+    const [a, b] = (trunk.members ?? []).map((m) => ({ ...m, paused: false }));
+    if (!b) return av(a ?? { kind: "main" }, size);
+    const sz = Math.round(size * 0.7);
+    return `<span class="stack" data-css="--s:${size}px;--sz:${sz}" aria-hidden="true">${av(a, sz)}${av(b, sz)}</span>`;
+  }
   const f = faceOf(trunk);
   const css = `--s:${size}px;--c:${f.color};--r:${SHAPES[SHAPE_NAMES.indexOf(f.shape)]}`;
   const paused = f.paused ? " paused" : ""; // a paused Trunk's face is drawn grey (GET /api/trunks `paused`)
