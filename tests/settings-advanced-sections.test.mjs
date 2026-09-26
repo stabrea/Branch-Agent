@@ -11,7 +11,6 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
-const { BUCKETS } = await import("../public/settings-buckets.js");
 const CARDS = ["health-card", "diagnostics-card", "settings", "event-loop-card", "activity-log-card",
   "developer-card", "sdk-kit-card", "coding-card", "jev-decisions-card", "counters-card", "knobs-retries-card", "knobs-tools-card"];
 
@@ -20,7 +19,32 @@ const REGULAR = ["Fixing problems", "3 more with Advanced", "For developers", "2
 const ADVANCED = ["Fixing problems", "1 more with Technical", "For developers", "3 more with Technical"];
 const TECHNICAL = ["Fixing problems", "For developers", "Under the hood"];
 
-test("every Advanced card keeps a section, in the sample's order", () => {
+/* The new window: Settings › Advanced is on the list from Advanced up (not at Regular), and is the prototype's page: its
+   title, the only h1, over its sections in order, the same at Advanced and Technical, at 1440, 860 and 400 px. */
+const NEW_SECTIONS = ["Advanced", "Seeing more", "Memory", "Automations", "Tools and skills", "Trunks, more", "Library, more", "Pinned skills"];
+test("Advanced has the prototype's sections at 1440, 860 and 400 px, at Advanced and Technical, and waits for Advanced", async (t) => {
+  const { settingsWindow, openSettingsPage, setLevel } = await import("./settings-window.mjs");
+  const { page, errors } = await settingsWindow(t, { name: "settings-advanced" });
+  await openSettingsPage(page, "general");
+  await setLevel(page, "regular");
+  assert.equal(await page.locator('[data-act="setpage"][data-v="advanced"]').count(), 0, "Advanced is not on the list at Regular");
+  for (const width of [1440, 860, 400]) {
+    await page.setViewportSize({ width, height: 950 });
+    for (const one of ["advanced", "technical"]) {
+      await setLevel(page, one);
+      await openSettingsPage(page, "advanced");
+      const heads = await page.locator(".set-col").locator("h1, h2, h3").evaluateAll((all) => all.filter((node) => node.checkVisibility()).map((node) => node.textContent.trim()));
+      assert.deepEqual(heads, NEW_SECTIONS, `${one} at ${width} px`);
+      assert.equal(await page.locator(".set-col h1").count(), 1, "only the page title is level one");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, `${width} px fits`);
+    }
+  }
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (public/settings-buckets.js is gone; the prototype's sections are checked above).
+test.skip("every Advanced card keeps a section, in the sample's order", async () => {
+  const { BUCKETS } = await import("../public/settings-buckets.js");
   const placed = BUCKETS.advanced.flatMap((bucket) => bucket[4].map(([ref]) => ref));
   assert.deepEqual([...placed].sort(), [...CARDS].sort());
   assert.deepEqual(BUCKETS.advanced.map((bucket) => bucket[2]), ["Fixing problems", "For developers", "Under the hood"]);
@@ -64,7 +88,8 @@ async function expect(page, level, want) {
   assert.deepEqual(await outline(page), want, `${level} at ${page.viewportSize().width}px`);
 }
 
-test("Advanced has the sample's sections and counts at 1440, 860 and 400 px, Show everything off and on", async (t) => {
+// Redesign: replaced by the new window (the prototype's sections, re-pointed above; no "N more" lines or Under the hood).
+test.skip("Advanced has the sample's sections and counts at 1440, 860 and 400 px, Show everything off and on", async (t) => {
   const { page, errors } = await fixture(t);
   for (const width of [1440, 860, 400]) {
     await page.setViewportSize({ width, height: 950 });
@@ -82,7 +107,8 @@ test("Advanced has the sample's sections and counts at 1440, 860 and 400 px, Sho
   assert.deepEqual(errors, []);
 });
 
-test("Advanced's section headings and counts are French in French", async (t) => {
+// Redesign: Coming soon (sw:lang), checked at fc541c24.
+test.skip("Advanced's section headings and counts are French in French", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
@@ -99,7 +125,9 @@ test("Advanced's section headings and counts are French in French", async (t) =>
   assert.deepEqual(errors, []);
 });
 
-test("DG-008: on Advanced only the page title is level two; each card's title sits under its section's", async (t) => {
+// Redesign: replaced by the new window (the prototype's page title is the only h1 over h2 sections, checked above; its
+// sections hold rows, not cards with titles).
+test.skip("DG-008: on Advanced only the page title is level two; each card's title sits under its section's", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
   for (const id of CARDS) await page.locator(`#${id === "settings" ? "adapt-card" : id}`).waitFor({ state: "visible" });
@@ -113,7 +141,9 @@ test("DG-008: on Advanced only the page title is level two; each card's title si
   assert.deepEqual(errors, []);
 });
 
-test("DG-025: the code editor and pull request switches save as you go, with no Save button, and say when a save fails", async (t) => {
+// Redesign: Coming soon (sw:f15-draft-a-pull-request-from-a-task on Computer & browser, sw:dv-ls on Developer), checked
+// at fc541c24.
+test.skip("DG-025: the code editor and pull request switches save as you go, with no Save button, and say when a save fails", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(() => globalThis.branchSettingsLevel.set("advanced"));
   for (const [details, select, path, status] of [["wsedit-card", "wsedit-mode", "/api/workspace-editor/settings", "wsedit-mode-status"],
