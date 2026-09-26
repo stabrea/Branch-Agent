@@ -6,18 +6,22 @@
    from GET /api/profiles and the owner's sign-in card).
    Signing in: the prototype's signinTab, drawn from the owner's sign-in card (GET /api/people/settings: settings.mode,
    settings.chain, settings.sessionMinutes, waiting) and GET /api/profiles ownerPin; a profile always locks after five
-   wrong PINs (src/profiles.ts maximumPinAttempts). Every control there decides who may sign in, so all stay greyed for
-   separate review; the card is read when either tab is switched to or opened from Settings › People, and only the owner
-   may read it. */
+   wrong PINs (src/profiles.ts maximumPinAttempts), so that switch only shows it. Who may sign in, how they prove it and
+   how long they stay signed in are POST /api/people/settings {mode | chain | sessionMinutes} (it keeps the rest), and
+   Confirm on a waiting account is POST /api/people/links/confirm {provider, profileId, subject}; both answer with the
+   card again, which is drawn as the engine says. Only the owner reaches either (src/people/api.ts requireOwner, refused
+   to short-lived keys). "Ask for my PIN when switching back to me" is wired in flows/people.js. The card is read when
+   either tab is switched to or opened from Settings › People, and only the owner may read it. */
 
 import { esc, render, renderNow } from "../core/dom.js";
 import { S, E, personHere } from "../core/state.js";
-import { av, closePop } from "../core/ui.js";
+import { av, closePop, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { on } from "../core/actions.js";
 import { tabBar } from "./parts.js";
 import { ctl } from "../settings/parts.js";
 import { people, peopleBody, startPeople, loadSignin } from "../settings/pages/people.js";
+import { api } from "../core/api.js";
 
 const tabs = [["live", "Live now"], ["people", "People"], ["groups", "Groups"],
   ["shared", "Shared"], ["agents", "Teams of specialists"], ["activity", "Activity"],
@@ -55,13 +59,13 @@ const counts = () => ({ live: liveRuns().length, people: people().length });
 let signin = null, signinFor = null;
 const STAY = [[60, "1 hour"], [480, "8 hours"], [10080, "A week"]];
 const PROVE = [["pin", "PIN"], ["passkey", "Passkey"], ["oidc", "An identity service"]];
-/* The prototype's segmented control, with the engine's value pressed; its act has no handler, so it is greyed. */
+/* The prototype's segmented control, with the engine's value pressed. */
 const seg = (title, sub, opts, pressed, act) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l]) => `<button type="button" aria-pressed="${pressed(v)}" data-act="${act}" data-v="${esc(v)}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
 
 function waitingRows(waiting) {
   if (!waiting?.length) return "";
   const name = (id) => E.profiles?.profiles?.find((p) => p.id === id)?.name ?? "";
-  return `<div class="sec"><h2>Accounts linked by email</h2>${waiting.map((w) => `<div class="prow"><span class="grow"><b>${esc(w.email)}</b><small>Wants to link to ${esc(name(w.profileId))} · you confirm</small></span><button class="btn sm" type="button" data-act="si-link">Confirm</button></div>`).join("")}</div>`;
+  return `<div class="sec"><h2>Accounts linked by email</h2>${waiting.map((w) => `<div class="prow"><span class="grow"><b>${esc(w.email)}</b><small>Wants to link to ${esc(name(w.profileId))} · you confirm</small></span><button class="btn sm" type="button" data-act="si-link" data-provider="${esc(w.provider)}" data-profile="${esc(w.profileId)}" data-subject="${esc(w.subject)}">Confirm</button></div>`).join("")}</div>`;
 }
 
 function signinTab() {
@@ -72,6 +76,17 @@ function signinTab() {
     ${seg("How they prove it’s them", "Everyone passes this check.", PROVE, (v) => (s.chain ?? []).includes(v), "si-chain")}${seg("Stay signed in for", "Then they sign in again.", STAY, (v) => s.sessionMinutes === v, "si-stay")}
     ${ctl("si-lock", "Lock a profile after five wrong PINs", "For five minutes.", locks)}${ctl("si-owner", "Ask for my PIN when switching back to me", "Off by default.", Boolean(E.profiles?.ownerPin))}
     ${waitingRows(signin.waiting)}`;
+}
+
+/* A change to who may sign in; the engine answers with the whole card, which is drawn as it says. */
+async function saveSignin(path, body) {
+  try { signin = await api(path, body); } catch (error) { toast(error.message); signin = await loadSignin(); }
+  render();
+}
+/* How they prove it's them: every person passes each check pressed; pressing one adds or takes it away. */
+function toggleChain(v) {
+  const now = signin?.settings?.chain ?? [];
+  return saveSignin("people/settings", { chain: now.includes(v) ? now.filter((x) => x !== v) : [...now, v] });
 }
 
 /* The owner's sign-in card, read once each time People or Signing in is opened; drawn again only when it changed. */
@@ -104,7 +119,11 @@ export function draw() {
 }
 
 export function init() {
-  markLive(["ptab", "p-open-team"]);
+  markLive(["ptab", "p-open-team", "si-mode", "si-chain", "si-stay", "si-link"]);
+  on("si-mode", (el) => saveSignin("people/settings", { mode: el.dataset.v }));
+  on("si-chain", (el) => toggleChain(el.dataset.v));
+  on("si-stay", (el) => saveSignin("people/settings", { sessionMinutes: Number(el.dataset.v) }));
+  on("si-link", (el) => saveSignin("people/links/confirm", { provider: el.dataset.provider, profileId: el.dataset.profile, subject: el.dataset.subject }));
   startPeople();
   /* From Settings › People: opens one of the Team tabs. */
   on("p-open-team", (el) => { S.view = "team"; S.tabs.team = el.dataset.v; signinFor = null; closePop(); renderNow(); });
