@@ -49,7 +49,8 @@ const check = (what, ok, detail = "") => { results.push([ok ? "PASS" : "FAIL", w
   check("Terminal tab lists panels/work terminal commands", JSON.stringify(shown) === JSON.stringify(work.terminal.entries.map((e) => "$ " + e.what)), JSON.stringify(shown));
   const out = await page.locator("#pane .termrow pre").allTextContents();
   check("Terminal tab shows what each command printed", JSON.stringify(out) === JSON.stringify(work.terminal.entries.filter((e) => e.output).map((e) => e.output)), JSON.stringify(out));
-  check("'Open a terminal for me' stays greyed", (await page.locator('#pane [data-act="shell"]').getAttribute("aria-disabled")) === "true");
+  // unhold-control: it is live now (verify-unhold-control.cjs runs a command through it).
+  check("'Open a terminal for me' is live", (await page.locator('#pane [data-act="shell"]').getAttribute("aria-disabled")) !== "true");
 
   // Browser tab opens the full-size view of the browser, showing the engine's last picture.
   await page.locator('#pane [data-act="stage"][data-v="browser"]').click();
@@ -97,9 +98,11 @@ const check = (what, ok, detail = "") => { results.push([ok ? "PASS" : "FAIL", w
   await page.keyboard.press("Escape");
   check("Escape closes the view", (await page.locator("#stage7").count()) === 0);
 
-  // Stop: the waiting task is cancelled in the engine. Take over stays greyed.
+  // Stop: the waiting task is cancelled in the engine. Take over is the shared Linux desktop's (verify-unhold-control.cjs):
+  // with none running it is not drawn.
   await page.locator('#pane [data-act="stage"][data-v="browser"]').click();
-  check("Take over stays greyed", (await page.locator('#stage7 [data-act="takeover"]').getAttribute("aria-disabled")) === "true");
+  const desk = await get("linux-desktop");
+  check("Take over is not drawn while no shared desktop runs (GET /api/linux-desktop)", !desk.running && (await page.locator('#stage7 [data-act="takeover"]').count()) === 0);
   await page.locator('#stage7 [data-act="stage-stop"]').click();
   await page.locator("#stage7").waitFor({ state: "detached" });
   const after = (await get("state")).runs.find((r) => r.id === waiting.id);
