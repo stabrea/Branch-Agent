@@ -41,6 +41,11 @@ async function toToolsStep(page, pickTemplates) {
   await page.locator(".ob-agree").click();
   await settle(page, 300);
   if (pickTemplates) {
+    /* Before any Trunk is picked, the recommended part says so in one line. */
+    await page.locator('.ob9 [data-act="ob-go"][data-v="6"]').click();
+    await page.locator(".ob9 .obt").waitFor({ timeout: 20000 });
+    const none = await page.locator(".ob9 .obt p.hint", { hasText: "No Trunks picked yet" }).count();
+    check("with no Trunks picked, one line says so", none === 1 && (await page.locator(".ob9 .obt .rows").count()) === 0);
     await page.locator('.ob9 [data-act="ob-go"][data-v="4"]').click();
     await settle(page, 400);
     for (const i of Object.keys(TEMPLATES)) await page.locator(`.ob9 [data-act="ob-tpl"][data-i="${i}"]`).click();
@@ -121,12 +126,15 @@ async function personalToggle(page) {
   check("google switch off survives a reload", !(await box().isChecked()));
   await box().click();
   check("google switch on again: saved as when-needed", await until(async () => (await api("personal")).modes.google === "when-needed"));
+  await until(async () => box().isChecked());
+  await settle(page, 500);
 }
 
 async function cliToggle(page, clis) {
   if (!clis.found.length) { check("command-line tools: none found, so no switch is drawn", (await page.locator("#obt-cli").count()) === 0); return; }
   const body = page.locator(".ob9 .ob-body");
   await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await settle(page, 300);
   const before = await body.evaluate((el) => el.scrollTop);
   const all = clis.found.every((c) => c.allowed);
   await page.locator("#obt-cli").click();
@@ -134,7 +142,7 @@ async function cliToggle(page, clis) {
   check(`command-line switch ${all ? "off" : "on"}: GET /api/clis agrees`, done);
   await settle(page, 800);
   const after = await body.evaluate((el) => el.scrollTop);
-  check("a switch redraws the step in place (no jump to the top)", Math.abs(after - before) < 4, `${before} -> ${after}`);
+  check("a switch redraws the step in place (no jump to the top)", before > 0 && Math.abs(after - before) < 4,`${before} -> ${after}`);
   await reopen(page);
   check("command-line switch survives a reload", (await page.locator("#obt-cli").isChecked()) === !all);
   await page.locator("#obt-cli").click();
