@@ -131,6 +131,7 @@ async function copyAddress(page) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   try {
+    await api("onboarding", { done: true }); // setup through the API: a fresh engine opens on its first-run screens
     await page.goto(BASE + "/");
     await page.getByLabel("Session token").fill(TOKEN);
     await page.getByRole("button", { name: "Connect" }).click();
