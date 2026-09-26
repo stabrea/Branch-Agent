@@ -27,6 +27,7 @@ let plugins = [];
 let agents = [];
 let suggestions = [];
 let revisions = [];
+let policyRules = [];
 const T9 = { k: "mcp", sel: null };
 const CH = { fam: "all", q: "" };
 
@@ -39,7 +40,7 @@ const KINDS = [
 ];
 /* Each kind's items as {id, name, sub}; command-line tools have no engine list, so none are drawn. */
 function itemsOf(k) {
-  if (k === "mcp") return mcpServers.map((s) => ({ id: s.id, name: s.id, sub: s.summary ?? "" }));
+  if (k === "mcp") return mcpServers.map((s) => ({ id: s.id, name: s.id, sub: s.summary ?? "", error: s.lastError ?? "" }));
   if (k === "skills") return (E.state?.skills ?? []).map((s) => ({ id: s.id, name: s.activeName || s.name, sub: s.description ?? "" }));
   if (k === "plugins") return plugins.map((p) => ({ id: p.id ?? p.name, name: p.name ?? p.id, sub: p.description ?? "" }));
   if (k === "agents") return agents.map((a) => ({ id: a.name, name: a.name, sub: a.description ?? a.cardUrl ?? "" }));
@@ -53,7 +54,7 @@ function trunksTab() {
     <button class="btn sm" type="button" data-act="edit" data-id="${esc(t.id)}">Edit</button>
     <button class="btn ghost sm" type="button" data-act="pausetrunk" data-id="${esc(t.id)}">Pause</button></div>`).join("");
   const jobs = TEMPLATES.map(([n, x, col], i) => `<div class="tile"><div class="th">${av({ name: n, color: col }, 34)}<b>${esc(n)}</b></div><p>${esc(x)}</p><div class="acts"><button class="btn sm" type="button" data-act="tmpl" data-i="${i}">Use this job</button></div></div>`).join("");
-  return `<div class="rows"><div class="acts" data-css="margin:6px 0 4px"><button class="btn pri" type="button" data-act="new-trunk">${ic('plus', 's')}A new Trunk</button>
+  return `<div class="rows"><div class="acts" data-css="margin:6px 0 4px"><button class="btn pri" type="button" data-act="chat" data-id="new">${ic('plus', 's')}A new Trunk</button>
     <button class="btn" type="button" data-act="grp-new">${ic('room', 's')}A new room</button></div>${rows}
     <div class="sec"><h2>Start from a job</h2><div class="grid2">${jobs}</div></div></div>`;
 }
@@ -78,15 +79,38 @@ function suggested() {
   return `<div class="sugg15"><h3>Suggested for you</h3>${suggestions.map((s) => `<div class="sg-row15"><span class="grow"><b>${esc(s.name)}</b><small>${esc(s.description)}</small></span><button type="button" class="btn sm" data-act="${s.source === "installed" ? "sugg15" : "sugg15-reg"}" data-v="${esc(s.id)}">Add</button></div>`).join("")}</div>`;
 }
 
-/* Which Trunks may use a server or a skill is drawn from each Trunk's own lists (servers by id, skills by name), and stays greyed: adding a server to a
-   Trunk widens what it can reach. Remove is drawn for skills only: servers live in the launch file, and removing an
-   assistant elsewhere could not be checked against this engine. */
+/* What each of a server's tools may do: its tools are the engine's own list (GET /api/state tools, named mcp.<server>.…),
+   shown by the description the server gave; the pressed choice is the approval rule that names that exact tool, else none.
+   Every choice stays greyed (seg has no handler): changing one loosens or tightens approvals. */
+const DECISIONS = [["allow", "Allowed"], ["ask", "Ask first"], ["deny", "Never"]];
+function toolPerms(x) {
+  const tools = (E.state?.tools ?? []).filter((t) => t.name.startsWith(`mcp.${x.id}.`));
+  const rows = tools.map((t) => {
+    const rule = policyRules.find((r) => r.tool === t.name);
+    return `<div class="prow t9-perm"><code>${esc(t.description)}</code><span class="grow"></span><span class="seg">${DECISIONS.map(([d, l]) => `<button type="button" data-act="seg" aria-pressed="${rule?.decision === d}">${l}</button>`).join("")}</span></div>`;
+  }).join("");
+  return `<div class="sec"><h2>What each tool may do</h2><div class="rows">${rows}</div></div>`;
+}
+/* A server that would not start says why, in the engine's words; trying again and its log stay greyed. */
+const startProblem = (x) => (x.error ? `<div class="status"><span class="sdot bad"></span><div><b>It didn’t start</b><p>${esc(String(x.error).replace(/\.$/, ""))}. <button class="link" type="button" data-act="tool-retry">Try again</button> · <button class="link" type="button" data-act="tool-log">See its log</button></p></div></div>` : "");
+/* Remove is live for skills only (tool-rm). A server lives in the launch file and a plugin or an agent here has no removal
+   this window checks, so theirs is drawn disabled. Test it would start the server's program, and no route checks a
+   server or a tool for updates, so both stay greyed under their own names. */
+function detailActs(k, x) {
+  const rmOff = k === "skills" ? "" : ' disabled aria-disabled="true" data-tip="Coming soon"';
+  const test = k === "mcp" ? '<button class="btn sm" type="button" data-act="tool-test">Test it</button>' : "";
+  return `<div class="acts" data-css="margin-top:16px">${test}<button class="btn sm" type="button" data-act="tool-upd">Check for updates</button><span class="grow"></span><button class="btn ghost sm${rmOff ? " soon" : ""}" type="button" data-act="tool-rm" data-k="${k}" data-id="${esc(x.id)}"${rmOff}>Remove</button></div>`;
+}
+/* Which Trunks may use a server or a skill is drawn from each Trunk's own lists (servers by id, skills by name), and stays
+   greyed: adding a server to a Trunk widens what it can reach. */
+/* Branch's own assistant, by its name (state.identity): it may use a server whose tools are in its list (state.tools). */
+const mainChip = (x) => `<button type="button" class="chip6" data-act="tool-who" data-k="mcp" data-id="${esc(x.id)}" data-v="main" aria-pressed="${(E.state?.tools ?? []).some((t) => t.name.startsWith(`mcp.${x.id}.`))}">${esc(E.state?.identity?.name ?? "")}</button>`;
 function detail(k, x) {
   const list = k === "mcp" ? "mcpServers" : k === "skills" ? "skills" : null;
-  const who = list ? `<div class="sec"><h2>Which Trunks may use it</h2><div class="chips8">${E.trunks.map((t) => `<button type="button" class="chip6" data-act="tool-who" data-k="${k}" data-id="${esc(x.id)}" data-v="${esc(t.id)}" aria-pressed="${(t[list] ?? []).includes(k === "skills" ? x.name : x.id)}">${esc(t.name)}</button>`).join("")}</div></div>` : "";
-  const rm = k === "skills" ? `<span class="grow"></span><button class="btn ghost sm" type="button" data-act="tool-rm" data-k="${k}" data-id="${esc(x.id)}">Remove</button>` : "";
-  return `<div class="t9-detail"><div class="t9-dh"><span class="ico-tile t9i" data-css="width:40px;height:40px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span></div>
-    ${who}${rm ? `<div class="acts" data-css="margin-top:16px">${rm}</div>` : ""}</div>`;
+  const who = list ? `<div class="sec"><h2>Which Trunks may use it</h2><div class="chips8">${E.trunks.map((t) => `<button type="button" class="chip6" data-act="tool-who" data-k="${k}" data-id="${esc(x.id)}" data-v="${esc(t.id)}" aria-pressed="${(t[list] ?? []).includes(k === "skills" ? x.name : x.id)}">${esc(t.name)}</button>`).join("")}${k === "mcp" ? mainChip(x) : ""}</div></div>` : "";
+  const onOff = k === "mcp" ? `<input type="checkbox" class="sw" data-sw="tool9g" data-k="${k}" data-id="${esc(x.id)}" aria-label="${esc(x.name)} on or off">` : "";
+  return `<div class="t9-detail"><div class="t9-dh"><span class="ico-tile t9i" data-css="width:40px;height:40px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span>${onOff}</div>
+    ${startProblem(x)}${who}${k === "mcp" ? toolPerms(x) : ""}${detailActs(k, x)}</div>`;
 }
 
 function toolsTab() {
@@ -98,11 +122,36 @@ function toolsTab() {
     <div class="t9-list">${learnedCard()}${rows}${suggested()}</div>${sel ? detail(k, sel) : ""}</div>`;
 }
 
+/* The engine keeps each specialist as {id, data: {definition: {name, instructions}}}. */
+const specName = (s) => s.data?.definition?.name ?? "";
+const specWhat = (s) => String(s.data?.definition?.instructions ?? "").split("\n")[0];
+
+/* The prototype's patterns. The engine picks supervisor, swarm or router per job and keeps no owner setting for a default
+   pattern, so none is checked and pat15 stays greyed (FEATURE-AUDIT: soon). */
+const PATTERNS = [
+  ["one", "One at a time", "A Trunk calls a specialist, waits, carries on.", "M30 14v14M30 38v10", [[30, 10], [30, 33], [30, 52]]],
+  ["super", "A lead and helpers", "One Trunk plans and hands out the parts.", "M30 14L14 42M30 14v28M30 14l16 28", [[30, 10], [14, 46], [30, 46], [46, 46]]],
+  ["swarm", "Swarm", "Equals pass the work to whoever fits best.", "M14 18L46 18M14 18L30 46M46 18L30 46", [[14, 18], [46, 18], [30, 46]]],
+  ["router", "Router", "Sends each request to the one Trunk that matches.", "M10 30h12M22 30l20-16M22 30h20M22 30l20 16", [[8, 30], [22, 30], [46, 14], [46, 30], [46, 46]]],
+  ["parallel", "In parallel", "The same job split up, then gathered.", "M30 10L14 30M30 10v20M30 10l16 20M14 30L30 50M30 30v20M46 30L30 50", [[30, 8], [14, 30], [30, 30], [46, 30], [30, 52]]],
+  ["teams", "Teams", "Small groups, each with its own lead.", "M18 12L10 30M18 12l8 18M42 12l-8 18M42 12l8 18M18 12h24", [[18, 12], [42, 12], [10, 32], [26, 32], [34, 32], [50, 32]]],
+];
+const patSvg = ([, , , d, dots]) => `<svg viewBox="0 0 60 60" aria-hidden="true"><path d="${d}"></path>${dots.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${i === 0 ? 5 : 4}" class="${i === 0 ? "lead15" : ""}"></circle>`).join("")}</svg>`;
+
+/* Who is on call: the engine's Trunks and Branch's own assistant, how many tasks are working, how many specialists. */
+function fleet(specs) {
+  const n = E.trunks.length, working = (E.state.runs ?? []).filter((r) => r.status === "running").length;
+  const dots = [...E.trunks.map((t) => av(face(t), 22)), av({ kind: "main" }, 22)].join("");
+  return `<div class="fleet15"><span class="fl-dots15">${dots}</span><span><b>${n} ${n === 1 ? "Trunk" : "Trunks"}</b><small>${working} working now · ${specs.length} ${specs.length === 1 ? "specialist" : "specialists"} on call</small></span></div>`;
+}
+
 function specialistsTab() {
   const specs = E.state.specialists || [];
-  return `<div class="rows"><p class="hint">Helpers a Trunk calls in for one job, then lets go.</p>${specs.map((s) => `<div class="prow"><span class="ico-tile">${ic('bolt', 's')}</span>
-    <span class="grow"><b>${esc(s.name || '')}</b><small>${esc(s.description || '')}</small></span>
-    <button class="btn sm" type="button" data-act="spec-edit" data-id="${esc(s.id ?? "")}">Edit</button></div>`).join('')}</div>`;
+  const rows = specs.map((s) => `<div class="prow"><span class="ico-tile">${ic('bolt', 's')}</span><span class="grow"><b>${esc(specName(s))}</b><small>${esc(specWhat(s))}</small></span><button class="btn sm" type="button" data-act="spec-edit" data-id="${esc(s.id ?? "")}">Edit</button></div>`).join('');
+  const pats = PATTERNS.map((p) => `<button type="button" role="radio" class="pat15" aria-checked="false" data-act="pat15" data-v="${p[0]}">${patSvg(p)}<b>${esc(p[1])}</b><small>${esc(p[2])}</small></button>`).join("");
+  return `<div class="rows"><p class="hint" data-css="margin:4px 0 8px">Helpers a Trunk calls in for one job, then lets go.</p>${rows}</div>
+    <div class="sec x15-sec">${fleet(specs)}<h2 data-css="margin-top:22px">How Trunks work together</h2><p class="hint" data-css="margin:0 0 10px">The pattern a room or a big task uses. Branch picks one; you can choose.</p>
+    <div class="pats15" role="radiogroup" aria-label="How Trunks work together">${pats}</div></div>`;
 }
 
 const FAM_WORDS = { core: "Two minutes to set up", chat: "Text through a webhook" };
@@ -158,20 +207,20 @@ const said = new Set();
 const read = (path) => api(path).catch((error) => { if (!said.has(path)) { said.add(path); toast(error.message); } return null; });
 
 async function readTools() {
-  const [mcp, plugs, ag, sug, rev] = await Promise.all([read("mcp/connections"), read("plugins"), read("agents/remote"), read("skills/suggest"), read("skill-revisions")]);
-  return { mcpServers: listOf(mcp, "servers"), plugins: listOf(plugs, "plugins"), agents: listOf(ag, "agents"), suggestions: listOf(sug, "suggestions"), revisions: listOf(rev, "revisions") };
+  const [mcp, plugs, ag, sug, rev, pol] = await Promise.all([read("mcp/connections"), read("plugins"), read("agents/remote"), read("skills/suggest"), read("skill-revisions"), read("policy")]);
+  return { mcpServers: listOf(mcp, "servers"), plugins: listOf(plugs, "plugins"), agents: listOf(ag, "agents"), suggestions: listOf(sug, "suggestions"), revisions: listOf(rev, "revisions"), policyRules: listOf(pol?.policy, "rules") };
 }
 
 export async function after() {
   const tab = S.tabs.customize || "trunks";
-  const before = JSON.stringify([mcpServers, plugins, agents, suggestions, revisions, channelSetup, connected]);
-  if (tab === "tools") ({ mcpServers, plugins, agents, suggestions, revisions } = await readTools());
+  const before = JSON.stringify([mcpServers, plugins, agents, suggestions, revisions, policyRules, channelSetup, connected]);
+  if (tab === "tools") ({ mcpServers, plugins, agents, suggestions, revisions, policyRules } = await readTools());
   else if (tab === "channels") {
     const [setup, live] = await Promise.all([read("channel-setup"), read("channels")]);
     channelSetup = listOf(setup, "channels");
     connected = listOf(live, "channels");
   }
-  if (!same(before, JSON.stringify([mcpServers, plugins, agents, suggestions, revisions, channelSetup, connected]))) renderNow();
+  if (!same(before, JSON.stringify([mcpServers, plugins, agents, suggestions, revisions, policyRules, channelSetup, connected]))) renderNow();
 }
 
 /* Removing a skill: POST /api/skills/{id}/remove, naming the revision it was shown at. */

@@ -69,10 +69,11 @@ export function draw() {
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
 
   const mem = E.state.memory || [];
+  /* As the prototype draws them, only Memory carries its count. */
   const tabs = [
     ["memory", "Memory", mem.length],
-    ["documents", "Documents", docsList.length],
-    ["made", "Made for you", artsList.length]
+    ["documents", "Documents", 0],
+    ["made", "Made for you", 0]
   ];
 
   const lockBanner = E.state.lock ? `<div class="lock-banner">${ic('lock', 's')}Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div>` : "";

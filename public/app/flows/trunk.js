@@ -210,6 +210,19 @@ async function fromTemplate(i) {
   } catch (error) { toast(error.message); }
 }
 
+/* ---------- a new Trunk: the prototype's "Trunk 6 for now", made with POST /api/trunks; the engine has it introduce itself in its
+   own conversation, which then opens. Its name, colour and face change from the editor. ---------- */
+async function newTrunk() {
+  closePop();
+  try {
+    let n = E.trunks.length + 1;
+    while (E.trunks.some((t) => t.name === `Trunk ${n}`)) n += 1;
+    const { trunk } = await api("trunks", { name: `Trunk ${n}` });
+    await refresh();
+    openChat(trunk.chatSessionId);
+  } catch (error) { toast(error.message); }
+}
+
 /* ---------- a new room: a name and two to six Trunks. People and agents on other computers stay greyed (sharing). ---------- */
 let grp = null;
 
@@ -253,7 +266,8 @@ async function makeRoom() {
 }
 
 export function init() {
-  markLive(["edit", "st-tab", "st-colour", "st-shape", "st-anim", "st-shuffle", "st-save", "emo15", "pin", "rename", "rename-save", "remove", "trunk-remove-yes", "tmpl", "grp-new", "grp-pick", "grp-make"]);
+  markLive(["edit", "st-tab", "st-colour", "st-shape", "st-anim", "st-shuffle", "st-save", "emo15", "pin", "rename", "rename-save", "remove", "trunk-remove-yes", "tmpl", "grp-new", "grp-pick", "grp-make", "new-trunk"]);
+  on("new-trunk", () => newTrunk());
   on("edit", (el) => editTrunk(el.dataset.id));
   on("st-tab", (el) => { keepFields(); ed.tab = el.dataset.v; drawEditor(); });
   on("st-colour", (el) => { keepFields(); ed.d.colour = hex(el.dataset.v); drawEditor(); });

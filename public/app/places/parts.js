@@ -3,9 +3,10 @@
 import { esc, $ } from "../core/dom.js";
 import { ic } from "../core/ui.js";
 
+/* A tab's count, when it has one, is the engine's number; none is drawn at zero. */
 export const tabBar = (tabs, place, current) =>
-  `<div class="tabs" role="tablist">${tabs.map(([id, label]) =>
-    `<button class="tab ${id === current ? 'active' : ''}" role="tab" aria-selected="${id === current}" data-act="ptab" data-place="${place}" data-v="${id}">${esc(label)}</button>`
+  `<div class="tabs" role="tablist">${tabs.map(([id, label, count]) =>
+    `<button class="tab" role="tab" type="button" aria-selected="${id === current}" data-act="ptab" data-place="${place}" data-v="${id}">${esc(label)}${count > 0 ? `<span class="n">${count}</span>` : ''}</button>`
   ).join('')}</div>`;
 
 export const row = (icon, name, sub, action, actionText, extra = "") =>
