@@ -29,6 +29,8 @@ const runsHere = () => {
   return (E.state?.runs ?? []).filter((r) => (S.chat ? r.sessionId === S.chat : first && r.prompt === first));
 };
 const working = () => runsHere().some((r) => ["running", "queued", "waiting"].includes(r.status));
+/* What was read for the open conversation only: a new conversation shows each tab's empty words, never the last one's. */
+const mine = () => (P.sid && P.sid === S.chat ? P : { messages: [], plan: null });
 
 function target(args) {
   try {
@@ -40,8 +42,9 @@ function target(args) {
 }
 
 function activity() {
-  const results = new Map(P.messages.filter((m) => m.role === "tool").map((m) => [m.toolCallId, m.content]));
-  const steps = P.messages.flatMap((m) => m.toolCalls ?? []).map((c) => {
+  const { messages } = mine();
+  const results = new Map(messages.filter((m) => m.role === "tool").map((m) => [m.toolCallId, m.content]));
+  const steps = messages.flatMap((m) => m.toolCalls ?? []).map((c) => {
     let ok = null;
     try { ok = JSON.parse(results.get(c.id) ?? "null")?.ok ?? null; } catch { /* a result that is not JSON */ }
     return { name: c.name, detail: target(c.arguments), ok };
@@ -54,7 +57,7 @@ function activity() {
 const activityBody = () => activity() + helpersSection();
 
 function plan() {
-  const steps = P.plan?.steps ?? [];
+  const steps = mine().plan?.steps ?? [];
   if (!steps.length) return `<p class="empty">${t("window.chat.pane.no-plan")}</p>`;
   const cls = { done: "done", working: "now", failed: "bad", waiting: "" };
   return `<ul class="plan">${steps.map((s) => `<li class="${cls[s.status] ?? ""}"><span class="box">${s.status === "done" ? ic("check") : ""}</span><span>${esc(s.title)}</span></li>`).join("")}</ul>`;
@@ -74,7 +77,8 @@ const tabAct = (id) => (REAL.has(id) || extraShown().some(([x]) => x === id) ? "
 
 export function drawPane() {
   const pane = $("#pane"), body = $("#body");
-  const open = S.view === "chat" && !!S.pane && (!!S.chat || !!sendingPrompt());
+  // Open in every conversation, a new one too: each tab then says what it has (nothing yet, before the first message).
+  const open = S.view === "chat" && !!S.pane;
   if (!pane) return;
   pane.hidden = !open;
   body?.classList.toggle("pane-on", open);
