@@ -6891,7 +6891,7 @@
   "window.flows.setup.upd-hint": "It waits until no task is working and keeps a safety copy.",
   "window.flows.setup.where": "Where should Branch run?",
   "window.flows.setup.where-lede": "The engine and the gateway live here. You can talk to it from anywhere.",
-  "window.flows.setup.yours-lede": "Two quick choices. Both can change any time in Settings.",
+  "window.flows.setup.yours-lede": "Choose how Branch looks and how careful it is. You can change any of it later in Settings.",
   "window.flows.tmpl.bug": "Bug Reproduction",
   "window.flows.tmpl.bug-job": "Turns a bug report into exact steps",
   "window.flows.tmpl.chief": "Chief of Staff",

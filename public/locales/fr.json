@@ -6892,7 +6892,7 @@
   "window.flows.setup.upd-hint": "Il attend qu’aucune tâche ne tourne et garde une copie de sécurité.",
   "window.flows.setup.where": "Où Branch doit-il fonctionner ?",
   "window.flows.setup.where-lede": "Le moteur et la passerelle vivent ici. Vous pouvez lui parler de n’importe où.",
-  "window.flows.setup.yours-lede": "Deux choix rapides. Tous deux modifiables à tout moment dans Réglages.",
+  "window.flows.setup.yours-lede": "Choisissez l’apparence de Branch et son niveau de prudence. Tout reste modifiable plus tard dans Réglages.",
   "window.flows.tmpl.bug": "Reproduction de bugs",
   "window.flows.tmpl.bug-job": "Transforme un rapport de bug en étapes précises",
   "window.flows.tmpl.chief": "Chef de cabinet",
