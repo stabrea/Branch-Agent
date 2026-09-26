@@ -263,6 +263,9 @@ async function main() {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });
   await context.addInitScript(WATCH);
   try {
+    /* The first look finds, quietly, what a fresh engine ships with (the "Tidy my memory" procedure). The window used to
+       make that look itself before setup opened; setup now opens on the first draw (setup-resume), so it is made here. */
+    await gotIds();
     const { page, errors } = await signIn(context);
     const before = await gotIds(true);
     await earlySteps(page);
