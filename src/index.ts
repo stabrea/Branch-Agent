@@ -233,6 +233,7 @@ import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; //
 import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
 import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
 import { Personal } from "./personal/index.js"; // R17-C: files, voice, devices and personal connectors
+import { unsetConnectorTools } from "./personal/settings.js"; // ships-on sweep
 import { Reach } from "./reach/index.js"; // r17-i: reach and platform
 import { platformRunners } from "./reach/host.js"; // r17-i
 import { trunkRoster } from "./reach/trunk-roster.js"; // r17-i
@@ -1166,6 +1167,7 @@ export async function createBranch(options: {
   // ── end mac7/nodes ──
   // ── r17-b: suggestions, standing orders, loops, self-starting procedures (src/autonomy/). Every part ships off. ──
   const autonomy = new Autonomy({ runtime, registry, scheduler, chats: channels, handoff: interop.handoffParts,
+    unsetTools: () => unsetConnectorTools(store, runtime.owner), // ships-on sweep: listed is not connected
     hasSecret: (name) => {
       try { return store.secrets.list(runtime.owner, store.projects.active(runtime.owner).id).some((entry) => entry.name === name); } catch { return false; }
     } });
