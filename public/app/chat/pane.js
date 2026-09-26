@@ -1,9 +1,11 @@
 /* The side panel beside a conversation (design doc 4.6), 1:1 with the prototype's: Activity (each tool the task used, from
    the conversation's own messages), Plan (GET /api/runs/<id>/plan), Files (what each task changed, from its run) and
    Memory, and Terminal (each command the tasks ran, from GET /api/panels/work: terminal.js). Browser opens the full-size
-   view of the browser (stage.js), as the prototype's panel hands 'browser' to the stage. */
+   view of the browser (stage.js), as the prototype's panel hands 'browser' to the stage.
+   Pass 17: Timeline, right after Activity (timeline.js), and Helpers at the end of Activity (helpers.js). Another area
+   adds its own tab through `extraTabs`: push [id, label, draw, shown], drawn after these while shown() is true. */
 
-import { $, esc, applyCss } from "../core/dom.js";
+import { $, esc, applyCss, render } from "../core/dom.js";
 import { ic } from "../core/ui.js";
 import { S, E } from "../core/state.js";
 import { api } from "../core/api.js";
@@ -13,9 +15,11 @@ import { sendingPrompt } from "./chat.js";
 import { initStage } from "./stage.js";
 import { terminalBody, loadWork } from "./terminal.js";
 import { pressed } from "../shell/keys.js";
+import { timelineBody, initTimeline } from "./timeline.js";
+import { helpersSection, initHelpers } from "./helpers.js";
 
-const TABS = [["activity", "Activity"], ["plan", "Plan"], ["files", "Files"], ["memory", "Memory"], ["browser", "Browser"], ["terminal", "Terminal"]];
-const REAL = new Set(["activity", "plan", "files", "memory", "terminal"]);
+const TABS = [["activity", "Activity"], ["tl17c", "Timeline"], ["plan", "Plan"], ["files", "Files"], ["memory", "Memory"], ["browser", "Browser"], ["terminal", "Terminal"]];
+const REAL = new Set(["activity", "tl17c", "plan", "files", "memory", "terminal"]);
 const P = { sid: null, messages: [], plan: null, at: 0 };
 
 /* This conversation's tasks; before a new conversation has its id, the task its first message started. */
@@ -46,6 +50,7 @@ function activity() {
   const now = working() ? `<li class="run">${ic("spin", "s")}<span>${esc(runsHere().find((r) => r.status === "running")?.prompt?.split("\n")[0] ?? "")}</span><time>now</time></li>` : "";
   return `<ol class="tl">${rows}${now}</ol>`;
 }
+const activityBody = () => activity() + helpersSection();
 
 function plan() {
   const steps = P.plan?.steps ?? [];
@@ -60,7 +65,7 @@ function files() {
   return changed.map((f) => { const st = f.existed ? "Changed" : "Made"; return `<button class="memrow" type="button" data-css="text-align:left" data-act="fileopen" data-n="${esc(f.path)}"><span><b data-css="font-weight:500">${esc(f.path)}</b></span><small>+${Number(f.added) || 0} −${Number(f.removed) || 0}</small><span class="pill ${st === "Made" ? "done" : "warn"}" data-css="grid-row:1 / span 2;grid-column:2;align-self:center">${st}</span></button>`; }).join("");
 }
 
-const BODY = { activity, plan, files, memory: () => '<p class="empty">Nothing remembered was used here.</p>', terminal: () => terminalBody(S.chat) };
+const BODY = { activity: activityBody, tl17c: timelineBody, plan, files, memory: () => '<p class="empty">Nothing remembered was used here.</p>', terminal: () => terminalBody(S.chat) };
 /* Tabs other areas add (pass 17): [id, label, draw, shown]; each draws its own body and says when it is shown. */
 export const extraTabs = [];
 const extraShown = () => extraTabs.filter(([, , , shown]) => shown());
@@ -106,6 +111,8 @@ function pressedNow() {
 
 export function initPane() {
   initStage();
+  initTimeline({ redraw: drawPane, changed: render, messages: () => (P.sid === S.chat ? P.messages : []), first: sendingPrompt });
+  initHelpers({ redraw: drawPane });
   markLive(["pane", "ptabp"]);
   on("pane", (el) => {
     const p = el.dataset.p, inHead = !!el.closest(".head");
