@@ -8,7 +8,7 @@ import type { ToolContext } from '../contracts.js';
 import type { RunArtifacts } from '../artifacts.js';
 import { BrowserSession, type BrowserRequest, type DownloadRecord } from './browser-session.js';
 import { BrowserProfiles, profileNameSchema, type StorageState } from './browser-profiles.js';
-import { ExtractSchema, ScreenshotSchema, WaitSchema, extract, safeDownloadName, screenshot, waitFor } from './browser-page.js';
+import { ExtractSchema, ScreenshotSchema, WaitSchema, extract, liveFrame, safeDownloadName, screenshot, waitFor } from './browser-page.js';
 import { AnnotateSchema, MarkRegistry, annotate, clearMarks, liveMarkKey } from './browser-marks.js';
 import { ExtractSchemaSchema, extractSchema } from './browser-schema.js';
 import { resolve as healResolve, type HealTarget } from './browser-heal.js';
@@ -80,6 +80,15 @@ interface RunEntry {
   pressed: boolean;
   granted?: string | undefined;
   held?: boolean | undefined;
+}
+/** live-stage: what the run's window shows now (BranchBrowser.watch). */
+export interface WatchedWindow {
+  url: string;
+  title: string;
+  tabs: { url: string; title: string; active: boolean }[];
+  /** A JPEG of the tab being worked in, or null (a borrowed window, or no frame could be taken). */
+  frame: Buffer | null;
+  borrowed: boolean;
 }
 /** w911 (A1726): a page Branch itself opened for a benchmark task, before the task starts. */
 export interface BenchmarkWindow {
@@ -550,6 +559,23 @@ export class BranchBrowser {
       if (!(await stat(full).catch(() => null))) return candidate;
     }
     throw new Error('too many files with that name are already saved');
+  }
+  /**
+   * live-stage (src/live-stage.ts): what the run's own window shows now, for the owner watching it — the tab it works
+   * in as a frame, its address and title, and the tabs beside it. Null when the run has no window open. A window in
+   * the owner's own browser (browser.borrow) is never pictured: that is their real browser, and a picture there can
+   * wake or hold up a tab. A frame that cannot be taken comes back as null, never without its password boxes covered.
+   */
+  async watch(owner: string, runId: string): Promise<WatchedWindow | null> {
+    let entry: RunEntry | undefined;
+    try { entry = this.sessions.get(this.key({ owner, runId })); } catch { return null; } // no owner or run: nothing to watch
+    const seen = entry?.session.watched();
+    if (!entry || !seen) return null;
+    const tabs = await Promise.all(seen.tabs.map(async (tab, index) =>
+      ({ url: tab.url(), title: await tab.title().catch(() => ''), active: index === seen.active })));
+    const borrowed = entry.session.isBorrowed();
+    const frame = borrowed ? null : await liveFrame(seen.page).catch(() => null);
+    return { url: seen.page.url(), title: tabs[seen.active]?.title ?? '', tabs, frame, borrowed };
   }
   /** The website the run's page is on, so the approval policy can match on it. */
   hostFor(context: Pick<ToolContext, 'owner' | 'runId'>): string {
