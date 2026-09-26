@@ -12,6 +12,23 @@ import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openPlace, openSettings } from "./places.mjs";
+import { settingsWindow, openSettingsPage, setLevel, isSoon } from "./settings-window.mjs";
+
+/* The new window has no Security check card (the prototype has none). What still holds: both checks ship off, and the
+   one the prototype draws, "Check install requests for malware" on Settings › Advanced, is drawn off with them and never
+   claims more than the engine does. */
+test("both checks ship off, and the new window's malware switch is drawn off with them", async (t) => {
+  const { app, page, errors } = await settingsWindow(t, { name: "security-ui" });
+  assert.deepEqual(app.security.settings(), { audit: "off", malware: "off" }, "a fresh install checks nothing by itself");
+  await openSettingsPage(page, "general");
+  await setLevel(page, "advanced");
+  await openSettingsPage(page, "advanced");
+  const malware = page.getByRole("checkbox", { name: "Check install requests for malware", exact: true });
+  await malware.waitFor();
+  assert.equal(await malware.isChecked(), false, "the switch says off, as the engine does");
+  assert.equal(await isSoon(malware), true, "it waits, greyed out, until it is wired");
+  assert.deepEqual(errors, []);
+});
 
 async function fixture(t, viewport = { width: 1440, height: 1000 }) {
   const scratch = join(tmpdir(), "Codex-session-files");
@@ -33,7 +50,8 @@ async function fixture(t, viewport = { width: 1440, height: 1000 }) {
   return { page, errors, app, dataDir };
 }
 
-test("the card lives on Settings → Permissions and nowhere else", async (t) => {
+// Redesign: replaced by the new window (the prototype has no Security check card; its malware switch is checked above).
+test.skip("the card lives on Settings → Permissions and nowhere else", async (t) => {
   const { page, errors } = await fixture(t);
   const card = page.locator("#security-check");
   await card.waitFor({ state: "attached", timeout: 15000 });
@@ -47,7 +65,9 @@ test("the card lives on Settings → Permissions and nowhere else", async (t) =>
   assert.deepEqual(errors, []);
 });
 
-test("both switches start off, a change is saved, and the check reports what it found", async (t) => {
+// Redesign: Coming soon (sw:f15-check-install-requests-for-malware), checked at fc541c24. The prototype has no audit
+// switch and no "Run the check"; the ships-off defaults are checked above.
+test.skip("both switches start off, a change is saved, and the check reports what it found", async (t) => {
   const { page, errors, app, dataDir } = await fixture(t);
   await openSettings(page, "permissions");
   const card = page.locator("#security-check");
@@ -72,7 +92,9 @@ test("both switches start off, a change is saved, and the check reports what it 
   assert.deepEqual(errors, []);
 });
 
-test("the card holds its shape at 400 px and speaks French", async (t) => {
+// Redesign: replaced by the new window (no Security check card); its French half also waits on the Language select,
+// Coming soon (sw:lang), checked at fc541c24.
+test.skip("the card holds its shape at 400 px and speaks French", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 900 });
   await openSettings(page, "permissions");
   const card = page.locator("#security-check");
