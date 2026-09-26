@@ -58,8 +58,35 @@ const seen = (page) => page.evaluate(() => {
   };
 });
 
+/* The new window: Settings › Models opens on its Connections tab under the page title; Advanced adds the prototype's
+   sections, in order, each headed once; the five tabs stay, at 1440 and 400 px. */
 for (const width of [1440, 400]) {
-  test(`DG-185 at ${width}: Models › Connection has the sample's sections, each headed once, at Regular and Advanced`, async (t) => {
+  test(`DG-185 at ${width}: Models opens on Connections, with the prototype's sections at each level, each headed once`, async (t) => {
+    const { settingsWindow, openSettingsPage, setLevel } = await import("./settings-window.mjs");
+    const { page, errors } = await settingsWindow(t, { name: "models-dg185", width, height: 900 });
+    await openSettingsPage(page, "models");
+    const heads = () => page.locator(".set-col").locator("h1, h2, h3, h4").evaluateAll((all) =>
+      all.filter((node) => node.checkVisibility()).map((node) => node.textContent.trim()));
+    await setLevel(page, "regular");
+    await page.locator('.set-col [role="tab"][aria-selected="true"]', { hasText: "Connections" }).waitFor();
+    assert.deepEqual(await heads(), ["Models"]);
+    assert.equal(await page.locator('.set-col [role="tab"]').count(), 5, "the Models tabs stay");
+    await setLevel(page, "advanced");
+    const advanced = await heads();
+    assert.deepEqual(advanced, ["Models", "Budgets", "Models for smaller jobs", "Compare models"]);
+    await setLevel(page, "technical");
+    const technical = await heads();
+    assert.deepEqual(technical, [...advanced, "Retries and timeouts", "Per connection"]);
+    assert.equal(new Set(technical).size, technical.length, "no heading is drawn twice");
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${width} px fits`);
+    assert.deepEqual(errors, []);
+  });
+}
+
+for (const width of [1440, 400]) {
+  // Redesign: replaced by the new window (the prototype's Connections tab has no ChatGPT, connection-check or services
+  // sections and no "N more" lines; its sections are re-pointed above).
+  test.skip(`DG-185 at ${width}: Models › Connection has the sample's sections, each headed once, at Regular and Advanced`, async (t) => {
     const { page, errors } = await modelsPage(t, width);
     await openModels(page);
     /* On the desktop app the model connection card is on show; the browser hides it until the app fills it in. */
@@ -86,7 +113,8 @@ for (const width of [1440, 400]) {
   });
 }
 
-test("DG-185: the Connection tab's sections have French words, and search still names the cards", async (t) => {
+// Redesign: Coming soon (sw:lang), checked at fc541c24; search is tests/settings-search-head.test.mjs.
+test.skip("DG-185: the Connection tab's sections have French words, and search still names the cards", async (t) => {
   const { page, errors } = await modelsPage(t, 1440);
   await openModels(page);
   await page.locator('.lx-settings-link[data-page="appearance"]').click();
