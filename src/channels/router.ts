@@ -174,6 +174,8 @@ export function readApprovalAnswer(value: string): { decision: "allow" | "deny";
 export const approvalFallbackNote = "Reply y for yes, or n for no.";
 /** PR #289: a typed answer that cannot be matched to the question this chat was shown, while several wait. */
 export const severalWaitingInChat = "More than one request is waiting in this conversation. Answer them with their own buttons, or in the app.";
+/** PR #289: the question the chat was shown no longer waits, so a "y" cannot answer it. */
+export const shownQuestionEnded = "That question is no longer waiting. Here is the question waiting now:";
 /**
  * A pressed button, as opposed to a typed letter: it carries the fingerprint of the exact request.
  * Pressing the same button again must not become a new task saying "y:8f3a…", so a payload of this
@@ -488,20 +490,27 @@ export class ChannelRouter {
     /** Who typed it and whether this is a one-to-one chat (mac7/chat-approvals); both are needed
      *  before a chat's own yes may answer a question about what one of the owner's lines granted. */
     from?: { senderId?: string; chatKind?: InboundMessage["chatKind"] },
-  ): Promise<{ decision: string; tool: string; refusal?: string } | null> {
+  ): Promise<{ decision: string; tool: string; refusal?: string; sessionId?: string } | null> {
     const read = readApprovalAnswer(value);
     if (!read) return null;
     const sessionId = this.sessionFor(channel, chatId);
     const waiting = sessionId ? this.runtime.waitingApprovals(sessionId) : [];
     if (!sessionId || !waiting.length) return null;
-    // mac7/chat-allowlist (integration review): a yes from the chat only answers a question about
-    // what every chat may already do. Anything one of the owner's lines granted is approved in the
-    // window, unless that same line is one the owner switched on for this person (mac7/chat-approvals).
-    // PR #289: a "y" with no code answers the question this chat was shown (askInChat puts the newest), or the only one
-    // waiting; with several and none of them the one shown, it is refused in words rather than guessed.
+    // PR #289: record what was shown to this chat, find the question it answers.
     const shown = this.shownInChat.get(`${channel}\u0000${chatId}`);
     const named = read.fingerprint || shown;
-    const asked = (named ? waiting.find((one) => one.fingerprint === named) : undefined) ?? (waiting.length === 1 ? waiting[0] : undefined);
+    const asked = named ? waiting.find((one) => one.fingerprint === named) : undefined;
+    // PR #289: if shown fingerprint no longer waits, re-show the waiting question (or refuse if multiple).
+    if (named && !asked && shown && !read.fingerprint) {
+      if (waiting.length === 1) {
+        return { decision: "show-waiting-question", tool: "", refusal: shownQuestionEnded, sessionId };
+      }
+      return { decision: "in-window", tool: "", refusal: severalWaitingInChat };
+    }
+    // PR #289: if nothing was shown to this chat and only one waits, re-show instead of answering.
+    if (!asked && !shown && waiting.length === 1) {
+      return { decision: "show-waiting-question", tool: "", refusal: "", sessionId };
+    }
     if (!asked) return { decision: "in-window", tool: "", refusal: severalWaitingInChat };
     // mac7/chat-approvals (integration review): "a" is a standing yes and never comes from a chat,
     // whatever the owner's lines say. It is answered here, in a sentence, rather than left to throw
@@ -512,7 +521,7 @@ export class ChannelRouter {
     const mayApprove = !asked || chatMayApprove(this.runtime.registry.permissionOf(asked.tool), this.chatApprovals(channel, from));
     if (read.decision === "allow" && asked && !mayApprove)
       return { decision: "in-window", tool: asked.tool, refusal: approveInWindow(asked.label || asked.tool) };
-    // PR #289 second review: the yes lands on exactly the question vetted above, so it still answers while another waits.
+    // PR #289: the yes lands on the exact question vetted above.
     const result = this.runtime.approve(sessionId, read.decision, read.remember, asked.fingerprint ?? (read.fingerprint || undefined), channel);
     return { decision: result.decision, tool: result.tool };
   }
@@ -532,35 +541,31 @@ export class ChannelRouter {
 
   /**
    * Puts a paused task's question to the chat, with buttons where the channel has them and the
-   * words "reply y / a / n" where it has not. Sent directly rather than through the waiting line,
-   * because the waiting line only knows how to send plain words.
+   * words "reply y / a / n" where it has not. Records what was shown only after the guard passes
+   * and the send succeeds. PR #289: avoids approving an unshown question.
    */
   private async askInChat(message: InboundMessage, question: string, sessionId: string): Promise<void> {
     const adapter = this.adapters.get(message.channel)?.adapter;
     if (!adapter) return;
     const waiting = this.runtime.waitingApprovals(sessionId).at(-1);
-    if (waiting?.fingerprint) this.shownInChat.set(`${message.channel}\u0000${message.chatId}`, waiting.fingerprint);
     const checked = await this.outboundGuard(question);
     if (checked.blocked) return;
-    // In a group anybody paired may press the button, so a standing yes is only offered one to one.
-    // mac7/chat-approvals (integration review): a chat is never offered "Yes always", because a chat
-    // may never give one — offering it is offering a button whose only answer is a refusal.
     const canAlways = false;
-    // mac7/chat-allowlist (integration review): a question about something one of the owner's lines
-    // granted is answered in the window, so the chat is not offered a Yes it cannot give — only No,
-    // with the sentence saying where the yes belongs. mac7/chat-approvals: unless the owner switched
-    // that line on for this person on this app, in which case the Yes is theirs to press.
     const mayApprove = !waiting
       || chatMayApprove(this.runtime.registry.permissionOf(waiting.tool), this.chatApprovals(message.channel, message));
     const buttons = approvalButtons(waiting?.fingerprint ?? "", canAlways && mayApprove)
       .filter((button) => mayApprove || button.value.startsWith("n"));
     const text = mayApprove ? checked.text : `${checked.text}\n\n${approveInWindow(waiting?.label || waiting?.tool || "that")}`;
+    // PR #289: record shownInChat only after send succeeds.
+    const key = `${message.channel}\u0000${message.chatId}`;
     if (adapter.sendButtons) {
       await adapter.sendButtons(message.chatId, text, buttons, message.messageId).catch(() => undefined);
+      if (waiting?.fingerprint) this.shownInChat.set(key, waiting.fingerprint);
       return;
     }
     await this.deliver(message.channel, message.chatId, `${text}\n\n${mayApprove ? approvalFallbackNote : "Reply n for no."}`,
       `ask:${waiting?.runId ?? message.messageId}`, message.messageId).catch(() => undefined);
+    if (waiting?.fingerprint) this.shownInChat.set(key, waiting.fingerprint);
   }
 
   private async answer(message: InboundMessage): Promise<Outcome> {
@@ -579,6 +584,13 @@ export class ChannelRouter {
     // starting a new task. Anything longer is an ordinary message, whatever it happens to say.
     const answered = await this.answerApproval(message.channel, message.chatId, message.text.trim(), message).catch(() => null);
     if (answered) {
+      // PR #289: if the shown question no longer waits, re-show the waiting one instead of answering.
+      if (answered.decision === "show-waiting-question" && answered.sessionId) {
+        const waiting = this.runtime.waitingApprovals(answered.sessionId).at(-1);
+        if (answered.refusal) await this.deliver(message.channel, message.chatId, answered.refusal, `answer-stale:${message.messageId}`, message.messageId).catch(() => undefined);
+        if (waiting) await this.askInChat(message, waiting.question, answered.sessionId);
+        return "replied";
+      }
       await this.deliver(message.channel, message.chatId,
         answered.refusal ? answered.refusal
           : answered.decision === "allow"
