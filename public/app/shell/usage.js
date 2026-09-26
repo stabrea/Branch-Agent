@@ -98,13 +98,14 @@ async function saveProgress() {
 }
 
 /* "Running in the background": each task the engine lists, named by its Trunk or conversation, with the engine's own
-   words for what it is doing; a spinner while it works, a clock while it waits. "Start something in the background"
+   words for what it is doing (for one that waits, why: its question); a spinner while it works, a clock while it waits. "Start something in the background"
    puts /bg in the message box, as the prototype does; sending it goes to the engine's /bg (chat.js, POST
    /api/commands/run). It stays greyed while the engine's command list for this window has no /bg (GET /api/commands). */
 function tasksPop(bgListed) {
   const rows = ACT.list.map((a) => {
     const s = E.sessions.find((x) => (x.sessionId ?? x.id) === a.sessionId), t = E.trunks.find((x) => x.id === s?.trunkId || (x.chatSessionId && x.chatSessionId === a.sessionId));
-    const on = (a.task?.state ?? "working") === "working", said = a.current || a.working || String(a.prompt ?? "").split("\n")[0];
+    // A task that waits is listed with the engine's words for why: the question it asked (task.reason, Q51).
+    const on = (a.task?.state ?? "working") === "working", said = (on ? "" : a.task?.reason) || a.current || a.working ||String(a.prompt ?? "").split("\n")[0];
     return `<div class="mi" role="menuitem"><span class="ico">${ic(on ? "spin" : "clock", on ? "s spin" : "s")}</span><span><span class="mi-t">${esc(t?.name || s?.opening || s?.title || "")}</span><span class="mi-s">${esc(said)}</span></span></div>`;
   }).join("");
   return `<div class="ph">Running in the background</div>${rows}<hr>${mi(bgListed ? "bg-new" : "bg-new-off", "plus", "Start something in the background", "<kbd>/bg</kbd>")}`;
