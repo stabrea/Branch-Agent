@@ -35,7 +35,7 @@ let chain = null;
 const trunkName = (id) => (Array.isArray(E.trunks) ? E.trunks : []).find((t) => t.id === id || t.name === id)?.name ?? id ?? "";
 const firstLine = (text) => String(text ?? "").split("\n")[0].slice(0, 60);
 const runById = (id) => (E.state.runs ?? []).find((r) => r.id === id);
-const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
+const when = (iso) => (iso ? new Date(iso).toLocaleString(language(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
 
 function askRow(q) {
   return `${prowOpen(`ask:${q.sessionId}:${q.fingerprint || ""}`, q.createdAt ?? runById(q.runId)?.createdAt)}${av({}, 34)}<span class="grow"><b>${esc(q.question || q.label || "")}</b><small>${esc([trunkName(q.trunk), q.question ? q.label : q.target].filter(Boolean).join(" · "))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(q.sessionId)}">${t("ov.open")}</button><button class="btn pri sm" type="button" data-act="ask" data-v="allow" data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}">${t("trunks.room.allow")}</button></div>`;

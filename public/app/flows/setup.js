@@ -12,6 +12,7 @@ import { on, run } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
 import { logo } from "../core/logos.js";
 import { t, language, LANGUAGES } from "../../i18n.js";
+import { say } from "../core/words.js";
 import { canSpeak, chooseLanguage } from "../shell/language.js";
 
 const STEPS = ["window.flows.setup.step-welcome", "window.flows.setup.step-where", "layout.modelTabs", "window.flows.setup.step-yours", "window.flows.setup.step-trunks", "window.flows.setup.step-reach", "dashboard.filter.tools",
@@ -98,7 +99,7 @@ function trunks(o) {
 
 function reach(o) {
   const live = new Set((o.connected ?? []).flatMap((c) => [c.id, c.kind]));
-  const tiles = o.channels.slice(0, POPULAR).map((c) => `<button type="button" class="ch12 ${live.has(c.id) ? "on12" : ""}" data-act="ch-open" data-v="${esc(c.id)}">${logo(c.id, c.name, 30)}<span><b>${esc(c.name)}</b><small>${live.has(c.id) ? t("layout.connected") : t("channel-setup.row-button")}</small></span></button>`).join("");
+  const tiles = o.channels.slice(0, POPULAR).map((c) => `<button type="button" class="ch12 ${live.has(c.id) ? "on12" : ""}" data-act="ch-open" data-v="${esc(c.id)}">${logo(c.id, c.name, 30)}<span><b>${esc(say(c.name))}</b><small>${live.has(c.id) ? t("layout.connected") : t("channel-setup.row-button")}</small></span></button>`).join("");
   return `<h2 tabindex="-1">${t("window.flows.setup.reach")}</h2><p>${t("window.flows.setup.reach-lede", { count: o.channels.length })}</p><div class="ch-grid12 ob-ch12">${tiles}</div><div class="prow" data-css="margin-top:12px"><span class="ico-tile">${ic("phone", "s")}</span><span class="grow"><b>${t("studio.tab.phone")}</b><small>${t("window.flows.setup.scan")}</small></span><button class="btn sm" type="button" data-act="pair">${t("phoneApp.show")}</button></div>`;
 }
 

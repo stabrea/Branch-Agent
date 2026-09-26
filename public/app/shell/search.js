@@ -12,7 +12,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { openConversation } from "../chat/chat.js";
 import { FIND } from "../chat/find.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 export const SQ = { q: "", f: "all", hits: [], past: [], asked: "" };
 
@@ -27,7 +27,7 @@ const idOf = (s) => s.sessionId ?? s.id;
 /* A Trunk's or a room's own conversation is found and shown by its name and face, as the list's rows are (core/state.js). */
 const titleOf = (s) => ownName(idOf(s)) || s.opening || s.title || "";
 const trunkOf = (s) => E.trunks.find((t) => t.id === s.trunkId || t.id === s.trunk?.id || (t.chatSessionId && t.chatSessionId === (s.sessionId ?? s.id)));
-const day = (t) => (t ? new Date(t).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
+const day = (t) => (t ? new Date(t).toLocaleDateString(language(), { month: "short", day: "numeric" }) : "");
 
 /* Asks the engine for words inside conversations and for older conversations; the caller draws again when both land. */
 export async function askEngine(q) {

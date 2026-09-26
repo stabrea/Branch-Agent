@@ -14,7 +14,7 @@ import { api, token } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { inlineText } from "../chat/markdown.js"; // a fact keeps its inline formatting, drawn from escaped text
 import { workSection, labelled, mapSection, manageSection, learnSection, readLibrary17, initLibrary17 } from "./library17.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 import { say } from "../core/words.js";
 
 function tabBar(tabs, place, current) {
@@ -67,7 +67,7 @@ function documentsTab() {
         <button class="btn sm" type="button" data-act="toast" data-msg="Opens in its own app.">${t("ov.open")}</button></div>`).join('');
   return html + mapSection(docView) + manageSection();
 }
-const when = (iso) => (iso ? new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
+const when = (iso) => (iso ? new Date(iso).toLocaleDateString(language(), { month: "short", day: "numeric" }) : "");
 
 export function draw() {
   const tab = S.tabs.library || "memory";
@@ -179,7 +179,7 @@ async function openArchive() {
   closePop();
   let archived, total;
   try { ({ archived, total } = await api("memory/archive")); } catch (error) { toast(error.message); return; }
-  const rows = archived.map((a) => `<div class="prow"><span class="grow"><b>${esc(a.data?.text ?? "")}</b><small>${esc(["archived " + new Date(a.archivedAt).toLocaleDateString([], { month: "short", day: "numeric" }), a.note].filter(Boolean).join(" · "))}</small></span><button class="btn ghost sm" type="button" data-act="memarch15" data-id="${esc(a.id)}">${t("window.places.library.restore")}</button></div>`).join("");
+  const rows = archived.map((a) => `<div class="prow"><span class="grow"><b>${esc(a.data?.text ?? "")}</b><small>${esc(["archived " + new Date(a.archivedAt).toLocaleDateString(language(), { month: "short", day: "numeric" }), a.note].filter(Boolean).join(" · "))}</small></span><button class="btn ghost sm" type="button" data-act="memarch15" data-id="${esc(a.id)}">${t("window.places.library.restore")}</button></div>`).join("");
   openDlg({ title: t("window.places.library.archived-facts"), body: `<div class="rows">${rows}</div><p class="hint">${t("window.places.library.archived-facts-are-never-used-purge")}</p>`, foot: `<button class="btn ghost bad" type="button" data-act="memarch15" data-v="purge" data-n="${esc(total)}" ${total ? "" : "disabled"}>${t("window.places.library.purge-all")}</button><button class="btn" type="button" data-act="dlg-close">${t("first-run-steps.done")}</button>` });
 }
 /* Purge all: the engine removes every archived fact for good. Its confirm step is how many the owner was shown; when

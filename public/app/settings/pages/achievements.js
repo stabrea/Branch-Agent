@@ -7,7 +7,7 @@ import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { toast } from "../../core/ui.js";
 import { markLive } from "../../core/features.js";
-import { t } from "../../../i18n.js";
+import { t, language } from "../../../i18n.js";
 import { say } from "../../core/words.js";
 
 const TIERS = [["Bronze", "#A86A3D"], ["Silver", "#8C959E"], ["Gold", "#C9982E"], ["Diamond", "#4F8FB8"], ["Godly", "#8A5AA8"], ["SSS+", "#C2412D"]];
@@ -23,7 +23,7 @@ let quiet = false;
 /* The list from GET /api/delight/achievements; the quiet switch from GET /api/delight, which has it even while they are off. */
 async function loadAchievements() {
   try {
-    const [list, summary] = await Promise.all([api("delight/achievements"), api("delight")]);
+    const [list, summary] = await Promise.all([api(`delight/achievements?lang=${language()}`), api("delight")]);
     view = list;
     quiet = summary?.settings?.achievements?.quiet === true;
   } catch (error) { toast(error.message); }
@@ -52,7 +52,7 @@ function tierChips(list) {
 }
 
 function card(a) {
-  return `<div class="ach ${a.got ? "" : "locked"}" title="${esc(a.tier)}"><span class="medal" data-css="background:${COLOUR[a.tier] ?? "var(--ink-3)"}">${a.got ? MEDAL : LOCK}</span><b>${esc(a.name)}</b><small>${esc(a.desc)}</small></div>`;
+  return `<div class="ach ${a.got ? "" : "locked"}" title="${esc(say(a.tier))}"><span class="medal" data-css="background:${COLOUR[a.tier] ?? "var(--ink-3)"}">${a.got ? MEDAL : LOCK}</span><b>${esc(a.name)}</b><small>${esc(a.desc)}</small></div>`;
 }
 
 /* The engine answers { on: false } while achievements are switched off: no list then, but the quiet switch is still its. */
@@ -69,7 +69,7 @@ export function draw() {
   const shown = category === "All" ? list : list.filter((a) => a.kind === category);
   html += `<p class="lede">${t("window.settings.achievements.private-to-you-never-nagging-earned", { earned: esc(view.earned), total: esc(view.total) })}</p>`;
   html += `<div class="ach-sum">${tierChips(list)}</div>`;
-  html += `<div class="tabs" role="tablist" data-css="margin-top:6px">${kinds.map((k) => `<button class="tab" role="tab" type="button" aria-selected="${category === k}" data-act="achcat" data-v="${esc(k)}">${esc(k === "All" ? t("look.filter.all") : k)}</button>`).join("")}</div>`;
+  html += `<div class="tabs" role="tablist" data-css="margin-top:6px">${kinds.map((k) => `<button class="tab" role="tab" type="button" aria-selected="${category === k}" data-act="achcat" data-v="${esc(k)}">${esc(k === "All" ? t("look.filter.all") : say(k))}</button>`).join("")}</div>`;
   html += `<div class="achs">${shown.map(card).join("")}</div>`;
   html += settingsSec();
   return html;

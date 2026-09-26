@@ -10,7 +10,7 @@ import { esc, render, $ } from "../../core/dom.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { ic, toast, openDlg, closeDlg } from "../../core/ui.js";
-import { t } from "../../../i18n.js";
+import { t, language } from "../../../i18n.js";
 import { say } from "../../core/words.js";
 
 /* The prototype's line for each file, by the engine's slot. */
@@ -51,7 +51,7 @@ export function draw() {
 
 function versions(one) {
   if (!one.lastSave) return `<p class="hint" data-css="margin:4px 0">${t("window.settings.instructions.none-yet-each-save-keeps-the")}</p>`;
-  const when = new Date(one.lastSave).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const when = new Date(one.lastSave).toLocaleString(language(), { weekday: "short", hour: "2-digit", minute: "2-digit" });
   return `<div class="ifed-v"><span>${esc(when)}</span><button class="btn ghost sm" type="button" data-act="if-back" data-f="${esc(one.slot)}" data-i="0">${t("window.settings.instructions.put-this-back")}</button></div>`;
 }
 

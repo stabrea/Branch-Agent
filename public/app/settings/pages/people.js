@@ -14,10 +14,10 @@ import { api } from "../../core/api.js";
 import { on, has } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast } from "../../core/ui.js";
-import { E, refresh, ownerHere } from "../../core/state.js";
+import { E, refresh, ownerHere, roleLabel } from "../../core/state.js";
 import { people17 } from "../p17-more.js";
 import { level as level17 } from "../../core/state.js";
-import { t } from "../../../i18n.js";
+import { t, language } from "../../../i18n.js";
 import { say } from "../../core/words.js";
 
 /* The prototype's words for the engine's seven kinds (src/tool-categories.ts), in the prototype's order. */
@@ -49,7 +49,7 @@ async function loadProfiles() {
   render();
 }
 
-const label = (role) => profiles()?.roleLabels?.[role]?.label ?? "";
+const label = (role) => roleLabel(role);
 const roleOf = (id) => (profiles()?.roles ?? []).find((r) => r.profileId === id);
 const initials = (name) => String(name ?? "").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
@@ -68,7 +68,7 @@ const avatar = (p, size, font) => `<span class="tav6" data-css="--c:#56616B;widt
 const when = (at) => {
   if (!at) return "";
   const d = new Date(at);
-  return d.toLocaleDateString([], Date.now() - d.getTime() < 6 * 86400000 ? { weekday: "short" } : { day: "numeric", month: "short" });
+  return d.toLocaleDateString(language(), Date.now() - d.getTime() < 6 * 86400000 ? { weekday: "short" } : { day: "numeric", month: "short" });
 };
 
 function item(p) {

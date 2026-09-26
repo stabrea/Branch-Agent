@@ -3,6 +3,7 @@
 
 import { api } from "./api.js";
 import { render } from "./dom.js";
+import { t } from "../../i18n.js";
 
 const SAVED_KEY = "branch-window";
 const SAVED = ["level", "placesShut", "theme", "sideW"];
@@ -63,7 +64,16 @@ export async function refresh() {
 /* Who is using Branch now: GET /api/profiles answers `active` as the person's profile ({ id, name, … }), or null for the
    owner, whose name is the engine's owner label. */
 export const activeId = () => E.profiles?.active?.id ?? null;
-export const personHere = () => E.profiles?.active?.name || E.profiles?.roleLabels?.owner?.label || "";
+/* A role's name (owner, adult, child) in the window's language (household.role.*), once the engine has said which roles there are. */
+export const roleLabel = (role) => {
+  const engine = E.profiles?.roleLabels?.[role]?.label;
+  if (!engine) return "";
+  const key = `household.role.${role}`, words = t(key);
+  return words === key ? engine : words;
+};
+/* A project's name; the one the engine makes for everybody ("Default", src/projects.ts) is named in the window's language. */
+export const projectName = (p) => (p?.id === "default" && p.name === "Default" ? t("voice.default") : p?.name ?? "");
+export const personHere = () => E.profiles?.active?.name || roleLabel("owner");
 /* Whether the one at the window is the owner, as the engine says (GET /api/profiles isOwner). Owner-only controls are drawn
    only then: not while the answer is missing, and never for a household person (they are not theirs to use, not "coming soon"). */
 export const ownerHere = () => E.profiles?.isOwner === true;

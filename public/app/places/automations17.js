@@ -21,7 +21,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { pill17, btn17 } from "./parts17.js";
 import { onDemo17, demoPlace17, demoDlg17 } from "./demo17.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 const A = { orders: [], loops: [], paused: null, pauseKnown: false };
 
@@ -88,7 +88,7 @@ const HOOKS = [
 export const hooksSection = () => (level() >= 1 ? `<div class="sec x15-sec"><h2>${t("window.places.automations17.hooks")}</h2><div class="rows">${HOOKS.map(([k, i, w]) => demoPlace17(k, i, w)).join("")}</div></div>` : "");
 
 const onOff = (on) => (on ? ["ok", t("accounts.switch.on")] : ["idle", t("accounts.switch.off")]);
-const dayWords = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+const dayWords = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(language(), { weekday: "short", month: "short", day: "numeric" });
 
 function registerDemos() {
   onDemo17("readiness", { open: async () => {

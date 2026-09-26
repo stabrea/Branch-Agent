@@ -165,8 +165,8 @@ const FAM_WORDS = { core: "Two minutes to set up", chat: "Text through a webhook
 function channelGrid() {
   const q = CH.q.trim().toLowerCase();
   const on = new Set(connected.map((c) => c.id ?? c.kind));
-  const list = channelSetup.filter((c) => (CH.fam === "all" || c.family === CH.fam) && (!q || String(c.name).toLowerCase().includes(q)));
-  return list.map((c) => `<button type="button" class="ch12 ${on.has(c.id) ? "on12" : ""}" data-act="ch-open" data-v="${esc(c.id)}">${logo(c.id, c.name, 32)}<span><b>${esc(c.name)}</b><small>${on.has(c.id) ? t("window.places.customize.connected-reaches-branch") : say(FAM_WORDS[c.family]) ?? t("addons.switch.on")}</small></span>${on.has(c.id) ? '<i class="dot12"></i>' : ""}</button>`).join("");
+  const list = channelSetup.filter((c) => (CH.fam === "all" || c.family === CH.fam) && (!q || [c.name, say(c.name)].some((n) => String(n).toLowerCase().includes(q))));
+  return list.map((c) => `<button type="button" class="ch12 ${on.has(c.id) ? "on12" : ""}" data-act="ch-open" data-v="${esc(c.id)}">${logo(c.id, c.name, 32)}<span><b>${esc(say(c.name))}</b><small>${on.has(c.id) ? t("window.places.customize.connected-reaches-branch") : say(FAM_WORDS[c.family]) ?? t("addons.switch.on")}</small></span>${on.has(c.id) ? '<i class="dot12"></i>' : ""}</button>`).join("");
 }
 
 function channelsTab() {
