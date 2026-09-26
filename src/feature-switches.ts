@@ -7,6 +7,7 @@ import { deviceTools } from "./devices/capabilities.js"; // mac7/nodes
 import { autonomyToolFeatures } from "./autonomy/settings.js"; // r17-b
 import { trunkToolFeatures } from "./trunks/settings.js"; // R17-A
 import { codingToolFeatures } from "./coding/settings.js"; // mac7/r17-d
+import { interopDefault } from "./interop/settings.js"; // the defaults train
 import { personalToolFeatures } from "./personal/settings.js"; // R17-C
 import { reachToolFeatures } from "./reach/settings.js"; // r17-i
 import { safetyToolFeatures } from "./safety-extras/settings.js"; // mac7/r17-g
@@ -89,9 +90,9 @@ export const pageNotesTools = ["browser.notes"] as const;
 
 type Reader = Pick<Store, "get">;
 /** mac4/bucket-20: each interop part with tools — its settings record, why it is loaded, and its tools. */
-export const interopToolFeatures: readonly (readonly [string, string, readonly string[]])[] = [
-  ["interop-modes", "ways of working are switched on", ["mode.list", "mode.task"]],
-  ["interop-project-routing", "choosing the project for a request is switched on", ["project.route"]],
+export const interopToolFeatures: readonly (readonly [string, string, readonly string[], FeatureMode?])[] = [
+  ["interop-modes", "ways of working are switched on", ["mode.list", "mode.task"], interopDefault("modes")],
+  ["interop-project-routing", "choosing the project for a request is switched on", ["project.route"], interopDefault("project-routing")],
   ["interop-fleet", "looking after several assistants is switched on", ["fleet.status", "fleet.send", "fleet.stop"]],
   ["interop-handoff", "handing a conversation on is switched on", ["conversation.handoff"]],
   ["interop-flow-search", "finding a better flow is switched on", ["flow.search"]],
@@ -125,13 +126,13 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   // w911 (A2144) hook: page notes.
   { reason: "page notes are switched on", tools: pageNotesTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "page-notes") },
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/settings.ts keeps these lists). ──
-  ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...interopToolFeatures.map(([key, reason, tools, shipped]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key, "mode", shipped) })),
   // ── mac6/bucket-23: the smaller asks (src/asks/settings.ts keeps these lists). ──
-  ...askToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...askToolFeatures.map(([key, reason, tools, shipped]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key, "mode", shipped) })),
   // mac7/nodes: the owner's other devices (src/devices/); the mode is kept in the devices record.
   { reason: "using your other devices is switched on", tools: deviceTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "devices-book") },
   // ── r17-b: suggestions, standing orders, procedures, readiness, instructions (src/autonomy/settings.ts keeps these lists). ──
-  ...autonomyToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...autonomyToolFeatures.map(([key, reason, tools, shipped]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key, "mode", shipped) })),
   // ── R17-A: Trunks (src/trunks/settings.ts keeps these lists). ──
   ...trunkToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac7/r17-d: coding polish (src/coding/settings.ts keeps these lists). ──
@@ -139,7 +140,7 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   // ── R17-C: files, voice, devices and personal connectors (src/personal/settings.ts keeps these lists). ──
   ...personalToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── r17-i: reach and platform (src/reach/settings.ts keeps these lists). ──
-  ...reachToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...reachToolFeatures.map(([key, reason, tools, shipped]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key, "mode", shipped) })),
   // ── mac7/r17-g: the safety extras (src/safety-extras/settings.ts keeps these lists). ──
   ...safetyToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── r17-h: flows and boards (src/flows-boards/settings.ts keeps these lists). ──

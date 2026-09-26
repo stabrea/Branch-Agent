@@ -5783,6 +5783,8 @@
   "describe.coding-formatters": "The programs that tidy a file after Branch changes it. A file whose ending is not listed is left as it is.",
   "describe.coding-diagnostics": "After a file changes, Branch also asks your language servers what is wrong with it. Off skips that step.",
   "describe.coding-helpers": "Each helper works in a copy of the project of its own, so two helpers cannot overwrite each other's changes.",
+  "describe.autonomy-instruction-text": "One instruction in a sentence, such as \"Answer in French.\" Every later task it covers is given it.",
+  "describe.autonomy-instruction-scope": "Who is given the instruction: the assistant alone, or the assistant and every specialist.",
   "describe.coding-ci-kind": "Which service's CI the snippet is written for: GitHub Actions or GitLab CI. Nothing runs from here; you copy the snippet into your project.",
   "describe.coding-ci-model": "The model Branch uses when it runs in CI. It is written into the snippet.",
   "describe.coding-ci-endpoint": "The address of the model service Branch calls from CI. It is written into the snippet.",

@@ -45,7 +45,7 @@ test("the cards sit in their homes, a blueprint is made from the window, and not
   const suggestions = page.locator("#autonomy-suggestions-card");
   await suggestions.waitFor();
   assert.equal(await suggestions.locator("h2").innerText(), "Suggested automations");
-  assert.equal(await page.locator("#autonomy-switch-suggestions").inputValue(), "off");
+  assert.equal(await page.locator("#autonomy-switch-suggestions").inputValue(), "when-needed", "as shipped (the defaults train)");
   await page.locator("#autonomy-switch-suggestions").selectOption("on");
   await page.locator("#autonomy-blueprint").waitFor();
   await page.locator("#autonomy-blueprint").selectOption("custom-reminder");

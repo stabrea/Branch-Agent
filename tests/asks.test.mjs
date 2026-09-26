@@ -70,12 +70,16 @@ async function fixture(t) {
   return { app, root, provider, server, api, call };
 }
 
-test("every smaller ask ships off: no tools in the catalog, and a plain refusal", async (t) => {
+test("the local asks ship when needed, every other ask off: no tools in the catalog while off, and a plain refusal", async (t) => {
   const { app, api, call } = await fixture(t);
+  // The defaults train (the owner's "what ships on" rule): answer pages, the intent pipeline and project boards
+  // are local and start nothing, so they ship when needed.
+  const shipped = (part) => (["answer-pages", "intent-pipeline", "project-board"].includes(part) ? "when-needed" : "off");
   const { modes } = await api("/api/asks");
-  assert.deepEqual(Object.values(modes), askParts.map(() => "off"));
+  assert.deepEqual(Object.values(modes), askParts.map(shipped));
   for (const part of askParts) for (const tool of askTools[part])
-    assert.equal(app.registry.names().includes(tool), false, `${tool} is in the catalog while its part is off`);
+    assert.equal(app.registry.names().includes(tool), shipped(part) !== "off", `${tool} as shipped`);
+  for (const part of askParts) await api("/api/asks/switch", { part, mode: "off" });
   const refused = await call("/api/asks/projects/board");
   assert.equal(refused.status, 409);
   assert.match(refused.body.error, /is switched off/);
@@ -91,6 +95,7 @@ test("the three positions differ: on loads a part's tools from the start, when n
   const { app, api } = await fixture(t);
   const owner = app.runtime.owner;
   const tiers = () => switchedToolTiers(app.store, owner, app.registry.names());
+  await api("/api/asks/switch", { part: "project-board", mode: "off" }); // it ships when needed (the defaults train)
   // Off, the tools are not even registered; were a copy of the name present, it would be hidden too.
   assert.equal(app.registry.names().includes("project.board"), false);
   assert.ok(switchedToolTiers(app.store, owner, askTools["project-board"]).hidden.includes("project.board"), "off: not advertised");
@@ -161,6 +166,7 @@ test("A2375 the intent pipeline runs the owner's stages in order, and a tie deci
   assert.match(routedPrompt(decision, "error crash"), /^Run the saved flow "triage" for this request\.\n\nerror crash$/);
 
   const { api, call, provider: appModel } = await fixture(t);
+  await api("/api/asks/switch", { part: "intent-pipeline", mode: "off" }); // it ships when needed (the defaults train)
   assert.equal((await call("/api/asks/intents/decide", { request: "x" })).status, 409);
   await api("/api/asks/switch", { part: "intent-pipeline", mode: "when-needed" });
   await api("/api/asks/intents", { stages: ["words", "model"], intents: pipeline.intents });
@@ -228,6 +234,7 @@ test("A0355 an answer kept as a page can be reopened, updated and handed on as a
   const { app, api, call } = await fixture(t);
   app.asks.answers.web = fakeWeb(oakPages);
   await api("/api/asks/switch", { part: "answer-engine", mode: "when-needed" });
+  await api("/api/asks/switch", { part: "answer-pages", mode: "off" }); // it ships when needed (the defaults train)
   let answer = await api("/api/asks/answer", { question: "How old do oaks get?", keep: true });
   assert.equal(answer.pageId, null, "keeping pages is its own switch, still off");
   await api("/api/asks/switch", { part: "answer-pages", mode: "when-needed" });

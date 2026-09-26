@@ -120,6 +120,8 @@ export function registerAnswerPages(registry: ToolRegistry, pages: AnswerPages):
     name: "answer.page", permission: "pages.write",
     description: "Keep an answer with its numbered sources as a page in the owner's Library, or update one (pass its id). The page can be opened again and handed on as one file.",
     parameters: SavePageSchema,
+    // It writes one page in the owner's Library; its sources' addresses are kept as citations, never fetched.
+    target: (input) => `page:${input.id ?? input.title}`,
     execute: async (input) => { const page = pages.save(input); return { id: page.id, title: page.title, revision: page.revision }; },
   });
 }

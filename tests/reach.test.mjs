@@ -32,16 +32,23 @@ async function scratchApp(t) {
   return { app, root, store: app.store };
 }
 const on = (store, ...parts) => { for (const part of parts) saveReachMode(store, owner, part, { mode: "on" }); };
+/** The defaults train: notes and platform-pause ship when needed, so a test of the switched-off answer switches them off. */
+const off = (store, ...parts) => { for (const part of parts) saveReachMode(store, owner, part, { mode: "off" }); };
+const shipsWhenNeeded = ["notes", "platform-pause"];
 const allow = { assertAllowed: async () => undefined };
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 
-test("every part ships off: its tools are not offered, and it refuses in one sentence", async (t) => {
+test("notes and platform-pause ship when needed, every other part off: a part that is off is not offered and refuses in one sentence", async (t) => {
   const { app, store } = await scratchApp(t);
   const names = new Set(app.registry.names());
   for (const part of reachParts) {
-    for (const tool of reachTools[part]) assert.equal(names.has(tool), false, `${tool} is offered while off`);
-    assert.throws(() => requireReach(store, owner, part), /switched off/);
+    const shipped = shipsWhenNeeded.includes(part);
+    for (const tool of reachTools[part]) assert.equal(names.has(tool), shipped, `${tool} as shipped`);
+    if (shipped) assert.doesNotThrow(() => requireReach(store, owner, part));
+    else assert.throws(() => requireReach(store, owner, part), /switched off/);
   }
+  off(store, ...shipsWhenNeeded);
+  for (const part of shipsWhenNeeded) assert.throws(() => requireReach(store, owner, part), /switched off/);
   assert.equal(app.reachParts.mode("relay"), "off");
   await app.reachParts.setMode("machines", { mode: "when-needed" });
   assert.ok(app.registry.names().includes("machines.look"));
@@ -483,6 +490,7 @@ test("R17-085: notes are only changed when kept, and the arena moves Elo ratings
     ask: async (preset, instructions, text) => { asked.push({ preset, instructions, text }); return `answer from ${preset ?? "default"}`; },
   };
   const notes = new Notes(store, owner, models);
+  off(store, "notes");
   assert.throws(() => notes.list(), /switched off/);
   on(store, "notes", "arena");
   const note = notes.save({ title: "Groceries", body: "milk eggs bread" });
@@ -518,7 +526,8 @@ test("the /api/reach routes: the owner's switches, a refusal while off, and the 
   const call = (path, body, method = body === undefined ? "GET" : "POST") =>
     reachApi({ reach: app.reachParts, method, query: new URL(`http://x${path}`).searchParams, readBody: async () => body }, path.split("?")[0]);
   const overview = await call("/api/reach");
-  assert.ok(Object.values(overview.modes).every((mode) => mode === "off"));
+  assert.ok(Object.entries(overview.modes).every(([part, mode]) => mode === (shipsWhenNeeded.includes(part) ? "when-needed" : "off")));
+  await call("/api/reach/switch", { part: "notes", mode: "off" });
   await assert.rejects(call("/api/reach/notes/rewrite", { id: randomUUID(), style: "fix" }), (e) => e.status === 409);
   await assert.rejects(call("/api/reach/switch", { part: "nothing", mode: "on" }), (e) => e.status === 400);
   assert.deepEqual(await call("/api/reach/switch", { part: "notes", mode: "on" }), { part: "notes", mode: "on" });

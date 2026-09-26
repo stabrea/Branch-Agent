@@ -44,7 +44,7 @@ test("the cards sit in their homes, the switches work from the window, and nothi
   const intents = page.locator("#asks-intents-card");
   await intents.waitFor();
   assert.equal(await intents.locator("h2").innerText(), "Sending requests where they belong");
-  assert.equal(await page.locator("#asks-switch-intent-pipeline").inputValue(), "off");
+  assert.equal(await page.locator("#asks-switch-intent-pipeline").inputValue(), "when-needed", "as shipped (the defaults train)");
   await page.locator("#asks-switch-intent-pipeline").selectOption("when-needed");
   for (let i = 0; i < 100 && app.asks.modes()["intent-pipeline"] !== "when-needed"; i++) await page.waitForTimeout(50);
   assert.equal(app.asks.modes()["intent-pipeline"], "when-needed");
@@ -60,7 +60,7 @@ test("the cards sit in their homes, the switches work from the window, and nothi
 
   await openPlace(page, "library:made");
   await page.locator("#asks-made-card").waitFor();
-  assert.equal(await page.locator("#asks-switch-answer-pages").inputValue(), "off");
+  assert.equal(await page.locator("#asks-switch-answer-pages").inputValue(), "when-needed", "as shipped (the defaults train)");
   await openPlace(page, "customize:connections");
   const connections = page.locator("#asks-connections-card");
   await connections.waitFor();

@@ -20,6 +20,12 @@ export const reachParts = [
 ] as const;
 export type ReachPart = (typeof reachParts)[number];
 export const ReachPartSchema = z.enum(reachParts);
+/**
+ * The defaults train (the owner's "what ships on" rule): the parts that ship when needed. None spends, sends,
+ * deletes, listens or starts anything the owner did not set up. Every other part ships off.
+ */
+const shipsWhenNeeded: ReadonlySet<ReachPart> = new Set<ReachPart>(["notes", "platform-pause"]);
+export const reachDefault = (part: ReachPart): "off" | "when-needed" => (shipsWhenNeeded.has(part) ? "when-needed" : "off");
 
 export const ReachModeSchema = z.enum(["off", "when-needed", "on"]);
 export type ReachMode = z.infer<typeof ReachModeSchema>;
@@ -60,9 +66,9 @@ export const reachTools: Record<ReachPart, readonly string[]> = {
 };
 
 /** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, and its tools. */
-export const reachToolFeatures: readonly (readonly [string, string, readonly string[]])[] = reachParts
+export const reachToolFeatures: readonly (readonly [string, string, readonly string[], "off" | "when-needed"])[] = reachParts
   .filter((part) => reachTools[part].length > 0)
-  .map((part) => [reachKey(part), `${reachLabels[part].charAt(0).toLowerCase()}${reachLabels[part].slice(1)} is switched on`, reachTools[part]] as const);
+  .map((part) => [reachKey(part), `${reachLabels[part].charAt(0).toLowerCase()}${reachLabels[part].slice(1)} is switched on`, reachTools[part], reachDefault(part)] as const);
 
 /** The mode in use: Lockdown answers "off" for the outward parts, whatever was saved (mac7/lockdown-fix). */
 export function reachMode(store: Pick<Store, "get">, owner: string, part: ReachPart): ReachMode {
@@ -71,7 +77,9 @@ export function reachMode(store: Pick<Store, "get">, owner: string, part: ReachP
 
 /** The mode as the owner saved it, for putting tools in the catalog: Lockdown refuses at use instead. */
 export function savedReachMode(store: Pick<Store, "get">, owner: string, part: ReachPart): ReachMode {
-  const saved = RecordSchema.safeParse(store.get("settings", owner, reachKey(part))?.data ?? {});
+  const data = (store.get("settings", owner, reachKey(part))?.data ?? {}) as Record<string, unknown>;
+  if (data.mode === undefined) return reachDefault(part); // the defaults train: never switched, so as shipped
+  const saved = RecordSchema.safeParse(data);
   return saved.success ? saved.data.mode : "off";
 }
 

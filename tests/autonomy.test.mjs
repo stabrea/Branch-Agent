@@ -62,10 +62,15 @@ async function fixture(t) {
 
 // ---- the switches ---------------------------------------------------------------------------------
 
-test("every part ships off: no tools, no instructions, and changes are refused in one sentence", async (t) => {
+test("the parts that start nothing by themselves ship when needed, the rest off, and a switched-off part refuses in one sentence", async (t) => {
   const { app, api, call, on } = await fixture(t);
+  // The defaults train (the owner's "what ships on" rule): session commands (/handoff sends a conversation out) and
+  // procedures that start themselves still ship off.
+  const shipped = (part) => (["session-commands", "procedures"].includes(part) ? "off" : "when-needed");
   const { modes } = await api("/api/autonomy");
-  assert.deepEqual(Object.values(modes), autonomyParts.map(() => "off"));
+  assert.deepEqual(Object.values(modes), autonomyParts.map(shipped));
+  for (const part of autonomyParts) for (const tool of autonomyTools[part]) assert.equal(app.registry.names().includes(tool), shipped(part) !== "off", tool);
+  for (const part of autonomyParts) await api("/api/autonomy/switch", { part, mode: "off" });
   for (const part of autonomyParts) for (const tool of autonomyTools[part]) assert.equal(app.registry.names().includes(tool), false, tool);
   const refused = await call("/api/autonomy/orders", { name: "x", authority: "y", start: { kind: "manual" } });
   assert.equal(refused.status, 409);
@@ -118,6 +123,7 @@ test("blueprints check every blank, fill each once on one line, and draft the ri
 
 test("a blueprint made from the window is a real schedule, and never with more than the owner holds", async (t) => {
   const { app, api, call, on } = await fixture(t);
+  await api("/api/autonomy/switch", { part: "suggestions", mode: "off" }); // it ships when needed (the defaults train)
   assert.equal((await call("/api/autonomy/blueprints", { blueprint: "custom-reminder", values: { note: "water the oak" } })).status, 409);
   await on("suggestions");
   const { schedule } = await api("/api/autonomy/blueprints", { blueprint: "news-digest", values: { topic: "oak trees", time: "07:30" }, timezone: "UTC" });
@@ -267,6 +273,7 @@ test("/loop repeats in its conversation, stops on LOOP_COMPLETE, and /heartbeat 
   const { app, provider, api, on, command } = await fixture(t);
   const first = await app.runtime.run({ prompt: "Start the build watch", onTextDelta: () => undefined });
   const sessionId = first.sessionId;
+  await api("/api/autonomy/switch", { part: "loops", mode: "off" }); // it ships when needed (the defaults train)
   assert.match((await command("/loop every 1m check the build", sessionId)).body.text, /switched off/);
   await on("loops");
   assert.match((await command("/loop every 1m check the build --times 3", sessionId)).body.text, /at most 3 turns/);
@@ -429,6 +436,7 @@ test("the readiness route reads installed skills and names what is missing", asy
   const { app, api, on } = await fixture(t);
   const document = "---\nname: pr-helper\ndescription: Helps with pull requests.\nmetadata:\n  requires-bins: branch-no-such-program\n  requires-keys: BRANCH_TEST_NO_SUCH_KEY\n  install-npm: no-such-program\n---\nUse gh to open pull requests.\n";
   app.store.skills.install(app.runtime.owner, { document });
+  await api("/api/autonomy/switch", { part: "readiness", mode: "off" }); // it ships when needed (the defaults train)
   assert.deepEqual((await api("/api/autonomy/readiness")).skills, []);
   await on("readiness");
   const [skill] = (await api("/api/autonomy/readiness")).skills;
@@ -448,6 +456,7 @@ test("\"from now on\" is spotted, asked once, and given to later tasks", async (
   assert.equal(spotInstruction("I will do it from now"), null);
 
   const { app, provider, api, on } = await fixture(t);
+  await api("/api/autonomy/switch", { part: "instructions", mode: "off" }); // it ships when needed (the defaults train)
   await app.runtime.run({ prompt: "From now on, answer in French.", onTextDelta: () => undefined });
   assert.equal((await api("/api/autonomy")).waiting.length, 0, "nothing while the part is off");
   await on("instructions");

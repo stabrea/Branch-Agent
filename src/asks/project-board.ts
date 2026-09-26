@@ -96,6 +96,8 @@ export function registerProjectBoard(registry: ToolRegistry, boards: ProjectBoar
     name: "project.board", permission: "projects.read",
     description: "Show one project's board: the flows, schedules and triggers put under it, and the tasks done under it. With no project, the active one.",
     parameters: z.object({ project: z.string().trim().min(1).max(64).optional() }).strict(),
+    // It reads one project's board, as project.assign names what it puts there.
+    target: (input) => `project:${input.project ?? "(the active one)"}`,
     execute: async (input) => boards.board(input.project),
   });
   registry.register({

@@ -50,7 +50,7 @@ test("the cards sit in their homes, every control says what it does, a note is k
   const notes = page.locator("#reach-notes-card");
   await notes.waitFor();
   assert.equal(await notes.locator("h2").innerText(), "Notes");
-  assert.equal(await page.locator("#reach-switch-notes").inputValue(), "off");
+  assert.equal(await page.locator("#reach-switch-notes").inputValue(), "when-needed", "as shipped (the defaults train)");
   await page.locator("#reach-switch-notes").selectOption("on");
   await page.locator("#reach-notes-title").waitFor();
   await page.locator("#reach-notes-title").fill("Oak care");

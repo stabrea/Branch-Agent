@@ -228,6 +228,8 @@ export const descriptions = [
   ["#coding-formatters", "describe.coding-formatters", "The programs that tidy a file after Branch changes it. A file whose ending is not listed is left as it is."],
   ["#coding-diagnostics", "describe.coding-diagnostics", "After a file changes, Branch also asks your language servers what is wrong with it. Off skips that step."],
   ["#coding-helpers", "describe.coding-helpers", "Each helper works in a copy of the project of its own, so two helpers cannot overwrite each other's changes."],
+  ["#autonomy-instruction-text", "describe.autonomy-instruction-text", "One instruction in a sentence, such as \"Answer in French.\" Every later task it covers is given it."],
+  ["#autonomy-instruction-scope", "describe.autonomy-instruction-scope", "Who is given the instruction: the assistant alone, or the assistant and every specialist."],
   ["#coding-ci-kind", "describe.coding-ci-kind", "Which service's CI the snippet is written for: GitHub Actions or GitLab CI. Nothing runs from here; you copy the snippet into your project."],
   ["#coding-ci-model", "describe.coding-ci-model", "The model Branch uses when it runs in CI. It is written into the snippet."],
   ["#coding-ci-endpoint", "describe.coding-ci-endpoint", "The address of the model service Branch calls from CI. It is written into the snippet."],

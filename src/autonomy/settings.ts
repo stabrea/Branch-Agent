@@ -21,6 +21,12 @@ export const autonomyParts = [
 ] as const;
 export type AutonomyPart = (typeof autonomyParts)[number];
 export const AutonomyPartSchema = z.enum(autonomyParts);
+/**
+ * The defaults train (the owner's "what ships on" rule): the parts that ship when needed. None spends, sends,
+ * deletes, listens or starts anything the owner did not set up. Every other part ships off.
+ */
+const shipsWhenNeeded: ReadonlySet<AutonomyPart> = new Set<AutonomyPart>(["suggestions", "orders", "loops", "readiness", "instructions"]);
+export const autonomyDefault = (part: AutonomyPart): "off" | "when-needed" => (shipsWhenNeeded.has(part) ? "when-needed" : "off");
 
 export const AutonomyModeSchema = z.enum(["off", "when-needed", "on"]);
 export type AutonomyMode = z.infer<typeof AutonomyModeSchema>;
@@ -51,13 +57,15 @@ export const autonomyTools: Record<AutonomyPart, readonly string[]> = {
 };
 
 /** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, and its tools. */
-export const autonomyToolFeatures: readonly (readonly [string, string, readonly string[]])[] = autonomyParts
+export const autonomyToolFeatures: readonly (readonly [string, string, readonly string[], "off" | "when-needed"])[] = autonomyParts
   .filter((part) => autonomyTools[part].length > 0)
-  .map((part) => [autonomyKey(part), `${autonomyLabels[part].replace(/^"|"/g, "").toLowerCase()} is switched on`, autonomyTools[part]] as const);
+  .map((part) => [autonomyKey(part), `${autonomyLabels[part].replace(/^"|"/g, "").toLowerCase()} is switched on`, autonomyTools[part], autonomyDefault(part)] as const);
 
 export function autonomyMode(store: Pick<Store, "get">, owner: string, part: AutonomyPart): AutonomyMode {
   if (lockdownOverrides(store, owner, autonomyKey(part))) return "off"; // mac7/lockdown-fix
-  const saved = RecordSchema.safeParse(store.get("settings", owner, autonomyKey(part))?.data ?? {});
+  const data = (store.get("settings", owner, autonomyKey(part))?.data ?? {}) as Record<string, unknown>;
+  if (data.mode === undefined) return autonomyDefault(part); // the defaults train: never switched, so as shipped
+  const saved = RecordSchema.safeParse(data);
   return saved.success ? saved.data.mode : "off";
 }
 

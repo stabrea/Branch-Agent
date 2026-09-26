@@ -17,6 +17,12 @@ export const interopParts = [
 ] as const;
 export type InteropPart = (typeof interopParts)[number];
 export const InteropPartSchema = z.enum(interopParts);
+/**
+ * The defaults train (the owner's "what ships on" rule): the parts that ship when needed. None spends, sends,
+ * deletes, listens or starts anything the owner did not set up. Every other part ships off.
+ */
+const shipsWhenNeeded: ReadonlySet<InteropPart> = new Set<InteropPart>(["modes", "project-routing"]);
+export const interopDefault = (part: InteropPart): "off" | "when-needed" => (shipsWhenNeeded.has(part) ? "when-needed" : "off");
 
 const ModeSchema = z.enum(["off", "when-needed", "on"]);
 export type InteropMode = z.infer<typeof ModeSchema>;
@@ -50,7 +56,9 @@ export const interopTools: Record<InteropPart, readonly string[]> = {
 };
 
 export function interopMode(store: Pick<Store, "get">, owner: string, part: InteropPart): InteropMode {
-  const saved = RecordSchema.safeParse(store.get("settings", owner, interopKey(part))?.data ?? {});
+  const data = (store.get("settings", owner, interopKey(part))?.data ?? {}) as Record<string, unknown>;
+  if (data.mode === undefined) return interopDefault(part); // the defaults train: never switched, so as shipped
+  const saved = RecordSchema.safeParse(data);
   return saved.success ? saved.data.mode : "off";
 }
 

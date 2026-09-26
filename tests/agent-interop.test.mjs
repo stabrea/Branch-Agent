@@ -43,11 +43,14 @@ const taskContext = (app, prompt = "a task", permissions) => {
   return { run, context: app.runtime.context({ runId: run.id, ...(permissions ? { permissions } : {}) }) };
 };
 
-test("bucket 20 ships off: no part answers and none of its tools is in the catalog until switched on", async (t) => {
+test("bucket 20: modes and project routing ship when needed, every other part off, and a part that is off answers nothing", async (t) => {
   const f = await fixture(t);
-  assert.deepEqual(Object.values(f.app.interop.modesOf()), interopParts.map(() => "off"));
-  const all = Object.values(interopTools).flat();
-  for (const name of all) assert.equal(f.app.registry.permissionOf(name), "", `${name} is in the catalog while off`);
+  // The defaults train (the owner's "what ships on" rule): ways of working only narrow and project routing is local
+  // scoring, so they ship when needed; the parts that let something in or send work out stay off.
+  const shipped = (part) => (["modes", "project-routing"].includes(part) ? "when-needed" : "off");
+  assert.deepEqual(Object.values(f.app.interop.modesOf()), interopParts.map(shipped));
+  for (const [part, tools] of Object.entries(interopTools))
+    for (const name of tools) assert.equal(f.app.registry.permissionOf(name) !== "", shipped(part) !== "off", `${name} as shipped`);
   // The preload list in feature-switches.ts names exactly the tools each part owns.
   for (const [key, , tools] of interopToolFeatures)
     assert.deepEqual([...tools], [...interopTools[key.replace(/^interop-/, "")]], key);
@@ -55,9 +58,11 @@ test("bucket 20 ships off: no part answers and none of its tools is in the catal
   assert.equal(f.app.registry.permissionOf("fleet.status"), "specialists.read");
   const tiers = switchedToolTiers(f.app.store, f.owner, [...f.app.registry.names(), "mode.task"]);
   assert.ok(tiers.preload.some((entry) => entry.name === "fleet.send"), "on loads the tools from the first round");
-  assert.ok(tiers.hidden.includes("mode.task"), "a part that is off keeps its tools hidden");
+  f.on("modes", "off");
+  assert.ok(switchedToolTiers(f.app.store, f.owner, [...f.app.registry.names(), "mode.task"]).hidden.includes("mode.task"), "a part that is off keeps its tools hidden");
   f.on("fleet", "off");
   assert.equal(f.app.registry.permissionOf("fleet.status"), "");
+  f.on("project-routing", "off");
   assert.throws(() => f.app.interop.router.route("anything"), /switched off/);
 });
 
@@ -317,7 +322,7 @@ test("the owner's routes: switches, the list of parts, and what a short-lived ke
   const f = await fixture(t, () => say("ok"), { server: true });
   const state = await (await f.http("/api/interop")).json();
   assert.deepEqual(state.parts.map((p) => p.part), [...interopParts]);
-  assert.ok(state.parts.every((p) => p.mode === "off" && p.label));
+  assert.ok(state.parts.every((p) => p.mode === (["modes", "project-routing"].includes(p.part) ? "when-needed" : "off") && p.label), "as shipped (the defaults train)");
   const saved = await (await f.http("/api/interop/switch", { body: { part: "modes", mode: "on" } })).json();
   assert.deepEqual(saved, { part: "modes", mode: "on" });
   assert.equal((await f.http("/api/interop/switch", { body: { part: "modes", mode: "always" } })).status, 400);

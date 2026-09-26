@@ -18,6 +18,13 @@ export const askParts = [
 ] as const;
 export type AskPart = (typeof askParts)[number];
 export const AskPartSchema = z.enum(askParts);
+/**
+ * The defaults train (the owner's "what ships on" rule): the parts that ship when needed. None spends, sends,
+ * deletes, listens or starts anything the owner did not set up. Every other part ships off.
+ */
+// live-surfaces stays off for now: on, it starts a 15-second timer on every install, even with nothing pinned.
+const shipsWhenNeeded: ReadonlySet<AskPart> = new Set<AskPart>(["answer-pages", "intent-pipeline", "project-board"]);
+export const askDefault = (part: AskPart): "off" | "when-needed" => (shipsWhenNeeded.has(part) ? "when-needed" : "off");
 
 const ModeSchema = z.enum(["off", "when-needed", "on"]);
 export type AskMode = z.infer<typeof ModeSchema>;
@@ -65,12 +72,14 @@ export const askTools: Record<AskPart, readonly string[]> = {
 };
 
 /** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, and its tools. */
-export const askToolFeatures: readonly (readonly [string, string, readonly string[]])[] = askParts
+export const askToolFeatures: readonly (readonly [string, string, readonly string[], "off" | "when-needed"])[] = askParts
   .filter((part) => askTools[part].length > 0)
-  .map((part) => [askKey(part), `${askLabels[part].charAt(0).toLowerCase()}${askLabels[part].slice(1)} is switched on`, askTools[part]] as const);
+  .map((part) => [askKey(part), `${askLabels[part].charAt(0).toLowerCase()}${askLabels[part].slice(1)} is switched on`, askTools[part], askDefault(part)] as const);
 
 export function askMode(store: Pick<Store, "get">, owner: string, part: AskPart): AskMode {
-  const saved = RecordSchema.safeParse(store.get("settings", owner, askKey(part))?.data ?? {});
+  const data = (store.get("settings", owner, askKey(part))?.data ?? {}) as Record<string, unknown>;
+  if (data.mode === undefined) return askDefault(part); // the defaults train: never switched, so as shipped
+  const saved = RecordSchema.safeParse(data);
   return saved.success ? saved.data.mode : "off";
 }
 

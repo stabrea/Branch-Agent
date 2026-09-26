@@ -34,7 +34,7 @@ test("the switches live in Customize → Connections, modes in Specialists, and 
   assert.equal(await card.locator("h2").innerText(), "Working with other agents and tools");
   assert.equal(await page.locator(`#interop-handoff-session option[value="${sessionId}"]`).innerText(), "action.save",
     "a conversation opening is literal owner text, not a locale key");
-  assert.equal(await page.locator("#interop-switch-modes").inputValue(), "off");
+  assert.equal(await page.locator("#interop-switch-modes").inputValue(), "when-needed", "as shipped (the defaults train)");
   await page.getByLabel("Ways of working (modes)").selectOption("when-needed");
   await page.locator("#lx-slot-customize-connections #interop-card").getByText("Saved.").waitFor().catch(() => undefined);
   for (let i = 0; i < 50 && app.interop.modesOf().modes !== "when-needed"; i++) await page.waitForTimeout(50);
