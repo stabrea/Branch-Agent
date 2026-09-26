@@ -8,6 +8,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { signIn } from "./new-window-places.mjs";
 import { discardTemp } from "./temp-dir.mjs";
 import { Receipts } from "../dist/receipts.js";
 import { runResult } from "../dist/results.js";
@@ -109,31 +110,25 @@ test("Q52 a real task that writes a file: the result names it, proven, and the A
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 }, reducedMotion: "reduce" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await signIn(page, server);
   errors.length = 0;
-  await page.evaluate(async () => {
-    const { applyAppearance, currentAppearance } = await import("/appearance.js");
-    applyAppearance({ ...currentAppearance(), showEverything: true });
-  });
-  await page.locator("#aside-toggle").click();
-  await page.waitForFunction(() => document.body.classList.contains("lx-aside"));
-  await page.locator('#context-receipts [data-result="made"]').waitFor({ state: "attached", timeout: 15000 });
-  const shown = await page.evaluate(() => [...document.querySelectorAll("#context-receipts [data-result]")].map((node) => [node.dataset.result, node.textContent]));
-  assert.deepEqual(shown.slice(0, 2), [["head", "What it made"], ["made", "hello.txtnew · checked and confirmed"]]);
-  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
-  const french = await page.evaluate(async (id) => {
-    const { resultRows } = await import("/run-result.js");
-    const response = await fetch(`/api/runs/${id}/result`, { headers: { authorization: `Bearer ${sessionStorage.getItem("branch-token")}` } });
-    return resultRows(await response.json()).map((one) => one.meta ?? one.title);
-  }, finished.id);
-  assert.deepEqual(french, ["Ce qu'il a produit", "nouveau · vérifié et confirmé"]);
+  // Redesign: the conversation's side panel (data-act="pane"), its Files tab: each file the conversation's tasks touched,
+  // with Made or Changed (prototype.html's pane "files"; public/app/chat/pane.js).
+  await page.locator(`#side .list [data-act="chat"][data-id="${finished.sessionId}"]`).click();
+  await page.locator("#conversation .u").first().waitFor({ timeout: 15000 });
+  await page.locator('[data-act="pane"][data-p="activity"]').first().click();
+  await page.locator('#pane [data-v="files"], #pane .ptab').filter({ hasText: "Files" }).first().click();
+  const row = page.locator('#pane [data-act="fileopen"][data-n="hello.txt"]');
+  await row.waitFor({ timeout: 15000 });
+  assert.equal(await row.locator(".pill").innerText(), "Made");
+  // Redesign: replaced by the new window (prototype.html's Files row has no "checked and confirmed" proof line, and the new
+  // window has no /i18n.js French); the proof itself is the engine's, asserted on GET /api/runs/<id>/result above.
   assert.deepEqual(errors, []);
 });
 
-test("Q52 a task that changed Branch's own source: the Activity pane shows its checks and how far the change got", async (t) => {
+test.skip("Q52 a task that changed Branch's own source: the Activity pane shows its checks and how far the change got", async (t) => {
+  // Redesign: replaced by the new window (prototype.html's side panel lists steps, the plan and files; it has no "How it
+  // was checked" or "Branch's own change" rows, and the new window has no /i18n.js French).
   const root = await mkdtemp(join(tmpdir(), "branch-results-own-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
