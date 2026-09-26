@@ -143,7 +143,8 @@ async function slash(page, asked) {
   await api("commands/settings", { mode: was });
 }
 
-/* 7: the tool playground runs a tool from the window, so it stays greyed for the security review. */
+/* 7: the tool playground is live now (unhold-control; verify-unhold-control.cjs runs tools through it): Open opens the
+   prototype's "Tool playground" with the engine's tools. */
 async function playground(page) {
   await page.keyboard.press("Control+,");
   await page.locator(".settings").waitFor();
@@ -151,7 +152,11 @@ async function playground(page) {
   await page.locator('[data-act="setpage"][data-v="developer"]').first().click();
   const open = page.locator('[data-act="playground-open"]');
   await open.waitFor({ timeout: 8000 });
-  check("7 Settings › Developer › Playground stays greyed (Coming soon)", await open.evaluate((b) => b.classList.contains("soon") && b.dataset.tip === "Coming soon"));
+  check("7 Settings › Developer › Playground is live", await open.evaluate((b) => !b.classList.contains("soon")));
+  await open.click();
+  check("7 Open shows the Tool playground with the engine's tools (GET /api/tools/forms)",
+    !!(await until(async () => (await page.locator(".dlg #play-tool option").count()) === (await api("tools/forms")).tools.length && (await page.locator(".dlg #play-tool option").count()) > 0, 8000)));
+  await page.locator('.dlg [data-act="dlg-close"]').first().click();
   await page.locator('[data-act="setlevel"][data-v="regular"]').click().catch(() => {});
   await page.locator(".settings .set-back").click();
   await page.locator("#prompt").waitFor();

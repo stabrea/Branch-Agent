@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { handOffHold } from "./coding/hand-off.js"; // code.hand_off: asked every time
+import { newAppHold, newAppHoldReason } from "./desktop-app-ask.js"; // unhold-control
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
 import { memoryAgent } from "./trunks/memory-scope.js"; // FQ-routing.isolated-agents
 import { mixtureProviderName } from "./model-savings/mixture.js"; // NAS cc72768
@@ -2831,8 +2832,9 @@ ${run.output.slice(0, 6000)}`;
     const personal = personalHold(tool, args, source) ?? settingsHold(tool, args) ?? contractHold(tool, args) ?? handOffHold(tool); // Q12: a self-development contract, first or wider
     // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
     const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null)
-      ?? this.scriptHold(tool, context.runId); // mac7/residuals (4b)
-    const held = (personal || hold?.reason === scriptAskFirstHold) && tightened.decision === "allow" ? "ask" : tightened.decision;
+      ?? this.scriptHold(tool, context.runId) // mac7/residuals (4b)
+      ?? newAppHold(this.store, this.owner, tool, args, context.trunk); // unhold-control: a program this Trunk has not opened
+    const held = (personal || hold?.reason === scriptAskFirstHold || hold?.reason === newAppHoldReason) && tightened.decision === "allow" ? "ask" : tightened.decision;
     const guarded = held === "allow" && lockdownActive(this.store, this.owner) && !lowersRiskOnly(tool) ? "ask" : held; // mac7/lockdown-fix
     if (hold?.onceOnly && guarded === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
     // --- end R17-C ---

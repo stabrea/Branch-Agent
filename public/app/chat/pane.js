@@ -13,7 +13,7 @@ import { on } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
 import { sendingPrompt } from "./chat.js";
 import { initStage } from "./stage.js";
-import { terminalBody, loadWork } from "./terminal.js";
+import { terminalBody, loadWork, initTerminal } from "./terminal.js";
 import { pressed } from "../shell/keys.js";
 import { timelineBody, initTimeline } from "./timeline.js";
 import { helpersSection, initHelpers } from "./helpers.js";
@@ -119,6 +119,7 @@ function focusSwitch() {
 
 export function initPane() {
   initStage();
+  initTerminal();
   initTimeline({ redraw: drawPane, changed: render, messages: () => (P.sid === S.chat ? P.messages : []), first: sendingPrompt });
   initHelpers({ redraw: drawPane });
   markLive(["pane", "ptabp"]);

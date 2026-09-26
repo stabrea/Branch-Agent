@@ -1,8 +1,9 @@
 /* Settings › Developer, 1:1 with the prototype (only shown at the Technical level). The local address is the one this
    window is talking to; Copy puts it on the clipboard. A switch shows the engine's own value and is live only where a
    route changes it (WIRES); a three-way feature switch reads as on unless its mode is "off", turns on as "when-needed"
-   and off as "off". The session key is never shown; making a new one, the tool playground (it runs a tool from the
-   window), sandboxed tool scripts, tools that join from outside and finding other computers stay greyed. */
+   and off as "off". The session key is never shown; making a new one, sandboxed tool scripts, tools that join from
+   outside and finding other computers stay greyed. The Playground's Open runs one tool by hand through the engine's own
+   approval gate (../playground.js). */
 import { esc, render } from "../../core/dom.js";
 import { api } from "../../core/api.js";
 import { toast } from "../../core/ui.js";
@@ -11,6 +12,7 @@ import { markLive } from "../../core/features.js";
 import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
 import { developer17 } from "../p17-more.js";
 import { level as level17 } from "../../core/state.js";
+import { initPlayground } from "../playground.js";
 import { t } from "../../../i18n.js";
 
 const D = { ls: null, dbg: null, interop: null, counters: null, loop: null, comfort: null, tracing: null };
@@ -75,6 +77,7 @@ async function copyAddress() {
 
 export function init() {
   on("dv-copy", () => copyAddress());
+  initPlayground();
   markLive(["dv-copy", "sw:dv-ls", "sw:dv-dbg", "sw:f15-flow-search", "sw:f15-send-metrics-with-opentelemetry", "sw:f15-is-branch-keeping-up"]);
   document.addEventListener("change", async (e) => {
     const wire = WIRES[e.target.id];
