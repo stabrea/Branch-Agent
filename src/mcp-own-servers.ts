@@ -26,6 +26,8 @@
  *   Checked when a server is added and again before every start, including the starts as Branch starts.
  * - Who answered is read when the answer is given (ApprovalGate.onResolved), not when the answer is looked at.
  * - The waiting question's conversation and fingerprint are listed only to the owner at the window.
+ * - A start the owner overtook (switched off, removed, started again) never puts its on-demand opener over a newer
+ *   start's, so a newer start's tools never open an older launch (hostFor).
  */
 export const lockdownStartRefusal = "Lockdown is on, so Branch does not start a program on this computer. Turn Lockdown off first.";
 import { createHash } from "node:crypto";
@@ -284,7 +286,7 @@ export class OwnMcpServers {
       if (!found.tools.length) throw new Error("Your approval settings refuse every tool this server offers, so it was not started.");
       if (!found.version) throw new Error("That server did not say which version it is.");
       const config = { id: entry.id, tools: found.tools, expectedVersion: found.version, ...entry.server };
-      const stop = await startMcp(this.deps.registry, config, this.env, this.deps.policy(), this.deps.host());
+      const stop = await startMcp(this.deps.registry, config, this.env, this.deps.policy(), this.hostFor(entry, generation, overtaken));
       started = { close: stop ?? (async () => undefined), names: found.tools.map((tool) => mcpToolName(entry.id, tool)) };
       if (!this.stillWanted(entry, generation)) throw new Error(overtaken);
       this.live.set(entry.id, started);
@@ -299,6 +301,26 @@ export class OwnMcpServers {
       this.record("Tool server started:", `${entry.name}: ${reason}`, "failed");
       throw new Error(reason);
     }
+  }
+
+  /**
+   * The host one start hands to startMcp. On demand, startMcp puts the server's opener in place after a wait (the
+   * malware check). A start overtaken during that wait must not put its opener over a newer start's: the newer start's
+   * tools would then open the older launch, which the owner may have removed or never said yes to again. So the opener
+   * goes in only while this start is still wanted, checked in the same step as putting it in.
+   */
+  private hostFor(entry: OwnServer, generation: number, overtaken: string): McpHost | undefined {
+    const host = this.deps.host();
+    if (!host) return undefined;
+    const connections = host.connections;
+    return { ...host, connections: {
+      register: (id, opener) => {
+        if (!this.stillWanted(entry, generation)) throw new Error(overtaken);
+        connections.register(id, opener);
+      },
+      acquire: (runId, id) => connections.acquire(runId, id),
+      forget: async (id) => { await connections.forget?.(id); },
+    } };
   }
 
   /**
