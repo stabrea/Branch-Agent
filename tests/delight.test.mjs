@@ -137,6 +137,20 @@ test("switching achievements on finds the past without a party; what happens nex
   assert.equal(view.rank, "Bronze");
 });
 
+test("Q251: an install updated with a past finds it quietly at its first look, with achievements on as shipped", async (t) => {
+  const { app, call } = await fixture(t);
+  for (let i = 0; i < 3; i++) await app.runtime.run({ prompt: `before the update ${i}` });
+  // The owner never touches the switch: it is on as shipped.
+  let view = (await call("GET", "/api/delight/achievements")).body;
+  assert.equal(view.on, true);
+  assert.ok(view.list.find((a) => a.id === "tasks:1").got, "the past counts");
+  assert.deepEqual(view.fresh, [], "and arrives without a party");
+  const next = view.list.filter((a) => a.id.startsWith("tasks:") && !a.got).map((a) => Number(a.id.slice(6))).sort((x, y) => x - y)[0];
+  for (let i = 3; i < next; i++) await app.runtime.run({ prompt: `after the update ${i}` });
+  view = (await call("GET", "/api/delight/achievements")).body;
+  assert.ok(view.fresh.some((a) => a.id === `tasks:${next}`), "what happens after the first look is celebrated");
+});
+
 test("quiet earns without any pop-up, and is itself noticed", async (t) => {
   const { app, call } = await fixture(t);
   await call("POST", "/api/delight/settings", { achievements: { on: true, quiet: true } });
