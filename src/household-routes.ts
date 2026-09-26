@@ -160,6 +160,9 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/personal/microsoft/events"),
     own("/api/personal/spotify/now"),
     own("/api/personal/x/search"),
+    own("/api/profiles/:id/about"), // your-profile: only that person's own (src/person-about.ts)
+    own("/api/profiles/:id/picture"),
+    own("/api/profiles/:id/picture/remove"),
     own("/api/projects/notes"),
     own("/api/projects/notes/:id/remove"),
     own("/api/qa/scenarios"),

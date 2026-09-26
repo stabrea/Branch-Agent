@@ -8,6 +8,7 @@ import { audit } from "./audit.js";
 import { labelTargets } from "./labels.js";
 import { PolicyRememberSchema } from "./policy.js";
 import { roleLabels } from "./profile-roles.js";
+import { aboutOf, faceOf, forgetAbout, personAboutApi } from "./person-about.js"; // your-profile
 import { ownerMember, publishGitPatch, reservedKinds } from "./collab-events.js";
 
 /**
@@ -195,7 +196,11 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
           ? entry
           : { profileId: entry.profileId, grant: entry.grant })
       : allRoles;
-    return { profiles: profiles.list(), active: profiles.active(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn(),
+    // your-profile: everybody's chosen face (the picture only as a stamp), and the owner's own name once they give one.
+    const owner = app.runtime.owner;
+    return { profiles: profiles.list().map((profile) => ({ ...profile, avatar: faceOf(app.store, owner, profile.id) })),
+      active: profiles.active(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn(),
+      owner: { name: aboutOf(app, "owner").name, avatar: faceOf(app.store, owner, "owner") },
       // Batch 26 (wave 8): what each person may have Branch do, for the card beside their name.
       roles, roleLabels };
   }
@@ -260,8 +265,12 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
       reason: "The owner removed somebody from this computer", outcome: "removed",
     });
     if (removed.removed) app.people.forgetProfile(remove[1]!); // bucket 19: their sign-ins, passkeys and shares go too
+    if (removed.removed) forgetAbout(app.store, app.runtime.owner, remove[1]!); // your-profile: their name and face too
     return removed;
   }
+  // your-profile: each person's own name, picture and (the owner's) time zone (src/person-about.ts).
+  const about = await personAboutApi(app, request, path, body);
+  if (about !== undefined) return about;
   return notCollab;
 }
 
