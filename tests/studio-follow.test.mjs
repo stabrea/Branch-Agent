@@ -93,8 +93,9 @@ test.skip("DG-106 in French the row's words are French", async (t) => {
 
 /* Codex's review of ceb75959: the sample's control row is one column at 760px and narrower (its `.ctl` phone rule):
    the words, then the switch under them, then the note. At 761px it is two columns again. */
+// Redesign: replaced by the new window (no "Follow my theme" row in prototype.html's studio).
 for (const [width, stacked] of [[760, true], [400, true], [761, false]]) {
-  test(`DG-106 at ${width} px the row is ${stacked ? "one column: words, switch, note" : "words and switch side by side"}`, async (t) => {
+  test.skip(`DG-106 at ${width} px the row is ${stacked ? "one column: words, switch, note" : "words and switch side by side"}`, async (t) => {
     const { page, errors } = await studio(t, width);
     const seen = await row(page);
     assert.deepEqual({ stacked: seen.stacked, beside: seen.switchBeside, beneath: seen.noteBeneath },
