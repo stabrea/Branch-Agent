@@ -32,6 +32,9 @@ import { pathBar, pathMarks, loadPaths, initBranches } from "./branches.js"; // 
 import { outClass, outBadge, initLeaveOut } from "./leaveout.js";
 import { initMore } from "./more.js";
 import { initDiagram } from "./diagram.js";
+import { helpersChip } from "./helpers.js"; // pass 17: the helpers chip, steering and the model-switch note
+import { steerChip, steeredNotes, initSteer } from "./steer.js";
+import { droppedNote, initSwitched } from "./switched.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -90,7 +93,7 @@ function thread() {
   const rows = C.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.from !== "branch").map((m) => {
     const who = m.role === "assistant" ? authorOf(m, index.get(m), info) : null;
     const first = lastRole !== "assistant" || (who?.id ?? null) !== (lastWho?.id ?? null);
-    const html = m.role === "user" ? user(m) : bot(m, first, who, info) + checkpointRows(m, C.messages) + selfCard(m, C.messages);
+    const html = m.role === "user" ? droppedNote(m, C.messages) + user(m) : bot(m, first, who, info) + checkpointRows(m, C.messages) + selfCard(m, C.messages);
     lastRole = m.role;
     lastWho = who;
     return marks.before(m) + html + marks.after(m);
@@ -98,12 +101,12 @@ function thread() {
   const asks = C.waiting.filter((q) => q.sessionId === C.sessionId).map(askCard).concat(roomAsks(info, (q) => answering.has(roomKey(info.room.id, q.memberId, q.fingerprint))));
   const think = C.sending && C.thinking ? `<div class="think">${ic("spark", "s")}<span>${esc(C.thinking)}</span></div>` : "";
   const typing = C.sending ? `<div class="b"><div class="gut">${av({ kind: "main" }, 28)}</div><div>${think || '<span class="typing" aria-label="Typing"><i></i><i></i><i></i></span>'}</div></div>` : "";
-  return marks.start + rows.join("") + planBlock(liveRun()) + failedLine(E.state?.runs, C.sessionId, C.sending) + rememberCards(C.sessionId) + asks.join("") + typing;
+  return marks.start + rows.join("") + helpersChip() + steeredNotes() + planBlock(liveRun()) + failedLine(E.state?.runs, C.sessionId, C.sending) + rememberCards(C.sessionId) + asks.join("") + typing;
 }
 
 function composer() {
   const draft = S.drafts[C.sessionId ?? "new"] ?? "";
-  return `<div class="dock"><div id="attached">${attached()}</div>${queueRow()}${dockRow()}<form class="composer" id="composer" data-form="composer">
+  return `<div class="dock"><div id="attached">${attached()}</div>${queueRow()}${dockRow()}${steerChip()}<form class="composer" id="composer" data-form="composer">
     <button class="c-btn" type="button" aria-label="Attach, mention a Trunk, skills, Temporary" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="Tools: connectors, skills, plugins and command-line tools" data-tip="Tools" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
     ${dictating() ? dictRow() : `<textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch">${esc(draft)}</textarea>`}
     ${chips()}
@@ -419,6 +422,8 @@ export function init() {
   initCheckpoints();
   initSelfChange();
   initTeach({ start: startConversation });
+  initSteer();
+  initSwitched();
   onRender(drawPane);
   markLive(["ask", "room-ask", "send", "side", "stop-run", "sw:prompt"]);
   on("stop-run", () => stopRun());
