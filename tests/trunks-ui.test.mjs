@@ -74,46 +74,64 @@ const greyed = async (locator) => ({
 const GREY = { disabled: "true", soon: true, tip: "Coming soon" };
 /* The words as written (textContent): a heading styled in capitals is still the prototype's own words. */
 const texts = (locator) => locator.evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()));
+/* Words the locale files keep the same in French (a name such as "Trunks"): those may read the same in both. */
+async function sameInFrench() {
+  const read = async (code) => JSON.parse(await readFile(new URL(`../public/locales/${code}.json`, import.meta.url), "utf8"));
+  const [en, fr] = [await read("en"), await read("fr")];
+  return new Set(Object.keys(en).filter((key) => typeof en[key] === "string" && en[key] === fr[key]).map((key) => en[key]));
+}
 
 test("every word on the Trunks screens is the prototype's, in English and then in French", async (t) => {
   const f = await fixture(t);
   const { trunk } = await f.call("/api/trunks", { name: "Ada", title: "Planner", description: "" });
   await f.open();
   const prototype = await readFile(PROTOTYPE, "utf8");
-  const words = [];
-  await place(f.page, "customize", "trunks");
-  const card = f.page.locator("#main .place");
-  words.push(...await card.locator(".tabs .tab").evaluateAll((tabs) => tabs.map((tab) => tab.firstChild.textContent.trim())));
-  for (const text of ["A new Trunk", "A new room", "Start from a job", "Use this job", "Edit", "Pause"]) {
-    assert.ok(await card.getByText(text, { exact: true }).first().isVisible(), `${text} is on the Trunks tab`);
-    words.push(text);
-  }
-  await card.locator(`[data-act="edit"][data-id="${trunk.id}"]`).click();
-  const editor = f.page.locator(".dlg");
-  await editor.getByRole("heading", { name: "Edit Ada" }).waitFor();
-  words.push(...await texts(editor.locator('[role="tab"]')), ...await texts(editor.locator("label")));
-  await editor.getByRole("tab", { name: "What it may do" }).click();
-  words.push(...await texts(editor.locator(".ctl > b")));
-  await editor.getByRole("button", { name: "Cancel" }).click();
-  await place(f.page, "customize", "trunks");
-  await f.page.locator('[data-act="grp-new"]').click();
-  const group = f.page.locator(".dlg");
-  await group.getByRole("heading", { name: "New group chat" }).waitFor();
-  words.push(...await texts(group.locator(".fld > span:first-child")), ...await texts(group.locator(".ctl > b")));
-  await group.getByRole("button", { name: "Cancel" }).click();
-  const missing = [...new Set(words.map((word) => word.trim()).filter(Boolean))].filter((word) => !prototype.includes(word));
+  const english = await trunkWords(f.page, trunk);
+  assert.ok(english.length > 20, `${english.length} words`);
+  const missing = [...new Set(english)].filter((word) => !prototype.includes(word));
   assert.deepEqual(missing, [], "no word on the Trunks screens that the prototype does not have");
   assert.deepEqual(f.errors, []);
-  /* French: the prototype's Settings › Appearance › Language offers Français, and the design says every screen switches
-     (BRANCH-DESIGN-INTENT.md, stand-in notes). */
-  await place(f.page, "customize", "trunks");
+  /* French: Settings › Appearance › Language (the prototype's, with Français), and the design says every screen switches
+     with it (BRANCH-DESIGN-INTENT.md, stand-in notes: "translate every screen"). */
   await (await sidebar(f.page, '#side [data-act="view"][data-v="settings"]')).click();
   await f.page.locator('.set-nav [data-act="setpage"][data-v="appearance"]').click();
-  const language = f.page.locator("#lang");
-  await language.waitFor();
-  assert.ok((await language.locator("option").allInnerTexts()).includes("Français"));
-  assert.equal(await language.isEnabled(), true, "window bug: Language is greyed and the window has no French, so no Trunks screen can be read in French");
+  await f.page.locator("#lang").selectOption("fr");
+  await f.page.waitForFunction(() => document.documentElement.lang === "fr");
+  assert.equal((await f.call("/api/look")).language, "fr", "the engine keeps the choice");
+  await f.page.locator(".set-back").click();
+  const french = await trunkWords(f.page, trunk);
+  assert.equal(french.length, english.length, "the same screens, the same places");
+  assert.deepEqual(f.errors, []);
+  const same = await sameInFrench();
+  const unchanged = english.filter((word, i) => word === french[i] && !same.has(word));
+  assert.deepEqual(unchanged, [], "window bug: the Trunk screens (Customize › Trunks, the Trunk editor, New group chat) stay in English after choosing Français");
 });
+
+/* Every word the Trunks screens draw, in order: the Trunks tab, the Trunk editor's two tabs, and New group chat. Found by
+   what each control does, never by its words, so the same list can be read again in another language. */
+async function trunkWords(page, trunk) {
+  const words = [];
+  await place(page, "customize", "trunks");
+  const card = page.locator("#main .place");
+  words.push(...await card.locator(".tabs .tab").evaluateAll((tabs) => tabs.map((tab) => tab.firstChild.textContent.trim())));
+  for (const control of ['[data-act="chat"][data-id="new"]', '[data-act="grp-new"]', ".sec h2", '[data-act="tmpl"]', `[data-act="edit"][data-id="${trunk.id}"]`, `[data-act="pausetrunk"][data-id="${trunk.id}"]`])
+    words.push(...await texts(card.locator(control).first()));
+  await card.locator(`[data-act="edit"][data-id="${trunk.id}"]`).click();
+  const editor = page.locator(".dlg");
+  await editor.locator('[data-act="st-tab"][data-v="may"]').waitFor();
+  words.push(...await texts(editor.locator('[role="tab"]')), ...await texts(editor.locator("label")), ...await texts(editor.locator(".dlg-f .btn")));
+  await editor.locator('[data-act="st-tab"][data-v="may"]').click();
+  await editor.locator("#tm-read").waitFor();
+  words.push(...await texts(editor.locator(".ctl > b")), ...await texts(editor.locator(".ctl small")));
+  await editor.locator('.dlg-f [data-act="dlg-close"]').click();
+  await place(page, "customize", "trunks");
+  await page.locator('[data-act="grp-new"]').click();
+  const group = page.locator(".dlg");
+  await group.locator("#grp-name").waitFor();
+  words.push(...await texts(group.locator(".dlg-h h2")), ...await texts(group.locator(".fld > span:first-child")), ...await texts(group.locator(".ctl > b")), ...await texts(group.locator(".dlg-f .btn")));
+  await group.locator('.dlg-f [data-act="dlg-close"]').click();
+  return words.filter(Boolean);
+}
 
 test("renaming the active Trunk updates the shell target immediately", async (t) => {
   const f = await fixture(t);

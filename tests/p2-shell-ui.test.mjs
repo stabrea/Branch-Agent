@@ -88,12 +88,37 @@ async function notInPrototype(words) {
 }
 /* The prototype's Settings › Appearance › Language offers Français, and the design says every screen switches with it
    (BRANCH-DESIGN-INTENT.md, stand-in notes: "translate every screen"). */
-async function chooseFrench(page) {
+async function chooseFrench(f) {
+  await f.page.keyboard.press("Escape");
+  await settingsPage(f.page, "appearance");
+  await f.page.locator("#lang").selectOption("fr");
+  await f.page.waitForFunction(() => document.documentElement.lang === "fr");
+  assert.equal((await f.call("/api/look")).language, "fr", "the engine keeps the choice");
+  await f.page.locator(".set-back").click();
+}
+/* Words the locale files keep the same in French (a name such as "Trunks"): those may read the same in both. */
+async function stillEnglish(english, french) {
+  const read = async (code) => JSON.parse(await readFile(new URL(`../public/locales/${code}.json`, import.meta.url), "utf8"));
+  const [en, fr] = [await read("en"), await read("fr")];
+  const same = new Set(Object.keys(en).filter((key) => typeof en[key] === "string" && en[key] === fr[key]).map((key) => en[key]));
+  assert.equal(french.length, english.length, "the same places, the same words");
+  return english.filter((word, i) => word === french[i] && !same.has(word));
+}
+/* The shell's words, found by what each control does: the person menu, Team › People and the computer switcher. */
+async function shellWords(page) {
+  await page.locator('#side [data-act="owner"]').click();
+  const menu = page.locator(".pop");
+  await menu.locator('[data-act="switchto"]').first().waitFor();
+  const words = [...await texts(menu.locator(".ph")), ...await texts(menu.locator(".mi-t")), ...await texts(menu.locator(".row-in > span:first-child, .seg button"))];
   await page.keyboard.press("Escape");
-  await settingsPage(page, "appearance");
-  const language = page.locator("#lang");
-  assert.ok((await language.locator("option").allInnerTexts()).includes("Français"));
-  assert.equal(await language.isEnabled(), true, "window bug: Settings › Appearance › Language is greyed and the window has no French");
+  await place(page, "team", "people");
+  await page.locator(".t9-item").first().waitFor();
+  words.push(...await page.locator("#main .place h1, #main .place .lede, #main .tabs .tab").evaluateAll((nodes) => nodes.map((node) => node.firstChild.textContent.trim())));
+  await page.locator('#side [data-act="machines"]').click();
+  await page.locator('.pop [data-act="addcomp"]').waitFor();
+  words.push(...await texts(page.locator(".pop .ph, .pop .mi-t")));
+  await page.keyboard.press("Escape");
+  return words.filter((word) => word && !/Ada|Sam/.test(word));
 }
 
 test("the shell's modules write no inline style or handler and build no markup from text, and every word is in English and real French", async (t) => {
@@ -113,17 +138,19 @@ test("the shell's modules write no inline style or handler and build no markup f
   await f.page.locator('#side [data-act="owner"]').click();
   const menu = f.page.locator(".pop");
   await menu.locator('[data-act="switchto"]').filter({ hasText: "<b>Sam</b>" }).waitFor();
-  const words = [...await texts(menu.locator(".ph")), ...await texts(menu.locator(".mi-t")), ...await texts(menu.locator(".row-in > span:first-child, .seg button"))];
   await f.page.keyboard.press("Escape");
   await place(f.page, "team", "people");
   await f.page.locator(".t9-item b").filter({ hasText: "<b>Sam</b>" }).waitFor();
   assert.equal(await f.page.evaluate(() => [...document.querySelectorAll("#app i, #app b b")].filter((node) => ["Ada", "Sam"].includes(node.textContent)).length), 0, "no markup was built from a name");
-  words.push(...await texts(f.page.locator("#main .place h1, #main .place .lede, #main .tabs .tab")).then((all) => all.map((word) => word.replace(/\d+$/, ""))));
-  await f.page.locator('#side [data-act="machines"]').click();
-  words.push(...await texts(f.page.locator(".pop .ph, .pop .mi-t")));
-  assert.deepEqual(await notInPrototype(words.filter((word) => !/Ada|Sam/.test(word))), [], "every word is the prototype's");
+  // Every word is the prototype's, in English; then Français (Settings › Appearance › Language).
+  const english = await shellWords(f.page);
+  assert.ok(english.length > 20, `${english.length} words`);
+  assert.deepEqual(await notInPrototype(english), [], "every word is the prototype's");
   assert.deepEqual(f.errors, []);
-  await chooseFrench(f.page);
+  await chooseFrench(f);
+  const french = await shellWords(f.page);
+  assert.deepEqual(f.errors, []);
+  assert.deepEqual(await stillEnglish(english, french), [], "window bug: the person menu, Team › People and the computer switcher stay in English after choosing Français");
 });
 
 // Redesign: the prototype has no Trunk strip at the left edge. What it has instead: each Trunk's conversation is a row
@@ -381,21 +408,30 @@ test("in French every word of the strip and the studio follows at once, and no i
   const f = await fixture(t);
   await withTrunk(f);
   await f.open();
-  // Redesign: the strip and the studio are the prototype's + menu and its Add a computer or phone dialog.
-  await f.page.locator('#side [data-act="newmenu"]').click();
-  const words = await texts(f.page.locator(".pop .mi-t"));
-  assert.equal(await f.page.locator(".pop .mi .ico svg").count(), await f.page.locator(".pop .mi .ico").count(), "every item keeps its icon");
-  await f.page.keyboard.press("Escape");
-  await f.page.locator('#side [data-act="machines"]').click();
-  await f.page.locator(".pop").getByRole("menuitem", { name: "Add a computer or phone…" }).click();
-  const dialog = f.page.locator(".dlg");
-  await dialog.getByRole("heading", { name: "Add a computer or phone" }).waitFor();
-  words.push(...await texts(dialog.locator(".dlg-h h2, .tab")));
-  assert.equal(await dialog.locator('.dlg-h [data-act="dlg-close"] svg').count(), 1, "the close icon stays");
-  assert.deepEqual(await notInPrototype(words), [], "every word is the prototype's");
-  await dialog.getByRole("button", { name: "Close" }).click();
+  // Redesign: the strip and the studio are the prototype's + menu (New Trunk) and its Add a computer or phone dialog.
+  const studioWords = async () => {
+    await f.page.locator('#side [data-act="newmenu"]').click();
+    await f.page.locator('.pop [data-act="new-trunk"]').waitFor();
+    const words = await texts(f.page.locator(".pop .mi-t"));
+    assert.equal(await f.page.locator(".pop .mi .ico svg").count(), await f.page.locator(".pop .mi .ico").count(), "every item keeps its icon");
+    await f.page.keyboard.press("Escape");
+    await f.page.locator('#side [data-act="machines"]').click();
+    await f.page.locator('.pop [data-act="addcomp"]').click();
+    const dialog = f.page.locator(".dlg");
+    await dialog.locator('.tab[data-v="phone"]').waitFor();
+    words.push(...await texts(dialog.locator(".dlg-h h2, .tab")));
+    assert.equal(await dialog.locator('.dlg-h [data-act="dlg-close"] svg').count(), 1, "the close icon stays");
+    await dialog.locator('.dlg-h [data-act="dlg-close"]').click();
+    await dialog.waitFor({ state: "detached" });
+    return words;
+  };
+  const english = await studioWords();
+  assert.deepEqual(await notInPrototype(english), [], "every word is the prototype's");
   assert.deepEqual(f.errors, []);
-  await chooseFrench(f.page);
+  await chooseFrench(f);
+  const french = await studioWords();
+  assert.deepEqual(f.errors, []);
+  assert.deepEqual(await stillEnglish(english, french), [], "window bug: the + menu and Add a computer or phone stay in English after choosing Français");
 });
 
 /* ---------------------------------------------------------------- integration review */
