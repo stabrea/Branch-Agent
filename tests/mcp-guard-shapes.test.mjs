@@ -196,7 +196,7 @@ test("python -m pip, -m uv and -m pipx are held to the package-folder rules", as
 
 /* Group 5. Mutation: in readNode (src/mcp-launch-shapes.ts), delete `if (!arg.includes("=") && nodeValued.has(arg)) at++;`;
    the node launch is then saved, and as Branch starts it runs the workspace folder (the marker is written). A second
-   mutation, deleting `if (!attached) at++;` in readPython, turns the python launch green at add. */
+   mutation, deleting `if (!attached) at++;` in readPython, lets the python launch be saved, and this goes red. */
 test("a workspace folder run past an option that takes a value first is refused: node -r x <folder>, python -X opt <folder>", async (t) => {
   const f = await fixture(t);
   const folder = join(f.workspace, "srvdir"), marker = join(f.root, "valued-option-ran.txt");
