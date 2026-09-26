@@ -66,8 +66,9 @@ test("saved prompts: switched on in Procedures, written, saved, then typed as a 
 
   await page.locator('#side [data-act="newmenu"]').click();
   await page.locator('.pop [data-act="newconv"]').click();
-  await page.locator("#prompt").fill("/wee");
-  await page.locator("#prompt").dispatchEvent("input");
+  // Typed key by key, as a person does: a new conversation can redraw the box once more, and each key re-opens the menu.
+  await page.locator("#prompt").fill("");
+  await page.locator("#prompt").pressSequentially("/wee", { delay: 50 });
   await page.locator(".slash6").getByText("/weekly").waitFor();
   await page.locator("#prompt").fill("/weekly day=monday");
   // WINDOW BUG: public/app/chat/chat.js:155 command() shows the engine's words ("Sending your saved prompt …") but never
