@@ -328,7 +328,8 @@ async function gatewayPage(page) {
   const proposal = (hold) => fs.writeFileSync(path.join(DATA_DIR, "gateway.proposed.json"), JSON.stringify({ config: { mode: "off", startSeconds: 90, holdSeconds: hold, maxQuickCrashes: 4, gapSeconds: 300, watchSeconds: 300, workerEnv: {} }, why: "Written by the verify script.", proposedAt: new Date().toISOString(), check: { ok: true, detail: "started" } }));
   proposal(31);
   await openPage(page, "gateway");
-  await click(page, '[data-act="gw-mode"][data-v="on"]');
+  // The gateway is one on/off switch (when-needed reads as on).
+  if (!(await page.locator("#gw-mode").isChecked())) await click(page, "#gw-mode");
   await settle(page, 800);
   await click(page, '[data-act="gw-prop"][data-v="no"]');
   await settle(page, 800);
