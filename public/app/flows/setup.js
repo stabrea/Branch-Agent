@@ -1,5 +1,5 @@
 /* Set up Branch (design doc 6.1): the eleven steps drawn 1:1 from design/redesign/dom/setup-0..10.html, against
-   the engine: models from GET /api/accounts and /api/local-models, a hello through POST /api/models/test, the look,
+   the engine: models from GET /api/accounts and the shared local-model picker (flows/localpick.js), a hello through POST /api/models/test, the look,
    how much it asks (POST /api/conversation-mode/settings), Trunks made with POST /api/trunks, chat apps from
    GET /api/channel-setup, the gateway (POST /api/never-break), and the engine's own checks (GET /api/health).
    Choices the engine cannot act on yet keep their place and are greyed out. */
@@ -14,6 +14,7 @@ import { logo } from "../core/logos.js";
 import { t, language, LANGUAGES } from "../../i18n.js";
 import { say } from "../core/words.js";
 import { canSpeak, chooseLanguage } from "../shell/language.js";
+import { localPicker, freshPick, initLocalPick } from "./localpick.js";
 
 const STEPS = ["window.flows.setup.step-welcome", "window.flows.setup.step-where", "layout.modelTabs", "window.flows.setup.step-yours", "window.flows.setup.step-trunks", "window.flows.setup.step-reach", "dashboard.filter.tools",
   "window.flows.setup.step-keep", "people.admin.people", "window.flows.setup.step-more", "settings.card.health-check"];
@@ -64,7 +65,6 @@ function where(o) {
 function modelRows(o) {
   const rows = [];
   for (const p of o.pools) for (const a of p.accounts ?? []) rows.push([p.pool, a.label || p.pool, p.pool + (p.defaultAccount === a.id ? ` · ${t("glance.usedNext")}` : "")]);
-  for (const m of o.local) rows.push(["ollama", t("window.flows.setup.on-computer", { name: m.name ?? m.model ?? m }), "Ollama"]);
   if (!rows.length && E.state?.activeModel) rows.push([E.state.activeModel.presetName, E.state.activeModel.presetName, E.state.activeModel.model ?? ""]);
   return rows.map(([id, name, sub], i) => `<div class="prow">${logo(id, name, 30)}<span class="grow"><b>${esc(name)}</b><small>${esc(sub)}</small></span><input class="sw" type="checkbox" data-sw="ob-brain" data-i="${i}" aria-label="${esc(name)}"></div>`).join("");
 }
@@ -78,7 +78,10 @@ function testOut(o) {
 }
 
 function models(o) {
-  return `<h2 tabindex="-1">${t("window.flows.setup.models")}</h2><p>${t("window.flows.setup.found")}</p><div class="rows">${modelRows(o)}</div><div class="acts" data-css="margin-top:10px"><button class="btn sm" type="button" data-act="addacct">${ic("plus", "s")}${t("window.flows.setup.add-account")}</button><button class="btn sm" type="button" data-act="ob-test">${t("window.flows.setup.say-hello")}</button></div><div id="ob-test-out">${testOut(o)}</div>`;
+  /* Accounts found are listed under the prototype's line; what runs on this computer is the picker's (it says plainly
+     when nothing was found), so the line never stands over an empty list. */
+  const rows = modelRows(o);
+  return `<h2 tabindex="-1">${t("window.flows.setup.models")}</h2>${rows ? `<p>${t("window.flows.setup.found")}</p><div class="rows">${rows}</div>` : ""}${localPicker()}<div class="acts" data-css="margin-top:10px"><button class="btn sm" type="button" data-act="addacct">${ic("plus", "s")}${t("window.flows.setup.add-account")}</button><button class="btn sm" type="button" data-act="ob-test">${t("window.flows.setup.say-hello")}</button></div><div id="ob-test-out">${testOut(o)}</div>`;
 }
 
 /* Auto lets workspace changes go ahead and keeps a standing yes per website (src/conversation-mode.ts), which loosens
@@ -182,13 +185,13 @@ function draw() {
 }
 
 async function load(o) {
-  const [accounts, local, channels, connected, mcp, gw, mode] = await Promise.all([
-    api("accounts").catch(() => ({})), api("local-models").catch(() => ({})), api("channel-setup").catch(() => ({})),
+  const [accounts, channels, connected, mcp, gw, mode] = await Promise.all([
+    api("accounts").catch(() => ({})), api("channel-setup").catch(() => ({})),
     api("channels").catch(() => ({})), api("mcp/connections").catch(() => ({})), api("never-break").catch(() => ({})),
     api("conversation-mode/settings").catch(() => ({})),
   ]);
   Object.assign(o, {
-    pools: accounts.pools ?? [], local: local.ollama?.models ?? [], channels: channels.channels ?? [], connected: connected.channels ?? [],
+    pools: accounts.pools ?? [], channels: channels.channels ?? [], connected: connected.channels ?? [],
     servers: mcp.servers ?? [], gw: gw.mode ?? o.gw, asks: ["auto", "ask", "plan"].includes(mode.settings?.newConversation) ? mode.settings.newConversation : "ask",
   });
 }
@@ -196,8 +199,9 @@ async function load(o) {
 /* jump: the step "Start" goes to once the trust box is ticked; the message box's "Set up" (chat/nomodel.js) asks for the
    Models step when no model is set up yet. */
 export async function openSetup(jump = 1) {
-  S.ob = { i: 0, jump, trust: false, where: "this", pools: [], local: [], channels: [], connected: [], servers: [], gw: "off", asks: "ask", tpls: new Set(), test: null, checks: [], error: "", gwNote: "" };
+  S.ob = { i: 0, jump, trust: false, where: "this", pools: [], channels: [], connected: [], servers: [], gw: "off", asks: "ask", tpls: new Set(), test: null, checks: [], error: "", gwNote: "" };
   draw();
+  freshPick();
   await load(S.ob).catch(() => {});
   draw();
 }
@@ -304,6 +308,7 @@ async function saveGateway(v) {
 }
 
 export function init() {
+  initLocalPick();
   markLive(["sw:ob-trust", "sw:ob-lang", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-test", "ob15", "ob-tpl", "ob-gw"]);
   on("onboard", (el) => openSetup(Number(el?.dataset?.v) || 1));
   on("ob-go", (el) => go(+el.dataset.v));
