@@ -3,7 +3,7 @@
      BRANCH_DATA_DIR=<fresh dir> BRANCH_WORKSPACE=<fresh dir> BRANCH_PORT=<port> node dist/cli.js start
      PORT=<port> TOKEN=<hex> node design/redesign/tools/verify-bugfix-3.cjs
    It must be the engine's first run: it checks that "several accounts per connection" is still off, then adds an account
-   through the window with no API switch. Test data it makes through the engine: the Claude Code program as a connection
+   through the window with no API switch. Test data it makes through the engine: the cli-claude-code program connection
    (POST /api/providers/cli-agents, which installs and signs in to nothing), one Trunk, one household person (switched to
    and back), and the pet and achievements switches. */
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
@@ -35,6 +35,7 @@ const timerProbe = () => {
 };
 
 async function signIn(context) {
+  await api("onboarding", { done: true }); // a fresh engine opens on setup until onboarding is done, so it is marked done through the engine first
   const page = await context.newPage();
   const errors = [], asked = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -56,14 +57,16 @@ async function openSettings(page, id) {
 }
 
 /* 9: Practice first says the prototype's words. */
-async function practice(page) {
+async function practice(page, asked) {
   if (!(await page.locator(".first").count())) { await page.locator('[data-act="owner"]').first().click(); await page.locator('.pop [data-act="firstrun"]').click(); }
   await page.locator(".first").waitFor();
   for (let i = 0; i < 3 && !(await page.locator('.first [data-act="fr-way"]').count()); i++) { await page.locator('.first [data-act="fr-next"]').first().click(); await settle(page, 300); }
+  const since = Date.now();
   await page.locator('.first [data-act="fr-way"]').click();
   const said = await until(async () => (await page.locator(".toast").allTextContents()).find((t) => t.includes("Practice mode")));
   check("9 practice(): says the prototype's sentence", said?.includes("Practice mode: examples only until you choose a model."), said ?? "no toast");
-  check("9 practice(): the engine has the first run finished", (await api("state")).onboarding?.done === true || (await api("onboarding").catch(() => ({}))).done === true);
+  const sent = asked.find((r) => r.at >= since && r.method === "POST" && r.path === "/api/onboarding");
+  check("9 practice(): the window finished the first run with the engine first", sent?.body === JSON.stringify({ done: true }) && (await api("state")).onboarding?.done !== false, sent?.body ?? "not sent");
   for (let i = 0; i < 8 && (await page.locator(".first").count()); i++) {
     const out = page.locator('.first [data-act="fr-skip"], .first [data-act="welcome-x"], .first [data-act="fr-next"]').first();
     if (!(await out.count())) break;
@@ -72,7 +75,7 @@ async function practice(page) {
   if (await page.locator(".first").count()) await page.keyboard.press("Escape");
 }
 
-/* GATE and 1: a fresh engine, accounts mode off; the window adds a Claude Code account and switches the mode on itself.
+/* GATE and 1: a fresh engine, accounts mode off; the window adds a cli-claude-code account and switches the mode on itself.
    The Trunk chips are greyed for this sign-in connection, and the Trunk's keys never name it. */
 async function gate(page, asked) {
   const before = await api("accounts");
@@ -81,7 +84,7 @@ async function gate(page, asked) {
   await api("trunks/switch", { part: "trunks", mode: "on" });
   const trunk = (await api("trunks", { name: `Bugfix three ${Date.now() % 100000}`, description: "Checks the account chips" })).trunk;
   const pool = (await api("accounts")).pools.find((p) => p.pool === "cli-claude-code");
-  check("GATE the Claude Code connection is listed (a sign-in pool)", pool?.kind === "cli", JSON.stringify(pool?.kind));
+  check("GATE the cli-claude-code connection is listed (a sign-in pool)", pool?.kind === "cli", JSON.stringify(pool?.kind));
   await reload(page);
   await openSettings(page, "accounts");
   await page.locator('[data-act="addacct"][data-v="cli-claude-code"]').click();
@@ -96,7 +99,7 @@ async function gate(page, asked) {
   await page.locator('.dlg [data-act="aa-done"]').click();
   const after = await until(async () => { const v = await api("accounts"); return v.pools.find((p) => p.pool === "cli-claude-code")?.accounts.length === 2 ? v : null; });
   const p = after?.pools.find((x) => x.pool === "cli-claude-code");
-  check("GATE GET /api/accounts shows the account added through the window", p?.accounts.length === 2, JSON.stringify(p?.accounts.map((a) => a.label)));
+  check("GATE GET /api/accounts shows the account added through the window", p?.accounts.length === 2, `${p?.accounts.length} accounts: ${p?.accounts.map((a) => a.id).join(", ")}`);
   check("GATE the mode is now when-needed", after?.mode === "when-needed", `mode=${after?.mode}`);
   check("GATE autoSwitch stays off", p?.autoSwitch === false, `autoSwitch=${p?.autoSwitch}`);
   const sent = asked.filter((r) => r.at >= since && r.method === "POST" && r.path === "/api/accounts/settings").map((r) => r.body);
@@ -246,7 +249,7 @@ async function lookFollows(page) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 } });
   const { page, errors, asked } = await signIn(context);
   try {
-    await practice(page);
+    await practice(page, asked);
     await gate(page, asked);
     await narrow(page);
     await household(page);
