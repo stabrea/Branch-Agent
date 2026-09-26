@@ -7,6 +7,7 @@ import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
 import { renderNow } from "../core/dom.js";
 import { recBar } from "../chat/rec.js";
+import { allPaused } from "../flows/pause.js";
 
 let lastHealthCheck = 0;
 let cachedHealth = null;
@@ -79,7 +80,7 @@ function recentTile() {
 
 function controlsTile() {
   const mode = conversationMode?.following?.label ?? "";
-  return `<div class="tile"><h2>Controls</h2><p>Mode: <b data-css="font-weight:600">${esc(mode)}</b> · <button class="link" type="button" data-act="setgo" data-v="permissions">change</button></p><div class="acts"><button class="btn bad sm" type="button" data-act="lock">Lockdown</button><button class="btn sm" type="button" data-act="pauseall">Pause all Trunks</button></div></div>`;
+  return `<div class="tile"><h2>Controls</h2><p>Mode: <b data-css="font-weight:600">${esc(mode)}</b> · <button class="link" type="button" data-act="setgo" data-v="permissions">change</button></p><div class="acts"><button class="btn bad sm" type="button" data-act="lock">Lockdown</button><button class="btn sm" type="button" data-act="pauseall">${allPaused() ? "Resume all Trunks" : "Pause all Trunks"}</button></div></div>`;
 }
 
 function usersTile() {

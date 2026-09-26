@@ -36,9 +36,9 @@ const current = () => E.sessions.find((s) => (s.sessionId ?? s.id) === C.session
 const title = () => current()?.opening || C.messages.find((m) => m.role === "user")?.content?.slice(0, 70) || "New conversation";
 
 export function head() {
-  const working = C.sending;
+  const working = C.sending, paused = E.trunks.find((t) => t.chatSessionId === C.sessionId)?.paused;
   return `<div class="head"><button class="icon-btn menu-only" type="button" aria-label="Show conversations" data-act="side">${ic("menu")}</button>
-    ${av({ kind: "main" }, 32)}<div class="who"><b>${esc(title())}</b><small class="${working ? "attn" : ""}">${working ? "<i></i>Working" : ""}</small></div>
+    ${av({ kind: "main" }, 32)}<div class="who"><b>${esc(title())}</b><small class="${working ? "attn" : ""}">${working ? "<i></i>Working" : paused ? "Paused · won’t start anything new" : ""}</small></div>
     <span class="tb-grow"></span>
     <button class="icon-btn" type="button" aria-label="Side panel: Activity, Plan, Files, Memory, Browser, Terminal${binding("sidePane") ? ` (${esc(binding("sidePane"))})` : ""}" aria-pressed="${!!S.pane && S.pane !== "browser"}" data-act="pane" data-p="activity">${ic("sidebar")}</button>
     ${rosterButton()}<button class="icon-btn" type="button" aria-label="Find in this conversation (Ctrl+F)" data-tip="Find in this conversation" data-act="find-open">${ic("search")}</button>

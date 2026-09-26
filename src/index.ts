@@ -1197,8 +1197,12 @@ export async function createBranch(options: {
     const owned = trunks.trunkForConversation(sessionId);
     const trunk = owned ? trunks.records.find(owned.trunkId) : undefined;
     return trunk && !trunk.reach.channels.includes(channel) // whatever the switch says, reach only narrows
-      ? `${trunk.name} does not answer on ${channel}. The owner can allow it under Customize → Trunks.` : null;
+      ? `${trunk.name} does not answer on ${channel}. The owner can allow it under Customize → Trunks.`
+      : trunks.pausedForConversation(sessionId, "it did not answer"); // eng-trunk-controls
   };
+  // eng-trunk-controls: a trigger or a standing order aimed at a paused Trunk's conversation does not start, and says why.
+  triggers.held = (sessionId) => trunks.pausedForConversation(sessionId, "this trigger did not start anything");
+  autonomy.runner.sessionHeld = (sessionId) => trunks.pausedForConversation(sessionId, "this did not start");
   // ── end R17-A ──
   // ── mac7/r17-d: coding polish (src/coding/). Every part ships off. ──
   const coding = new Coding({ runtime, registry, files, servers: languageServers, git, gitRun });

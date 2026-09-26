@@ -23,7 +23,9 @@ export interface TrunksHttpDeps {
 
 const SwitchSchema = z.object({ part: TrunkPartSchema, mode: z.enum(["off", "when-needed", "on"]) }).strict();
 const TextSchema = z.object({ text: z.string().trim().min(1).max(16000) }).strict();
-const trunkPath = /^\/api\/trunks\/([a-f0-9-]{36})(?:\/(remove|say|seen|retire|avatar|export|keys|routines|watch|teach))?$/;
+/** eng-trunk-controls: resume takes nothing. */
+const EmptySchema = z.object({}).strict().nullable().optional();
+const trunkPath = /^\/api\/trunks\/([a-f0-9-]{36})(?:\/(remove|say|seen|retire|avatar|export|keys|routines|watch|teach|pause|resume))?$/;
 const roomPath = /^\/api\/trunks\/rooms\/([a-f0-9-]{36})(?:\/(remove|send|stop|answer|revoke|artifacts))?$/; // phase2/rooms: revoke
 const routinePath = /^\/api\/trunks\/routines\/([a-f0-9-]{36})\/remove$/;
 /** mac7/residuals (integration): Answer / Not now on a Trunk's message that waits for the owner. */
@@ -63,7 +65,7 @@ async function conversationRoute(deps: TrunksHttpDeps, id: string | undefined, a
 
 function roomSummary(room: ReturnType<Trunks["rooms"]["get"]>) {
   return { id: room.id, name: room.name, members: room.members, people: room.people, needsYou: room.needsYou, pinned: room.pinned,
-    section: room.section, order: room.order, picture: room.picture, sessionId: room.sessionId,
+    section: room.section, order: room.order, picture: room.picture, sessionId: room.sessionId, rule: room.rule, pattern: room.pattern,
     latest: room.events.filter((event) => event.kind === "user" || event.kind === "member").at(-1)?.text.slice(0, 160) ?? null,
     at: room.updatedAt };
 }
@@ -97,6 +99,12 @@ async function topRoute(deps: TrunksHttpDeps, path: string): Promise<unknown> {
     return { modes: trunks.setMode(part, { mode }) };
   }
   if (path === "/api/trunks/import") return { trunk: trunks.importFile(await deps.readBody()) };
+  // eng-trunk-controls: pause every Trunk (a running task finishes unless `now`), or let them all start work again.
+  if (path === "/api/trunks/pause-all") return trunks.pause.pauseAll(await deps.readBody());
+  if (path === "/api/trunks/resume-all") {
+    EmptySchema.parse(await deps.readBody());
+    return trunks.pause.resumeAll();
+  }
   if (path === "/api/trunks/from-specialist") {
     const { specialistId } = z.object({ specialistId: z.string().uuid() }).strict().parse(await deps.readBody());
     return { trunk: trunks.fromSpecialist(specialistId) };
@@ -134,6 +142,8 @@ async function trunkRoute(deps: TrunksHttpDeps, id: string, action: string | und
     case "routines": return { routine: trunks.routines.create(id, await deps.readBody()) };
     case "watch": return trunks.teaching.watch(id);
     case "teach": return trunks.teaching.save(id, await deps.readBody());
+    case "pause": return trunks.pause.pause(id, await deps.readBody()); // eng-trunk-controls
+    case "resume": EmptySchema.parse(await deps.readBody()); return trunks.pause.resume(id);
     default: return undefined;
   }
 }

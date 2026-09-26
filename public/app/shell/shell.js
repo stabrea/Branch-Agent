@@ -52,7 +52,7 @@ function row(s) {
   const busy = runningIn(id);
   return `<button class="row" type="button" data-act="chat" data-id="${esc(id)}" aria-current="${S.chat === id}"${busy ? ' data-running="true"' : ""}>
     <span class="avw">${av(trunk ?? { kind: "main" }, 40)}</span>
-    <b><span class="ellip14">${esc(sessionTitle(s))}</span></b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
+    <b><span class="ellip14">${esc(sessionTitle(s))}</span>${trunk?.paused ? '<span class="paused">paused</span>' : ""}</b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
     ${busy ? '<p class="attn">Working</p>' : `<p>${esc(s.lastMessage ?? "")}</p>`}</button>`;
 }
 
@@ -216,7 +216,7 @@ function rowMenu(e) {
   const id = esc(row.dataset.id), s = E.sessions.find((x) => sessionId(x) === row.dataset.id), t = s && trunkFor(s), own = chatOwner(row.dataset.id);
   const base = mi("chat", "chat", "Open", "", `data-id="${id}"`) + mi(own ? "pin-id" : "pin-id-off", "pin", own?.pinned ? "Unpin" : "Pin to top", "", `data-id="${id}"`) + mi(own ? "rename-id" : "rename-id-off", "edit", "Rename", "", `data-id="${id}"`);
   const tid = esc(t?.id ?? "");
-  const trunk = t ? mi("new-with", "plus", `New conversation with ${esc(t.name)}`, "", `data-id="${tid}"`) + mi("pausetrunk", "pause", "Pause", "", `data-id="${tid}"`) + mi("edit", "sliders", "Edit Trunk…", "", `data-id="${tid}"`) + "<hr>" + mi("remove", "trash", "Remove…", "", `data-id="${tid}"`) : "";
+  const trunk = t ? mi("new-with", "plus", `New conversation with ${esc(t.name)}`, "", `data-id="${tid}"`) + mi("pausetrunk", "pause", t.paused ? "Resume" : "Pause", "", `data-id="${tid}"`) + mi("edit", "sliders", "Edit Trunk…", "", `data-id="${tid}"`) + "<hr>" + mi("remove", "trash", "Remove…", "", `data-id="${tid}"`) : "";
   openPop(row, base + trunk, { force: true });
   return true;
 }

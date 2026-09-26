@@ -9,6 +9,7 @@ import { S, E, refresh, activeId } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on, run } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { initPause } from "./pause.js";
 
 export const COLOURS = ["#2F8C86", "#D8612A", "#8A5AA8", "#5E8C4A", "#4F6FA8", "#C9982E", "#B84A6B", "#56616B"];
 /* The prototype draws five shapes; the engine names seven (src/trunks/look.ts). Shape i is saved as SHAPE_NAMES[i]. */
@@ -24,7 +25,7 @@ export const TEMPLATES = [["Inbox Manager", "Clears your inbox and drafts replie
 const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v ?? "")) ? String(v).toLowerCase() : null);
 export const lookOf = (t) => ({ ...LOOK, ...(t?.look ?? {}) });
 /* What av() draws from: the engine keeps the colour as chosenColour and the emoji inside look. */
-export const face = (t) => ({ name: t?.name, color: hex(t?.chosenColour), emoji: lookOf(t).face === "emoji" ? lookOf(t).emoji : "" });
+export const face = (t) => ({ name: t?.name, color: hex(t?.chosenColour), emoji: lookOf(t).face === "emoji" ? lookOf(t).emoji : "", paused: !!t?.paused });
 const trunkById = (id) => E.trunks.find((t) => t.id === id);
 const trunkOfChat = (sid = S.chat) => E.trunks.find((t) => t.chatSessionId === sid);
 let rooms = [];
@@ -139,9 +140,9 @@ function shuffle() {
 /* The conversation menu's items for a Trunk's or a room's own conversation; "" for any other conversation. */
 export function trunkMenu() {
   const t = trunkOfChat();
-  if (t) return mi("pin", "pin", t.pinned ? "Unpin" : "Pin to top") + mi("pausetrunk", "pause", "Pause this Trunk", "", `data-id="${esc(t.id)}"`) + mi("rename", "edit", "Rename") + mi("edit", "sliders", "Edit Trunk…", "", `data-id="${esc(t.id)}"`) + mi("teach-start", "teach", "Show it how, once");
+  if (t) return mi("pin", "pin", t.pinned ? "Unpin" : "Pin to top") + mi("pausetrunk", "pause", t.paused ? "Resume" : "Pause this Trunk", "", `data-id="${esc(t.id)}"`) + mi("rename", "edit", "Rename") + mi("edit", "sliders", "Edit Trunk…", "", `data-id="${esc(t.id)}"`) + mi("teach-start", "teach", "Show it how, once");
   const r = roomOfChat();
-  if (r) return mi("pin", "pin", r.pinned ? "Unpin" : "Pin to top") + mi("rename", "edit", "Rename room");
+  if (r) return mi("pin", "pin", r.pinned ? "Unpin" : "Pin to top") + mi("rename", "edit", "Rename room") + mi("room-rules", "sliders", "Room rules", "", `data-id="${esc(r.id)}"`);
   return "";
 }
 export function trunkMenuEnd() {
@@ -226,6 +227,11 @@ async function newTrunk() {
 /* ---------- a new room: a name and two to six Trunks. People and agents on other computers stay greyed (sharing). ---------- */
 let grp = null;
 
+/* Who answers in a room (src/trunks/room-plan.ts): the engine's three rules, in the prototype's words. The engine's
+   default is mentions only; a lead Trunk is the first one picked. */
+const RULES = [["mention", "Only those you @mention"], ["lead", "A lead Trunk decides"], ["all", "Everyone, every time"]];
+const ruleSeg = (act, current, id = "") => `<div class="ctl"><b>Who answers</b><span class="right"><span class="seg" role="group" aria-label="Who answers">${RULES.map(([v, l]) => `<button type="button" data-act="${act}" data-v="${v}"${id ? ` data-id="${esc(id)}"` : ""} aria-pressed="${current === v}">${l}</button>`).join("")}</span></span><small>Nobody mentioned means everyone.</small></div>`;
+
 function groupDlg() {
   const people = (E.profiles?.profiles ?? []).filter((p) => p.id !== activeId()), agents = grp.agents;
   const chip = (act, id, label, on) => `<button type="button" class="chip6" data-act="${act}" data-k="trunks" data-v="${esc(id)}" aria-pressed="${on}">${esc(label)}</button>`;
@@ -233,7 +239,7 @@ function groupDlg() {
     <div class="fld"><span>Trunks · two to six</span><span class="chips8">${E.trunks.map((t) => chip("grp-pick", t.id, t.name, grp.trunks.includes(t.id))).join("")}</span></div>
     <div class="fld"><span>People · up to eight</span><span class="chips8">${people.map((p) => chip("grp-person", p.id, p.name, false)).join("")}</span></div>
     <div class="fld"><span>Agents on other computers</span><span class="chips8">${agents.map((a) => chip("grp-agent", a.name ?? a.id, a.name ?? a.id, false)).join("")}</span></div>
-    <div class="ctl"><b>Who answers</b><span class="right"><span class="seg" role="group" aria-label="Who answers">${["Only those you @mention", "A lead Trunk decides", "Everyone, every time"].map((l) => `<button type="button" data-act="grp-rule" aria-pressed="false">${l}</button>`).join("")}</span></span><small>Nobody mentioned means everyone.</small></div>
+    ${ruleSeg("grp-rule", grp.rule)}
     ${ctl("grp-talk", "Trunks may talk to each other in here", "Up to 3 rounds and 10 Trunk messages for each of yours. A Trunk can pass.")}`,
     foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="grp-make">Start the group chat</button>' });
 }
@@ -243,7 +249,7 @@ async function newGroup() {
   closePop();
   let agents = [];
   try { agents = (await api("agents/remote")).agents ?? []; } catch (error) { toast(error.message); }
-  grp = { name: "", trunks: [], agents };
+  grp = { name: "", trunks: [], agents, rule: "mention" };
   groupDlg();
 }
 
@@ -257,7 +263,7 @@ function pickMember(el) {
 async function makeRoom() {
   const name = ($("#grp-name")?.value ?? "").trim();
   try {
-    const { room } = await api("trunks/rooms", { name, members: grp.trunks });
+    const { room } = await api("trunks/rooms", { name, members: grp.trunks, rule: grp.rule });
     grp = null;
     closeDlg();
     await Promise.all([refresh(), loadRooms()]);
@@ -265,7 +271,33 @@ async function makeRoom() {
   } catch (error) { toast(error.message); }
 }
 
+/* ---------- Room rules (the room's menu): who answers, and the room's own way of working together ---------- */
+
+/* The prototype's patterns (Customize › Specialists), by the engine's names; Teams has no engine form, so it stays greyed. */
+const PATTERNS = [["one", "One at a time"], ["super", "A lead and helpers"], ["swarm", "Swarm"], ["router", "Router"], ["parallel", "In parallel"], ["teams", "Teams"]];
+function rulesDlg(id) {
+  closePop();
+  const r = rooms.find((x) => x.id === id);
+  if (!r) return;
+  const pats = PATTERNS.map(([v, l]) => `<button type="button" data-act="${v === "teams" ? "room-pat-teams" : "room-pat"}" data-v="${v}" data-id="${esc(id)}" aria-pressed="${r.pattern === v}">${l}</button>`).join("");
+  openDlg({ title: "Room rules", body: `${ruleSeg("room-rule", r.rule ?? "mention", id)}
+    <div class="ctl"><b>How Trunks work together</b><span class="right"><span class="seg" role="group" aria-label="How Trunks work together">${pats}</span></span><small>The pattern a room or a big task uses. Branch picks one; you can choose.</small></div>`,
+    foot: '<button class="btn" type="button" data-act="dlg-close">Done</button>' });
+}
+/* Choosing the room's pattern again gives it back to the owner's default (null). */
+async function setRule(el, field) {
+  const r = rooms.find((x) => x.id === el.dataset.id), v = el.dataset.v;
+  const value = field === "pattern" && r?.pattern === v ? null : v;
+  if (await change("room", el.dataset.id, { [field]: value })) rulesDlg(el.dataset.id);
+}
+
 export function init() {
+  initPause();
+  markLive(["room-rules", "room-rule", "room-pat", "grp-rule"]);
+  on("room-rules", (el) => rulesDlg(el.dataset.id));
+  on("room-rule", (el) => setRule(el, "rule"));
+  on("room-pat", (el) => setRule(el, "pattern"));
+  on("grp-rule", (el) => { grp.name = $("#grp-name")?.value ?? grp.name; grp.rule = el.dataset.v; groupDlg(); });
   markLive(["sw:st-name", "sw:st-role", "sw:rn-name", "sw:grp-name", "edit", "st-tab", "st-colour", "st-shape", "st-anim", "st-shuffle", "st-save", "emo15", "pin", "rename", "rename-save", "remove", "trunk-remove-yes", "tmpl", "grp-new", "grp-pick", "grp-make", "new-trunk"]);
   on("new-trunk", () => newTrunk());
   on("edit", (el) => editTrunk(el.dataset.id));

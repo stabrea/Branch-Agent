@@ -50,9 +50,9 @@ function itemsOf(k) {
 const ADD = { mcp: ["tool-add", "Add a server"], skills: ["tool-add", "Add a skill"], plugins: ["plug-add", "Add a plugin"], clis: ["cli-add", "Add a tool"], agents: ["tool-add", "Connect another agent"] };
 
 function trunksTab() {
-  const rows = E.trunks.map((t) => `<div class="prow">${av(face(t), 36)}<span class="grow"><b>${esc(t.name)}</b><small>${esc(t.title ?? "")}</small></span>
+  const rows = E.trunks.map((t) => `<div class="prow">${av(face(t), 36)}<span class="grow"><b>${esc(t.name)}${t.paused ? " · paused" : ""}</b><small>${esc(t.title ?? "")}</small></span>
     <button class="btn sm" type="button" data-act="edit" data-id="${esc(t.id)}">Edit</button>
-    <button class="btn ghost sm" type="button" data-act="pausetrunk" data-id="${esc(t.id)}">Pause</button></div>`).join("");
+    <button class="btn ghost sm" type="button" data-act="pausetrunk" data-id="${esc(t.id)}">${t.paused ? "Resume" : "Pause"}</button></div>`).join("");
   const jobs = TEMPLATES.map(([n, x, col], i) => `<div class="tile"><div class="th">${av({ name: n, color: col }, 34)}<b>${esc(n)}</b></div><p>${esc(x)}</p><div class="acts"><button class="btn sm" type="button" data-act="tmpl" data-i="${i}">Use this job</button></div></div>`).join("");
   return `<div class="rows"><div class="acts" data-css="margin:6px 0 4px"><button class="btn pri" type="button" data-act="chat" data-id="new">${ic('plus', 's')}A new Trunk</button>
     <button class="btn" type="button" data-act="grp-new">${ic('room', 's')}A new room</button></div>${rows}
@@ -126,8 +126,9 @@ function toolsTab() {
 const specName = (s) => s.data?.definition?.name ?? "";
 const specWhat = (s) => String(s.data?.definition?.instructions ?? "").split("\n")[0];
 
-/* The prototype's patterns. The engine picks supervisor, swarm or router per job and keeps no owner setting for a default
-   pattern, so none is checked and pat15 stays greyed (FEATURE-AUDIT: soon). */
+/* The prototype's patterns. The one checked is the engine's (GET /api/state orchestration.pattern); "auto", its default,
+   leaves it to Branch per job, so none is checked. Choosing one saves it (POST /api/orchestration {pattern}); choosing the
+   checked one again gives it back to Branch. Teams has no engine form, so its card keeps its own greyed act. */
 const PATTERNS = [
   ["one", "One at a time", "A Trunk calls a specialist, waits, carries on.", "M30 14v14M30 38v10", [[30, 10], [30, 33], [30, 52]]],
   ["super", "A lead and helpers", "One Trunk plans and hands out the parts.", "M30 14L14 42M30 14v28M30 14l16 28", [[30, 10], [14, 46], [30, 46], [46, 46]]],
@@ -148,7 +149,8 @@ function fleet(specs) {
 function specialistsTab() {
   const specs = E.state.specialists || [];
   const rows = specs.map((s) => `<div class="prow"><span class="ico-tile">${ic('bolt', 's')}</span><span class="grow"><b>${esc(specName(s))}</b><small>${esc(specWhat(s))}</small></span><button class="btn sm" type="button" data-act="spec-edit" data-id="${esc(s.id ?? "")}">Edit</button></div>`).join('');
-  const pats = PATTERNS.map((p) => `<button type="button" role="radio" class="pat15" aria-checked="false" data-act="pat15" data-v="${p[0]}">${patSvg(p)}<b>${esc(p[1])}</b><small>${esc(p[2])}</small></button>`).join("");
+  const chosen = E.state.orchestration?.pattern;
+  const pats = PATTERNS.map((p) => `<button type="button" role="radio" class="pat15" aria-checked="${chosen === p[0]}" data-act="${p[0] === "teams" ? "pat15-teams" : "pat15"}" data-v="${p[0]}">${patSvg(p)}<b>${esc(p[1])}</b><small>${esc(p[2])}</small></button>`).join("");
   return `<div class="rows"><p class="hint" data-css="margin:4px 0 8px">Helpers a Trunk calls in for one job, then lets go.</p>${rows}</div>
     <div class="sec x15-sec">${fleet(specs)}<h2 data-css="margin-top:22px">How Trunks work together</h2><p class="hint" data-css="margin:0 0 10px">The pattern a room or a big task uses. Branch picks one; you can choose.</p>
     <div class="pats15" role="radiogroup" aria-label="How Trunks work together">${pats}</div></div>`;
@@ -268,6 +270,17 @@ async function addSuggested(el) {
   renderNow();
 }
 
+/* How Trunks work together: the owner's default, saved with the orchestration settings; the engine keeps the rest. */
+async function choosePattern(el) {
+  const v = el.dataset.v, again = E.state.orchestration?.pattern === v;
+  try {
+    await api("orchestration", { pattern: again ? "auto" : v });
+    await refresh();
+    const p = PATTERNS.find((x) => x[0] === v);
+    if (!again) toast(`${p[1]}: used for rooms and big tasks from now on.`);
+  } catch (error) { toast(error.message); }
+}
+
 /* Filtering the chat apps redraws only the grid, so the search box keeps its caret. */
 function redrawGrid() {
   const grid = document.querySelector("#main .ch-grid12");
@@ -275,7 +288,8 @@ function redrawGrid() {
 }
 
 export function init() {
-  markLive(["sw:ch-q", "ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam", "rev", "sugg15"]);
+  markLive(["sw:ch-q", "ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam", "rev", "sugg15", "pat15"]);
+  on("pat15", (el) => choosePattern(el));
   on("rev", (el) => revise(el));
   on("sugg15", (el) => addSuggested(el));
   on("t9-kind", (el) => { T9.k = el.dataset.v; T9.sel = null; renderNow(); });

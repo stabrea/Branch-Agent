@@ -398,6 +398,11 @@ export const ROUTES = {
   "/api/trunks/:id/routines": "owner POST",
   "/api/trunks/:id/watch": "owner POST",
   "/api/trunks/:id/teach": "owner POST",
+  // eng-trunk-controls: pausing and resuming a Trunk, or all of them, is the owner's.
+  "/api/trunks/:id/pause": "owner POST",
+  "/api/trunks/:id/resume": "owner POST",
+  "/api/trunks/pause-all": "owner POST",
+  "/api/trunks/resume-all": "owner POST",
   "/api/trunks/rooms/:id": "owner POST",
   "/api/trunks/rooms/:id/remove": "owner POST",
   "/api/trunks/rooms/:id/send": "task POST",

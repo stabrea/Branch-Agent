@@ -15,10 +15,11 @@ export function av(trunk, size = 40) {
   const wanted = String(trunk.color || trunk.colour || "");
   const colour = /^#[0-9a-f]{3,8}$/i.test(wanted) ? wanted : "#2F6F5E";
   const css = `--s:${size}px;--c:${colour}`;
+  const paused = trunk.paused ? " paused" : ""; // a paused Trunk's face is drawn grey (GET /api/trunks `paused`)
   if (trunk.kind === "main" || trunk.isBranch) return `<span class="av brand" data-css="--s:${size}px;--r:30%" aria-hidden="true"><span class="peb"></span><span class="mark mark-face"></span></span>`;
-  if (trunk.lookStill) return `<span class="av look12" data-css="${css}" aria-hidden="true"><img src="${esc(trunk.lookStill)}" alt="" draggable="false"></span>`;
-  if (trunk.emoji) return `<span class="av emoji15" data-css="${css}" aria-hidden="true"><span class="peb"></span><i data-css="font-size:${Math.round(size * 0.56)}px">${esc(trunk.emoji)}</i></span>`;
-  return `<span class="av" data-css="${css}" aria-hidden="true"><span class="peb"></span><span class="eye l"></span><span class="eye r"></span></span>`;
+  if (trunk.lookStill) return `<span class="av look12${paused}" data-css="${css}" aria-hidden="true"><img src="${esc(trunk.lookStill)}" alt="" draggable="false"></span>`;
+  if (trunk.emoji) return `<span class="av emoji15${paused}" data-css="${css}" aria-hidden="true"><span class="peb"></span><i data-css="font-size:${Math.round(size * 0.56)}px">${esc(trunk.emoji)}</i></span>`;
+  return `<span class="av${paused}" data-css="${css}" aria-hidden="true"><span class="peb"></span><span class="eye l"></span><span class="eye r"></span></span>`;
 }
 
 export const mi = (act, icon, text, extra = "", attrs = "") =>
