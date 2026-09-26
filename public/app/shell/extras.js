@@ -1,12 +1,12 @@
 /* The smaller pieces around the window, 1:1 with the prototype's: the gateway popover in the status bar (GET/POST
-   /api/never-break), the keyboard shortcuts list, and the conversation menu, whose export writes the engine's own copy
-   of the conversation (GET /api/sessions/<id>/export) to a file. The shortcuts the engine keeps (its "keys" card,
+   /api/never-break), the keyboard shortcuts list, and the conversation menu, whose export adds the engine's Markdown
+   copy of the conversation to Library › Documents (and, in the desktop app, offers its archive to the Save dialog). The shortcuts the engine keeps (its "keys" card,
    shell/keys.js) are set by pressing the keys (#179); the fixed ones are only the keys this window answers to. */
 
 import { esc, renderNow } from "../core/dom.js";
 import { openPop, closePop, openDlg, mi, toast, ic } from "../core/ui.js";
 import { S } from "../core/state.js";
-import { api } from "../core/api.js";
+import { api, token } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { chatMenuTop } from "../chat/beside.js";
@@ -86,16 +86,27 @@ function chatMenu() {
   return chatMenuTop() + (trunkMenu() || mi("pin-conv", "pin", t("window.shell.extras.pin-to-top"))) + mi("call", "wave", t("window.shell.extras.talk-out-loud")) + mi("inspect", "eye", t("window.shell.extras.look-inside-the-last-reply")) + mi("export-conv", "copy", t("window.shell.extras.export-conversation")) + trunkMenuEnd();
 }
 
+/* The prototype's export: the engine's Markdown copy of the conversation (GET /api/sessions/<id>/export?format=markdown)
+   is added to Library › Documents (POST /api/documents { name, text }), under the name the engine gives it. */
+async function toDocuments(id) {
+  const response = await fetch(`/api/sessions/${id}/export?format=markdown`, { cache: "no-store", headers: token.get() ? { authorization: "Bearer " + token.get() } : {} });
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || String(response.status));
+  const name = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1];
+  await api("documents", { ...(name ? { name } : {}), text: await response.text() });
+  toast("Saved as Markdown to Library › Documents.");
+}
+
+/* The desktop app drops every download, so there the engine's own copy (GET /api/sessions/<id>/export) is also offered
+   to the operating system's Save dialog through the desktop's guarded export (window.branchDesktop.exportConversation). */
+async function toFile(id) {
+  await window.branchDesktop.exportConversation(JSON.stringify(await api(`sessions/${id}/export`)));
+}
+
 async function exportConversation() {
   closePop();
   if (!S.chat) return;
-  try {
-    const data = await api(`sessions/${encodeURIComponent(S.chat)}/export`);
-    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-    const a = Object.assign(document.createElement("a"), { href: url, download: `conversation-${S.chat.slice(0, 8)}.json` });
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch (error) { toast(error.message); }
+  const id = encodeURIComponent(S.chat), desktop = typeof window.branchDesktop?.exportConversation === "function";
+  await Promise.all([toDocuments(id), desktop ? toFile(id) : null].map((job) => Promise.resolve(job).catch((error) => toast(error.message))));
 }
 
 const typing = (e) => e.target.closest?.("input, textarea, select, [contenteditable]");
