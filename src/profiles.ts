@@ -87,6 +87,18 @@ export class Profiles {
       .run(id, this.owner, value.name, salt, hash(value.pin, salt), createdAt, null);
     return { id, name: value.name, createdAt, lastUsedAt: null };
   }
+  /**
+   * your-profile: a new name for one profile, chosen by that person (src/person-about.ts). The same
+   * rule as a new profile's: nobody else here may already use it, whatever the case.
+   */
+  rename(id: string, name: string): Profile {
+    const value = ProfileSchema.shape.name.parse(name);
+    if (this.list().some((profile) => profile.id !== id && profile.name.toLowerCase() === value.toLowerCase()))
+      throw new Error("Someone here already uses that name");
+    if (!this.db.prepare("UPDATE household_profiles SET name=? WHERE owner=? AND id=?").run(value, this.owner, id).changes)
+      throw new Error("No profile with that name");
+    return this.list().find((profile) => profile.id === id)!;
+  }
   list(): Profile[] {
     return this.db.prepare("SELECT id,name,created_at,last_used_at FROM household_profiles WHERE owner=? ORDER BY name")
       .all(this.owner).map((row) => ({ id: String(row.id), name: String(row.name),
