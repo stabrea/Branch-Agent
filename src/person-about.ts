@@ -27,7 +27,7 @@ const zone = z.string().min(1).max(64).refine((name) => {
   try { new Intl.DateTimeFormat("en-US", { timeZone: name }); return true; } catch { return false; }
 }, "Unknown timezone");
 const emoji = z.string().max(16).regex(/^\p{Extended_Pictographic}[\p{Extended_Pictographic}\p{Emoji_Modifier}‍️]{0,12}$/u, "Pick one emoji");
-const colour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "A colour is written #rrggbb");
+const colour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "A colour is written #rrggbb").transform((value) => value.toLowerCase());
 const shared = { face: z.enum(faces).optional(), color: colour.nullable().optional(), emoji: emoji.nullable().optional() };
 /** The owner's: the name (null forgets it, and the window calls them by the role again) and the time zone too. */
 const OwnerAboutSchema = z.object({ name: z.string().trim().min(1).max(40).nullable().optional(), timezone: zone.nullable().optional(), ...shared }).strict();
