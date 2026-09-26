@@ -119,6 +119,8 @@ async function stopDownload() {
    POST /api/knobs { card: "limits", values: { maxSteps } }, which keeps the card's other values. */
 let knobs = null;
 async function loadKnobs() {
+  /* Q261: the engine's limits are the owner's, which a household person may not read. */
+  if (E.profiles?.isOwner === false) { knobs = null; renderNow(); return; }
   try { knobs = await api("knobs"); } catch (error) { knobs = null; toast(error.message); }
   renderNow();
 }
