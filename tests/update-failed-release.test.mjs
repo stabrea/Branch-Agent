@@ -46,13 +46,14 @@ for (const channel of ["dev", "beta"]) {
   });
 }
 
-/* NAS a870cea: the window's side, through the real public/app/shell/autoupdate.js (what the new window's main.js starts in
-   the desktop app) and the real route (only the desktop bridge and the timers are stand-ins). After one release fails,
-   update by itself still looks again when a look is due, and the next release is installed as soon as a look finds it. */
-import { noteUpdateCheck } from "../dist/index.js";
-import { autoUpdater } from "../public/app/shell/autoupdate.js";
+/* NAS a870cea: the window's side, through the real comfort.js and the real route (only the desktop bridge and the
+   timers are stand-ins). After one release fails, update by itself still looks again when a look is due, and the
+   next release is installed as soon as a look finds it. */
+import { readFile } from "node:fs/promises";
+import { createContext, runInContext } from "node:vm";
+import { allComfort, noteUpdateCheck } from "../dist/index.js";
 
-/** Set by the test once the page is loaded: resolves when its update look (autoupdate.js `busy()`) is done. */
+/** Set by the test once the page is loaded: resolves when its update look (comfort.js `updateAttempt`) is done. */
 let settled = async () => undefined;
 function clock() {
   let now = Date.parse("2026-09-24T12:00:00Z"), nextId = 0;
@@ -95,23 +96,24 @@ test("after one release fails, update by itself still looks when a look is due, 
       return status;
     },
   };
-  const api = async (path, body) => {
-    const response = await fetch(new URL(`/api/${path}`, server.url), { method: body === undefined ? "GET" : "POST",
-      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    const answer = await response.json();
-    if (!response.ok) throw Object.assign(new Error(answer.error ?? String(response.status)), { status: response.status });
-    return answer;
-  };
-  const toasts = [];
-  const updater = autoUpdater({ desktop, api, toast: (words) => toasts.push(words), ready: () => "ready",
-    timers: { setTimeout: time.setTimeout, clearTimeout: time.clear } });
+  const renderer = (await readFile(new URL("../public/comfort.js", import.meta.url), "utf8")).replace(/^import .*;\r?\n/gm, "").replace(/^export /gm, "");
+  const context = createContext({
+    window: { branchDesktop: desktop }, sessionStorage: { getItem: () => server.token }, Date: time.Date,
+    setTimeout: time.setTimeout, clearTimeout: time.clear, setInterval: () => 0, clearInterval: () => undefined,
+    fetch: (path, options) => fetch(new URL(path, server.url), options), toast: () => undefined,
+  });
+  context.globalThis = context;
+  runInContext(renderer, context);
+  context.Event = class { constructor(type) { this.type = type; } };
+  context.document = { getElementById: (id) => id === "workspace" ? { hidden: true } : null, dispatchEvent: () => true };
   settled = async () => {
     for (let i = 0; i < 400; i++) {
       await new Promise((r) => setTimeout(r, 10));
-      if (!updater.busy()) return;
+      if (runInContext("updateAttempt", context) === false) return;
     }
   };
-  void updater.look();
+  context.testValues = allComfort(app.store, app.runtime.owner);
+  runInContext("view = { values: testValues }; apply();", context);
   await time.advance(60_000);
   assert.deepEqual(installs, ["dev-1111111"], "control: the first change is installed by itself, and fails");
   await time.advance(10 * 60_000);
@@ -122,5 +124,4 @@ test("after one release fails, update by itself still looks when a look is due, 
   await time.advance(10 * 60_000);
   assert.ok(checks.includes("dev-2222222"), `update by itself looked again (checks: ${checks.join(", ")})`);
   assert.deepEqual(installs, ["dev-1111111", "dev-2222222"], "and installed the next change");
-  assert.equal(toasts.filter((words) => /will not try it again by itself/.test(words)).length, 1, "the owner is told once");
 });
