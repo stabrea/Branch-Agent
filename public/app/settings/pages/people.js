@@ -35,7 +35,12 @@ function people() {
 }
 
 const avatar = (p, size, font) => `<span class="tav6" data-css="--c:#56616B;width:${size}px;height:${size}px;font-size:${font}px">${esc(initials(p.name))}</span>`;
-const when = (at) => (at ? new Date(at).toLocaleDateString([], { weekday: "short" }) : "");
+/* The weekday within the last week, as the prototype writes it ("Sun"); the date before that. */
+const when = (at) => {
+  if (!at) return "";
+  const d = new Date(at);
+  return d.toLocaleDateString([], Date.now() - d.getTime() < 6 * 86400000 ? { weekday: "short" } : { day: "numeric", month: "short" });
+};
 
 function item(p) {
   const small = [label(p.role), p.lastUsedAt ? `last used ${when(p.lastUsedAt)}` : ""].filter(Boolean).join(" · ");

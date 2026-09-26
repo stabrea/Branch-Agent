@@ -53,6 +53,11 @@ async function voice(page) {
   await page.keyboard.press("Escape");
   await settle(page, 600);
   check("ptt-key: Escape leaves the key as it was", (await api("comfort")).values.voice.pushToTalkKey === "F8");
+  await click(page, '[data-act="ptt-key"]');
+  await page.keyboard.press("k");
+  await settle(page, 900);
+  const refusal = (await page.locator(".toast").allTextContents()).join(" | ");
+  check("ptt-key: a key the engine refuses is refused in its words", (await api("comfort")).values.voice.pushToTalkKey === "F8" && refusal.includes("Write a key as"), refusal);
 
   await click(page, "#v-dict");
   let mode = (await api("voice/dictation")).settings.mode;

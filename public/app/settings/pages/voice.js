@@ -52,16 +52,20 @@ function comboOf(e) {
   const key = e.key === " " ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
   return [e.ctrlKey || e.metaKey ? "Ctrl" : "", e.altKey ? "Alt" : "", e.shiftKey ? "Shift" : "", key].filter(Boolean).join("+");
 }
+/* One capture at a time; opening the page again drops one still waiting. */
+let waiting = null;
+function stopCapture() { if (waiting) window.removeEventListener("keydown", waiting, true); waiting = null; }
 function captureKey() {
+  stopCapture();
   toast("Press the key you want to use.");
-  const take = (e) => {
+  waiting = (e) => {
     if (MODS.includes(e.key)) return;
     e.preventDefault();
     e.stopPropagation();
-    window.removeEventListener("keydown", take, true);
+    stopCapture();
     if (e.key !== "Escape") saveKey(comboOf(e));
   };
-  window.addEventListener("keydown", take, true);
+  window.addEventListener("keydown", waiting, true);
 }
 
 const seg = (title, sub, opts, act) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l, p]) => `<button type="button" aria-pressed="${!!p}" data-act="${act}" data-v="${esc(v)}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
@@ -125,6 +129,6 @@ export function init() {
   markLive(["sys-voice", "auto-read", "ptt-key", "sw:v-dict", "sw:f15-wake-word", "sw:f15-silence"]);
 }
 
-export function load() { return loadVoice(); }
+export function load() { stopCapture(); return loadVoice(); }
 
 export const live = { "sys-voice": true, "auto-read": true, "ptt-key": true, "sw:v-dict": true, "sw:f15-wake-word": true, "sw:f15-silence": true };
