@@ -490,6 +490,8 @@ async function staticFile(
     "/people.js": ["people.js", "text/javascript; charset=utf-8"],
     "/people.css": ["people.css", "text/css; charset=utf-8"],
     "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
+    // The people page's words (public/people.js imports it; the owner's dashboard does too).
+    "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
     "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
     "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
     // Wave mac3: the owner's dashboard (its other files are served by isDashboardFile) and the card that switches it on.
