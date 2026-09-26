@@ -8,7 +8,7 @@ import { listen, on } from "./core/actions.js";
 import { listenTips, closePop, closeDlg, dialog } from "./core/ui.js";
 import { greyOut } from "./core/features.js";
 import { VIEWS } from "./views.js";
-import { drawShell, initShell } from "./shell/shell.js";
+import { drawShell, initShell, PLACE_VIEWS, placeHead, wide } from "./shell/shell.js";
 import { showSignIn } from "./shell/signin.js";
 import { openConversation } from "./chat/chat.js";
 import { goHome } from "./chat/goto.js";
@@ -24,14 +24,25 @@ function unnest(main) {
   inner.replaceWith(box);
 }
 
-/* The focused control, and a text field's caret, are kept across redraws by core/dom.js for every region. */
+/* The focused control, and a text field's caret, are kept across redraws by core/dom.js for every region.
+   A view whose markup has not changed since its last draw is left as it is: drawing it anew on every re-read replaced
+   the buttons under a press, and a tap that landed between two draws went nowhere. */
+const drawn = { key: null, first: null };
+/* After the person does something in the view, its next draw is always a fresh one, as before (a field put back as the
+   engine keeps it, a button given back); only the re-reads between their actions leave an unchanged view alone. */
+for (const kind of ["click", "change", "keydown"]) document.addEventListener(kind, (e) => { if (e.target.closest?.("#main")) drawn.key = null; }, true);
 function drawMain() {
   const main = $("#main");
   const draw = VIEWS[S.view] ?? VIEWS.chat;
-  paint(main, draw());
+  const html = draw(), key = `${S.view}\n${wide()}\n${html}`;
+  if (key === drawn.key && main.firstElementChild && main.firstElementChild === drawn.first) return;
+  paint(main, html);
   unnest(main);
+  /* A place's header on a narrow window, after any Lockdown banner and above the place (the prototype's placeHead). */
+  if (PLACE_VIEWS.includes(S.view) && !wide()) main.querySelector(":scope > .main > .scroll, :scope > .scroll")?.insertAdjacentHTML("beforebegin", placeHead());
   greyOut(main);
   VIEWS.after?.[S.view]?.(main);
+  Object.assign(drawn, { key, first: main.firstElementChild });
 }
 
 /* The conversation's width, from the owner's saved preference (the prototype's three: comfortable, wide, full). */

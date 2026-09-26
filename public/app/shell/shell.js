@@ -28,6 +28,12 @@ const WIDE = matchMedia("(min-width: 761px)");
 const PLACES = [["overview", "home", "Overview"], ["inbox", "inbox", "Inbox"], ["automations", "clock", "Automations"],
   ["library", "book", "Library"], ["team", "users", "Team"], ["customize", "sliders", "Customize"]];
 
+/* A place's own header, the prototype's placeHead: on a narrow window the button that slides the list in, and Settings.
+   On a wide window it sits in the title bar, as the conversation's header does; on a narrow one main.js draws it above the place. */
+export const PLACE_VIEWS = PLACES.map(([view]) => view);
+export const placeHead = () => `<div class="head"><button class="icon-btn menu-only" type="button" aria-label="Show conversations" data-act="side">${ic("menu")}</button><span class="tb-grow"></span><button class="icon-btn" type="button" aria-label="Settings" data-act="view" data-v="settings">${ic("gear")}</button></div>`;
+export const wide = () => WIDE.matches;
+
 const sessionId = (s) => s.sessionId ?? s.id;
 const hidden = (part) => (E.state?.preferences?.hidden ?? []).includes(part);
 /* The Trunk that answers a conversation: its own chat, or the one the conversation names. */
@@ -149,7 +155,7 @@ export function drawShell() {
   readActivity();
   app.classList.toggle("no-status", hidden("statusbar"));
   $("#statusbar").dataset.hide = "statusbar";
-  const merged = WIDE.matches && S.view === "chat";
+  const place = PLACE_VIEWS.includes(S.view), merged = WIDE.matches && (S.view === "chat" || place);
   app.dataset.surface = /Mac/.test(navigator.platform) ? "mac" : "desktop";
   app.classList.toggle("mac", app.dataset.surface === "mac");
   app.classList.toggle("places-shut14", S.placesShut);
@@ -158,7 +164,7 @@ export function drawShell() {
   header.classList.toggle("merged14", merged);
   header.style.setProperty("--side-w", getComputedStyle($("#body")).getPropertyValue("--side-w") || "292px");
   const slot = header.querySelector(".tb-head14") ?? header.querySelector(".tb-grow").insertAdjacentElement("afterend", Object.assign(document.createElement("div"), { className: "tb-head14" }));
-  paint(slot, merged ? chatHead() : "");
+  paint(slot, !merged ? "" : place ? placeHead() : chatHead());
   paint($("#tbActions"), titleActions());
   paint($("#side"), side());
   paint($("#statusbar"), status());
