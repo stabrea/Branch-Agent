@@ -47,6 +47,7 @@ export const ROUTES = {
   "/api/adapt": "look",
   "/api/adapt/": "prefix",
   "/api/adapt/go": "owner POST",
+  "/api/adapt/leave": "owner POST", // p17: "Leave it stopped" keeps the stop, no longer offered
   "/api/adapt/plan": "owner POST",
   "/api/adapt/stopped": "owner POST",
   "/api/adapt/switch": "owner POST",
