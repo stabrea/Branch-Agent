@@ -50,8 +50,8 @@ export async function signInOptions(host: SignInsHost) {
   const gemini = geminiSignInState(store, owner, models);
   return {
     chatgpt: status
-      ? { available: true, signedIn: status.signedIn, pending: status.pending, lastError: status.lastError }
-      : { available: false, signedIn: false, pending: null, lastError: null },
+      ? { available: true, signedIn: status.signedIn, pending: !!status.pending, lastError: status.lastError }
+      : { available: false, signedIn: false, pending: false, lastError: null },
     programs,
     gemini: { signInSetUp: !!gemini.settings.clientId && !!host.oauth, connected: gemini.connected, note: gemini.note },
   };

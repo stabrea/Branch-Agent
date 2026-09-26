@@ -13,7 +13,9 @@
      npx tsc -p . && node design/redesign/tools/verify-accounts-plans.cjs        (PORT=<free port> to pick the port)
    Covered: aa-grp (Your plan, Coding assistants), aa-plan, aa-dev, aa-chk, aa-cli, aa-fin, aa-done on a ChatGPT and a
    program list (the extra account's own sign-in), Gemini's key step without a Google client id (no aa-goo), and the
-   GitHub and Telegram marks, the Email glyph and a letter tile in Add an account and Customize › Channels. */
+   GitHub and Telegram marks, the Email glyph and a letter tile in Add an account, Customize › Channels and Setup's
+   "Reach it anywhere". Last it starts the engine again on the same data folder and prints (INFO, not a check) which
+   connections came back. SHOTS=<folder> saves a light and a dark picture of each step. */
 const { chromium } = require("playwright");
 const http = require("node:http");
 const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = require("node:fs");
@@ -68,6 +70,43 @@ async function openWizard(page, pool = "") {
   await page.locator(".dlg").waitFor();
 }
 const dlgText = (page) => page.locator(".dlg").innerText();
+/* SHOTS=<folder>: a light and a dark picture at each step, to look at the marks and the sign-in steps by eye. */
+async function shot(page, name) {
+  if (!process.env.SHOTS) return;
+  for (const scheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: join(process.env.SHOTS, `accounts-plans-${name}-${scheme}.png`) });
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+}
+
+/* Setup's "Reach it anywhere" step draws the chat apps with the same marks. */
+async function setupReach(page) {
+  const banner = page.locator('.welcome10 [data-act="onboard"]');
+  if (await banner.count()) await banner.first().click();
+  else { // no banner on this window: the same action the message box's "Set up" button sends
+    await page.evaluate(() => { const b = document.createElement("button"); b.type = "button"; b.dataset.act = "onboard"; b.id = "verify-onboard"; document.body.append(b); });
+    await page.locator("#verify-onboard").dispatchEvent("click");
+  }
+  await page.locator(".ob9").waitFor();
+  await page.locator(".ob-agree").click();
+  await page.locator('.ob9 [data-act="ob-go"][data-v="5"]').click();
+  await page.locator('.ob-ch12 .ch12[data-v="telegram"]').waitFor({ timeout: 15000 });
+  await shot(page, "setup-reach");
+  const tg = await page.locator('.ob-ch12 .ch12[data-v="telegram"] img[src="/art/channels/telegram.svg"]').count();
+  const mail = await page.locator('.ob-ch12 .ch12[data-v="email"] svg.i').count();
+  check("Setup › Reach it anywhere: Telegram's own logo and Email's mail glyph", tg === 1 && mail === 1, `telegram ${tg}, email ${mail}`);
+}
+
+/* Not a check: what survives the engine starting again on the same data folder (said in the PR as a known limit). */
+async function afterRestart(createBranch, temp, dataDir, chatgpt) {
+  const again = await createBranch({ workspace: join(temp, "workspace"), dataDir, chatgpt });
+  try {
+    const ids = [...again.runtime.models.presets.keys()];
+    console.log(`INFO  after a restart: ChatGPT connection ${ids.some((id) => id.startsWith("chatgpt")) ? "kept" : "gone"}; Claude Code connection ${ids.includes("cli-claude-code") ? "kept" : "gone (POST /api/providers/cli-agents registers it in memory only)"}`);
+  } finally { await again.close(); }
+}
 
 async function main() {
   const temp = mkdtempSync(join(os.tmpdir(), "verify-accounts-plans-"));
@@ -111,11 +150,16 @@ async function main() {
     await extraChatGPT(page, api);
     await extraProgram(page, api);
     await marks(page, server);
+    await setupReach(page);
     check("zero page errors", errors.length === 0, errors.join(" | "));
   } finally {
     await browser.close();
     await server.close();
     await app.close();
+  }
+  try {
+    await afterRestart(createBranch, temp, dataDir, new ChatGPTAuth(new FileTokenVault(join(temp, "chatgpt-auth.json")), { issuer: STUB }));
+  } finally {
     stub.close();
     rmSync(temp, { recursive: true, force: true, maxRetries: 5 });
   }
@@ -127,6 +171,7 @@ async function main() {
 async function chatgptFirst(page, api) {
   await openWizard(page);
   await page.locator('[data-act="aa-grp"][data-v="plan"]').click();
+  await shot(page, "plan-tab");
   const plans = await page.locator(".aa-list12 .prov b").allInnerTexts();
   check("Your plan shows ChatGPT, Claude and Gemini", ["ChatGPT", "Claude", "Gemini"].every((n) => plans.includes(n)), plans.join(", "));
   await page.locator('[data-act="aa-grp"][data-v="code"]').click();
@@ -137,12 +182,16 @@ async function chatgptFirst(page, api) {
   check("ChatGPT's step shows the engine's terms line (unofficial)", /Unofficial/.test(await dlgText(page)));
   await page.locator('[data-act="aa-dev"]').click();
   await page.locator(".devcode14").waitFor();
+  await shot(page, "device-code");
   const shown = await page.locator(".devcode14").innerText();
   const href = await page.locator(".aa-page a.btn").getAttribute("href");
   check("aa-dev: the engine's one-time code and its sign-in page are shown", shown === CODE && /^http:\/\/127\.0\.0\.1:\d+\/codex\/device$/.test(href ?? ""), `${shown} ${href}`);
   check("no password field anywhere in the sign-in", (await page.locator('.dlg input[type="password"]').count()) === 0);
+  const offered = await api("accounts/sign-ins");
+  check("GET /api/accounts/sign-ins says a sign-in is waiting but never carries its code", offered.chatgpt.pending === true && !JSON.stringify(offered).includes(CODE));
   approved = true; // the person approves on the sign-in page
   await page.locator(".dlg .pill.ok").waitFor({ timeout: 20000 });
+  await shot(page, "chatgpt-connected");
   const status = await api("chatgpt/status"), lists = await api("accounts");
   check("ChatGPT connected: GET /api/chatgpt/status signed in and GET /api/accounts lists it", status.signedIn && lists.pools.some((p) => p.pool === "chatgpt"), `signedIn ${status.signedIn}`);
   check("a first sign-in leaves several accounts per connection off", lists.mode === "off", lists.mode);
@@ -156,6 +205,7 @@ async function programFirst(page, api, claude) {
   await page.locator('.aa-list12 [data-act="aa-plan"][data-v="claude-code"]').click();
   await page.locator('.dlg [role="status"]').waitFor();
   const said = await page.locator('.dlg [role="status"]').innerText();
+  await shot(page, "program-step");
   check("aa-plan on Claude Code: its status command says it is not signed in, in the engine's words", /is not signed in/.test(said) && (await page.locator('[data-act="aa-cli"]').count()) === 0, said);
   writeFileSync(join(claude.usual, "signed-in"), ""); // the person signs Claude Code in themselves
   await page.locator('[data-act="aa-chk"]').click();
@@ -227,6 +277,7 @@ async function marks(page, server) {
   await page.locator('#side [data-act="view"][data-v="customize"]').click();
   await page.locator('[data-act="ptab"][data-place="customize"][data-v="channels"]').first().click();
   await page.locator('.ch12[data-v="telegram"]').waitFor({ timeout: 15000 });
+  await shot(page, "customize-channels");
   const tg = await page.locator('.ch12[data-v="telegram"] img[src="/art/channels/telegram.svg"]').count();
   const mail = await page.locator('.ch12[data-v="email"] svg.i').count();
   const discord = await page.locator('.ch12[data-v="discord"] .logo b').innerText().catch(() => "");

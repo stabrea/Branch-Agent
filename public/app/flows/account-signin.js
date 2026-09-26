@@ -173,7 +173,7 @@ async function addProgram() {
   try {
     const made = await api("providers/cli-agents", { id: p.id });
     await loadSignIns();
-    await connected(made.id, made.name);
+    await connected(made.id, p.label ?? made.name);
   } catch (error) { W.error = error.message; draw(); }
 }
 

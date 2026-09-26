@@ -265,10 +265,12 @@ async function finish() {
     if (!account) return;
     const placed = await place(account.id, view);
     await useInTrunks(account.id);
-    /* A sign-in account is only half made until it signs in: ChatGPT by its code, a program by its own line. */
+    /* A sign-in account is only half made until it signs in: ChatGPT by its code, a program by its own line. It is kept
+       as W.saved first, so asking again after a failed start signs the same account in rather than adding another. */
     const kind = poolById(W.pool)?.kind ?? view.kind;
-    if (!W.saved && kind === "chatgpt") { await loadAccounts(); return signInExtraChatGPT(account.id, label); }
-    if (!W.saved && kind === "cli") { await loadAccounts(); return signInExtraProgram(W.pool, placed.accounts?.find((a) => a.id === account.id) ?? account); }
+    if (kind === "chatgpt" || kind === "cli") { W.saved = account; await loadAccounts(); }
+    if (kind === "chatgpt" && !poolById(W.pool)?.signedIn?.[account.id]) return signInExtraChatGPT(account.id, label);
+    if (kind === "cli") return signInExtraProgram(W.pool, placed.accounts?.find((a) => a.id === account.id) ?? account);
     closeDlg();
     S.addAcct = null;
     toast(placed.defaultAccount === account.id ? t("window.flows.acct.added-first", { name: label }) : t("window.flows.acct.added-last", { name: label }));
