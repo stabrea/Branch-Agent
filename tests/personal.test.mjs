@@ -36,6 +36,11 @@ async function fixture(t) {
 
 test("every personal part ships off: no tools in the catalog, and a plain refusal", async (t) => {
   const { app, call } = await fixture(t);
+  // The owner's rule (ships on, 2026-09-26): the connectors ship "when needed" (ready once the owner signs in); the
+  // rest stay off for the reasons in src/personal/settings.ts. What "off" does is tested by switching every part off.
+  const shipsOn = ["chat-files", "spoken-brief", "spotify", "google", "microsoft", "mail-search"];
+  assert.deepEqual((await call("/api/personal")).body.modes, Object.fromEntries(personalParts.map((part) => [part, shipsOn.includes(part) ? "when-needed" : "off"])));
+  for (const part of personalParts) await call("/api/personal/switch", { part, mode: "off" });
   const { body } = await call("/api/personal");
   assert.deepEqual(Object.values(body.modes), personalParts.map(() => "off"));
   for (const part of personalParts) for (const tool of personalTools[part])
@@ -64,6 +69,7 @@ test("a switch puts a part's tools in and takes them out, and 'on' preloads them
   assert.equal(isReadOnlyPermission("personal.read"), true);
   // Sending the briefing to a chat is a sending tool, which a chat-started task never gets.
   await call("/api/personal/switch", { part: "spoken-brief", mode: "when-needed" });
+  await call("/api/personal/switch", { part: "chat-files", mode: "off" }); // ships "when needed" (the owner's rule, 2026-09-26)
   assert.equal(app.registry.permissionOf("brief.send_voice"), "channels.send");
   assert.equal(app.registry.permissionOf("chat.send_file"), "");
   assert.equal(app.registry.permissionOf("brief.spoken"), "personal.read");
@@ -85,7 +91,8 @@ test("a short-lived key can neither read nor change anything under /api/personal
       ["/api/personal/x", { keyName: "OTHER_KEY" }], ["/api/personal/voice/answer", { id: "00000000-0000-4000-8000-000000000000", transcript: "yes" }]])
       assert.equal((await call(path, body, key)).status, 401, `${scope} key sent ${path}`);
   }
-  assert.equal(app.personal.modes().google, "off");
+  // The owner's rule (ships on, 2026-09-26): Google ships "when needed", and the refused "on" left it there.
+  assert.equal(app.personal.modes().google, "when-needed");
   assert.equal(taskRouteFor("POST", "/api/personal/voice/answer"), null);
   assert.ok(ownerOnlyRead("/api/personal/tunnel"));
 });
