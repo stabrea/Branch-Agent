@@ -7821,6 +7821,7 @@
   "window.settings.instructions.notes-you-wrote-for-it": "Les notes que vous avez écrites pour lui",
   "window.settings.instructions.plain-files-every-trunk-reads-before": "Des fichiers simples que chaque Trunk lit avant de travailler. Ils marchent comme chez les autres agents : un fichier écrit pour l’un d’eux marche ici.",
   "window.settings.instructions.put-this-back": "Remettre celle-ci",
+  "window.settings.instructions.read-name": "Lire {name}",
   "window.settings.instructions.saved-the-next-task-reads-it": "Enregistré. La prochaine tâche le lit.",
   "window.settings.instructions.value-earlier-version": "· {value} version précédente",
   "window.settings.instructions.what-it-checks-on-when-it": "Ce qu’il vérifie quand il se réveille selon un calendrier",

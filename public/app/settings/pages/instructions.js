@@ -1,7 +1,8 @@
 /* Settings › Instructions & personality: the owner's instruction files as the engine keeps them
    (GET /api/settings-kit/files and /files/<slot>), edited in the prototype's editor: Save writes the whole file
    (POST /api/settings-kit/files { slot, text }), and the engine keeps the one version before the last save made here,
-   which "Put this back" writes back (POST /api/settings-kit/files/undo { slot }). "Write it for me" runs a tool by hand
+   which "Put this back" writes back (POST /api/settings-kit/files/undo { slot }). Each row's "Read <file>" switch is the
+   engine's own switch for that file (POST /api/context-files), drawn from the engine's list. "Write it for me" runs a tool by hand
    (POST /api/tools/try), so it stays greyed for its own review. */
 import { E } from "../../core/state.js";
 import { api } from "../../core/api.js";
@@ -36,7 +37,7 @@ async function loadFiles() {
 
 function fileRow(f) {
   const one = opened[f.slot], n = lines(one?.text), h = one?.lastSave ? 1 : 0;
-  return `<div class="prow"><code class="if-name">${esc(nameOf(f))}</code><span class="grow"><b data-css="font-weight:500">${esc(say(ABOUT[f.slot]) ?? f.about)}</b><small>${n ? t("window.settings.instructions.count-lines", { count: n }) : t("agent-files.empty")}${h ? t("window.settings.instructions.value-earlier-version", { value: h }) : ""}</small></span><button class="btn sm" type="button" data-act="if-open" data-f="${esc(f.slot)}">${n ? t("prompts.action.edit") : t("agent-files.write")}</button></div>`;
+  return `<div class="prow"><code class="if-name">${esc(nameOf(f))}</code><span class="grow"><b data-css="font-weight:500">${esc(say(ABOUT[f.slot]) ?? f.about)}</b><small>${n ? t("window.settings.instructions.count-lines", { count: n }) : t("agent-files.empty")}${h ? t("window.settings.instructions.value-earlier-version", { value: h }) : ""}</small></span><input class="sw" type="checkbox" data-sw="if-read" data-f="${esc(f.slot)}" ${f.setting === "off" ? "" : "checked"} aria-label="${esc(t("window.settings.instructions.read-name", { name: nameOf(f) }))}"><button class="btn sm" type="button" data-act="if-open" data-f="${esc(f.slot)}">${n ? t("prompts.action.edit") : t("agent-files.write")}</button></div>`;
 }
 
 export function draw() {
@@ -88,6 +89,14 @@ async function putBack(slot) {
   loadFiles();
 }
 
+/* The row's switch (the prototype's "Read <file>"): on, a task carries the file; off, it is not read
+   (POST /api/context-files { files: { <slot>: "on" | "off" } }, which keeps the other files' switches). The row is then
+   drawn again from what the engine answers, never from the box itself. */
+async function setRead(slot, read) {
+  try { await api("context-files", { files: { [slot]: read ? "on" : "off" } }); } catch (error) { toast(error.message); }
+  await loadFiles();
+}
+
 export function load() { return loadFiles(); }
 
 export function init() {
@@ -95,7 +104,8 @@ export function init() {
   on("if-open", (el) => openFile(el.dataset.f));
   on("if-save", (el) => save(el.dataset.f));
   on("if-back", (el) => putBack(el.dataset.f));
-  markLive(["if-open", "if-save", "if-back", "sw:if-text"]);
+  document.addEventListener("change", (e) => { if (e.target.dataset?.sw === "if-read") setRead(e.target.dataset.f, e.target.checked); });
+  markLive(["if-open", "if-save", "if-back", "sw:if-text", "sw:if-read"]);
 }
 
-export const live = { "if-open": true, "if-save": true, "if-back": true };
+export const live = { "if-open": true, "if-save": true, "if-back": true, "sw:if-read": true };

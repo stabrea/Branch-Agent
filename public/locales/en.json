@@ -7820,6 +7820,7 @@
   "window.settings.instructions.notes-you-wrote-for-it": "Notes you wrote for it",
   "window.settings.instructions.plain-files-every-trunk-reads-before": "Plain files every Trunk reads before it works. They work the same as in other agents, so a file written for one of them works here.",
   "window.settings.instructions.put-this-back": "Put this back",
+  "window.settings.instructions.read-name": "Read {name}",
   "window.settings.instructions.saved-the-next-task-reads-it": "Saved. The next task reads it.",
   "window.settings.instructions.value-earlier-version": "· {value} earlier version",
   "window.settings.instructions.what-it-checks-on-when-it": "What it checks on when it wakes on a schedule",
