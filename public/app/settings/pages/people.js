@@ -4,13 +4,17 @@
    one-time codes, signing out and removing somebody are wired in flows/people.js, through the engine's own guards.
    The same list and card are Team › People (places/team.js draws peopleBody()), both from the list the window holds
    (E.profiles, the same GET /api/profiles, read again when this page opens). "Signed in on" names the devices each
-   person is signed in on now, from the owner's sign-in card (GET /api/people/settings people[].signedIn[].device). */
+   person is signed in on now, from the owner's sign-in card (GET /api/people/settings people[].signedIn[].device).
+   A person's Trunks are the Trunks in the rooms they were let into (GET /api/trunks rooms[].people and members, named
+   from the Trunk list; a household person's own answer names them in rooms[].roster). Only the owner is offered the
+   owner-only actions (invite, role, one-time code, signing out, removing, signing in from other devices); for anybody
+   else they are not drawn at all (ownerHere(), the engine's isOwner). */
 import { esc, render } from "../../core/dom.js";
 import { api } from "../../core/api.js";
 import { on, has } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast } from "../../core/ui.js";
-import { E } from "../../core/state.js";
+import { E, refresh, ownerHere } from "../../core/state.js";
 import { people17 } from "../p17-more.js";
 import { level as level17 } from "../../core/state.js";
 import { t } from "../../../i18n.js";
@@ -33,13 +37,14 @@ function pickDefault() {
 
 /* The owner's sign-in card, shared with Team › Signing in. Answers what the engine said, or null when it refused. */
 export async function loadSignin() {
-  if (E.profiles && !E.profiles.isOwner) return signin;
+  if (!ownerHere()) { signin = null; return signin; }
   try { signin = await api("people/settings"); } catch (error) { toast(error.message); }
   return signin;
 }
 
+/* The profiles, and the rooms and Trunks with them: a person's card names the Trunks in the rooms they were let into. */
 async function loadProfiles() {
-  try { E.profiles = await api("profiles"); } catch (error) { toast(error.message); }
+  try { await refresh(); } catch (error) { toast(error.message); }
   await loadSignin();
   render();
 }
@@ -72,13 +77,27 @@ function item(p) {
 }
 
 function list(all) {
-  return `<div class="t9-list">${all.length ? `<div class="grp8">${t("glance.local")}</div>${all.map(item).join("")}` : ""}<button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>${t("household.invite")}</button></div>`;
+  const invite = ownerHere() ? `<button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>${t("household.invite")}</button>` : "";
+  return `<div class="t9-list">${all.length ? `<div class="grp8">${t("glance.local")}</div>${all.map(item).join("")}` : ""}${invite}</div>`;
 }
 
 /* What the person may have Branch do: the engine's effective kinds for a profile, every kind for the owner. */
 function mayRows(p) {
   const kinds = p.id === OWNER ? KINDS.map(([k]) => k) : roleOf(p.id)?.categories ?? [];
   return KINDS.map(([k, l]) => { const yes = kinds.includes(k); return `<label class="chk ${yes ? "" : "no10"}"><input type="checkbox" ${yes ? "checked" : ""} disabled aria-label="${esc(say(l))}"> ${esc(say(l))}</label>`; }).join("");
+}
+
+/* The Trunks in the rooms this person was let into, each once, in the order the rooms seat them. The owner's answer seats
+   Trunks by id (members, named from E.trunks); a household person's names them (roster). A Trunk with no name is left out. */
+function trunksOf(id) {
+  const named = new Map((Array.isArray(E.trunks) ? E.trunks : []).map((t) => [t.id, t.name]));
+  const names = [];
+  for (const room of E.rooms ?? []) {
+    if (!(room.people ?? []).includes(id)) continue;
+    const seated = room.roster ?? (room.members ?? []).map((m) => ({ name: named.get(m) }));
+    for (const one of seated) if (one?.name && !names.includes(one.name)) names.push(one.name);
+  }
+  return names;
 }
 
 function facts(p) {
@@ -88,16 +107,19 @@ function facts(p) {
   const g = roleOf(p.id)?.effective ?? roleOf(p.id)?.grant ?? {};
   const projects = (g.projects ?? []).length ? g.projects.join(", ") : t("look.filter.all");
   const allowance = g.dailySpendLimit > 0 ? t("window.settings.people.amount-a-day", { amount: money(g.dailySpendLimit) }) : t("window.settings.people.no-limit");
-  const on = devices(p.id);
-  // The engine's grant (src/profile-roles.ts RoleGrantSchema) holds no Trunk list, so the prototype's "—" stands for it.
-  return `<dt>${t("settingsDirectory.trunks")}</dt><dd>—</dd><dt>${t("memory.movein.kind.project")}</dt><dd>${esc(projects)}</dd><dt>${t("household.allowance")}</dt><dd>${esc(allowance)}</dd><dt>PIN</dt><dd>${t("household.pin.isSet")}</dd>${on.length ? `<dt>${t("household.devices")}</dt><dd>${esc(on.join(", "))}</dd>` : ""}`;
+  const on = devices(p.id), trunks = trunksOf(p.id);
+  return `<dt>${t("settingsDirectory.trunks")}</dt><dd>${trunks.length ? esc(trunks.join(", ")) : "—"}</dd><dt>${t("memory.movein.kind.project")}</dt><dd>${esc(projects)}</dd><dt>${t("household.allowance")}</dt><dd>${esc(allowance)}</dd><dt>PIN</dt><dd>${t("household.pin.isSet")}</dd>${on.length ? `<dt>${t("household.devices")}</dt><dd>${esc(on.join(", "))}</dd>` : ""}`;
 }
 
+/* Switching to somebody is anybody's, with that person's PIN (never to yourself); the rest only the owner is offered. */
 function actions(p) {
-  if (p.id === OWNER) return `<p class="hint">${t("window.settings.people.youre-the-owner-only-you-change")}</p>`;
+  const owner = ownerHere();
+  if (p.id === OWNER) return owner ? `<p class="hint">${t("window.settings.people.youre-the-owner-only-you-change")}</p>` : "";
   const first = String(p.name ?? "").split(" ")[0];
+  const switchTo = p.you ? "" : `<button class="btn sm" type="button" data-act="p-switch" data-v="${esc(p.id)}">${t("household.switchTo", { name: esc(first) })}</button>`;
+  if (!owner) return switchTo ? `<div class="acts" data-css="margin-top:14px">${switchTo}</div>` : "";
   const roles = ["adult", "child"].map((r) => `<button type="button" data-act="p-role" data-v="${r}" data-id="${esc(p.id)}" aria-pressed="${p.role === r}">${esc(label(r))}</button>`).join("");
-  return `<div class="acts" data-css="margin-top:14px"><button class="btn sm" type="button" data-act="p-switch" data-v="${esc(p.id)}">${t("household.switchTo", { name: esc(first) })}</button><span class="seg">${roles}</span><button class="btn ghost sm" type="button" data-act="p-code" data-id="${esc(p.id)}">${t("people.admin.code")}</button><button class="btn ghost sm" type="button" data-act="p-signout" data-id="${esc(p.id)}">${t("people.admin.sign-out")}</button><button class="btn ghost sm" type="button" data-act="p-remove" data-id="${esc(p.id)}">${t("accounts.action.remove")}</button></div>`;
+  return `<div class="acts" data-css="margin-top:14px">${switchTo}<span class="seg">${roles}</span><button class="btn ghost sm" type="button" data-act="p-code" data-id="${esc(p.id)}">${t("people.admin.code")}</button><button class="btn ghost sm" type="button" data-act="p-signout" data-id="${esc(p.id)}">${t("people.admin.sign-out")}</button><button class="btn ghost sm" type="button" data-act="p-remove" data-id="${esc(p.id)}">${t("accounts.action.remove")}</button></div>`;
 }
 
 function card(p) {
@@ -128,7 +150,7 @@ export function draw() {
   return `<h1>${t("people.admin.people")}</h1><p class="lede">${t("window.settings.people.everyone-who-uses-branch-on-this")}</p>
   ${peopleBody()}
   ${eachPerson()}
-  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">${t("people.admin.groups")}</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">${t("people.admin.title")}</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">${t("window.settings.people.what-you-share")}</button></div>${people17(level17())}`;
+  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">${t("people.admin.groups")}</button>${ownerHere() ? `<button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">${t("people.admin.title")}</button>` : ""}<button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">${t("window.settings.people.what-you-share")}</button></div>${people17(level17())}`;
 }
 
 export function load() { return loadProfiles(); }

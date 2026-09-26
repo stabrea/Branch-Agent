@@ -11,10 +11,11 @@
    Confirm on a waiting account is POST /api/people/links/confirm {provider, profileId, subject}; both answer with the
    card again, which is drawn as the engine says. Only the owner reaches either (src/people/api.ts requireOwner, refused
    to short-lived keys). "Ask for my PIN when switching back to me" is wired in flows/people.js. The card is read when
-   either tab is switched to or opened from Settings › People, and only the owner may read it. */
+   either tab is switched to or opened from Settings › People, and only the owner may read it. For anybody else the
+   Signing in tab is not drawn at all (ownerHere(), the engine's isOwner): it is not theirs to use, not "coming soon". */
 
 import { esc, render, renderNow } from "../core/dom.js";
-import { S, E, personHere } from "../core/state.js";
+import { S, E, personHere, ownerHere } from "../core/state.js";
 import { av, closePop, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { on } from "../core/actions.js";
@@ -72,7 +73,7 @@ function waitingRows(waiting) {
 
 function signinTab() {
   const s = signin?.settings;
-  if (!s) return "";
+  if (!s || !ownerHere()) return "";
   const locks = true; // a profile always locks after five wrong PINs (src/profiles.ts maximumPinAttempts)
   return `${seg(t("people.admin.mode"), t("window.places.team.they-open-this-branchs-address-on"), [["off", t("accounts.switch.off")], ["when-needed", t("accounts.switch.when-needed")], ["on", t("accounts.switch.on")]], (v) => s.mode === v, "si-mode")}
     ${seg(t("window.places.team.how-they-prove-its-them"), t("window.places.team.everyone-passes-this-check"), PROVE.map(([v, l]) => [v, say(l)]), (v) => (s.chain ?? []).includes(v), "si-chain")}${seg(t("window.places.team.stay-signed-in-for"), t("window.places.team.then-they-sign-in-again"), STAY.map(([v, l]) => [v, say(l)]), (v) => s.sessionMinutes === v, "si-stay")}
@@ -109,7 +110,7 @@ export function draw() {
     <div class="team-top"><h1>${t("people.admin.people")}</h1></div>
     <p class="lede">${t("window.places.team.everyone-who-uses-branch-and-what")}</p>
     <div class="ko-banner"><span class="ko-mark" aria-hidden="true"></span><span class="grow"><b>${t("window.places.team.your-keepoak-com-team-is-optional")}</b><small>${t("window.places.team.people-on-this-computer-and-on")}</small></span><button class="btn pri sm" type="button" data-act="ko-start">${t("action.connect")}</button></div>
-    ${tabBar(tabs.map(([id, label]) => [id, say(label), counts()[id] ?? 0]), "team", tab)}`;
+    ${tabBar(tabs.filter(([id]) => id !== "signin" || ownerHere()).map(([id, label]) => [id, say(label), counts()[id] ?? 0]), "team", tab)}`;
 
   if (tab === "live") html += liveTab();
   else if (tab === "people") html += peopleBody();
