@@ -25,6 +25,7 @@ import { OsPermissions, probeReader } from "./os-permissions.js";
 import { Runtime, argumentFingerprint } from "./runtime.js";
 import { gateRefusal } from "./tool-gate.js"; // integration review (mac5/manual-actions)
 import { DemoProvider } from "./demo.js";
+import { watchSetupOrigin } from "./delight.js"; // setup polish 2
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
@@ -897,6 +898,7 @@ export async function createBranch(options: {
   runtime.notifyEvent = guardedNotify;
   channels.deliveries.notifyEvent = guardedNotify;
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
+  watchSetupOrigin(store); // setup polish 2: what setup causes is never counted toward achievements
   // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
   // make the answer stricter — hold it for a yes, or refuse it.
   runtime.askHooks = (runId, about) => hooks.decide(runId, about);

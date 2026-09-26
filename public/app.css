@@ -3244,8 +3244,6 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
   .test-b17{flex-wrap:wrap}
   .test-b17 .btn{flex:1}
 }
-||||||| parent of 36b5c146 (feat(window): pass 17 settings rows and their words, with a stand-in for the shared demo rows)
-||||||| parent of 896078de (feat(window): pass 17 settings rows and their words, with a stand-in for the shared demo rows)
 /* area: p17 settings (prototype patch17b: rule tester, network sentences, why is this set, move in, compare, savings) */
 .lead-b17{margin:0;color:var(--ink-2);font-size:13.5px;line-height:1.5}
 .why-b17 .grow{display:grid;gap:2px;min-width:0}
@@ -3467,6 +3465,78 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .signin-form .fld>span{font:500 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
 .signin-form .inp{width:100%;height:40px;box-sizing:border-box}
 .signin-form .btn{justify-self:stretch;justify-content:center;text-align:center}
+
+/* area: setup polish 2 — the pairing dialog's Link and Code rows, the achievement bell, the Trunk templates' faces */
+.pair-qr15{flex-wrap:nowrap}
+@media (max-width:480px){.pair-qr15{flex-wrap:wrap}}
+.pair-alt15{display:grid;gap:8px}
+.pair-row15{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:8px}
+.pair-lab15{font-size:12px;color:var(--ink-3)}
+.pair-link15{width:100%;font:11.5px var(--mono);white-space:nowrap;overflow-x:auto;background:var(--raise)}
+.pair-code15{font:600 22px var(--mono);letter-spacing:.18em;color:var(--ink);white-space:nowrap}
+.pair-copy15{min-width:86px;justify-content:center}
+.pair-copy15.done15{border-color:var(--ok);color:var(--ok)}
+.ach-toast .ach-mute{pointer-events:auto}
+.ach-mute{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;color:var(--ink-3);flex:none}
+.ach-mute:hover{background:var(--fill);color:var(--ink)}
+.ach-big .card{position:relative}
+.ach-big .card .ach-mute{position:absolute;top:10px;right:10px}
+.app:has(.ob9) .ach-toast,.app:has(.ob9) .ach-big{display:none}
+.ob-tpl{position:relative}
+.ob-tpl .av{margin-bottom:4px}
+.ob9 .ob-tpl[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,var(--raise));box-shadow:0 0 0 1px var(--accent) inset}
+.ob9 .ob-tpl[aria-pressed="true"]::after{content:"";position:absolute;top:10px;right:10px;width:18px;height:18px;border-radius:50%;background:var(--accent)}
+.ob9 .ob-tpl[aria-pressed="true"]::before{content:"";position:absolute;top:14px;right:16px;width:4px;height:8px;border:solid var(--on-btn,#fff);border-width:0 2px 2px 0;transform:rotate(45deg);z-index:1}
+.ob-props15{margin-top:12px}
+.ob-props15 > b{display:block;font-size:13px;margin-bottom:8px}
+/* A status-bar popover over the message box: the box fades back and takes no clicks until the popover closes. */
+#composer.under-pop{opacity:.28;pointer-events:none;transition:opacity .14s var(--ease17)}
+@media (prefers-reduced-motion:reduce){#composer.under-pop{transition:none}}
+
+/* area: setup-tools */
+.obt{display:grid;gap:4px;padding-bottom:8px}
+.obt-h{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);margin:22px 0 10px}
+.obt>.obt-h:first-child{margin-top:4px}
+.obt-hint{margin:8px 0 0}
+.obt-kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;align-items:start}
+.obt-kind{border:1px solid var(--line);border-radius:14px;background:var(--raise);transition:border-color .15s}
+.obt-kind:hover,.obt-kind[open]{border-color:var(--line-2)}
+.obt-kind summary{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;list-style:none;border-radius:14px}
+.obt-kind summary::-webkit-details-marker{display:none}
+.obt-kind summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.obt-kt{display:grid;min-width:0;flex:1}
+.obt-kt b{font-size:13.5px;font-weight:600}
+.obt-kt small{font-size:12px;color:var(--ink-3)}
+.obt-pills{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.obt-names{display:flex;flex-wrap:wrap;gap:4px;padding:0 12px 12px;max-height:180px;overflow:auto}
+.obt-names code{font:11px var(--mono);color:var(--ink-2);background:var(--fill);border-radius:6px;padding:2px 6px}
+.obt-skills{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.obt-skill{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:var(--raise);cursor:pointer}
+.obt-skill:hover{border-color:var(--line-2)}
+.obt-skill .obt-kt small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.obt-clis{display:flex;flex-wrap:wrap;gap:6px;padding:10px 4px 2px}
+.obt-cli{font:12px var(--mono);padding:3px 9px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-3)}
+.obt-cli.on{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));color:var(--ink);background:var(--ok-tint)}
+.obt .prow .btn{flex:none}
+.obt-add{display:inline-flex;align-items:center;gap:6px;margin-top:14px;justify-self:start}
+@media (max-width:760px){.obt-kinds,.obt-skills{grid-template-columns:minmax(0,1fr)}}
+
+/* area: sidebar-resize */
+/* The list sits above the conversation, so the whole 9px edge is grabbable (with a background both are stacking
+   contexts, and the conversation, drawn later, covered the edge's right half). */
+@media (min-width:761px){.body>.side{z-index:2}}
+/* With the list hidden, its edge stays at the window's left: a slim strip that drags the list back out. */
+.app.side-hidden .side{border-right-width:0}
+.app.side-hidden .side>.resizer{visibility:visible;left:0;right:auto;width:6px}
+.app.side-hidden .side>.resizer::after{left:0}
+.app.side-hidden .side>.resizer:hover::after,.app.side-hidden .side>.resizer.drag::after,.app.side-hidden .side>.resizer:focus-visible::after{background:var(--accent);width:3px;left:0}
+.app.side-hidden .side>.resizer .grip9{left:0}
+.resizer:focus-visible{outline:none}.resizer:focus-visible::after{background:var(--accent);width:2px;left:3.5px}
+.resizer:focus-visible .grip9{opacity:1}
+/* the rail hides the computer button's arrow too, as the prototype's rail does (its .chev is an svg here, not a span) */
+.app.rail9 .side .machine>svg{display:none}
+/* Focus mode steps the list aside entirely, its edge too */
+.app.focus .side>.resizer{visibility:hidden}
 
 /* area: accounts-wizard-plans */
 .logo.mark14{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}

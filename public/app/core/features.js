@@ -214,7 +214,7 @@ export const FEATURES = {
   "ob-go": "ready",
   "ob-gw": "ready",
   "ob-next": "ready",
-  "ob-propose": "soon",
+  "ob-propose": "ready",
   "ob-set": "ready",
   "ob-test": "ready",
   "ob-tpl": "ready",
