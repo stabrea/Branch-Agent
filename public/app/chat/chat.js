@@ -37,6 +37,7 @@ import { agentWin, initAgent17 } from "./agent17.js"; // pass 17: a Trunk's char
 import { helpersChip } from "./helpers.js"; // pass 17: the helpers chip, steering and the model-switch note
 import { steerChip, steeredNotes, initSteer } from "./steer.js";
 import { droppedNote, initSwitched } from "./switched.js";
+import { t } from "../../i18n.js";
 import { media17 } from "../core/art17.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
@@ -44,23 +45,23 @@ const WIDE = matchMedia("(min-width: 761px)");
 
 const current = () => E.sessions.find((s) => (s.sessionId ?? s.id) === C.sessionId);
 /* A Trunk's own conversation (its chat now, or one it retired), and the Trunk that answers this one. */
-const ownTrunk = (sid = C.sessionId) => E.trunks.find((t) => t.chatSessionId === sid || (t.retiredChats ?? []).includes(sid));
-const speaker = () => ownTrunk() ?? (whoHere()?.trunk ? E.trunks.find((t) => t.id === whoHere().trunk.id) : null);
+const ownTrunk = (sid = C.sessionId) => E.trunks.find((tr) => tr.chatSessionId === sid || (tr.retiredChats ?? []).includes(sid));
+const speaker = () => ownTrunk() ?? (whoHere()?.trunk ? E.trunks.find((tr) => tr.id === whoHere().trunk.id) : null);
 /* The prototype's renderChat names a Trunk's or a room's conversation by the Trunk or room (c.name). */
-const title = () => ownTrunk()?.name || E.rooms.find((r) => r.sessionId === C.sessionId)?.name || current()?.opening || C.messages.find((m) => m.role === "user")?.content?.slice(0, 70) || "New conversation";
+const title = () => ownTrunk()?.name || E.rooms.find((r) => r.sessionId === C.sessionId)?.name || current()?.opening || C.messages.find((m) => m.role === "user")?.content?.slice(0, 70) || t("comfort.field.newConversation");
 /* The engine starts a Trunk's own conversation by asking it to introduce itself (src/trunks/index.ts introPrompt). The
    prototype's Trunk conversation opens with the Trunk's hello, so that prompt is not drawn as the owner's message. */
 const INTRO = "Introduce yourself to the owner in two or three short sentences: your name, your role, and what you can help with. This is the first message of your own conversation.";
 const enginePrompt = (m) => m.role === "user" && m.content === INTRO && !!ownTrunk();
 
 export function head() {
-  const working = C.sending, paused = E.trunks.find((t) => t.chatSessionId === C.sessionId)?.paused;
-  return `<div class="head"><button class="icon-btn menu-only" type="button" aria-label="Show conversations" data-act="side">${ic("menu")}</button>
-    ${av(speaker() ?? { kind: "main" }, 32)}<div class="who"><b>${esc(title())}</b><small class="${working ? "attn" : ""}">${working ? "<i></i>Working" : paused ? "Paused · won’t start anything new" : ""}</small></div>
+  const working = C.sending, paused = E.trunks.find((tr) => tr.chatSessionId === C.sessionId)?.paused;
+  return `<div class="head"><button class="icon-btn menu-only" type="button" aria-label="${t("window.chat.head.show-conversations")}" data-act="side">${ic("menu")}</button>
+    ${av(speaker() ?? { kind: "main" }, 32)}<div class="who"><b>${esc(title())}</b><small class="${working ? "attn" : ""}">${working ? `<i></i>${t("strip.status.working")}` : paused ? t("window.chat.head.paused") : ""}</small></div>
     <span class="tb-grow"></span>
-    <button class="icon-btn" type="button" aria-label="Side panel: Activity, Plan, Files, Memory, Browser, Terminal${binding("sidePane") ? ` (${esc(binding("sidePane"))})` : ""}" aria-pressed="${!!S.pane && S.pane !== "browser"}" data-act="pane" data-p="activity">${ic("sidebar")}</button>
-    ${rosterButton()}<button class="icon-btn" type="button" aria-label="Find in this conversation (Ctrl+F)" data-tip="Find in this conversation" data-act="find-open">${ic("search")}</button>
-    <button class="icon-btn" type="button" aria-label="More for this conversation" data-act="chatmenu">${ic("more")}</button></div>`;
+    <button class="icon-btn" type="button" aria-label="${t("window.chat.head.side-panel")}${binding("sidePane") ? ` (${esc(binding("sidePane"))})` : ""}" aria-pressed="${!!S.pane && S.pane !== "browser"}" data-act="pane" data-p="activity">${ic("sidebar")}</button>
+    ${rosterButton()}<button class="icon-btn" type="button" aria-label="${t("window.chat.head.find-label")}" data-tip="${t("window.chat.head.find")}" data-act="find-open">${ic("search")}</button>
+    <button class="icon-btn" type="button" aria-label="${t("window.chat.head.more")}" data-act="chatmenu">${ic("more")}</button></div>`;
 }
 
 const mid = (m) => (m.messageId ? ` data-i15="${esc(m.messageId)}"` : "");
@@ -76,8 +77,8 @@ function bot(m, first, who, info) {
    greyed out until the engine can scope a rule to one Trunk), and "Don't …" (deny). The verb comes from the tool alone,
    never from the label, which can carry a reviewer's or hook's words; the label is the card's body. Each button names
    its request by session and fingerprint, and only that exact request is answered. */
-const VERBS = { files: "Change it", shell: "Run it", code: "Run it", device: "Allow", browser: "Go ahead", channels: "Send it", memory: "Save it" };
-const verbOf = (tool) => (tool === "files.read" ? "Read it" : VERBS[String(tool ?? "").split(".")[0]] ?? "Allow");
+const VERBS = { files: "window.chat.ask.change-it", shell: "playground.run", code: "playground.run", device: "trunks.room.allow", browser: "window.chat.ask.go-ahead", channels: "window.chat.ask.send-it", memory: "window.chat.ask.save-it" };
+const verbOf = (tool) => t(tool === "files.read" ? "window.chat.ask.read-it" : VERBS[String(tool ?? "").split(".")[0]] ?? "trunks.room.allow");
 /* The requests being answered now, by session and fingerprint: from the first press until the engine answers, the card's
    buttons stay disabled (also when the card is drawn again meanwhile) and a second press sends nothing. */
 const answering = new Set();
@@ -86,11 +87,11 @@ function askCard(q) {
   const verb = verbOf(q.tool);
   const off = answering.has(askKey(q.sessionId, q.fingerprint)) ? " disabled" : "";
   const id = `data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}"${off}`;
-  const trunk = q.trunk ? E.trunks.find((t) => t.id === q.trunk) : null;
-  const always = trunk ? `Always allow for ${esc(trunk.name)}` : "Always allow";
-  return `<div class="b"><div class="gut"></div><div><div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.question || q.label)}</span><span class="pill work ml"><i></i>Needs you</span></div>
+  const trunk = q.trunk ? E.trunks.find((tr) => tr.id === q.trunk) : null;
+  const always = trunk ? t("window.chat.ask.always-for", { name: esc(trunk.name) }) : t("window.chat.ask.always");
+  return `<div class="b"><div class="gut"></div><div><div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.question || q.label)}</span><span class="pill work ml"><i></i>${t("dashboard.needs.title")}</span></div>
     ${(q.question && q.label) || q.bytes ? `<dl class="kv">${q.question && q.label ? `<dd class="mailbody">${esc(q.label)}</dd>` : ""}${q.bytes ? `<dd class="mailbody">${esc(q.bytes)}</dd>` : ""}</dl>` : ""}
-    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" ${id}>${esc(verb)}</button><button class="btn" type="button" data-act="ask-always" ${id} data-trunk="${esc(q.trunk || "")}">${always}</button><button class="btn ghost" type="button" data-act="ask" data-v="deny" ${id}>Don’t allow</button></div></div></div></div>`;
+    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" ${id}>${esc(verb)}</button><button class="btn" type="button" data-act="ask-always" ${id} data-trunk="${esc(q.trunk || "")}">${always}</button><button class="btn ghost" type="button" data-act="ask" data-v="deny" ${id}>${t("window.chat.ask.dont-allow")}</button></div></div></div></div>`;
 }
 
 function thread() {
@@ -111,30 +112,31 @@ function thread() {
   });
   const asks = C.waiting.filter((q) => q.sessionId === C.sessionId).map(askCard).concat(roomAsks(info, (q) => answering.has(roomKey(info.room.id, q.memberId, q.fingerprint))));
   const think = C.sending && C.thinking ? `<div class="think">${ic("spark", "s")}<span>${esc(C.thinking)}</span></div>` : "";
-  const typing = C.sending ? `<div class="b"><div class="gut">${av({ kind: "main" }, 28)}</div><div>${think || '<span class="typing" aria-label="Typing"><i></i><i></i><i></i></span>'}</div></div>` : "";
+  const typing = C.sending ? `<div class="b"><div class="gut">${av({ kind: "main" }, 28)}</div><div>${think || `<span class="typing" aria-label="${t("window.chat.typing")}"><i></i><i></i><i></i></span>`}</div></div>` : "";
   return marks.start + rows.join("") + helpersChip() + steeredNotes() + planBlock(liveRun()) + failedLine(E.state?.runs, C.sessionId, C.sending) + rememberCards(C.sessionId) + asks.join("") + typing;
 }
 
 /* The empty conversation, 1:1 with the prototype's emptyChat() (with pass 11's waving Branch in place of the mark): the
    question, starting points that send themselves (POST /api/run, as a typed message is), and the Trunks to ask, each
    opening its own conversation. The prototype's flight booking names an example city (check-fakes), so it is left out. */
-const SUGG = ["Tidy my Downloads folder", "Summarise the PDFs on my desktop", "Plan my week from my calendar"];
+/* Each starting point is sent as the person's own message, in the words they read (the language in force). */
+const SUGG = ["window.chat.empty.downloads", "window.chat.empty.pdfs", "window.chat.empty.week"];
 const isEmpty = () => !C.sessionId && !C.messages.length && !C.sending;
 function emptyChat() {
-  const ask = E.trunks.filter((t) => t.chatSessionId && t.name !== "New Trunk").slice(0, 4)
-    .map((t) => `<button type="button" data-act="chat" data-id="${esc(t.chatSessionId)}" aria-label="Ask ${esc(t.name)}">${av(t, 28)}</button>`).join("");
-  return `<div class="empty-chat"><span class="hero11">${media17("/art/branch-wave.webp", "/art/anim-idle.webm", "pose11 vid11")}</span><h1>What should Branch do?</h1><div class="chips">${SUGG.map((x) => `<button class="chipb" type="button" data-act="sugg" data-v="${esc(x)}">${esc(x)}</button>`).join("")}</div>${ask ? `<div class="askrow">Or ask a Trunk: ${ask}</div>` : ""}</div>`;
+  const ask = E.trunks.filter((tr) => tr.chatSessionId && tr.name !== "New Trunk").slice(0, 4)
+    .map((tr) => `<button type="button" data-act="chat" data-id="${esc(tr.chatSessionId)}" aria-label="${t("window.chat.empty.ask", { name: esc(tr.name) })}">${av(tr, 28)}</button>`).join("");
+  return `<div class="empty-chat"><span class="hero11">${media17("/art/branch-wave.webp", "/art/anim-idle.webm", "pose11 vid11")}</span><h1>${t("window.chat.empty.title")}</h1><div class="chips">${SUGG.map((key) => t(key)).map((x) => `<button class="chipb" type="button" data-act="sugg" data-v="${esc(x)}">${esc(x)}</button>`).join("")}</div>${ask ? `<div class="askrow">${t("window.chat.empty.or-ask", { trunks: ask })}</div>` : ""}</div>`;
 }
 
 function composer() {
   const draft = S.drafts[C.sessionId ?? "new"] ?? "";
   return `<div class="dock"><div id="attached">${attached()}</div>${queueRow()}${dockRow()}${steerChip()}<form class="composer" id="composer" data-form="composer">
-    <button class="c-btn" type="button" aria-label="Attach, mention a Trunk, skills, Temporary" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="Tools: connectors, skills, plugins and command-line tools" data-tip="Tools" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
-    ${dictating() ? dictRow() : ""}<textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch"${dictating() ? " hidden" : ""}>${esc(draft)}</textarea>
+    <button class="c-btn" type="button" aria-label="${t("window.chat.composer.plus")}" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="${t("window.chat.composer.tools-label")}" data-tip="${t("dashboard.filter.tools")}" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
+    ${dictating() ? dictRow() : ""}<textarea id="prompt" rows="1" placeholder="${t("window.chat.composer.message")}" aria-label="${t("window.chat.composer.message")}"${dictating() ? " hidden" : ""}>${esc(draft)}</textarea>
     ${chips()}
-    ${dictating() ? "" : `${micButton()}<button class="c-btn" type="button" aria-label="Talk live with voice" data-act="voice">${ic("wave")}</button>`}
-    ${!draft.trim() && (C.sending || liveRun()) ? `<button class="c-btn send stop" id="send" type="button" aria-label="Stop" data-act="stop-run">${ic("stop")}</button>`
-      : `<button class="c-btn send${draft.trim() ? " ready" : ""}" id="send" type="submit" aria-label="Send">${ic("up")}</button>`}</form></div>`;
+    ${dictating() ? "" : `${micButton()}<button class="c-btn" type="button" aria-label="${t("window.chat.composer.voice")}" data-act="voice">${ic("wave")}</button>`}
+    ${!draft.trim() && (C.sending || liveRun()) ? `<button class="c-btn send stop" id="send" type="button" aria-label="${t("dashboard.stop")}" data-act="stop-run">${ic("stop")}</button>`
+      : `<button class="c-btn send${draft.trim() ? " ready" : ""}" id="send" type="submit" aria-label="${t("composer.send")}">${ic("up")}</button>`}</form></div>`;
 }
 
 /* The words of the message being sent, so the side panel can follow a new conversation's first task before its id is known. */

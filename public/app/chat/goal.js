@@ -8,6 +8,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { ic, toast, closePop } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 const goals = new Map();
 /* A conversation whose goal could not be read is said once, not on every redraw. */
@@ -18,12 +19,12 @@ export function goalStrip(sessionId) {
   const g = sessionId ? goals.get(sessionId) : null;
   if (!g || (g.status !== "working" && g.status !== "paused")) return "";
   const score = typeof g.score === "number" ? g.score : null;
-  const facts = [`Round ${g.round} of ${g.maxRounds}`, score === null ? "" : `score ${score.toFixed(1)} of 1`,
-    g.missing?.length ? `still missing: ${g.missing.join("; ")}` : "", `${Math.round((g.elapsedMs ?? 0) / 60000)} min`].filter(Boolean);
+  const facts = [t("goal.rounds", { round: g.round, max: g.maxRounds }), score === null ? "" : t("window.chat.goal.score", { score: score.toFixed(1) }),
+    g.missing?.length ? t("window.chat.goal.missing", { missing: g.missing.join("; ") }) : "", t("window.chat.goal.minutes", { n: Math.round((g.elapsedMs ?? 0) / 60000) })].filter(Boolean);
   const button = g.status === "working"
-    ? `<button class="btn ghost sm" type="button" data-act="goal-st" data-v="pause" data-id="${esc(sessionId)}">Pause</button>`
-    : `<button class="btn ghost sm" type="button" data-act="goal-st" data-v="resume" data-id="${esc(sessionId)}">Resume</button>`;
-  return `<div class="goal6">${ic("target", "s")}<span class="grow"><b>Goal: ${esc(g.objective)}</b><small>${esc(facts.join(" · "))}</small><span class="meter6"><u data-css="width:${(score ?? 0) * 100}%"></u></span></span>${button}<button class="btn ghost sm" type="button" data-act="goal-st" data-v="stop" data-id="${esc(sessionId)}">Stop</button></div>`;
+    ? `<button class="btn ghost sm" type="button" data-act="goal-st" data-v="pause" data-id="${esc(sessionId)}">${t("autonomy.pause")}</button>`
+    : `<button class="btn ghost sm" type="button" data-act="goal-st" data-v="resume" data-id="${esc(sessionId)}">${t("autonomy.resume")}</button>`;
+  return `<div class="goal6">${ic("target", "s")}<span class="grow"><b>${t("window.chat.goal.goal", { goal: esc(g.objective) })}</b><small>${esc(facts.join(" · "))}</small><span class="meter6"><u data-css="width:${(score ?? 0) * 100}%"></u></span></span>${button}<button class="btn ghost sm" type="button" data-act="goal-st" data-v="stop" data-id="${esc(sessionId)}">${t("dashboard.stop")}</button></div>`;
 }
 
 /* After a conversation is drawn: re-read its goal, and draw again only if it changed. */

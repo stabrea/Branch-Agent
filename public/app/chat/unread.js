@@ -13,19 +13,20 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { mi, toast, closePop } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 const U = { inbox: null, at: 0, keep: new Set(), last: null, marking: new Set(), drawn: new Set() };
 const sid = (s) => s.sessionId ?? s.id;
 const find = (id) => E.sessions.find((s) => sid(s) === id);
-const nameOf = (s) => s?.title || s?.opening || "New conversation";
+const nameOf = (s) => s?.title || s?.opening || t("comfort.field.newConversation");
 const KEY = /^[a-z]{2,12}:[A-Za-z0-9:_-]{1,200}$/;
 
 /* ---------- conversations ---------- */
-export const unreadDot = (s) => (s.unread && S.chat !== sid(s) ? '<span class="unread" aria-label="unread"></span>' : "");
+export const unreadDot = (s) => (s.unread && S.chat !== sid(s) ? `<span class="unread" aria-label="${t("window.chat.unread.unread-lower")}"></span>` : "");
 const anyUnread = () => E.sessions.some((s) => s.unread && sid(s) !== S.chat);
 export const recentClass = () => (anyUnread() ? " lh17c" : "");
-export const markAllButton = () => (anyUnread() ? '<button type="button" class="mar17c" data-act="markread17c">Mark all read</button>' : "");
-export const unreadItem = (id) => { const s = find(id); return s ? mi("unread17c", "chat", s.unread ? "Mark as read" : "Mark as unread", "", `data-id="${esc(id)}"`) : ""; };
+export const markAllButton = () => (anyUnread() ? `<button type="button" class="mar17c" data-act="markread17c">${t("window.chat.unread.mark-all")}</button>` : "");
+export const unreadItem = (id) => { const s = find(id); return s ? mi("unread17c", "chat", s.unread ? t("window.chat.unread.mark-read") : t("window.chat.unread.mark-unread"), "", `data-id="${esc(id)}"`) : ""; };
 
 async function markConversation(id, unread) {
   await api("read-marks", { conversation: id, unread });
@@ -49,12 +50,12 @@ async function flipOne(el) {
   const unread = !s.unread;
   if (unread && sid(s) === S.chat) U.keep.add(S.chat);
   try { await markConversation(sid(s), unread); } catch (error) { toast(error.message); return; }
-  toast(unread ? (sid(s) === S.chat ? "Marked unread. The dot shows once you leave this conversation." : `${nameOf(s)}: marked unread.`) : `${nameOf(s)}: marked read.`);
+  toast(unread ? (sid(s) === S.chat ? t("window.chat.unread.marked-here") : t("window.chat.unread.marked-unread", { name: nameOf(s) })) : t("window.chat.unread.marked-read", { name: nameOf(s) }));
 }
 
 async function allRead() {
   try { await api("read-marks", { all: "conversations" }); await refresh(); } catch (error) { toast(error.message); return; }
-  toast("All conversations marked read.");
+  toast(t("window.chat.unread.all-read"));
 }
 
 /* ---------- Inbox ---------- */
@@ -78,19 +79,19 @@ function isUnread(key, time) {
 export function prowOpen(key, time) {
   if (!isUnread(key, time)) return '<div class="prow">';
   U.drawn.add(key);
-  return `<div class="prow unr17c" data-rk="${esc(key)}"><i class="udot17c" role="img" aria-label="Unread"></i>`;
+  return `<div class="prow unr17c" data-rk="${esc(key)}"><i class="udot17c" role="img" aria-label="${t("window.chat.unread.unread")}"></i>`;
 }
 /* After the rows are drawn: "Mark all read" while any of them is unread. */
 export function inboxMarkAll() {
   const any = U.drawn.size > 0;
   U.drawn.clear();
-  return any ? '<button type="button" class="mar17c" data-act="inread17c">Mark all read</button>' : "";
+  return any ? `<button type="button" class="mar17c" data-act="inread17c">${t("window.chat.unread.mark-all")}</button>` : "";
 }
 
 async function inboxAllRead() {
   try { await api("read-marks", { all: "inbox" }); await loadInbox(true); } catch (error) { toast(error.message); return; }
   render();
-  toast("Inbox marked read. Nothing was answered or dismissed.");
+  toast(t("window.chat.unread.inbox-read"));
 }
 
 /* Opening or answering an Inbox item marks it read; the button's own action goes ahead as well. */

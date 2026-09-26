@@ -13,28 +13,29 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { plusMore } from "./media.js";
+import { t } from "../../i18n.js";
 
 const MAX_FILES = 6, MAX_BYTES = 32 * 1024 * 1024;
 const Q = { files: [], temporary: false, who: null, whoFor: null };
 
 function menu() {
-  return mi("attach", "clip", "Attach files") + mi("add-folder", "folder", "Add a folder") + mi("shot", "camera", "Take a screenshot") + "<hr>"
-    + mi("insert", "at", "Mention a Trunk", "<kbd>@</kbd>", 'data-v="@"') + mi("insert", "slash", "Use a skill", "<kbd>/</kbd>", 'data-v="/"') + "<hr>"
-    + `<div class="row-in"><span>${ic("ghost", "s")} Temporary conversation</span><input class="sw" type="checkbox" id="pm-temp" data-sw="temp" ${Q.temporary ? "checked" : ""} ${S.chat ? "disabled" : ""} aria-label="Temporary conversation"></div><div class="row-in"><span>${ic("help", "s")} Ask me questions first</span><input class="sw" type="checkbox" id="pm-ask" data-sw="askqs" aria-label="Ask me questions first"></div>`
-    + whoRows() + "<hr>" + mi("goal-fill", "target", "Set a goal", "<kbd>/goal</kbd>") // handled in goal.js
-    + mi("prompts-fill", "star", "Saved prompts", "<kbd>/</kbd>"); // handled in messages.js
+  return mi("attach", "clip", t("window.chat.plus.attach")) + mi("add-folder", "folder", t("window.chat.plus.folder")) + mi("shot", "camera", t("window.chat.plus.screenshot")) + "<hr>"
+    + mi("insert", "at", t("rooms.mentionList"), "<kbd>@</kbd>", 'data-v="@"') + mi("insert", "slash", t("window.chat.plus.skill"), "<kbd>/</kbd>", 'data-v="/"') + "<hr>"
+    + `<div class="row-in"><span>${ic("ghost", "s")} ${t("window.chat.plus.temporary")}</span><input class="sw" type="checkbox" id="pm-temp" data-sw="temp" ${Q.temporary ? "checked" : ""} ${S.chat ? "disabled" : ""} aria-label="${t("window.chat.plus.temporary")}"></div><div class="row-in"><span>${ic("help", "s")} ${t("more.askFirst")}</span><input class="sw" type="checkbox" id="pm-ask" data-sw="askqs" aria-label="${t("more.askFirst")}"></div>`
+    + whoRows() + "<hr>" + mi("goal-fill", "target", t("window.chat.plus.goal"), "<kbd>/goal</kbd>") // handled in goal.js
+    + mi("prompts-fill", "star", t("settings-kit.name.prompts"), "<kbd>/</kbd>"); // handled in messages.js
 }
 
 /* Who answers the open conversation, as the engine said when it was opened; a room is chosen through its members instead.
    The list is who may be chosen, as the prototype's is: while the engine's "conversations" part is off (GET /api/trunks
    modes.conversations) it refuses a Trunk, so only Branch is offered, and a Trunk already answering stays shown, greyed. */
-const radio = (v, t, s, on, off = false) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${on}" data-act="who" data-v="${esc(v)}"${off ? ' disabled aria-disabled="true"' : ""}><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(t)}</span>${s ? `<span class="mi-s">${s}</span>` : ""}</span></button>`;
+const radio = (v, name, s, on, off = false) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${on}" data-act="who" data-v="${esc(v)}"${off ? ' disabled aria-disabled="true"' : ""}><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(name)}</span>${s ? `<span class="mi-s">${s}</span>` : ""}</span></button>`;
 function whoRows() {
   const w = Q.whoFor === S.chat ? Q.who : null;
   if (!S.chat || !w || (w.kind !== "plain" && w.kind !== "trunk")) return "";
   const now = w.trunk?.id ?? "", off = (E.trunkModes?.conversations ?? "off") === "off";
-  return '<hr><div class="ph">Who answers in this conversation</div>' + radio("", "Branch", "The assistant on this computer", now === "")
-    + (w.trunks ?? []).filter((t) => !off || now === t.id).map((t) => radio(t.id, t.name, "", now === t.id, off)).join("");
+  return `<hr><div class="ph">${t("window.chat.plus.who")}</div>` + radio("", "Branch", t("window.chat.plus.assistant"), now === "")
+    + (w.trunks ?? []).filter((tr) => !off || now === tr.id).map((tr) => radio(tr.id, tr.name, "", now === tr.id, off)).join("");
 }
 
 /** What the engine said about the open conversation (GET /api/trunks/conversations/<id>), or null. */
@@ -63,13 +64,13 @@ async function chooseWho(el) {
   Q.whoFor = sid;
   await refresh().catch((error) => toast(error.message));
   renderNow();
-  toast(`${Q.who.trunk?.name ?? "Branch"} answers in this conversation.`);
+  toast(t("window.chat.plus.answers", { name: Q.who.trunk?.name ?? "Branch" }));
 }
 
 /* The files waiting to go with the next message, in the design's file chip; clicking one takes it off. */
 export function attached() {
   if (!Q.files.length) return "";
-  return `<div class="acts" data-css="margin:0 0 6px;flex-wrap:wrap">${Q.files.map((f, i) => `<button class="file" type="button" data-act="unattach" data-i="${i}" aria-label="Remove ${esc(f.name)}"><span class="fi">${esc(f.name.split(".").pop())}</span><span><b>${esc(f.name)}</b><small>${Math.max(1, Math.round(f.size / 1024))} KB</small></span></button>`).join("")}</div>`;
+  return `<div class="acts" data-css="margin:0 0 6px;flex-wrap:wrap">${Q.files.map((f, i) => `<button class="file" type="button" data-act="unattach" data-i="${i}" aria-label="${t("window.chat.media.remove", { name: esc(f.name) })}"><span class="fi">${esc(f.name.split(".").pop())}</span><span><b>${esc(f.name)}</b><small>${t("window.chat.plus.kb", { n: Math.max(1, Math.round(f.size / 1024)) })}</small></span></button>`).join("")}</div>`;
 }
 
 /* What the next message carries; handed over once, then cleared. */
@@ -95,7 +96,7 @@ async function pick() {
   input.addEventListener("change", async () => {
     for (const file of input.files) {
       const total = Q.files.reduce((n, f) => n + f.size, 0) + file.size;
-      if (Q.files.length >= MAX_FILES || total > MAX_BYTES) { toast(`At most ${MAX_FILES} files and ${MAX_BYTES / 1048576} MB with one message.`); break; }
+      if (Q.files.length >= MAX_FILES || total > MAX_BYTES) { toast(t("window.chat.plus.too-many", { files: MAX_FILES, mb: MAX_BYTES / 1048576 })); break; }
       Q.files.push({ name: file.name, size: file.size, mediaType: file.type || "application/octet-stream", data: await read(file) });
     }
     redraw();

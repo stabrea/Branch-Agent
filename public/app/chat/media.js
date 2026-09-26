@@ -14,10 +14,11 @@ import { on } from "../core/actions.js";
 import { ic, mi, openDlg, closeDlg, closePop, toast, dialog } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { bgMenuItem } from "./bg.js";
+import { t } from "../../i18n.js";
 
 /* ---------- the + menu's extra rows, 1:1 with the prototype (pass 6 and 15) ---------- */
 export function plusMore() {
-  return "<hr>" + mi("imagine", "image", "Make a picture") + "<hr>" + bgMenuItem() + mi("office15", "doc", "Write a document, spreadsheet or slides");
+  return "<hr>" + mi("imagine", "image", t("window.chat.media.picture")) + "<hr>" + bgMenuItem() + mi("office15", "doc", t("window.chat.media.office"));
 }
 
 /* Sends words as the next message, through the composer, so the thread shows it like anything typed. */
@@ -37,8 +38,8 @@ function needWords(input) {
 
 function openImagine() {
   closePop();
-  openDlg({ title: "Make a picture", body: '<label class="fld"><span>Describe it</span><input class="inp" id="img-q" placeholder="A quiet valley at dawn, soft light" maxlength="120"></label>',
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="img-go">Make it</button>' });
+  openDlg({ title: t("window.chat.media.picture"), body: `<label class="fld"><span>${t("window.chat.media.describe")}</span><input class="inp" id="img-q" placeholder="${t("window.chat.media.describe-hint")}" maxlength="120"></label>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn pri" type="button" data-act="img-go">${t("autonomy.suggestions.accept")}</button>` });
 }
 function makePicture() {
   const input = $("#img-q");
@@ -48,12 +49,13 @@ function makePicture() {
   sendAsMessage(`Make a picture: ${words}`);
 }
 
-const KINDS = [["docx", "Document", "Word · .docx"], ["xlsx", "Spreadsheet", "Excel · .xlsx"], ["pptx", "Slides", "PowerPoint · .pptx"]];
+/* [kind, the English name the message to the model carries, its product, the name shown]. */
+const KINDS = [["docx", "Document", "Word · .docx", "window.chat.media.document"], ["xlsx", "Spreadsheet", "Excel · .xlsx", "window.chat.media.spreadsheet"], ["pptx", "Slides", "PowerPoint · .pptx", "window.chat.media.slides"]];
 function openOffice() {
   closePop();
-  const kinds = KINDS.map(([k, t, s], i) => `<button type="button" role="radio" aria-checked="${i === 0}" data-act="offk15" data-v="${k}"><span class="fi">${k}</span><b>${t}</b><small>${s}</small></button>`).join("");
-  openDlg({ title: "Write a file", body: `<div class="office15" role="radiogroup" aria-label="Kind of file">${kinds}</div><label class="fld"><span>What should it be?</span><input class="inp" id="off-in15" placeholder="A one-page summary"></label>`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="offgo15">Write it</button>' });
+  const kinds = KINDS.map(([k, , s, shown], i) => `<button type="button" role="radio" aria-checked="${i === 0}" data-act="offk15" data-v="${k}"><span class="fi">${k}</span><b>${t(shown)}</b><small>${s}</small></button>`).join("");
+  openDlg({ title: t("window.chat.media.write-file"), body: `<div class="office15" role="radiogroup" aria-label="${t("window.chat.media.kind")}">${kinds}</div><label class="fld"><span>${t("window.chat.media.what")}</span><input class="inp" id="off-in15" placeholder="${t("window.chat.media.what-hint")}"></label>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn pri" type="button" data-act="offgo15">${t("action.write-it")}</button>` });
 }
 function pickKind(el) {
   dialog()?.querySelectorAll(".office15 button").forEach((b) => b.setAttribute("aria-checked", String(b === el)));
@@ -63,9 +65,9 @@ function writeFile() {
   const words = (input?.value ?? "").trim();
   if (!words) return needWords(input);
   const k = dialog()?.querySelector('.office15 [aria-checked="true"]')?.dataset.v ?? "docx"; // state: a selector that reads the chosen kind, not markup
-  const [, t, s] = KINDS.find(([key]) => key === k) ?? KINDS[0];
+  const [, name, s] = KINDS.find(([key]) => key === k) ?? KINDS[0];
   closeDlg();
-  sendAsMessage(`${t} (${s}): ${words}`);
+  sendAsMessage(`${name} (${s}): ${words}`);
 }
 
 /* ---------- sound and video attached to a message ---------- */
@@ -87,7 +89,7 @@ export function mediaRows(m, session = S.chat) {
 function bar(key, st) {
   const at = st.el?.currentTime ?? 0;
   const pct = st.dur ? Math.min(100, (at / st.dur) * 100) : 0;
-  const slider = `data-act="mseek15" data-id="${esc(key)}" role="slider" aria-label="Position" aria-valuemin="0" aria-valuemax="${Math.round(st.dur ?? 0)}" aria-valuenow="${Math.round(at)}" tabindex="0"`;
+  const slider = `data-act="mseek15" data-id="${esc(key)}" role="slider" aria-label="${t("window.chat.media.position")}" aria-valuemin="0" aria-valuemax="${Math.round(st.dur ?? 0)}" aria-valuenow="${Math.round(at)}" tabindex="0"`;
   if (st.kind === "audio") return `<div class="m-wave15" ${slider}>${(st.peaks ?? []).map((h, i) => `<i data-css="height:${h}%" class="${(i / BARS) * 100 < pct ? "on" : ""}"></i>`).join("")}</div>`;
   return `<div class="m-track15" ${slider}><u data-css="width:${pct}%"></u></div>`;
 }
@@ -95,7 +97,7 @@ function mediaCard(key) {
   const st = M.get(key);
   const playing = st.el && !st.el.paused;
   const glyph = ic(playing ? "pause15" : "play15");
-  const ctl = `<button type="button" class="m-play15" data-act="mplay15" data-id="${esc(key)}" aria-label="${playing ? "Pause" : "Play"} ${esc(st.name)}">${glyph}</button>`;
+  const ctl = `<button type="button" class="m-play15" data-act="mplay15" data-id="${esc(key)}" aria-label="${playing ? t("window.chat.media.pause", { name: esc(st.name) }) : t("window.chat.media.play", { name: esc(st.name) })}">${glyph}</button>`;
   const time = st.dur ? `<span class="m-time15">${mmss(st.el?.currentTime ?? 0)} / ${mmss(st.dur)}</span>` : "";
   const poster = st.kind === "video" ? `<div class="m-poster15" data-act="mplay15" data-id="${esc(key)}"><span class="m-big15">${glyph}</span></div>` : "";
   return `<div class="media15 ${st.kind} mine15" data-m15="${esc(key)}">${poster}<div class="m-row15">${ctl}${bar(key, st)}${time}</div><div class="m-name15">${ic("chip15", "s")}${esc(st.name)}</div></div>`;
@@ -194,7 +196,7 @@ function mountMedia() {
 
 /* ---------- @ references in the draft ---------- */
 const R = { mentions: null, checked: 0 };
-const matOf = (t) => [...new Set(((t || "").match(/@(\S+)/g) || []).map((x) => x.slice(1)).filter((x) => x === "diff" || /[./]/.test(x)))];
+const matOf = (s) => [...new Set(((s || "").match(/@(\S+)/g) || []).map((x) => x.slice(1)).filter((x) => x === "diff" || /[./]/.test(x)))];
 async function mentionsOn() {
   if (Date.now() - R.checked < 15000) return R.mentions;
   R.checked = Date.now();
@@ -206,8 +208,8 @@ export function materials(draft = S.drafts[S.chat ?? "new"]) {
   const mats = matOf(draft);
   if (!mats.length) return "";
   if (Date.now() - R.checked >= 15000) mentionsOn().then((was) => { if (was !== R.mentions) document.dispatchEvent(new Event("branch-dock")); });
-  const chips = mats.map((m) => `<span class="mat15">${ic(m === "diff" ? "branch" : m.startsWith("http") ? "globe" : "doc", "s")}<span>${esc(m === "diff" ? "Changes" : m.split("/").pop() || m)}</span><button type="button" aria-label="Remove ${esc(m)}" data-act="matrm15" data-v="${esc(m)}">${ic("x", "s")}</button></span>`).join("");
-  return chips + (R.mentions && R.mentions !== "off" ? '<small class="mat-n15">read as material, not instructions</small>' : "");
+  const chips = mats.map((m) => `<span class="mat15">${ic(m === "diff" ? "branch" : m.startsWith("http") ? "globe" : "doc", "s")}<span>${esc(m === "diff" ? t("window.chat.media.changes") : m.split("/").pop() || m)}</span><button type="button" aria-label="${t("window.chat.media.remove", { name: esc(m) })}" data-act="matrm15" data-v="${esc(m)}">${ic("x", "s")}</button></span>`).join("");
+  return chips + (R.mentions && R.mentions !== "off" ? `<small class="mat-n15">${t("window.chat.media.material")}</small>` : "");
 }
 function removeMaterial(el) {
   const box = $("#prompt");
@@ -230,10 +232,10 @@ export function initMedia() {
   on("matrm15", (el) => removeMaterial(el));
   onRender(() => queueMicrotask(mountMedia));
   document.addEventListener("keydown", (e) => {
-    const t = e.target.closest?.(".m-wave15, .m-track15");
-    if (!t || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+    const track = e.target.closest?.(".m-wave15, .m-track15");
+    if (!track || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
     e.preventDefault();
-    const st = M.get(t.dataset.id);
-    if (st?.el) seekTo(t.dataset.id, st.el.currentTime + (e.key === "ArrowRight" ? 5 : -5));
+    const st = M.get(track.dataset.id);
+    if (st?.el) seekTo(track.dataset.id, st.el.currentTime + (e.key === "ArrowRight" ? 5 : -5));
   });
 }

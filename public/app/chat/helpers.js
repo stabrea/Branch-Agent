@@ -12,6 +12,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { timelineRun, stepsOf, loadSteps, forgetSteps } from "./timeline.js";
+import { t } from "../../i18n.js";
 
 const H = { redraw: () => {}, busy: new Set() };
 const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -24,30 +25,30 @@ function helpersNow() {
   return { runId, list: stepsOf(runId)?.helpers ?? [] };
 }
 const needing = (list) => list.filter((h) => h.waiting?.length).length;
-const needsWords = (n) => `${n} need${n > 1 ? "" : "s"} you`;
+const needsWords = (n) => (n > 1 ? t("window.chat.helpers.need-you", { count: n }) : t("window.chat.helpers.needs-you", { count: n }));
 function parentName() {
   const s = E.sessions.find((x) => (x.sessionId ?? x.id) === S.chat);
-  return E.trunks.find((t) => t.id === s?.trunkId || t.id === s?.trunk?.id)?.name || E.state?.identity?.name || "";
+  return E.trunks.find((tr) => tr.id === s?.trunkId || tr.id === s?.trunk?.id)?.name || E.state?.identity?.name || "";
 }
 
 function pill(h) {
-  if (h.waiting?.length) return '<span class="pill work"><i></i>Needs you</span>';
-  if (h.status === "running" || h.status === "queued") return '<span class="pill work"><i></i>Working</span>';
-  if (h.status === "completed") return '<span class="pill done"><i></i>Done</span>';
-  if (h.status === "cancelled" || h.status === "failed") return '<span class="pill no"><i></i>Stopped</span>';
+  if (h.waiting?.length) return `<span class="pill work"><i></i>${t("dashboard.needs.title")}</span>`;
+  if (h.status === "running" || h.status === "queued") return `<span class="pill work"><i></i>${t("strip.status.working")}</span>`;
+  if (h.status === "completed") return `<span class="pill done"><i></i>${t("first-run-steps.done")}</span>`;
+  if (h.status === "cancelled" || h.status === "failed") return `<span class="pill no"><i></i>${t("panels.state.stopped")}</span>`;
   return "";
 }
 /* The helper's question: the exact request, where it applies and who asked for whom, with No and Allow once. */
 function ask(h, q) {
   const off = H.busy.has(key(q)) ? " disabled" : "";
   const id = `data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint)}"${off}`;
-  const where = [q.bytes || q.target, `asked by ${h.name || ""} for ${parentName()}`].filter(Boolean).join(" · ");
-  return `<div class="hpask17c"><span class="pill idle">${esc(q.tool)}</span><span class="grow"><b>${esc(q.question || q.label)}</b><small>${esc(where)}</small></span><span class="hpbtn17c"><button class="btn ghost sm" type="button" data-act="hpdo17c" data-v="deny" ${id}>No</button><button class="btn pri sm" type="button" data-act="hpdo17c" data-v="allow" ${id}>Allow once</button></span></div>`;
+  const where = [q.bytes || q.target, t("window.chat.helpers.asked-by", { name: h.name || "", parent: parentName() })].filter(Boolean).join(" · ");
+  return `<div class="hpask17c"><span class="pill idle">${esc(q.tool)}</span><span class="grow"><b>${esc(q.question || q.label)}</b><small>${esc(where)}</small></span><span class="hpbtn17c"><button class="btn ghost sm" type="button" data-act="hpdo17c" data-v="deny" ${id}>${t("autonomy.needs.no")}</button><button class="btn pri sm" type="button" data-act="hpdo17c" data-v="allow" ${id}>${t("window.chat.helpers.allow-once")}</button></span></div>`;
 }
 function card(h) {
   const via = [h.model, h.provider].filter(Boolean).join(" · ");
-  const thought = h.thinking ? `<details class="hpth17c"><summary>${ic("chev", "s chev")}What it’s thinking</summary><p>${esc(h.thinking)}</p></details>` : "";
-  const meta = [`${Number(h.steps) || 0} steps`, h.cost?.amount != null ? h.cost.display : ""].filter(Boolean).join(" · ");
+  const thought = h.thinking ? `<details class="hpth17c"><summary>${ic("chev", "s chev")}${t("window.chat.helpers.thinking")}</summary><p>${esc(h.thinking)}</p></details>` : "";
+  const meta = [t("window.chat.helpers.steps", { count: Number(h.steps) || 0 }), h.cost?.amount != null ? h.cost.display : ""].filter(Boolean).join(" · ");
   return `<div class="hpc17c"><div class="hpt17c"><span class="hpav17c">${esc((h.name || "").slice(0, 1))}</span><span class="grow"><b>${esc(h.name || "")}</b><small>${esc(via)}</small></span>${pill(h)}</div><p class="hpjob17c">${esc(h.job)}</p>${thought}${(h.waiting ?? []).map((q) => ask(h, q)).join("")}<small class="hpm17c">${esc(meta)}</small></div>`;
 }
 
@@ -56,7 +57,7 @@ export function helpersSection() {
   const { list } = helpersNow();
   if (!list.length) return "";
   const wait = needing(list);
-  return `<section class="hp17c" id="helpers17c" aria-label="Helpers"><div class="hph17c"><b>Helpers</b><small>${list.length} started by ${esc(parentName())}${wait ? ` · ${needsWords(wait)}` : ""}</small></div>${list.map(card).join("")}<p class="hint">Each helper runs on its own model and asks for its own approvals. Nothing a helper does skips your rules.</p></section>`;
+  return `<section class="hp17c" id="helpers17c" aria-label="${t("window.chat.helpers.title")}"><div class="hph17c"><b>${t("window.chat.helpers.title")}</b><small>${t("window.chat.helpers.started-by", { count: list.length, name: esc(parentName()) })}${wait ? ` · ${needsWords(wait)}` : ""}</small></div>${list.map(card).join("")}<p class="hint">${t("window.chat.helpers.hint")}</p></section>`;
 }
 
 /* The one-line chip in the thread: "N helpers · N needs you", or "· done". */
@@ -66,7 +67,7 @@ export function helpersChip() {
   if (!list.length) return "";
   const wait = needing(list);
   const faces = list.map((h) => `<span class="hpav17c">${esc((h.name || "").slice(0, 1))}</span>`).join("");
-  return `<button type="button" class="hl17c" data-act="hpopen17c">${faces}<span>${list.length} helpers${wait ? ` · <b>${needsWords(wait)}</b>` : " · done"}</span>${ic("chev", "s")}</button>`;
+  return `<button type="button" class="hl17c" data-act="hpopen17c">${faces}<span>${t("window.chat.helpers.count", { count: list.length })}${wait ? ` · <b>${needsWords(wait)}</b>` : ` · ${t("window.chat.helpers.done")}`}</span>${ic("chev", "s")}</button>`;
 }
 
 /* Allow once or No: the question is read again, and only that exact request is answered, once. */

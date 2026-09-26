@@ -13,6 +13,7 @@ import { ic, av, mi, openPop, closePop, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { materials } from "./media.js";
 import { openConversation, sendingPrompt } from "./chat.js";
+import { t } from "../../i18n.js";
 
 const B = { items: new Map(), listed: false, polls: 0 };
 /* A background check that fails because the engine answered no is said; one that fails because the engine is
@@ -21,7 +22,7 @@ const said = (error) => { if (error.status) toast(error.message); };
 
 /* The + menu row. Greyed while the engine's command list for this window has no /bg (GET /api/commands). */
 export function bgMenuItem() {
-  return mi(B.listed ? "bgrun15" : "bgrun15-off", "bg15", "Run it in the background", "/bg");
+  return mi(B.listed ? "bgrun15" : "bgrun15-off", "bg15", t("window.chat.bg.run"), "/bg");
 }
 
 const shown = () => [...B.items.values()];
@@ -33,7 +34,7 @@ export function dockRow() {
 function rowInner(draft) {
   const all = shown();
   const run = all.filter((x) => x.state === "working").length;
-  const chip = all.length ? `<button type="button" class="bgchip15" data-act="bglist15" aria-haspopup="menu">${run ? '<i class="bgdot15"></i>' : ic("check", "s")}${run ? `${run} in the background` : `${all.length} finished in the background`}</button>` : "";
+  const chip = all.length ? `<button type="button" class="bgchip15" data-act="bglist15" aria-haspopup="menu">${run ? '<i class="bgdot15"></i>' : ic("check", "s")}${run ? t("window.chat.bg.running", { count: run }) : t("window.chat.bg.finished", { count: all.length })}</button>` : "";
   const mats = materials(draft);
   return chip || mats ? `<div class="dockrow15">${chip}${mats}</div>` : "";
 }
@@ -45,8 +46,8 @@ function repaintRow(draft) {
 }
 
 function listPop() {
-  const rows = shown().map((x) => `<div class="mi bgrow15">${av({ kind: "main" }, 22)}<span class="grow"><span class="mi-t">${esc(x.prompt)}</span><span class="mi-s">${x.state === "working" ? esc(x.step) : "Finished · ready to read"}</span></span>${x.state === "working" ? `<button type="button" class="btn ghost sm" data-act="bgstop15" data-id="${esc(x.runId)}">Stop</button>` : `<button type="button" class="btn sm" data-act="bgopen15" data-id="${esc(x.runId)}">Open</button>`}</div>`).join("");
-  return `<div class="ph">Running in the background</div>${rows}<p class="hint" data-css="margin:6px 10px">Start one with <code>/bg</code> or + › Run in the background. Up to three at once.</p>`;
+  const rows = shown().map((x) => `<div class="mi bgrow15">${av({ kind: "main" }, 22)}<span class="grow"><span class="mi-t">${esc(x.prompt)}</span><span class="mi-s">${x.state === "working" ? esc(x.step) : t("window.chat.bg.ready")}</span></span>${x.state === "working" ? `<button type="button" class="btn ghost sm" data-act="bgstop15" data-id="${esc(x.runId)}">${t("dashboard.stop")}</button>` : `<button type="button" class="btn sm" data-act="bgopen15" data-id="${esc(x.runId)}">${t("ov.open")}</button>`}</div>`).join("");
+  return `<div class="ph">${t("window.chat.bg.title")}</div>${rows}<p class="hint" data-css="margin:6px 10px">${t("window.chat.bg.hint", { code: "<code>/bg</code>" })}</p>`;
 }
 
 /* What the engine says is working (or waiting for a yes) away from the open conversation. One that was working here
@@ -73,7 +74,7 @@ async function runInBackground() {
   const box = $("#prompt");
   const draft = (box?.value ?? "").trim();
   closePop();
-  if (!draft) { toast("Type what to do first, then run it in the background."); return; }
+  if (!draft) { toast(t("window.chat.bg.type-first")); return; }
   let done;
   try { done = await api("commands/run", { surface: "window", line: `/bg ${draft}`, ...(S.chat ? { sessionId: S.chat } : {}) }); } catch (error) { toast(error.message); return; }
   if (!done?.handled) { B.listed = false; return; }

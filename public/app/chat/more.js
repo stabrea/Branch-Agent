@@ -6,6 +6,7 @@ import { esc } from "../core/dom.js";
 import { on } from "../core/actions.js";
 import { ic, openPop } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 const items = [];
 let messages = () => [];
@@ -14,7 +15,7 @@ let messages = () => [];
 export function addMoreItem(item) { items.push(item); }
 
 /* The button for one message, placed by chat/messages.js in the message's action row. */
-export const moreButton = (m) => (m.messageId ? `<button type="button" aria-label="More for this message" aria-haspopup="menu" data-act="more17c" data-mid="${esc(m.messageId)}">${ic("more")}</button>` : "");
+export const moreButton = (m) => (m.messageId ? `<button type="button" aria-label="${t("window.chat.more.label")}" aria-haspopup="menu" data-act="more17c" data-mid="${esc(m.messageId)}">${ic("more")}</button>` : "");
 
 function openMore(el) {
   const m = messages().find((x) => String(x.messageId) === el.dataset.mid);

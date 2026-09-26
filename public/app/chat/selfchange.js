@@ -12,6 +12,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { ic, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 const G = { view: null, asked: null };
 const proposing = (m) => (m.toolCalls ?? []).some((call) => call.name === "gateway.propose");
@@ -47,9 +48,9 @@ function changedRows(after, before, struck) {
     .map((k) => `<tr><th>${esc(k)}</th><td>${struck ? `<s>${esc(before[k])}</s>` : esc(before[k])}</td><td><b>${esc(after[k])}</b></td></tr>`).join("");
 }
 const lastBy = (messages, m, p) => madeBy(m, p) && messages.filter((x) => madeBy(x, p)).at(-1) === m;
-const cardOf = (pill, why, rows, rest, acts) => `<div class="b"><div class="gut"></div><div><div class="card self10"><div class="card-h"><b>${ic("gear", "s")}A change to Branch itself</b>${pill}</div>${why ? `<div class="sub">${esc(why)}</div>` : ""}
-    <table class="cmp6"><thead><tr><th></th><th>Now</th><th>After</th></tr></thead><tbody>${rows}</tbody></table>${rest}
-    <p class="hint" data-css="margin:6px 0 0">Branch asks before changing how it’s set up. It can never change its own program or your saved work by itself.${acts.undoable ? " Every change is kept and can be rolled back." : ""}</p>
+const cardOf = (pill, why, rows, rest, acts) => `<div class="b"><div class="gut"></div><div><div class="card self10"><div class="card-h"><b>${ic("gear", "s")}${t("window.chat.self.title")}</b>${pill}</div>${why ? `<div class="sub">${esc(why)}</div>` : ""}
+    <table class="cmp6"><thead><tr><th></th><th>${t("dashboard.area.now")}</th><th>${t("window.chat.self.after")}</th></tr></thead><tbody>${rows}</tbody></table>${rest}
+    <p class="hint" data-css="margin:6px 0 0">${t("window.chat.self.asks")}${acts.undoable ? ` ${t("window.chat.self.kept")}` : ""}</p>
     <div class="acts">${acts.html}</div></div></div></div>`;
 
 /* The card, under the last reply of this conversation that made the suggestion: while it waits (Apply, Not now); once
@@ -59,15 +60,15 @@ export function selfCard(m, messages) {
   const p = G.view?.proposal, a = G.view?.accepted;
   if (p && lastBy(messages, m, p)) {
     const ok = p.check?.ok === true;
-    const pill = ok ? '<span class="pill ok ml"><i></i>Tried on a throwaway copy · started cleanly</span>' : "";
+    const pill = ok ? `<span class="pill ok ml"><i></i>${t("window.chat.self.tried")}</span>` : "";
     const refused = ok || !p.check?.detail ? "" : `<p class="hint">${esc(p.check.detail)}</p>`;
-    const apply = ok ? '<button class="btn pri sm" type="button" data-act="self-apply">Apply</button>' : "";
-    return cardOf(pill, p.why, changedRows(p.config, G.view.config ?? {}, false), refused, { html: `${apply}<button class="btn ghost sm" type="button" data-act="self-no">Not now</button>` });
+    const apply = ok ? `<button class="btn pri sm" type="button" data-act="self-apply">${t("flowsBoards.focus.apply")}</button>` : "";
+    return cardOf(pill, p.why, changedRows(p.config, G.view.config ?? {}, false), refused, { html: `${apply}<button class="btn ghost sm" type="button" data-act="self-no">${t("updates.busy.cancel")}</button>` });
   }
   if (!a || !lastBy(messages, m, { why: a.why, config: a.after })) return "";
   const back = !!a.rolledBackAt;
-  const pill = back ? '<span class="pill idle ml"><i></i>Rolled back</span>' : '<span class="pill done ml"><i></i>Applied</span>';
-  const acts = back ? "" : '<button class="btn sm" type="button" data-act="self-undo">Roll back</button><button class="btn ghost sm" type="button" data-act="setgo" data-v="self">See every change</button>';
+  const pill = back ? `<span class="pill idle ml"><i></i>${t("window.chat.self.rolled-back")}</span>` : `<span class="pill done ml"><i></i>${t("window.chat.self.applied")}</span>`;
+  const acts = back ? "" : `<button class="btn sm" type="button" data-act="self-undo">${t("window.chat.self.roll-back")}</button><button class="btn ghost sm" type="button" data-act="setgo" data-v="self">${t("window.chat.self.see-every")}</button>`;
   return cardOf(pill, a.why, changedRows(a.after, a.before, !back), "", { html: acts, undoable: true });
 }
 

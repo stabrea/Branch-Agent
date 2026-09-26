@@ -11,6 +11,7 @@ import { toast, ic } from "../core/ui.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 const D = { state: null, reading: false, on: false, timer: null, base: "", heard: "" };
 
@@ -26,7 +27,7 @@ export function loadDictation() {
 }
 /* Only the mic changes with what the engine said, so only the mic is drawn again (the rest of the view is left as is). */
 function redrawMic() {
-  const mic = document.querySelector('.composer button[aria-label="Dictate into the box"]');
+  const mic = document.querySelector(`.composer button[aria-label="${t("window.chat.dict.label")}"]`);
   if (!mic) return;
   mic.outerHTML = micButton();
 }
@@ -36,12 +37,12 @@ export const dictating = () => D.on;
 export function micButton() {
   if (D.state?.canDictate === false) {
     const why = D.state.refusal || D.state.engine?.how || "";
-    return `<button class="c-btn soon" type="button" aria-label="Dictate into the box" aria-disabled="true" tabindex="-1" data-tip="${esc(why)}">${ic("mic")}</button>`;
+    return `<button class="c-btn soon" type="button" aria-label="${t("window.chat.dict.label")}" aria-disabled="true" tabindex="-1" data-tip="${esc(why)}">${ic("mic")}</button>`;
   }
-  return `<button class="c-btn" type="button" aria-label="Dictate into the box" data-act="dict">${ic("mic")}</button>`;
+  return `<button class="c-btn" type="button" aria-label="${t("window.chat.dict.label")}" data-act="dict">${ic("mic")}</button>`;
 }
 
-export const dictRow = () => `<div class="dict"><span class="wave" aria-hidden="true">${"<i></i>".repeat(9)}</span><span>Listening… speak naturally</span><span class="tb-grow"></span><button class="btn sm" type="button" data-act="dict-done">Done</button></div>`;
+export const dictRow = () => `<div class="dict"><span class="wave" aria-hidden="true">${"<i></i>".repeat(9)}</span><span>${t("window.chat.dict.listening")}</span><span class="tb-grow"></span><button class="btn sm" type="button" data-act="dict-done">${t("first-run-steps.done")}</button></div>`;
 
 /* The words go after what was in the box when Dictate was pressed, as typed words would, and follow the engine's words
    as they come (the box stays in the composer, hidden behind the listening row, so a redraw keeps them); the box tells

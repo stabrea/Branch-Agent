@@ -37,7 +37,7 @@ async function readKept() {
 const cardSource = (el) => el.closest("[data-dia17c]")?.querySelector("pre")?.textContent ?? "";
 
 function saveButton(run, source) {
-  if (!run) return '<button class="btn sm" type="button" data-act="toast">Save to Library</button>';
+  if (!run) return `<button class="btn sm" type="button" data-act="toast">${t("window.diagram.save-to-library")}</button>`;
   return `<button class="btn sm" type="button" data-act="diasave17c" data-run="${esc(run)}">${kept(run, source) ? t("window.diagram.in-library") : t("window.diagram.save-to-library")}</button>`;
 }
 
@@ -45,9 +45,9 @@ function saveButton(run, source) {
 export function diagramCard(source) {
   if (!D.asked) { D.asked = true; readKept(); }
   const run = runOf(source);
-  return `<div class="card dia17c" data-dia17c="1"><div class="card-h">${ic("dia17c", "s")}<span class="pill idle ml">Diagram</span></div>
+  return `<div class="card dia17c" data-dia17c="1"><div class="card-h">${ic("dia17c", "s")}<span class="pill idle ml">${t("window.chat.dia.diagram")}</span></div>
     <pre>${esc(source)}</pre>
-    <div class="acts"><button class="btn sm" type="button" data-act="diaopen17c">Open larger</button><button class="btn sm" type="button" data-act="diacopy17c">Copy the text</button>${saveButton(run, source)}</div></div>`;
+    <div class="acts"><button class="btn sm" type="button" data-act="diaopen17c">${t("window.chat.art.larger")}</button><button class="btn sm" type="button" data-act="diacopy17c">${t("window.chat.dia.copy")}</button>${saveButton(run, source)}</div></div>`;
 }
 
 async function openLarger(el) {
@@ -57,16 +57,16 @@ async function openLarger(el) {
   try { page = await api("artifacts/page", { kind: "html", title: "Diagram", code: `<pre>${esc(source)}</pre>` }); } catch (error) { toast(error.message); return; }
   if (!/^\/artifact\/[A-Za-z0-9_-]+$/.test(page.url ?? "")) return;
   const run = runOf(source);
-  openDlg({ title: "Diagram", wide: true,
-    body: `<iframe class="dframe17c" sandbox="" referrerpolicy="no-referrer" title="Diagram" src="${esc(page.url)}"></iframe><p class="hint" data-css="margin:8px 0">Shown as an artifact: a sealed frame with no scripts and no internet.</p><pre class="dsrc17c" data-dia17c="1">${esc(source)}</pre>`,
-    foot: `<span data-dia17c="1"><pre hidden>${esc(source)}</pre><button class="btn" type="button" data-act="diacopy17c">Copy the text</button>${saveButton(run, source).replace('class="btn sm"', 'class="btn pri"')}</span>` });
+  openDlg({ title: t("window.chat.dia.diagram"), wide: true,
+    body: `<iframe class="dframe17c" sandbox="" referrerpolicy="no-referrer" title="${t("window.chat.dia.diagram")}" src="${esc(page.url)}"></iframe><p class="hint" data-css="margin:8px 0">${t("window.chat.dia.sealed")}</p><pre class="dsrc17c" data-dia17c="1">${esc(source)}</pre>`,
+    foot: `<span data-dia17c="1"><pre hidden>${esc(source)}</pre><button class="btn" type="button" data-act="diacopy17c">${t("window.chat.dia.copy")}</button>${saveButton(run, source).replace('class="btn sm"', 'class="btn pri"')}</span>` });
 }
 
 async function copyText(el) {
   const source = cardSource(el);
   if (!source) return;
   try { await navigator.clipboard.writeText(source); } catch (error) { toast(error.message); return; }
-  toast("Copied the diagram’s text. Paste it anywhere that reads Mermaid.");
+  toast(t("window.chat.dia.copied"));
 }
 
 async function save(el) {
@@ -76,7 +76,7 @@ async function save(el) {
   try { await api("artifacts/save", { runId: run, name: nameFor(source), mediaType: "text/plain", code: source }); } catch (error) { toast(error.message); return; }
   await readKept();
   for (const b of document.querySelectorAll(`[data-act="diasave17c"][data-run="${CSS.escape(run)}"]`)) if (cardSource(b) === source) b.textContent = kept(run, source) ? t("window.diagram.in-library") : t("window.diagram.save-to-library");
-  toast(was ? "Already in Library › Made for you." : `Saved to Library › Made for you as ${nameFor(source)}.`);
+  toast(was ? t("window.chat.dia.already") : t("window.chat.dia.saved-as", { name: nameFor(source) }));
 }
 
 export function initDiagram() {
