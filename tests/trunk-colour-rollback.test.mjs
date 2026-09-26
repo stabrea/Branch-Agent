@@ -13,6 +13,7 @@ import { exportTrunk, importedFields } from "../dist/trunks/share.js";
 import { TrunkLookSchema } from "../dist/trunks/look.js";
 import { TrunkSchema } from "../dist/trunks/record.js";
 
+
 async function branch(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-trunk-colour-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
@@ -26,20 +27,30 @@ async function branch(t) {
   return { records, trunk, olderBuildWrites };
 }
 
-// Redesign: replaced by the new window (old public/faces.js import no longer exists; colour logic moved)
-test.skip("DG-105 the look an older build reads has no value in it, so it can still check and edit the Trunk", async (t) => {
-  // This test was verifying backward compatibility with builds of the old window that didn't know about chosenColour.
-  // The old window code (public/faces.js) has been replaced by the new window; this compatibility check is obsolete.
+test("DG-105 the look an older build reads has no value in it, so it can still check and edit the Trunk", async (t) => {
+  const { trunk } = await branch(t);
+  assert.equal(trunk.chosenColour, "#e07033");
+  assert.equal(trunk.look.colour, null);
+  assert.equal(TrunkLookSchema.safeParse(trunk.look).success, true);
 });
 
-// Redesign: replaced by the new window (old public/faces.js import no longer exists; colour logic moved)
+// Redesign: replaced by the new window (public/faces.js and its trunkColour() are gone; the new window draws a Trunk
+// from chosenColour alone, public/app/flows/trunk.js face(), so an older build's look.colour has no rule to test).
 test.skip("DG-105 order, pin and rename in an older build keep the colour; a colour chosen there wins over it (the window's own rule)", async (t) => {
-  // This test was verifying the old window's trunkColour() logic for backward compatibility.
-  // The old window code (public/faces.js) has been replaced by the new window; this compatibility check is obsolete.
+  const trunkColour = () => undefined; // the old window's function, kept only so the skipped body still parses
+  const { records, trunk, olderBuildWrites } = await branch(t);
+  olderBuildWrites({ order: 30, pinned: true, name: "Scout Two" });
+  assert.equal(trunkColour(records.get(trunk.id)), "#e07033", "back in this build, the colour the owner picked");
+  /* The older studio saves the colour it showed (the name's token) or Follow my theme: that is the latest choice. */
+  olderBuildWrites({ look: { ...records.get(trunk.id).look, colour: 3 } });
+  assert.equal(trunkColour(records.get(trunk.id)), 3, "a stale picked colour never comes back over a later choice");
+  olderBuildWrites({ look: { ...records.get(trunk.id).look, colour: "theme" } });
+  assert.equal(trunkColour(records.get(trunk.id)), "theme");
 });
 
-// Redesign: replaced by the new window (colour preservation still works in the new architecture)
-test.skip("DG-105 a Trunk's file carries the picked colour, and brings it back", async (t) => {
-  // The record schema still preserves chosenColour in exports/imports, but the old public/faces.js-based
-  // tests for this are no longer applicable with the new window architecture.
+test("DG-105 a Trunk's file carries the picked colour, and brings it back", async (t) => {
+  const { records, trunk } = await branch(t);
+  const file = exportTrunk(records.get(trunk.id));
+  assert.equal(file.trunk.chosenColour, "#e07033");
+  assert.equal(importedFields(JSON.parse(JSON.stringify(file)), []).chosenColour, "#e07033");
 });
