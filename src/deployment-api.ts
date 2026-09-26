@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { posix, win32 } from "node:path";
 import { z } from "zod";
-import { autostartState, setAutostart } from "./install/autostart.js";
+import { autostartState, macLoginItemsLink, setAutostart, type AutostartDeps, type AutostartState, type LoginItem } from "./install/autostart.js";
 import { daemonCommand, daemonLauncherName, daemonTaskName, type DaemonAction, type DaemonOptions } from "./install/daemon.js";
 import { launchdLabel } from "./install/launchd.js";
 import { systemdUnitName } from "./install/systemd.js";
@@ -33,6 +33,10 @@ export interface DeploymentContext {
   /** Where the app is installed (see `installTarget`): the program's folder, or the `.app` bundle on a Mac. */
   installRoot: string | null;
   remote: RemoteAccess;
+  /** Stand-ins for the registry tool, so a test never writes this computer's real sign-in list. */
+  autostartDeps?: AutostartDeps;
+  /** The desktop app's own login item (a Mac), used instead of the Windows sign-in list when handed in. */
+  loginItem?: LoginItem;
 }
 
 const EnabledSchema = z.object({ enabled: z.boolean(), minimized: z.boolean().optional() }).strict();
@@ -71,6 +75,34 @@ export function startsBySelfWords(platform: NodeJS.Platform): string {
   return "start by itself when you sign in to this computer";
 }
 
+/**
+ * Whether Branch starts when the person signs in, and whether it can here: only an installed app can
+ * be started by the system (a source checkout has no program of its own to register). Windows keeps a
+ * per-person sign-in list; a Mac uses the app's login item, which macOS may want approved first.
+ */
+export interface AutostartView extends AutostartState { available: boolean; needsApproval: boolean; settingsLink: string }
+const noSignInStart = { enabled: false, minimized: false, command: null, needsApproval: false, settingsLink: "" };
+export const noSignInStartHereWords = "Starting by itself is not available on this kind of computer yet. Open Branch when you want it.";
+
+async function autostartView(context: DeploymentContext, platform: NodeJS.Platform): Promise<AutostartView> {
+  if (!context.executable) return { ...noSignInStart, available: false };
+  if (context.loginItem) {
+    const { enabled, needsApproval } = context.loginItem.read();
+    return { ...noSignInStart, enabled, needsApproval, settingsLink: needsApproval ? macLoginItemsLink : "", available: true };
+  }
+  if (platform !== "win32") return { ...noSignInStart, available: false };
+  return { ...noSignInStart, ...(await autostartState({}, context.autostartDeps)), available: true };
+}
+
+async function saveAutostart(context: DeploymentContext, platform: NodeJS.Platform, body: unknown): Promise<AutostartView> {
+  const { enabled, minimized } = EnabledSchema.parse(body);
+  if (!context.executable) throw new Error(`Branch has to be installed on this computer before it can ${startsBySelfWords(platform)}.`);
+  if (context.loginItem) context.loginItem.set(enabled);
+  else if (platform !== "win32") throw new Error(noSignInStartHereWords);
+  else await setAutostart(enabled, { executable: context.executable, minimized: minimized ?? true }, context.autostartDeps);
+  return autostartView(context, platform);
+}
+
 function notInstalledDaemon(platform: NodeJS.Platform): { action: "status"; taskName: string; installed: false; message: string } {
   if (platform === "darwin")
     return { action: "status", taskName: launchdLabel, installed: false, message: "Move Branch into your Applications folder and open it from there to keep it working with the window closed. It then starts by itself when you sign in to your Mac." };
@@ -96,7 +128,7 @@ async function overview(app: Branch, context: DeploymentContext, platform: NodeJ
     installed,
     installRoot: context.installRoot,
     dataDir: context.dataDir,
-    autostart: installed ? await autostartState() : { enabled: false, minimized: false, command: null },
+    autostart: await autostartView(context, platform),
     daemon: installed
       ? await daemonCommand("status", daemonOptions(context, platform))
       : notInstalledDaemon(platform),
@@ -175,11 +207,7 @@ export async function deploymentApi(
     app.store.profiles.requireOwner("Suggestions");
     return { settings: neverSuggest(app.store, app.runtime.owner, await readBody(request)) };
   }
-  if (request.method === "POST" && path === "/api/deployment/autostart") {
-    const { enabled, minimized } = EnabledSchema.parse(await readBody(request));
-    if (!context.executable) throw new Error(`Branch has to be installed on this computer before it can ${startsBySelfWords(platform)}.`);
-    return setAutostart(enabled, { executable: context.executable, minimized: minimized ?? true });
-  }
+  if (request.method === "POST" && path === "/api/deployment/autostart") return saveAutostart(context, platform, await readBody(request));
   if (request.method === "POST" && path === "/api/deployment/daemon") {
     const { action } = DaemonSchema.parse(await readBody(request));
     return daemonCommand(action as DaemonAction, daemonOptions(context, platform));
