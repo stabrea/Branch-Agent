@@ -20,6 +20,7 @@ const A = { channels: null, apps: [], at: 0 };
 const kindOf = (c) => c.kind ?? c.id;
 
 async function loadApps() {
+  if (E.profiles?.isOwner === false) return; // the owner's chat apps: no page asks for them on a household person's profile
   A.at = Date.now();
   const [live, setup] = await Promise.all(["channels", "channel-setup"].map((path) => api(path).catch((error) => { toast(error.message); return null; })));
   A.channels = live?.channels ?? [];
