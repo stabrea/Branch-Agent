@@ -1,6 +1,9 @@
 /* Boots the window: saved choices, the engine's state, the live event stream, and the first draw. Each area draws its own
    view into #main; the shell draws the sidebar, title-bar actions and status bar. */
 
+/* A phone paired in its browser adds its own secret to every request to this address (public/device-headers.js). */
+import { installDeviceHeaders } from "../device-headers.js";
+installDeviceHeaders();
 import { $, onRender, render, renderNow, paint } from "./core/dom.js";
 import { S, E, loadSaved, refresh, activeId } from "./core/state.js";
 import { api, stream, link } from "./core/api.js";

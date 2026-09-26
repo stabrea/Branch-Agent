@@ -96,7 +96,8 @@ test("first run comes first and the bar is its last question; Not now lasts unti
   await f.open();
   // Redesign: the new window's first run is "Set up Branch" (public/app/flows/setup.js); its last page, Health check, ends
   // it with Finish (data-act="ob-done").
-  const setup = f.page.locator('[data-act="ob-close"]');
+  // Redesign: Skip for now (ob-close) shows only after Welcome (35e53413); the setup dialog itself says first run is up.
+  const setup = f.page.locator(".ob9");
   await setup.waitFor({ state: "visible", timeout: 15000 });
   await f.page.waitForTimeout(800);
   const bar = f.page.locator(".recbar");

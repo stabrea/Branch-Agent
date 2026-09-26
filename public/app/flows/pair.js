@@ -43,10 +43,42 @@ function here() {
   return `<p class="hint" data-css="margin:0">${esc(t("pair.onlyHere"))}</p>${refused}${open}`;
 }
 
+/* No camera: the link and the code each on their own labelled row with one Copy, never run together in a sentence. The
+   link sits in a read-only field on one line (it scrolls, it never breaks mid-word); the code is large and spaced. */
+const copyBtn = (which) => `<button class="btn sm pair-copy15" type="button" data-act="pair-copy" data-v="${which}">${ic("copy", "s")}<span>${t("pair.copy")}</span></button>`;
 function phoneBody() {
-  const code = spaced(P.invite.code);
-  return `<div class="qr-wrap">${qr(P.invite.qr, 176)}<ol class="steps-list"><li>${t("window.flows.pair.open-app")}</li><li>${t("window.flows.pair.tap", { what: `<b>${t("window.flows.pair.with-computer")}</b>` })}</li><li>${t("window.flows.pair.point")}</li></ol></div>
-    <div class="alt12"><b>${t("window.flows.pair.no-camera")}</b> ${t("window.flows.pair.type-instead", { link: `<code>${esc(P.invite.link)}</code>`, code: `<code>${esc(code)}</code>` })}</div>${clock()}${here()}<p class="hint pair-wait" role="status" data-css="margin:0"></p>`;
+  const link = t("window.flows.pair.link"), code = t("window.settings.computer.code");
+  return `<div class="qr-wrap pair-qr15">${qr(P.invite.qr, 176)}<ol class="steps-list"><li>${t("window.flows.pair.open-app")}</li><li>${t("window.flows.pair.tap", { what: `<b>${t("window.flows.pair.with-computer")}</b>` })}</li><li>${t("window.flows.pair.point")}</li></ol></div>
+    <div class="alt12 pair-alt15"><b>${t("window.flows.pair.no-camera")}</b>
+      <div class="pair-row15"><label class="pair-lab15" for="pair-link">${link}</label><input class="inp pair-link15" id="pair-link" type="text" readonly spellcheck="false" value="${esc(P.invite.link)}">${copyBtn("link")}</div>
+      <div class="pair-row15"><span class="pair-lab15" id="pair-code-lab">${code}</span><output class="pair-code15" id="pair-code" aria-labelledby="pair-code-lab">${esc(spaced(P.invite.code))}</output>${copyBtn("code")}</div></div>${clock()}${here()}<p class="hint pair-wait" role="status" data-css="margin:0"></p>`;
+}
+
+/* Copies the link, or the code's six digits without the space, with the clipboard; where the browser refuses, the text is
+   selected for copying by hand and the product's words say so. The button says Copied for a moment. */
+async function copy(which) {
+  const text = which === "code" ? P.invite?.code : P.invite?.link;
+  const button = P.dlg?.querySelector(`[data-act="pair-copy"][data-v="${which}"]`);
+  if (!text || !button) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    selectText(which);
+    toast(t("pair.copyFailed"));
+    return;
+  }
+  button.classList.add("done15");
+  button.querySelector("span").textContent = t("pair.copied");
+  setTimeout(() => { button.classList.remove("done15"); button.querySelector("span").textContent = t("pair.copy"); }, 1600);
+}
+function selectText(which) {
+  if (which === "link") { const field = $("#pair-link"); field?.focus(); field?.select(); return; }
+  const out = $("#pair-code");
+  if (!out) return;
+  const range = document.createRange();
+  range.selectNodeContents(out);
+  getSelection()?.removeAllRanges();
+  getSelection()?.addRange(range);
 }
 function computerBody(waiting) {
   const command = `branch node pair "${P.invite.link}" ${P.invite.code}`;
@@ -77,7 +109,8 @@ function body() {
 }
 const TITLES = { phone: "window.flows.pair.title", computer: "window.flows.pair.title-computer" };
 function draw() {
-  P.dlg = P.frame ? P.frame({ body: body(), foot: foot() }) : openDlg({ title: t(TITLES[P.kind]), body: body(), foot: foot() });
+  /* The phone dialog is wide, so the QR and its steps sit side by side and the whole link fits its one-line field. */
+  P.dlg = P.frame ? P.frame({ body: body(), foot: foot() }) : openDlg({ title: t(TITLES[P.kind]), body: body(), foot: foot(), wide: P.kind === "phone" });
 }
 
 /* Stops watching. With cancel, the invitation stops working too, but only while it is still the one on offer: the
@@ -174,9 +207,10 @@ async function phoneSaysPaired() {
 }
 
 export function init() {
-  markLive(["pair", "pair-cancel", "pair-letin", "pair-refuse", "pair-on", "pair-door", "ph-paired-dlg", "sw:pair-match"]);
+  markLive(["pair", "pair-cancel", "pair-letin", "pair-refuse", "pair-on", "pair-door", "ph-paired-dlg", "sw:pair-match", "pair-copy"]);
   on("pair", () => startPairing("phone"));
   on("pair-door", () => openDoor());
+  on("pair-copy", (el) => copy(el.dataset.v));
   on("pair-cancel", () => { stop(true); closeDlg(); });
   on("pair-letin", () => decide(true));
   on("pair-refuse", () => decide(false));

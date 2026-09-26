@@ -176,6 +176,7 @@ import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
 import { pullRequestHookSettings, savePullRequestHookSettings } from "./pr-hook.js";
 import { markShortLivedKey, startedWithShortLivedKey } from "./key-context.js";
+import { noteSetupOrigin, setupOriginHeader } from "./setup-origin.js";
 import { connectionCheck } from "./local-connection-policy.js"; // mac5/key-sweep: Test this connection
 import type { NetworkPolicy } from "./network-policy.js";
 import { generalShortLivedKeyRefusal, knobsRefusal, ownerOnlyRead, taskRouteFor } from "./short-lived-keys.js"; // mac5/key-sweep (R17-S-B: knobsRefusal)
@@ -501,6 +502,8 @@ async function staticFile(
     "/pair": ["pair.html", "text/html; charset=utf-8"],
     "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
     "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    // A phone paired in its browser sends its own secret on every request (public/app/main.js installs it).
+    "/device-headers.js": ["device-headers.js", "text/javascript; charset=utf-8"],
     "/people": ["people.html", "text/html; charset=utf-8"],
     "/people.js": ["people.js", "text/javascript; charset=utf-8"],
     "/people.css": ["people.css", "text/css; charset=utf-8"],
@@ -3545,6 +3548,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // Checked before the activity below, so a request after the quiet period cannot restart it.
       const lockedOut = app.sessionLock.refusal(request.method, path);
       if (lockedOut) throw new HttpError(423, lockedOut);
+      // Setup polish 2: what setup asks for is first-run configuration, set aside by achievements (src/setup-origin.ts).
+      noteSetupOrigin(request.headers[setupOriginHeader]);
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock" && !onlyLooking) app.sessionLock.touch();

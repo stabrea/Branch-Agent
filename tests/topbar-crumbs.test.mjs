@@ -1,16 +1,16 @@
-/* DG-099: the top bar says where you are, as the approved sample does: the face and name of the computer you are on,
-   "/", then the conversation's title ("New conversation" before its first message) or the place's name. On a phone
-   the name and the "/" give way. Headless only. */
+/* DG-099: the top bar says where you are: in the new window (design/redesign/prototype.html pass 17) a conversation's
+   header names the conversation ("New conversation" before its first message) after Branch's mark, and a place names
+   itself. Headless only. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openPlace } from "./places.mjs";
+import { openPlace } from "./new-window-places.mjs";
 
 async function signedIn(t, width) {
   const root = await mkdtemp(join(tmpdir(), "branch-topbar-crumbs-"));
@@ -32,67 +32,67 @@ async function signedIn(t, width) {
   return { page, errors };
 }
 
-/** What a person sees across the top, left to right, and whether each part is on show. */
+/* Redesign: the prototype's header is not a crumb trail. A conversation's header (the prototype's .head) is Branch's mark,
+   then the conversation's name ("New conversation" before its first message) with its status line under it; a place names
+   itself with its own heading. The computer's name and the "/" between it and the title are not in the prototype, so they
+   are not checked. */
 const crumbs = (page) => page.evaluate(() => {
   const shown = (node) => !!node && node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden"
     && node.getBoundingClientRect().width > 1;
-  const mid = document.getElementById("lx-crumbs-mid"), sep = document.querySelector(".lx-crumbs-sep");
-  const thread = document.getElementById("thread-name"), title = document.getElementById("page-title");
-  const threadWords = thread.textContent.trim() || getComputedStyle(thread, "::before").content.replace(/^"|"$/g, "");
+  const head = [...document.querySelectorAll(".titlebar .head, #main .head")].find((node) => shown(node) && node.querySelector(".who"));
+  const name = head?.querySelector(".who > b");
+  const mark = head?.querySelector(".av.brand .mark-face");
+  const place = [...document.querySelectorAll("#main .place h1")].find(shown);
   return {
-    mark: shown(document.getElementById("lx-crumbs-mark")),
-    mid: shown(mid) ? mid.textContent.trim() : null,
-    sep: shown(sep),
-    title: shown(title) ? title.textContent.trim() : null,
-    thread: shown(thread) ? threadWords : null,
-    order: !!(mid.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING),
-    /* DG-141's second crumb is gone: one mark and at most one "/" on show */
-    marks: [...document.querySelectorAll(".lx-crumbs-mark, .lx-crumb-mark, .lx-crumb-where")].filter(shown).length,
-    slashes: [...title.parentElement.children].filter((node) => node.textContent.trim() === "/" && shown(node)).length,
+    mark: shown(mark),
+    thread: shown(name) ? name.textContent.trim() : null,
+    order: !!(mark && name && mark.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING),
+    title: place ? place.textContent.trim() : null,
+    marks: head ? [...head.querySelectorAll(".av.brand")].filter(shown).length : 0,
   };
 });
 
-test("DG-099 at 1440 px a new conversation reads: this computer / New conversation", async (t) => {
+test("DG-099 at 1440 px a new conversation's header reads: Branch's mark, then New conversation", async (t) => {
   const { page, errors } = await signedIn(t, 1440);
   const now = await crumbs(page);
-  assert.equal(now.mark, true, "the computer's mark leads");
-  assert.ok(now.mid && now.mid.length > 0, "then the computer's name");
-  assert.equal(now.sep, true);
+  assert.equal(now.mark, true, "Branch's mark leads");
   assert.equal(now.title, null, "the place's own heading is not what shows in a conversation");
   assert.equal(now.thread, "New conversation");
-  assert.equal(now.order, true, "the name comes before the title");
-  assert.deepEqual([now.marks, now.slashes], [1, 1], "exactly one crumb");
+  assert.equal(now.order, true, "the mark comes before the title");
+  assert.equal(now.marks, 1, "exactly one mark");
   assert.deepEqual(errors, []);
 });
 
-test("DG-099 a place shows its own name after the computer's", async (t) => {
+test("DG-099 a place shows its own name", async (t) => {
   const { page, errors } = await signedIn(t, 1440);
-  await openPlace(page, "library:memory");
+  await openPlace(page, "library", "memory");
+  await page.locator("#main .place h1").first().waitFor();
   const now = await crumbs(page);
-  assert.ok(now.mid && now.mid.length > 0);
-  assert.equal(now.sep, true);
   assert.match(now.title ?? "", /Library/);
   assert.equal(now.thread, null, "no conversation title outside a conversation");
   assert.deepEqual(errors, []);
 });
 
-test("DG-099 at 400 px the name and the / give way, and the title stays", async (t) => {
+test("DG-099 at 400 px the title stays, and nothing scrolls sideways", async (t) => {
   const { page, errors } = await signedIn(t, 400);
   const now = await crumbs(page);
-  assert.equal(now.mid, null);
-  assert.equal(now.sep, false);
   assert.equal(now.thread, "New conversation");
-  assert.deepEqual([now.marks, now.slashes], [1, 0], "exactly one crumb, its face alone");
+  assert.equal(now.marks, 1, "exactly one mark");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "nothing scrolls sideways");
   assert.deepEqual(errors, []);
 });
 
 test("DG-099 in French the new conversation's title is French", async (t) => {
   const { page, errors } = await signedIn(t, 1440);
+  const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
   await page.evaluate(async () => { await (await import("/i18n.js")).setLanguage("fr"); });
-  await page.waitForFunction(() => getComputedStyle(document.getElementById("thread-name"), "::before").content !== '"New conversation"');
+  // A new conversation in the French window: the header says the French words for it.
+  await page.locator('#side [data-act="newmenu"]').click();
+  await page.locator('.pop [data-act="newconv"]').click();
+  await page.waitForFunction((words) => [...document.querySelectorAll(".head .who > b")].some((node) => node.textContent.trim() === words),
+    french["comfort.field.newConversation"]);
   const now = await crumbs(page);
   assert.notEqual(now.thread, "New conversation");
-  assert.ok(now.thread.length > 3);
+  assert.equal(now.thread, french["comfort.field.newConversation"]);
   assert.deepEqual(errors, []);
 });

@@ -148,8 +148,8 @@ async function phoneLater(page, computer, stamp) {
   await page.locator('.ob9[data-step="5"]').waitFor();
   await page.locator('.ob9 [data-act="pair"]').click();
   await page.locator(".dlg .alt12").waitFor();
-  const link = await page.locator(".dlg .alt12 code:nth-of-type(1)").innerText();
-  const code = (await page.locator(".dlg .alt12 code:nth-of-type(2)").innerText()).replace(/\D/g, "");
+  const link = await page.locator(".dlg #pair-link").inputValue(); // the Link row's read-only field
+  const code = (await page.locator(".dlg #pair-code").innerText()).replace(/\D/g, "");
   const publicKey = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).toString("base64");
   const name = `Phone ${stamp}`;
   const res = await fetch(`${BASE}/api/devices/pair`, { method: "POST", headers: { "content-type": "application/json" },

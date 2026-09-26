@@ -585,6 +585,8 @@ const SHARED_WITH_FRENCH = new Set([
   "version {cur} → {v}", "version {version}", "Hooks", "Trunk", "Local", "Version {value}",
   "{documents} documents · {chunks} passages", "Version", "Agents", "Animation", "Code", "Budgets", "GitLab", "git status",
   "Isolation", "2 min", "3 min", "Guide",
+  // The p17d time choices and a length in milliseconds are spelt the same in French; Teams and webhook are borrowed whole.
+  "1 minute", "3 minutes", "10 minutes", "{ms} ms", "Microsoft Teams (webhook)",
 ]);
 test("Q6 French is a real translation, not the English file under another name", async (t) => {
   const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
