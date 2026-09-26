@@ -251,7 +251,7 @@ export async function workbooksRoute(workbooks: Workbooks, method: string, path:
 
 export function registerWorkbookTools(registry: ToolRegistry, workbooks: Workbooks): void {
   registry.register({
-    name: "workbook.save", permission: "workbooks.write", group: "skills",
+    name: "workbook.save", permission: "workbooks.write", group: "workbook", // its task says "workbook", so this box opens
     description: "Save the behaviour workbook this task was started to write: the source, pages read, and each MUST with its status (pass, fail or unclear), its checks and what really happens. Only the learning task for that workbook can save it.",
     parameters: WorkbookSaveSchema,
     execute: async (input, context: ToolContext) => workbooks.save(input, context),
