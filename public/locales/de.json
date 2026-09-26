@@ -6956,7 +6956,7 @@
   "window.flows.setup.upd-hint": "Es wartet, bis keine Aufgabe läuft, und legt eine Sicherheitskopie an.",
   "window.flows.setup.where": "Wo soll Branch laufen?",
   "window.flows.setup.where-lede": "Die Engine und das Gateway leben hier. Du kannst von überall mit ihm sprechen.",
-  "window.flows.setup.yours-lede": "Zwei schnelle Entscheidungen. Beide lassen sich jederzeit in den Einstellungen ändern.",
+  "window.flows.setup.yours-lede": "Wähle, wie Branch aussieht und wie vorsichtig es ist. Du kannst alles später in den Einstellungen ändern.",
   "window.flows.tmpl.bug": "Fehler nachstellen",
   "window.flows.tmpl.bug-job": "Macht aus einem Fehlerbericht genaue Schritte",
   "window.flows.tmpl.chief": "Stabschef",
