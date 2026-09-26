@@ -31,11 +31,11 @@ async function remove(name) {
   await loadAll();
 }
 
-const VAULT_NAME = { bitwarden: "Bitwarden", onepassword: "1Password" };
+const VAULT_NAME = { bitwarden: "vault-autofill.service.bitwarden", onepassword: "vault-autofill.service.1password" };
 async function chooseVault(v) {
   const service = VAULT_SERVICE[v];
   if (!service) return;
-  try { await api("credentials/settings", { services: [service] }); toast(`Sign-ins now come from ${VAULT_NAME[v]}.`); } catch (error) { toast(error.message); }
+  try { await api("credentials/settings", { services: [service] }); toast(t("window.settings.secrets.sign-ins-now-come-from", { name: t(VAULT_NAME[v]) })); } catch (error) { toast(error.message); }
   await loadAll();
 }
 

@@ -274,8 +274,8 @@ function openAllowAll() {
   const n = allowing.asks.length + allowing.messages.length;
   if (n < 2) return;
   const items = [...allowing.asks, ...allowing.messages].map((x) => `<li>${esc(x.label)}</li>`).join("");
-  openDlg({ title: `Allow all ${n}?`, body: `<ul data-css="margin:0 0 8px">${items}</ul><p data-css="margin:0">Each Trunk still asks next time.</p>`,
-    foot: `<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="allowall-go">Allow all ${n}</button>` });
+  openDlg({ title: t("window.places.inbox.allow-all-question", { count: n }), body: `<ul data-css="margin:0 0 8px">${items}</ul><p data-css="margin:0">${t("window.places.inbox.each-trunk-still-asks")}</p>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("mode.cancel")}</button><button class="btn pri" type="button" data-act="allowall-go">${t("window.places.inbox.allow-all-go", { count: n })}</button>` });
 }
 async function allowAll() {
   const picked = allowing;
@@ -290,7 +290,7 @@ async function allowAll() {
   for (const m of picked.messages) {
     try { await api(`trunks/messages/${encodeURIComponent(m.id)}/answer`, {}); } catch (error) { failed++; toast(error.message); }
   }
-  if (!failed) toast("All allowed.");
+  if (!failed) toast(t("window.places.inbox.all-allowed"));
   asks = ((await api("policy").catch(sayOnce)).waiting ?? []).filter((q) => !q.parentRunId);
   await refresh().catch((error) => toast(error.message));
   renderNow();

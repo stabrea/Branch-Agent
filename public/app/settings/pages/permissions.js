@@ -55,11 +55,12 @@ async function load() {
    wrong rule. Both save the list as the owner's own (the preset reads "custom" afterwards) and are refused under
    Lockdown. Move up stays greyed: the engine has no route that moves one rule, and moving an allow above a refusal
    would loosen the list with nothing asking first. */
-const PILLS = { allow: ["ok", "Allow"], ask: ["idle", "Ask"], deny: ["bad", "Never"] };
+const PILLS = { allow: ["ok", "window.settings.permissions.rule-allow"], ask: ["idle", "window.settings.permissions.rule-ask"], deny: ["bad", "window.settings.permissions.rule-never"] };
 function ruleRows() {
   const rows = P.rules.map(({ index, rule, sentence }) => {
-    const [tone, word] = PILLS[rule.decision] ?? ["idle", rule.decision];
-    return `<div class="prow rule15"><span class="pill ${tone}">${esc(word)}</span><span class="grow"><b>${esc(sentence)}</b><small>rule ${index + 1}</small></span><button class="icon-btn" type="button" aria-label="Move up" data-act="rule-up8">${ic("up", "s")}</button><button class="icon-btn" type="button" aria-label="Remove" data-act="rule-rm8" data-i="${index}">${ic("x", "s")}</button></div>`;
+    const [tone, key] = PILLS[rule.decision] ?? ["idle", null];
+    const word = key ? t(key) : rule.decision;
+    return `<div class="prow rule15"><span class="pill ${tone}">${esc(word)}</span><span class="grow"><b>${esc(sentence)}</b><small>${esc(t("window.settings.permissions.rule-n", { n: index + 1 }))}</small></span><button class="icon-btn" type="button" aria-label="${t("accounts.action.up")}" data-act="rule-up8">${ic("up", "s")}</button><button class="icon-btn" type="button" aria-label="${t("accounts.action.remove")}" data-act="rule-rm8" data-i="${index}">${ic("x", "s")}</button></div>`;
   });
   return `<div class="rows">${rows.join("")}</div>`;
 }
@@ -76,9 +77,10 @@ function ruleFor(text, decision) {
 }
 const NEW = { decision: "ask" };
 function addDlg() {
-  const seg = [["allow", "Allow"], ["ask", "Ask"], ["deny", "Never"]].map(([v, l]) => `<button type="button" aria-pressed="${NEW.decision === v}" data-act="rule-dec8" data-v="${v}">${l}</button>`).join("");
-  openDlg({ title: "Add a rule", body: `<p class="lead-b17">New rule: pick a tool, a folder or site, and allow, ask or never.</p><div class="test-b17"><input class="inp" id="rule-new8" value="${esc(NEW.text ?? "")}" aria-label="Command, file or site"></div><span class="seg" role="group" aria-label="Add a rule">${seg}</span>`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="rule-save8">Add a rule</button>' });
+  const seg = Object.entries(PILLS).map(([v, [, key]]) => `<button type="button" aria-pressed="${NEW.decision === v}" data-act="rule-dec8" data-v="${v}">${t(key)}</button>`).join("");
+  const add = t("window.settings.permissions.add-a-rule");
+  openDlg({ title: add, body: `<p class="lead-b17">${t("window.settings.permissions.new-rule-pick")}</p><div class="test-b17"><input class="inp" id="rule-new8" value="${esc(NEW.text ?? "")}" aria-label="${t("window.settings.p17-permissions.command-file-or-site")}"></div><span class="seg" role="group" aria-label="${add}">${seg}</span>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("mode.cancel")}</button><button class="btn pri" type="button" data-act="rule-save8">${add}</button>` });
 }
 async function addRule() {
   const rule = ruleFor(document.getElementById("rule-new8")?.value ?? "", NEW.decision);

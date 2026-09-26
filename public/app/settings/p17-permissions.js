@@ -145,8 +145,8 @@ async function setReviewer(on, confirmLoosening = false) {
   } catch (error) {
     // Turning it off without the owner's yes: the engine says what would loosen, and the owner decides here.
     if (!on && !confirmLoosening && /less careful/.test(error.message)) {
-      openDlg({ title: "A second look before approvals", body: `<p data-css="margin:0">${esc(error.message)}</p>`,
-        foot: '<button class="btn ghost" type="button" data-act="revkeepb17">Cancel</button><button class="btn pri" type="button" data-act="revoffb17">Turn it off</button>' });
+      openDlg({ title: t("settings-kit.name.reviewer"), body: `<p data-css="margin:0">${esc(error.message)}</p>`,
+        foot: `<button class="btn ghost" type="button" data-act="revkeepb17">${t("mode.cancel")}</button><button class="btn pri" type="button" data-act="revoffb17">${t("window.settings.p17-permissions.turn-it-off")}</button>` });
     } else toast(error.message);
   }
   await load17();
