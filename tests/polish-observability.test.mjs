@@ -776,7 +776,8 @@ test("G1 the allowed list shows a grant with its expiry, and taking it back remo
   await api("POST", "/api/policy", { preset: "ask-before-changes" });
   const paused = (await api("POST", "/api/run", { prompt: "write it" })).body;
   assert.equal(paused.status, "needs_input");
-  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "session" });
+  // Q257: an answer names the request it was shown for; a bare one is refused.
+  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, fingerprint: app.runtime.approvals.questionFor(paused.sessionId)?.fingerprint, decision: "allow", remember: "session" });
 
   const listed = (await api("GET", `/api/rules/allowed?session=${paused.sessionId}`)).body;
   assert.equal(listed.grants.length, 1);
