@@ -78,6 +78,15 @@ function modelMenu() {
   return `<div class="ph">Which model answers</div>${rows}${think}${mi("setgo", "users", "Accounts and order…", "", 'data-v="accounts"')}`;
 }
 
+/* The menu offers what the conversation's model takes now: the model is read again as it opens (it may have been changed
+   from Settings or another window since the chips were last read), and the chip is redrawn with it. */
+async function openModelMenu(el) {
+  if (el.getAttribute("aria-expanded") === "true") return openPop(el, modelMenu()); // its own button closes it
+  M.sid = undefined;
+  await loadChips();
+  openPop(document.querySelector('[data-act="modelmenu2"]') ?? el, modelMenu());
+}
+
 function modeMenu() {
   const cur = modeNow(), locked = !!M.mode?.locked;
   const rows = PMODES.map(([id, n, d, icon], i) => {
@@ -124,7 +133,7 @@ async function switchLockdown(on) {
 
 export function initChips() {
   markLive(["modelmenu2", "modemenu2", "pick-model", "pick-think", "set-mode", "sw:pm-lock2"]);
-  on("modelmenu2", (el) => openPop(el, modelMenu()));
+  on("modelmenu2", (el) => openModelMenu(el));
   on("modemenu2", (el) => openPop(el, modeMenu()));
   on("pick-model", (el) => saveModel({ preset: el.dataset.v }));
   on("pick-think", (el) => saveModel({ reasoning: el.dataset.v }));
