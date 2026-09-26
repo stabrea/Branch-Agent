@@ -69,7 +69,8 @@ test("code.patch across an allowed and a refused file is refused naming the refu
 });
 
 test("code.patch whose files are all allowed goes through as before", async (t) => {
-  const provider = scripted([call("code.patch", { patch: srcPart }), say("done")]);
+  // Q250: read before edit ships on, so the model reads the file before it patches it.
+  const provider = scripted([call("files.read", { path: "src/a.ts" }), call("code.patch", { patch: srcPart }), say("done")]);
   const { app, workspace } = await fixture(t, { provider });
   financeRule(app);
   const run = await app.runtime.run({ prompt: "patch it" });

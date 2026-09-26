@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -319,13 +319,31 @@ async function readFirstFixture(t, steps, mode = "on") {
 const fileText = async (workspace, name) => (await import("node:fs/promises")).readFile(join(workspace, name), "utf8");
 const edit = (find, replace) => call("files.edit", { path: "a.txt", find, replace });
 
-test("1 read-first ships off: an edit to an unread file goes through as before", async (t) => {
+test("1 read-first ships on (Q250), and switched off an edit to an unread file goes through as before", async (t) => {
   const { codingMode } = await import("../dist/coding/settings.js");
   const { app, workspace } = await readFirstFixture(t, [edit("one", "two"), say("done")], "off");
-  assert.equal(codingMode({ get: () => undefined }, "local", "read-first"), "off");
+  assert.equal(codingMode({ get: () => undefined }, "local", "read-first"), "on", "a fresh install holds edits to it");
+  assert.equal(codingMode({ get: () => ({ data: { other: 1 } }) }, "local", "read-first"), "on", "a record the owner never switched");
+  assert.equal(codingMode(app.store, "local", "read-first"), "off", "the owner's off is kept");
   const run = await app.runtime.run({ prompt: "change it" });
   assert.equal(toolMessages(app, run)[0].ok, true);
   assert.equal(await fileText(workspace, "a.txt"), "two\n");
+});
+
+test("1 read-first on (Q250): a saved recipe's step and a manual action are not held", async (t) => {
+  const { app, workspace } = await readFirstFixture(t, [say("done")]);
+  const context = app.runtime.context();
+  // A verified recipe that overwrites a file that is already there: each replay writes it, from the second run on too.
+  const recipe = app.knowledge.proposeProcedure(context, { name: "write a", preconditions: [],
+    steps: [{ tool: "files.write", args: { path: "a.txt", content: "from the recipe\n" }, expected: { path: "a.txt", bytes: 16 } }] });
+  assert.equal((await app.knowledge.verifyProcedure(context, recipe.id)).data.status, "verified");
+  assert.equal(await fileText(workspace, "a.txt"), "from the recipe\n");
+  await writeFile(join(workspace, "a.txt"), "changed since\n");
+  await app.knowledge.replayProcedure(context, recipe.id);
+  assert.equal(await fileText(workspace, "a.txt"), "from the recipe\n", "the replay wrote over a file it never read");
+  // A manual action (a workflow's step, a button in the window) is one call and a task of its own.
+  await app.runtime.executeTool("files.write", { path: "a.txt", content: "by hand\n" }, { mode: "owner" });
+  assert.equal(await fileText(workspace, "a.txt"), "by hand\n");
 });
 
 test("1 read-first on: an unread file is refused, in a sentence that says to read it first", async (t) => {

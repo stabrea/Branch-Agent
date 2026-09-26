@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { saveCodingMode } from "../dist/coding/settings.js";
 
 const say = (content) => ({ content, toolCalls: [] });
 const call = (name, args, id = "c1") => ({ content: "", toolCalls: [{ id, name, arguments: JSON.stringify(args) }] });
@@ -282,6 +283,9 @@ test("with new skills on, a finished task that used three tools drafts once per 
     newSkill: () => answer,
     task: (request) => steps[Math.min(request.messages.filter((m) => m.role === "tool").length, steps.length - 1)],
   });
+  // Q250: read before edit ships on. This test is about when a skill is drafted, not that guard, and its
+  // scripted model writes a.txt again in later tasks without reading it first.
+  saveCodingMode(app.store, app.runtime.owner, "read-first", "off");
   app.learningLoop.configure({ newSkills: "on" });
   const first = await app.runtime.run({ prompt: "write and check a note file" });
   await settle(app);

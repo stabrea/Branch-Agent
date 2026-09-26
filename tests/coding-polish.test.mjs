@@ -43,9 +43,10 @@ async function fixture(t, provider = scripted()) {
   return { app, root, workspace, put, on, context: (extra = {}) => ({ ...app.runtime.context({ runId: app.store.createRun(app.runtime.owner, "test").id }), ...extra }) };
 }
 
-test("every part ships off, its tools are left out, and the three-way switch loads or hides them", async (t) => {
+test("every part but read-first ships off, its tools are left out, and the three-way switch loads or hides them", async (t) => {
   const { app } = await fixture(t);
-  for (const part of codingParts) assert.equal(app.coding.modes()[part], "off", `${part} is off on a fresh install`);
+  // Q250: read-first, a guard that only makes things stricter, ships on under the owner's "what ships on" rule.
+  for (const part of codingParts) assert.equal(app.coding.modes()[part], part === "read-first" ? "on" : "off", `${part} as shipped`);
   const all = codingParts.flatMap((part) => codingTools[part]);
   for (const name of all) assert.equal(app.registry.names().includes(name), false, `${name} is not listed while off`);
   app.coding.setMode("notebooks", "when-needed");

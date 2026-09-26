@@ -3,7 +3,8 @@ import type { Store } from "../store.js";
 
 /**
  * Bucket R17-D (wave mac7): "coding polish". Each part has the owner's three-way switch — off, when
- * needed, on — kept in a settings record of its own, and every one ships off.
+ * needed, on — kept in a settings record of its own. Every part ships off except `read-first`, a guard
+ * that only makes things stricter, which ships on (Q250, the owner's "what ships on" rule).
  *
  *   off          the part does nothing and refuses in one plain sentence; its tools are not listed
  *   when-needed  it works, and its tools are a line in the index until the work calls for them
@@ -70,8 +71,14 @@ export const codingToolFeatures: readonly (readonly [string, string, readonly st
   .filter((part) => codingTools[part].length > 0)
   .map((part) => [codingKey(part), `${codingLabels[part].charAt(0).toLowerCase()}${codingLabels[part].slice(1)} is switched on`, codingTools[part]] as const);
 
+/** Q250: the parts that ship on. A part the owner has never switched is in the mode named here. */
+const shipsOn: ReadonlySet<CodingPart> = new Set<CodingPart>(["read-first"]);
+export const codingDefault = (part: CodingPart): CodingMode => (shipsOn.has(part) ? "on" : "off");
+
 export function codingMode(store: Pick<Store, "get">, owner: string, part: CodingPart): CodingMode {
-  const saved = RecordSchema.safeParse(store.get("settings", owner, codingKey(part))?.data ?? {});
+  const data = (store.get("settings", owner, codingKey(part))?.data ?? {}) as Record<string, unknown>;
+  if (data.mode === undefined) return codingDefault(part);
+  const saved = RecordSchema.safeParse(data);
   return saved.success ? saved.data.mode : "off";
 }
 

@@ -611,12 +611,15 @@ test("a checkpoint keeps the exact bytes of what changed, and puts them all back
   const { app, workspace } = await fixture(t);
   await put(workspace, "notes.txt", "first\n");
   const { runId, context } = conversation(app);
+  const readIt = () => app.registry.execute("files.read", { path: "notes.txt" }, context); // Q250: read before edit ships on
 
+  await readIt();
   await app.registry.execute("files.write", { path: "notes.txt", content: "second\n" }, context);
   const point = await app.registry.execute("workspace.checkpoint", { label: "after the second draft" }, context);
   assert.equal(point.label, "after the second draft");
   assert.equal(point.files, 1, "only the file that changed is in the point");
 
+  await readIt();
   await app.registry.execute("files.write", { path: "notes.txt", content: "third\n" }, context);
   assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "third\n");
 
@@ -642,8 +645,11 @@ test("undo and redo walk back and forward through this conversation's changes", 
   await put(workspace, "song.txt", "one\n");
   const { context } = conversation(app);
   const read = () => readFile(join(workspace, "song.txt"), "utf8");
+  const readIt = () => app.registry.execute("files.read", { path: "song.txt" }, context); // Q250: read before edit ships on
 
+  await readIt();
   await app.registry.execute("files.write", { path: "song.txt", content: "two\n" }, context);
+  await readIt();
   await app.registry.execute("files.write", { path: "song.txt", content: "three\n" }, context);
   assert.equal(await read(), "three\n");
 

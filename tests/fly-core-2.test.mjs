@@ -19,6 +19,7 @@ import { advisedFacts, advisedPreload, advisedSkills, postAdvice, preloadReason,
 import { suggestToolName } from "../dist/fly-core/settings.js";
 import { switchedOffAnswer } from "../dist/fly-core/tool.js";
 import { inspectRun } from "../dist/inspect.js";
+import { saveCodingMode } from "../dist/coding/settings.js";
 
 /**
  * The learning core, version 2: its advice changes what a task starts with when the switch is on,
@@ -44,6 +45,8 @@ const writeThenRead = () => scripted([
 async function fixture(t, mode = "on", provider = writeThenRead()) {
   const root = await mkdtemp(join(tmpdir(), "branch-fly-core-2-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  // Q250: read-before-edit ships on. This test is about what the learning core learns, not that guard, and its scripted model changes a file it never read.
+  saveCodingMode(app.store, app.runtime.owner, "read-first", "off");
   if (mode !== "off") app.learningCore.configure({ mode });
   t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root };

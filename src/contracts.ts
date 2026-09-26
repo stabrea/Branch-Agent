@@ -347,6 +347,13 @@ export interface ToolContext {
    */
   askable?: boolean;
   /**
+   * Q250: a step Branch runs as it was saved or asked for, not a model's own call: a verified recipe's
+   * step, or a manual action (a workflow's or flow's step, a button in the window). Its arguments were
+   * fixed before it ran, and a manual action is a task of its own, so nothing it could read first would
+   * count. The read-before-edit guard (src/coding/read-first.ts) does not hold it.
+   */
+  readFirstExempt?: boolean;
+  /**
    * mac7/tests-unattended: nobody can answer a question while this task runs — a script's
    * `branch run` or `branch headless` with no terminal to ask in. Only the "Let Branch run this
    * project's tests?" question reads it: the tests are skipped and the task carries on, instead of

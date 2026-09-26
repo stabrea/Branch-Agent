@@ -15,6 +15,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openPlace } from "./places.mjs";
+import { saveCodingMode } from "../dist/coding/settings.js";
 
 const call = (name, args) => ({ content: "", toolCalls: [{ id: `c${Math.random().toString(36).slice(2, 8)}`, name, arguments: JSON.stringify(args) }] });
 function writeThenRead() {
@@ -30,6 +31,9 @@ async function fixture(t, width = 1440) {
   const workspace = join(root, "workspace");
   await mkdir(workspace, { recursive: true });
   const app = await createBranch({ workspace, dataDir: join(root, "data"), provider: writeThenRead() });
+  // Q250: read before edit ships on. These tests are about what the learning core shows, not that guard, and
+  // their scripted model writes the same note again without reading it first.
+  saveCodingMode(app.store, app.runtime.owner, "read-first", "off");
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });

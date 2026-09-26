@@ -14,6 +14,7 @@ import { FlyCore, patternSuccesses, watchTask } from "../dist/fly-core/hook.js";
 import { FlyState, maximumPatterns } from "../dist/fly-core/state.js";
 import { suggestToolName } from "../dist/fly-core/settings.js";
 import { inferToolGroup } from "../dist/catalog.js";
+import { saveCodingMode } from "../dist/coding/settings.js";
 
 /**
  * The learning core (src/fly-core): a sparse code for the situation, three-factor learning at the
@@ -41,6 +42,8 @@ async function fixture(t, provider, mode = "on") {
   const root = await mkdtemp(join(tmpdir(), "branch-fly-core-"));
   const open = () => createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   const app = await open();
+  // Q250: read-before-edit ships on. This test is about what the learning core learns, not that guard, and its scripted model changes a file it never read.
+  saveCodingMode(app.store, app.runtime.owner, "read-first", "off");
   if (mode !== "off") app.learningCore.configure({ mode });
   const state = { app };
   t.after(async () => { await state.app.close(); await discardTemp(root); });

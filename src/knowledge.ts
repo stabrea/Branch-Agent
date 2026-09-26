@@ -241,7 +241,7 @@ export class Knowledge {
       const result = await executeTracedTool(
         this.registry,
         this.store,
-        { ...unwalled, ...scopeOf(this.runtime, step.tool, step.args, context, checks[index]!) },
+        { ...unwalled, ...scopeOf(this.runtime, step.tool, step.args, context, checks[index]!), readFirstExempt: true }, // Q250
         step.tool,
         step.args,
         { ...source, index },

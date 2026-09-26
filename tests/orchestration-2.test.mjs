@@ -297,6 +297,9 @@ test("code.patch shows the whole change first, then writes it all at once and ke
 
   assert.equal(await readFile(join(workspace, "one.txt"), "utf8"), "first\n", "a dry run writes nothing");
 
+  // Q250: read before edit ships on, so the task reads both files before the patch lands.
+  for (const path of ["one.txt", "two.txt"]) await app.registry.execute("files.read", { path }, context);
+
   const applied = await app.registry.execute("code.patch", { patch }, context);
 
   assert.equal(applied.applied, true);
@@ -409,6 +412,9 @@ test("a change set names its files for one approval, is all-or-nothing, and repo
 
     { enabled: true, command: process.execPath, args: ["--check", join(workspace, "ok.mjs")], timeoutMs: 20000 });
 
+  const readBoth = async () => { for (const path of ["a.txt", "b.txt"]) await app.registry.execute("files.read", { path }, context); };
+  await readBoth(); // Q250: read before edit ships on
+
   const result = await app.registry.execute("code.change_set", { reason: "tidy up", edits }, context);
 
   assert.equal(result.applied, true);
@@ -418,6 +424,8 @@ test("a change set names its files for one approval, is all-or-nothing, and repo
   assert.equal(result.check.ok, true, `check said: ${JSON.stringify(result.check)}`);
 
   assert.equal(await readFile(join(workspace, "a.txt"), "utf8"), "keep ALPHA\n");
+
+  await readBoth();
 
   await assert.rejects(
 
@@ -435,11 +443,19 @@ test("what the project's check said reaches the assistant's next round", async (
 
   let asked = 0;
 
+  let round = 0;
+
   const { app } = await fixture(t, ({ last }) => {
 
-    if (last.role === "tool") { asked++; return say(`the check said: ${JSON.parse(last.content).result.check.ok}`); }
+    round++;
 
-    return call("code.patch", { patch: patchFor("one.txt", ["first"], ["FIRST"]) });
+    // Q250: read before edit ships on, so the assistant reads the file before it patches it.
+
+    if (round === 1) return call("files.read", { path: "one.txt" });
+
+    if (round === 2) return call("code.patch", { patch: patchFor("one.txt", ["first"], ["FIRST"]) });
+
+    asked++; return say(`the check said: ${JSON.parse(last.content).result.check.ok}`);
 
   });
 
