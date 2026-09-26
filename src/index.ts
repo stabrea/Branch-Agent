@@ -95,6 +95,8 @@ import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
 import { JevDecisions, registerJevDecisions, type JevRunner } from "./jev-decisions.js";
+import { DecisionModels } from "./decision-models.js"; // P17-D §4
+import type { ShapedAnswer } from "./answer-shape.js"; // P17-D §4
 // Wave mac5 (local models): one-click models on this computer, restored and resumed at start.
 import { localKitFor, startLocalModels } from "./local-kit.js";
 import type { Provider } from "./contracts.js";
@@ -525,6 +527,17 @@ export async function createBranch(options: {
   );
   const decisions = new JevDecisions(store, runtime.owner, options.jev?.runner);
   registerJevDecisions(registry, decisions);
+  // P17-D §4: small decisions on the owner's own connections, asked with no tools (src/decision-models.ts).
+  const decisionModels = new DecisionModels(store, runtime.owner, runtime.models, async (text, shape, preset) => {
+    const run = store.createRun(runtime.owner, "Making a small decision", undefined, false, "owner");
+    let answer: ShapedAnswer | undefined;
+    try {
+      answer = await runtime.shaped(run, runtime.context({ runId: run.id, permissions: [], signal: AbortSignal.timeout(60_000) }), text, shape, preset);
+      return answer;
+    } finally {
+      store.finish(run.id, answer?.status === "resolved" ? "completed" : "failed", answer?.status === "refused" ? answer.reason : "");
+    }
+  });
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
   // FQ-execution.browser: a tool's own steps (a browser.flow click) are judged as the tool they stand for.
   registry.judgeStep = (tool, args, context, target, index) => runtime.judgeStep(tool, args, context, target, index);
@@ -1377,6 +1390,8 @@ export async function createBranch(options: {
     learn,
     /** Optional, owner-controlled typed judgments from JEV; off until explicitly enabled. */
     decisions,
+    /** P17-D §4: small decisions on the owner's own connections (src/decision-models.ts). */
+    decisionModels,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {

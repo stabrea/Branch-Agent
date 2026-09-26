@@ -1064,6 +1064,17 @@ async function api(
       request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
       throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
     });
+  // P17-D §4: decision models on the owner's own connections. Reading names the connections; deciding asks a model.
+  if (path === "/api/decisions" || path === "/api/decisions/settings" || path === "/api/decisions/decide") {
+    app.store.profiles.requireOwner("Decision models");
+    if (path === "/api/decisions") {
+      if (request.method === "GET") return app.decisionModels.overview();
+      throw new HttpError(405, "Use GET here.");
+    }
+    if (request.method !== "POST") throw new HttpError(405, "Use POST here.");
+    const body = await readBody(request, 256 * 1024);
+    return path === "/api/decisions/settings" ? { settings: app.decisionModels.configure(body) } : app.decisionModels.decide(body);
+  }
   // Optional JEV decisions are the owner's: even reading this card names a local program and provider.
   if (path === "/api/jev") {
     app.store.profiles.requireOwner("JEV decision support");

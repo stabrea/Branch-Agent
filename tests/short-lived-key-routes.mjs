@@ -65,6 +65,11 @@ export const ROUTES = {
   "/api/agents/remote/remove": "owner POST",
   "/api/approval-reviewer": "owner POST",
   "/api/jev": "secret-read",
+  // P17-D §4: decision models. Reading names the connections (as /api/models does); changing them and deciding,
+  // which asks a model, are the owner's.
+  "/api/decisions": "look",
+  "/api/decisions/settings": "owner POST",
+  "/api/decisions/decide": "owner POST",
   "/api/approvals/categories": "owner POST",
   "/api/artifacts": "look",
   "/api/artifacts/file": "look",
