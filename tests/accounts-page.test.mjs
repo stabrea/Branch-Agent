@@ -94,7 +94,7 @@ test("A2 a new key can be given to a Trunk, saved on the Trunk, and a sign-in ne
   await open();
   await openSettingsPage(page, "accounts");
   await page.locator('[data-act="addacct"][data-v="openai-work"]').click();
-  await page.getByLabel("Key", { exact: true }).fill("sk-sample-scout-0000000007");
+  await page.getByLabel("Key", { exact: true }).fill("test-key-not-real-sample-0000");
   await page.getByRole("button", { name: "Add key", exact: true }).click();
   await page.locator(`.dlg [data-act="aa-tr"][data-v="${trunk.id}"]`).click();
   await page.locator(`.dlg [data-act="aa-tr"][data-v="${trunk.id}"][aria-pressed="true"]`).waitFor();
@@ -104,7 +104,7 @@ test("A2 a new key can be given to a Trunk, saved on the Trunk, and a sign-in ne
   const scoutKey = (await call("/api/accounts")).body.pools.find((pool) => pool.pool === "openai-work").accounts.find((account) => account.label === "Scout key");
   assert.ok(scoutKey, "the engine kept the new key");
   assert.equal(app.trunks.records.get(trunk.id).keys.accounts["openai-work"], scoutKey.id);
-  assert.equal((await page.content()).includes("sk-sample-scout-0000000007"), false, "the key is never on the page");
+  assert.equal((await page.content()).includes("test-key-not-real-sample-0000"), false, "the key is never on the page");
   // A sign-in account is never used for a Trunk (src/trunks/accounts.ts), so it is never saved as one's pick.
   await page.locator('[data-act="addacct"][data-v="cli-claude-code"]').click();
   // For a sign-in, the Trunk chip is drawn disabled on purpose (#326): it cannot be picked at all.
