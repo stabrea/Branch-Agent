@@ -35,6 +35,12 @@ async function fixture(t, width = 1440) {
   // their scripted model writes the same note again without reading it first.
   saveCodingMode(app.store, app.runtime.owner, "read-first", "off");
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width, height: 1000 } });
@@ -51,7 +57,8 @@ async function fixture(t, width = 1440) {
   return { page, errors, app, connect };
 }
 
-test("L1 the card is in Library → Memory and nowhere else, and it starts off", async (t) => {
+test.skip("L1 the card is in Library → Memory and nowhere else, and it starts off", async (t) => {
+  // Redesign: replaced by the new window (prototype.html and BRANCH-DESIGN-INTENT.md have no "What Branch learns from experience" card; Library › Memory draws the ring, Tidy up and the facts).
   const { page, errors } = await fixture(t);
   const card = page.locator("#learning-core");
   await openPlace(page, "library:memory");
@@ -64,7 +71,8 @@ test("L1 the card is in Library → Memory and nowhere else, and it starts off",
   assert.deepEqual(errors, []);
 });
 
-test("L2 the switch saves as it moves, what was learned reads as sentences, and forgetting asks first", async (t) => {
+test.skip("L2 the switch saves as it moves, what was learned reads as sentences, and forgetting asks first", async (t) => {
+  // Redesign: replaced by the new window (prototype.html and BRANCH-DESIGN-INTENT.md have no "What Branch learns from experience" card; Library › Memory draws the ring, Tidy up and the facts).
   const { page, errors, app } = await fixture(t);
   await openPlace(page, "library:memory");
   await page.locator("#learning-core-mode").selectOption("on");
@@ -88,7 +96,8 @@ test("L2 the switch saves as it moves, what was learned reads as sentences, and 
   assert.deepEqual(errors, []);
 });
 
-test("L3 at 400 px it keeps its shape and nothing scrolls sideways", async (t) => {
+test.skip("L3 at 400 px it keeps its shape and nothing scrolls sideways", async (t) => {
+  // Redesign: replaced by the new window (prototype.html and BRANCH-DESIGN-INTENT.md have no "What Branch learns from experience" card; Library › Memory draws the ring, Tidy up and the facts).
   const { page, errors } = await fixture(t, 400);
   await openPlace(page, "library:memory");
   await page.locator("#learning-core").waitFor({ state: "visible" });
@@ -104,7 +113,8 @@ test("L3 at 400 px it keeps its shape and nothing scrolls sideways", async (t) =
   assert.deepEqual(errors, []);
 });
 
-test("L4 every word has a key and real French, and the card is drawn again in French", async (t) => {
+test.skip("L4 every word has a key and real French, and the card is drawn again in French", async (t) => {
+  // Redesign: replaced by the new window (prototype.html and BRANCH-DESIGN-INTENT.md have no "What Branch learns from experience" card; Library › Memory draws the ring, Tidy up and the facts). The new window has no data-t keys or French either.
   const { page, errors } = await fixture(t);
   const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#learning-core h2, #learning-core p, #learning-core label, #learning-core option, #learning-core button")]
     .filter((node) => node.textContent.trim() && !node.dataset.t && node.getAttribute("role") !== "status").map((node) => node.textContent.trim()));
@@ -123,7 +133,8 @@ test("L4 every word has a key and real French, and the card is drawn again in Fr
   assert.deepEqual(errors, []);
 });
 
-test("L5 accepting a skill idea opens the skill editor on a draft, and Look inside says what was chosen first", async (t) => {
+test.skip("L5 accepting a skill idea opens the skill editor on a draft, and Look inside says what was chosen first", async (t) => {
+  // Redesign: replaced by the new window (Library › Memory lists no skill ideas to accept, and prototype.html's "Look inside" shows the model, words of context, time and cost, not which tools were chosen first).
   const { page, errors, app } = await fixture(t);
   app.learningCore.configure({ mode: "on" });
   let last;

@@ -14,6 +14,12 @@ async function fixture(t, width) {
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
     provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } } });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: "reduce" });
@@ -26,7 +32,8 @@ async function fixture(t, width) {
   return { app, page, errors };
 }
 
-test("the owner configures advisory JEV decisions without giving Branch a credential", async (t) => {
+test.skip("the owner configures advisory JEV decisions without giving Branch a credential", async (t) => {
+  // Redesign: replaced by the new window (neither prototype.html nor BRANCH-DESIGN-INTENT.md has a JEV decision support card; Settings › Advanced draws the prototype's sections only).
   const f = await fixture(t, 400);
   await openSettings(f.page, "advanced");
   const card = f.page.locator("#jev-decisions-card");

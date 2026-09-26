@@ -30,6 +30,12 @@ async function fixture(t, seed) {
   const provider = { name: "context-ui-fixture", complete: async () => ({ content: "Done", toolCalls: [] }) };
   const app = await createBranch({ workspace, dataDir: join(root, "data"), provider });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -53,7 +59,8 @@ const homes = [
   ["context-tools-file", "customize:skills"],
 ];
 
-test("each switch is on the screen that already owns its subject, not on a screen of its own", async (t) => {
+test.skip("each switch is on the screen that already owns its subject, not on a screen of its own", async (t) => {
+  // Redesign: replaced by the new window (prototype.html lists every one of these files in one place, Settings › Instructions & personality, as rows with Edit; there is no per-screen switch card).
   const { page, errors } = await fixture(t);
   await page.locator("#context-assistant").waitFor({ state: "attached", timeout: 15000 });
 
@@ -69,7 +76,8 @@ test("each switch is on the screen that already owns its subject, not on a scree
   assert.deepEqual(errors, []);
 });
 
-test("every switch starts off, and the one you change is the one that is saved", async (t) => {
+test.skip("every switch starts off, and the one you change is the one that is saved", async (t) => {
+  // Redesign: replaced by the new window (prototype.html's file rows carry no Off / When needed / On switch; a file is read once it has words in it).
   const { page, errors, app } = await fixture(t,
     (workspace) => writeFile(join(workspace, "AGENTS.md"), "Ask before you rename anything.", "utf8"));
   await openSettings(page, "general");
@@ -89,7 +97,8 @@ test("every switch starts off, and the one you change is the one that is saved",
   assert.deepEqual(errors, []);
 });
 
-test("the cards hold their shape at 400 px, and nothing scrolls sideways", async (t) => {
+test.skip("the cards hold their shape at 400 px, and nothing scrolls sideways", async (t) => {
+  // Redesign: replaced by the new window (the switch cards are not drawn; the instruction files editor at 390 px is checked in agent-files.test.mjs F4).
   const { page, errors } = await fixture(t);
   await page.setViewportSize({ width: 400, height: 900 });
   await openSettings(page, "assistant");
@@ -108,7 +117,8 @@ test("the cards hold their shape at 400 px, and nothing scrolls sideways", async
   assert.deepEqual(errors, []);
 });
 
-test("every word on these cards can be said in French", async (t) => {
+test.skip("every word on these cards can be said in French", async (t) => {
+  // Redesign: replaced by the new window (the switch cards are not drawn, and the new window has no data-t keys or /i18n.js).
   const { page, errors } = await fixture(t);
   await page.locator("#context-assistant").waitFor({ state: "attached", timeout: 15000 });
   const missing = await page.evaluate((ids) => {

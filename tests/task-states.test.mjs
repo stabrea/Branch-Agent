@@ -9,6 +9,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { signIn } from "./new-window-places.mjs";
 import { discardTemp } from "./temp-dir.mjs";
 import { runActivity, staleAfterMs, taskState } from "../dist/activity.js";
 import { createBranch, saveKnobs } from "../dist/index.js";
@@ -135,38 +136,35 @@ test("Q51 the task list shows the one that waits for you; the busy count and oth
 
 test("Q51 the Activity pane reads the state in words, with no moving bar for a task that waits", async (t) => {
   const { server, asking } = await branch(t);
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 }, reducedMotion: "reduce" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await signIn(page, server);
   errors.length = 0; // what failed before the key was given is the login page's business
-  /* The pane's own task list, as drawn: open the pane and read its rows. */
-  await page.evaluate(async () => {
-    const { applyAppearance, currentAppearance } = await import("/appearance.js");
-    applyAppearance({ ...currentAppearance(), showEverything: true });
-  });
-  await page.locator("#aside-toggle").click();
-  await page.waitForFunction(() => document.body.classList.contains("lx-aside"));
-  await page.locator('#context-tasks [data-task-state="waiting-owner"]').waitFor({ state: "attached", timeout: 15000 });
-  const rows = await page.evaluate(() => [...document.querySelectorAll("#context-tasks [data-task-state]")].map((row) => ({
-    state: row.dataset.taskState, text: row.textContent, bar: !!row.querySelector(".progress"), when: row.querySelector(".task-when")?.textContent ?? "" })));
-  const waiting = rows.find((row) => row.state === "waiting-owner"), busy = rows.find((row) => row.state === "working");
-  assert.ok(waiting.text.includes("Waiting for your answer: Move 41 photos?"), waiting.text);
-  assert.match(waiting.when, /^Updated \d+ (s|min) ago$/);
-  assert.equal(waiting.bar, false, "no moving bar for a task that waits");
-  assert.ok(busy.text.includes("Reading notes.md") && busy.bar, "a working task keeps its step and its bar");
-  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
-  const french = await page.evaluate(async (id) => {
-    const { taskWords } = await import("/task-state.js");
-    const response = await fetch("/api/activity?waiting=1", { headers: { authorization: `Bearer ${sessionStorage.getItem("branch-token")}` } });
-    return taskWords((await response.json()).find((item) => item.runId === id).task);
-  }, asking.id);
-  assert.equal(french, "En attente de votre réponse : Move 41 photos?", "French puts a space before the colon");
+  /* Redesign: the new window's list of tasks is the status bar's "running" popover (data-act="tasks10",
+     public/app/shell/usage.js tasksPop): a spinner while a task works, a clock while it waits, and what it is doing. */
+  await page.locator('[data-act="tasks10"]').click();
+  const pop = page.locator(".pop");
+  await pop.waitFor({ state: "visible" });
+  const rows = await pop.locator(".mi[role=menuitem]").evaluateAll((items) => items.map((row) => ({
+    text: row.textContent, waits: Boolean(row.querySelector(".ico:not(:has(.spin))")) && !row.querySelector(".spin"), spins: Boolean(row.querySelector(".spin")) })));
+  const busy = rows.find((row) => row.text.includes("Reading notes.md"));
+  assert.ok(busy?.spins, `a working task keeps its step and moves (${JSON.stringify(rows)})`);
+  // WINDOW BUG: public/app/shell/activity.js:15 reads GET /api/activity (running tasks only) and usage.js tasksPop never shows
+  // the engine's words for a task's state (task.reason), so a task waiting for your answer is not in the list at all.
+  const waiting = rows.find((row) => row.text.includes("Move 41 photos?"));
+  assert.ok(waiting, `the task waiting for your answer is listed with its question (${JSON.stringify(rows)})`);
+  assert.equal(waiting.spins, false, "no moving mark for a task that waits");
+  // Redesign: replaced by the new window (no /i18n.js or /task-state.js; the French words are not drawn), and the old
+  // "Updated … ago" line is not in prototype.html's popover.
   assert.deepEqual(errors, []);
 });
 
@@ -416,13 +414,21 @@ test("Q58 a task that waits for the owner or a service, or is blocked, still hol
   assert.deepEqual(behind("finished"), ["", "Then sort it"], "a finished task holds nothing");
 });
 
-test("Q58 a queued task reads its place as a plain number, in English and in French", async (t) => {
+test.skip("Q58 a queued task reads its place as a plain number, in English and in French", async (t) => {
+  // Redesign: replaced by the new window (the waiting line is the message box's "N waiting" list, data-act="queue15" in
+  // public/app/chat/messages.js; the old /task-state.js taskWords and /i18n.js French are gone).
   const { app, server, working } = await branch(t);
   /* Held busy while the messages are queued, so they wait instead of starting. */
   app.runtime.activeSessions.add(working.sessionId);
   app.runtime.followUp(working.sessionId, "Then file them");
   app.runtime.followUp(working.sessionId, "Then back them up");
   app.runtime.activeSessions.delete(working.sessionId);
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage();
@@ -482,7 +488,8 @@ test("Q58 when the task ahead is cancelled, the next queued message starts and t
   assert.deepEqual(moved.list, [["Then back them up", 1, "Then rename them"]], "the other moved up to position 1 behind it");
 });
 
-test("Q58 the reply to a queued message comes from the language files, in English and in French", async () => {
+test.skip("Q58 the reply to a queued message comes from the language files, in English and in French", async () => {
+  // Redesign: replaced by the new window (public/app.js, which this reads, is gone; the new window has no locale files).
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
   assert.equal(/Got it\. I will do this/.test(source), false, "no reply is written into app.js in English");

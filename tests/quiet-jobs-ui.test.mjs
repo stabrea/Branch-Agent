@@ -23,10 +23,17 @@ async function signIn(page, server) {
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
 }
 
-test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 400 px", async (t) => {
+test.skip("the quiet-jobs cards name their homes, keep to the card anatomy and fit 400 px", async (t) => {
+  // Redesign: replaced by the new window (the three cards and their anatomy are the old sample's; prototype.html has Automations › Check-ins, "Check in on its own", and Settings › Notifications without an interruptions gate card, and the new window has no data-t keys).
   const root = await mkdtemp(join(tmpdir(), "branch-quiet-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 400, height: 900 } });
@@ -63,7 +70,8 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
   assert.deepEqual(errors, []);
 });
 
-test("HEARTBEAT.md has one switch: Legion's card, which the check-in card points to and reads back", async (t) => {
+test.skip("HEARTBEAT.md has one switch: Legion's card, which the check-in card points to and reads back", async (t) => {
+  // Redesign: replaced by the new window (prototype.html's Check-ins tab edits what HEARTBEAT.md checks in place, "It's HEARTBEAT.md, in plain words", with How often and Off; there is no separate file switch card to point to).
   const root = await mkdtemp(join(tmpdir(), "branch-quiet-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
