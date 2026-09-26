@@ -1,119 +1,134 @@
-/* Settings › voice: bind real engine data and wire controls. */
-import { esc } from "../../core/dom.js";
-import { level, E } from "../../core/state.js";
+/* Settings › Voice, 1:1 with the prototype's page, from the engine:
+   the voice settings (GET/POST /api/voice/settings, merged by the engine), the push-to-talk key (the comfort card
+   "voice", POST /api/comfort { card, values }, merged), dictation in the message box and how long a quiet room ends it
+   (GET/POST /api/voice/dictation { mode, silenceSeconds }), the wake word switch (GET/POST /api/voice/wake { mode }) and
+   the computer's own voices (GET /api/voice/voices). "Listening", "Voice", "Answer aloud" and the spoken morning brief
+   have no single engine setting behind them, so they are drawn greyed. */
+import { esc, render } from "../../core/dom.js";
+import { level } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
-import { render } from "../../core/dom.js";
 import { toast } from "../../core/ui.js";
+import { ctl, ctlSeg } from "../parts.js";
 
-let voiceSettings = {
-  autoReadAloud: false,
-  voiceId: "default",
-  systemVoice: "off",
-  keepAudioOnThisComputer: false,
-};
+const V = { settings: null, comfort: null, dictation: null, wake: null, voices: [] };
 
-let comfortVoice = {
-  pushToTalkKey: "",
-  maxRecordingSeconds: null,
-};
-
-async function loadVoiceSettings() {
+async function loadVoice() {
   try {
-    const [v, c] = await Promise.all([
-      api("voice/settings"),
-      api("comfort").then(r => r.values?.voice || comfortVoice),
+    const [settings, comfort, dictation, wake, voices] = await Promise.all([
+      api("voice/settings"), api("comfort"), api("voice/dictation"), api("voice/wake"), api("voice/voices"),
     ]);
-    voiceSettings = v || voiceSettings;
-    comfortVoice = c || comfortVoice;
-  } catch (err) {
-    console.error("Failed to load voice settings:", err);
-  }
+    V.settings = settings;
+    V.comfort = comfort.values?.voice ?? null;
+    V.dictation = dictation.settings ?? null;
+    V.wake = wake.mode ?? wake.settings?.mode ?? null;
+    V.voices = [...new Set([...(voices.windows ?? []), ...(voices.system ?? [])].filter((n) => typeof n === "string"))];
+  } catch (error) { toast(error.message); }
   render();
 }
 
-async function saveVoiceSettings(updates) {
-  try {
-    const merged = { ...voiceSettings, ...updates };
-    await api("voice/settings", merged);
-    voiceSettings = merged;
-    render();
-  } catch (err) {
-    toast(err.message || "Failed to save voice settings");
-    render();
-  }
+/* Each save sends only the part it changes; the engine merges it and answers what is now in force. */
+async function saveVoice(part) {
+  try { V.settings = await api("voice/settings", part); } catch (error) { toast(error.message); }
+  render();
+}
+async function saveDictation(part) {
+  try { V.dictation = (await api("voice/dictation", part)).settings; } catch (error) { toast(error.message); }
+  render();
+}
+async function saveWake(mode) {
+  try { const r = await api("voice/wake", { mode }); V.wake = r.state?.mode ?? r.settings?.mode ?? mode; } catch (error) { toast(error.message); }
+  render();
+}
+async function saveKey(pushToTalkKey) {
+  try { V.comfort = (await api("comfort", { card: "voice", values: { pushToTalkKey } })).values?.voice ?? V.comfort; } catch (error) { toast(error.message); }
+  render();
 }
 
-async function saveComfortVoice(updates) {
-  try {
-    const merged = { ...comfortVoice, ...updates };
-    await api("comfort", { card: "voice", values: merged });
-    comfortVoice = merged;
-    render();
-  } catch (err) {
-    toast(err.message || "Failed to save voice comfort settings");
-    render();
-  }
+/* The next key pressed, written the way the engine's keyCombo reads it ("Ctrl+K", "F8"); Escape leaves it as it was. */
+const MODS = ["Control", "Alt", "Shift", "Meta"];
+function comboOf(e) {
+  const key = e.key === " " ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  return [e.ctrlKey || e.metaKey ? "Ctrl" : "", e.altKey ? "Alt" : "", e.shiftKey ? "Shift" : "", key].filter(Boolean).join("+");
+}
+/* One capture at a time; opening the page again drops one still waiting. */
+let waiting = null;
+function stopCapture() { if (waiting) window.removeEventListener("keydown", waiting, true); waiting = null; }
+function captureKey() {
+  stopCapture();
+  toast("Press the key you want to use.");
+  waiting = (e) => {
+    if (MODS.includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    stopCapture();
+    if (e.key !== "Escape") saveKey(comboOf(e));
+  };
+  window.addEventListener("keydown", waiting, true);
+}
+
+const seg = (title, sub, opts, act) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l, p]) => `<button type="button" aria-pressed="${!!p}" data-act="${act}" data-v="${esc(v)}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
+const num = (id, title, sub, value, unit, attrs = "") => `<div class="ctl"><b>${esc(title)}</b><span class="right num15"><input class="inp" id="${id}" value="${esc(value ?? "")}" aria-label="${esc(title)}" data-sw="set" ${attrs}>${unit ? `<small>${esc(unit)}</small>` : ""}</span><small>${esc(sub)}</small></div>`;
+
+function talking() {
+  const s = V.settings ?? {}, key = V.comfort?.pushToTalkKey ?? "";
+  const listening = !V.settings ? "" : V.wake && V.wake !== "off" ? "Wake word" : key ? "Push to talk" : "Off";
+  const sys = [["off", "Off"], ["on", "On"], ["auto", "Auto"]].map(([v, l]) => [v, l, s.systemVoice === v]);
+  return `<div class="sec"><h2>Talking</h2>${ctlSeg("Listening", "Push to talk holds the key; wake word listens for “Hey Branch”.", ["Off", "Push to talk", "Wake word"], listening)}
+    <div class="ctl"><b>Push-to-talk key</b><span class="right">${key ? `<kbd data-css="font-size:12px;padding:4px 8px">${esc(key)}</kbd>` : ""}<button class="btn sm" type="button" data-act="ptt-key">Change</button></span><small>Hold it anywhere in Windows.</small></div>
+    ${seg("System voice", "Use the computer's own voice for speaking. On only when you ask, since it keeps the microphone open.", sys, "sys-voice")}
+    ${ctl("v-local", "Keep audio on this computer", "Nothing with sound leaves this computer; cloud routes refuse instead.", !!s.keepAudioOnThisComputer)}</div>`;
+}
+
+function speakingBack() {
+  const s = V.settings ?? {}, reads = !!s.autoReadAloud;
+  const voices = [...V.voices.map((n) => [n, n, reads && s.voiceId === n]), ["off", "Off", !!V.settings && !reads]];
+  const dict = !!V.dictation && V.dictation.mode !== "off";
+  return `<div class="sec"><h2>Speaking back</h2><div class="ctl"><b>Voice</b><span class="right"><span class="seg" role="group" aria-label="Voice">${voices.map(([, l, p]) => `<button type="button" aria-pressed="${p}" data-act="seg">${esc(l)}</button>`).join("")}</span></span><small>Read replies out loud in this voice.</small></div>
+    ${ctl("v-dict", "Dictation in the message box", "The microphone button turns speech into text.", dict)}
+    ${seg("Read replies aloud", "Read every reply, or ask first.", [["false", "No", !!V.settings && !reads], ["true", "Yes", reads]], "auto-read")}</div>`;
+}
+
+function listeningMore() {
+  const wake = !!V.wake && V.wake !== "off";
+  return `<div class="sec x15-sec"><h2>Listening, more</h2>${ctl("f15-wake-word", "Wake word", "“Hey Branch”, heard on this computer only. Off until you choose: it keeps the microphone open.", wake)}
+    ${num("f15-silence", "Stop listening after silence", "For live dictation.", V.dictation?.silenceSeconds, "s", 'type="number" min="1" max="30" step="0.5"')}
+    ${ctlSeg("Answer aloud", "", ["Never", "When I talk", "Always"], "")}
+    ${ctl("f15-spoken-morning-brief", "Spoken morning brief", "The written brief, read out at 7:30 on the speaker you choose.", false)}</div>`;
+}
+
+/* The live conversation's limits, as the engine keeps them; drawn greyed until each is wired. */
+function liveConversations() {
+  const s = V.settings ?? {};
+  return `<div class="sec x15-sec"><h2>Live conversations</h2>
+    <div class="ctl"><b>Max duration</b><span class="right num15"><input class="inp" value="${esc(s.liveMaxMinutes ?? "")}" aria-label="Max duration" disabled><small>minutes</small></span><small>A live conversation stops itself after this many minutes.</small></div>
+    <div class="ctl"><b>Max cost</b><span class="right num15"><input class="inp" value="${esc(s.liveMaxDollars ?? "")}" aria-label="Max cost" disabled><small>USD</small></span><small>Stops once it has cost this much.</small></div>
+    ${ctl("f15-voice-detect", "Voice detection", "Let the service decide when you have stopped speaking, rather than pressing the button.", !!s.liveVoiceDetection)}</div>`;
 }
 
 export function draw() {
   const lv = level();
-
-  let html = `<h1>Voice</h1><p class="lede">Talking to Branch. Voice stays on this computer.</p>`;
-  html += `<div class="sec"><h2>Talking</h2>`;
-  html += `<div class="ctl"><b>System voice</b><span class="right"><span class="seg" role="group" aria-label="System voice">`;
-  html += `<button type="button" aria-pressed="${voiceSettings.systemVoice === 'off' ? 'true' : 'false'}" data-act="sys-voice" data-v="off">Off</button>`;
-  html += `<button type="button" aria-pressed="${voiceSettings.systemVoice === 'on' ? 'true' : 'false'}" data-act="sys-voice" data-v="on">On</button>`;
-  html += `<button type="button" aria-pressed="${voiceSettings.systemVoice === 'auto' ? 'true' : 'false'}" data-act="sys-voice" data-v="auto">Auto</button>`;
-  html += `</span></span><small>Use the computer's own voice for speaking. On only when you ask, since it keeps the microphone open.</small></div>`;
-  html += `<div class="ctl"><b>Keep audio on this computer</b><input class="sw" type="checkbox" id="v-local" ${voiceSettings.keepAudioOnThisComputer ? 'checked' : ''} aria-label="Keep audio on this computer" data-sw="set"><small>Nothing with sound leaves this computer; cloud routes refuse instead.</small></div>`;
-  html += `</div>`;
-
-  html += `<div class="sec"><h2>Speaking back</h2>`;
-  html += `<div class="ctl"><b>Read replies aloud</b><span class="right"><span class="seg" role="group" aria-label="Read replies aloud">`;
-  html += `<button type="button" aria-pressed="${!voiceSettings.autoReadAloud ? 'true' : 'false'}" data-act="auto-read" data-v="false">No</button>`;
-  html += `<button type="button" aria-pressed="${voiceSettings.autoReadAloud ? 'true' : 'false'}" data-act="auto-read" data-v="true">Yes</button>`;
-  html += `</span></span><small>Read every reply, or ask first.</small></div>`;
-  html += `</div>`;
-
-  // Advanced sections
-  if (lv >= 1) {
-    html += `<div class="sec x15-sec"><h2>Live conversations</h2>`;
-    html += `<div class="ctl"><b>Max duration</b><span class="right num15"><input class="inp" value="10" aria-label="Max duration" disabled><small>minutes</small></span><small>A live conversation stops itself after this many minutes.</small></div>`;
-    html += `<div class="ctl"><b>Max cost</b><span class="right num15"><input class="inp" value="1" aria-label="Max cost" disabled><small>USD</small></span><small>Stops once it has cost this much.</small></div>`;
-    html += `<div class="ctl"><b>Voice detection</b><input class="sw" type="checkbox" id="f15-voice-detect" aria-label="Voice detection" data-sw="set" disabled><small>Let the service decide when you have stopped speaking, rather than pressing the button.</small></div>`;
-    html += `</div>`;
-  }
-
-  return html;
+  return `<h1>Voice</h1><p class="lede">Talking to Branch. Voice stays on this computer.</p>${talking()}${speakingBack()}${lv >= 1 ? listeningMore() + liveConversations() : ""}`;
 }
 
 export function init() {
-  loadVoiceSettings();
-
-  on("sys-voice", (el) => {
-    const value = el.dataset.v;
-    saveVoiceSettings({ systemVoice: value });
+  loadVoice();
+  on("sys-voice", (el) => saveVoice({ systemVoice: el.dataset.v }));
+  on("auto-read", (el) => saveVoice({ autoReadAloud: el.dataset.v === "true" }));
+  on("ptt-key", () => captureKey());
+  document.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.id === "v-dict") saveDictation({ mode: t.checked ? "when-needed" : "off" });
+    else if (t.id === "f15-wake-word") saveWake(t.checked ? "on" : "off");
+    else if (t.id === "f15-silence") {
+      const n = Number(t.value);
+      if (t.value.trim() && Number.isFinite(n)) saveDictation({ silenceSeconds: n }); else render();
+    }
   });
-
-  on("auto-read", (el) => {
-    const value = el.dataset.v === "true";
-    saveVoiceSettings({ autoReadAloud: value });
-  });
-
-  markLive(["sys-voice", "auto-read"]);
+  markLive(["sys-voice", "auto-read", "ptt-key", "sw:v-dict", "sw:f15-wake-word", "sw:f15-silence"]);
 }
 
-export async function load() {
-  await loadVoiceSettings();
-}
+export function load() { stopCapture(); return loadVoice(); }
 
-export const live = {
-  "sys-voice": true,
-  "auto-read": true,
-};
-
-export function after(col) {
-  // Set up control listeners after rendering
-}
+export const live = { "sys-voice": true, "auto-read": true, "ptt-key": true, "sw:v-dict": true, "sw:f15-wake-word": true, "sw:f15-silence": true };

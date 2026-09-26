@@ -1,144 +1,108 @@
-/* Settings › people: bind real engine data and wire controls. */
+/* Settings › People, 1:1 with the prototype's card, from the engine's own list (GET /api/profiles): you, the owner,
+   then everyone with a profile on this computer, each with the role and what the role lets them have Branch do
+   (roles[].effective, roles[].categories). Picking a person to look at is window state. Switching person, roles,
+   one-time codes, signing out and removing somebody are security-sensitive, so they are drawn greyed for review. */
 import { esc, render } from "../../core/dom.js";
-import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast } from "../../core/ui.js";
 
-const hex = (c) => (/^#[0-9a-f]{3,8}$/i.test(String(c ?? "")) ? c : "#56616B");
+/* The prototype's words for the engine's seven kinds (src/tool-categories.ts), in the prototype's order. */
+const KINDS = [["read", "Look things up"], ["browse", "Use web pages"], ["files", "Write files"], ["commands", "Run commands"], ["message", "Send messages"], ["spend", "Spend money"], ["settings", "Change how Branch is set up"]];
+const OWNER = "owner";
 
-let profiles = null;
-let selectedProfile = null;
+let data = null;
+/* Who is being looked at: as in the prototype, somebody other than you when there is anybody else. */
+let picked = null;
 
 async function loadProfiles() {
-  try {
-    const data = await api("profiles");
-    profiles = data || [];
-    if (profiles.length > 0) {
-      selectedProfile = profiles[0];
-    }
-    render();
-  } catch (err) {
-    console.error("Failed to load profiles:", err);
-    profiles = [];
-  }
+  try { data = await api("profiles"); } catch (error) { toast(error.message); }
+  const ids = (data?.profiles ?? []).map((p) => p.id);
+  if (picked !== OWNER && !ids.includes(picked)) picked = ids[0] ?? OWNER;
+  render();
 }
 
-function renderProfileList() {
-  let html = `<div class="t9-list">`;
+const label = (role) => data?.roleLabels?.[role]?.label ?? "";
+const roleOf = (id) => (data?.roles ?? []).find((r) => r.profileId === id);
+const initials = (name) => String(name ?? "").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
-  if (profiles && profiles.length > 0) {
-    const groups = {
-      local: [],
-      remote: [],
-      team: [],
-    };
-
-    for (const p of profiles) {
-      if (p.location === "local") {
-        groups.local.push(p);
-      } else if (p.location === "remote") {
-        groups.remote.push(p);
-      } else if (p.location === "team") {
-        groups.team.push(p);
-      }
-    }
-
-    if (groups.local.length > 0) {
-      html += `<div class="grp8">On this computer</div>`;
-      for (const p of groups.local) {
-        const isSelected = selectedProfile && selectedProfile.id === p.id;
-        const initials = esc(p.initials || String(p.name ?? "").split(" ").map((w) => w[0]).join(""));
-        const color = hex(p.color);
-        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${esc(p.id)}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${esc(p.status || "online")}"></i></span><span class="grow"><b>${esc(p.name)}${p.isOwner ? " · you" : ""}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
-      }
-    }
-
-    if (groups.remote.length > 0) {
-      html += `<div class="grp8">On their own device</div>`;
-      for (const p of groups.remote) {
-        const isSelected = selectedProfile && selectedProfile.id === p.id;
-        const initials = esc(p.initials || String(p.name ?? "").split(" ").map((w) => w[0]).join(""));
-        const color = hex(p.color);
-        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${esc(p.id)}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${esc(p.status || "online")}"></i></span><span class="grow"><b>${esc(p.name)}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
-      }
-    }
-
-    if (groups.team.length > 0) {
-      html += `<div class="grp8">From your keepoak.com team</div>`;
-      for (const p of groups.team) {
-        const isSelected = selectedProfile && selectedProfile.id === p.id;
-        const initials = esc(p.initials || String(p.name ?? "").split(" ").map((w) => w[0]).join(""));
-        const color = hex(p.color);
-        html += `<button type="button" class="t9-item" data-act="p-sel" data-v="${esc(p.id)}" aria-current="${isSelected}"><span class="tav6" data-css="--c:${color};width:34px;height:34px;font-size:13px">${initials}<i class="st st-${esc(p.status || "online")}"></i></span><span class="grow"><b>${esc(p.name)}</b><small>${p.role || "User"} · last used ${p.lastUsed || "Never"}</small></span></button>`;
-      }
-    }
-  }
-
-  html += `<button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Invite someone</button></div>`;
-
-  return html;
+/* Everyone on this computer: the owner first, then each profile the engine keeps. */
+function people() {
+  if (!data) return [];
+  const owner = { id: OWNER, name: label(OWNER), role: OWNER, you: data.isOwner };
+  return [owner, ...(data.profiles ?? []).map((p) => ({ id: p.id, name: p.name, role: roleOf(p.id)?.grant?.role ?? "adult", lastUsedAt: p.lastUsedAt, you: (data.active?.id ?? data.active) === p.id }))];
 }
 
-function renderProfileDetail() {
-  if (!selectedProfile) return "";
+const avatar = (p, size, font) => `<span class="tav6" data-css="--c:#56616B;width:${size}px;height:${size}px;font-size:${font}px">${esc(initials(p.name))}</span>`;
+/* The weekday within the last week, as the prototype writes it ("Sun"); the date before that. */
+const when = (at) => {
+  if (!at) return "";
+  const d = new Date(at);
+  return d.toLocaleDateString([], Date.now() - d.getTime() < 6 * 86400000 ? { weekday: "short" } : { day: "numeric", month: "short" });
+};
 
-  const initials = esc(selectedProfile.initials || String(selectedProfile.name ?? "").split(" ").map((w) => w[0]).join(""));
-  const color = hex(selectedProfile.color);
+function item(p) {
+  const small = [label(p.role), p.lastUsedAt ? `last used ${when(p.lastUsedAt)}` : ""].filter(Boolean).join(" · ");
+  return `<button type="button" class="t9-item" data-act="p-sel" data-v="${esc(p.id)}" aria-current="${picked === p.id}">${avatar(p, 34, 13)}<span class="grow"><b>${esc(p.name)}${p.you ? " · you" : ""}</b><small>${esc(small)}</small></span></button>`;
+}
 
-  let html = `<div class="t9-detail pcard10"><div class="t9-dh"><span class="tav6" data-css="--c:${color};width:44px;height:44px;font-size:17px">${initials}<i class="st st-${esc(selectedProfile.status || "online")}"></i></span><span class="grow"><b>${esc(selectedProfile.name)}</b><small>${selectedProfile.device || "Unknown device"} · ${selectedProfile.signInMethod || "sign-in method"}</small></span><span class="pill ${selectedProfile.role?.toLowerCase() || "user"}">${selectedProfile.role || "User"}</span></div>
-    <div class="sec"><h2>Permissions</h2><div class="acts10">
-      ${selectedProfile.permissions ? selectedProfile.permissions.map(p => `<label class="chk ${!p.allowed ? "no10" : ""}"><input type="checkbox" ${p.allowed ? "checked" : ""} aria-label="${esc(p.name)}"> ${esc(p.name)}</label>`).join("") : ""}
-    </div></div>
-    <dl class="kv" data-css="margin-top:14px">
-      ${selectedProfile.trunks ? `<dt>Trunks</dt><dd>${selectedProfile.trunks.join(", ")}</dd>` : ""}
-      ${selectedProfile.projects ? `<dt>Projects</dt><dd>${selectedProfile.projects.join(", ")}</dd>` : ""}
-      ${selectedProfile.allowance ? `<dt>Daily allowance</dt><dd>${selectedProfile.allowance}</dd>` : ""}
-      ${selectedProfile.pinRequired !== undefined ? `<dt>PIN</dt><dd>${selectedProfile.pinRequired ? "Set" : "Not set"}</dd>` : ""}
-      ${selectedProfile.signedInOn ? `<dt>Signed in on</dt><dd>${selectedProfile.signedInOn}</dd>` : ""}
-    </dl>
-    <div class="acts" data-css="margin-top:14px">
-      <button class="btn sm" type="button" data-act="p-switch" data-v="${esc(selectedProfile.id)}">Switch to ${esc(selectedProfile.name)}</button>
-      <span class="seg"><button type="button" data-act="p-role" data-v="Adult" aria-pressed="${selectedProfile.role === "Adult"}">Adult</button><button type="button" data-act="p-role" data-v="Child" aria-pressed="${selectedProfile.role === "Child"}">Child</button></span>
-      <button class="btn ghost sm" type="button" data-act="p-code">Make a one-time code</button>
-      <button class="btn ghost sm" type="button" data-act="p-signout">Sign out everywhere</button>
-      <button class="btn ghost sm" type="button" data-act="p-remove">Remove</button>
-    </div></div>`;
+function list(all) {
+  return `<div class="t9-list">${all.length ? `<div class="grp8">On this computer</div>${all.map(item).join("")}` : ""}<button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Invite someone</button></div>`;
+}
 
-  return html;
+/* What the person may have Branch do: the engine's effective kinds for a profile, every kind for the owner. */
+function mayRows(p) {
+  const kinds = p.id === OWNER ? KINDS.map(([k]) => k) : roleOf(p.id)?.categories ?? [];
+  return KINDS.map(([k, l]) => { const yes = kinds.includes(k); return `<label class="chk ${yes ? "" : "no10"}"><input type="checkbox" ${yes ? "checked" : ""} disabled aria-label="${esc(l)}"> ${esc(l)}</label>`; }).join("");
+}
+
+function facts(p) {
+  if (p.id === OWNER) return `<dt>Trunks</dt><dd>All</dd><dt>Projects</dt><dd>All</dd><dt>Daily allowance</dt><dd>No limit</dd><dt>PIN</dt><dd>${data.ownerPin ? "Set" : "—"}</dd>`;
+  const g = roleOf(p.id)?.effective ?? roleOf(p.id)?.grant ?? {};
+  const projects = (g.projects ?? []).length ? g.projects.join(", ") : "All";
+  const allowance = g.dailySpendLimit > 0 ? `$${g.dailySpendLimit} a day` : "No limit";
+  return `<dt>Projects</dt><dd>${esc(projects)}</dd><dt>Daily allowance</dt><dd>${esc(allowance)}</dd><dt>PIN</dt><dd>Set</dd>`;
+}
+
+function actions(p) {
+  if (p.id === OWNER) return '<p class="hint">You’re the owner. Only you change how Branch is set up.</p>';
+  const first = String(p.name ?? "").split(" ")[0];
+  const roles = ["adult", "child"].map((r) => `<button type="button" data-act="p-role" data-v="${r}" aria-pressed="${p.role === r}">${esc(label(r))}</button>`).join("");
+  return `<div class="acts" data-css="margin-top:14px"><button class="btn sm" type="button" data-act="p-switch" data-v="${esc(p.id)}">Switch to ${esc(first)}</button><span class="seg">${roles}</span><button class="btn ghost sm" type="button" data-act="p-code">Make a one-time code</button><button class="btn ghost sm" type="button" data-act="p-signout">Sign out everywhere</button><button class="btn ghost sm" type="button" data-act="p-remove">Remove</button></div>`;
+}
+
+function card(p) {
+  if (!p) return "";
+  const where = p.id === OWNER ? "This computer" : "This computer · PIN";
+  return `<div class="t9-detail pcard10"><div class="t9-dh">${avatar(p, 44, 17)}<span class="grow"><b>${esc(p.name)}</b><small>${where}</small></span><span class="pill ${p.role === OWNER ? "ok" : "idle"}">${esc(label(p.role))}</span></div>
+    <div class="sec"><h2>May</h2><div class="acts10">${mayRows(p)}</div></div>
+    <dl class="kv" data-css="margin-top:14px">${facts(p)}</dl>${actions(p)}</div>`;
+}
+
+/* Both are how the engine always works (greyed: PINs are for review): a profile cannot be made without a PIN
+   (ProfileSchema), and each profile's records are its own (profiles.scope()). */
+function eachPerson() {
+  const pin = '<input class="sw" type="checkbox" id="pp-pin" checked aria-label="Ask for a PIN when switching person" data-sw="set">'; // state: every profile has a PIN
+  const own = '<input class="sw" type="checkbox" id="pp-own" checked aria-label="Keep conversations separate" data-sw="set">'; // state: each profile's records are its own
+  return `<div class="sec"><h2>Each person</h2><div class="ctl"><b>Ask for a PIN when switching person</b>${pin}<small>Four to eight digits, kept on this computer. Five wrong tries lock the profile for five minutes.</small></div><div class="ctl"><b>Keep conversations separate</b>${own}<small>People can’t read each other’s conversations unless they share one.</small></div></div>`;
 }
 
 export function draw() {
-  let html = `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p><div class="t10">
-    ${renderProfileList()}
-    ${renderProfileDetail()}
-  </div>
-    <p class="hint">Separation on one computer, not separate accounts. Each person's conversations and memory are their own.</p>
-  <div class="sec"><h2>Each person</h2><div class="ctl"><b>Ask for a PIN when switching person</b><input class="sw" type="checkbox" id="pp-pin" checked="" aria-label="Ask for a PIN when switching person" data-sw="set"><small>Four to eight digits, kept on this computer. Five wrong tries lock the profile for five minutes.</small></div><div class="ctl"><b>Keep conversations separate</b><input class="sw" type="checkbox" id="pp-own" checked="" aria-label="Keep conversations separate" data-sw="set"><small>People can't read each other's conversations unless they share one.</small></div></div>
+  const all = people();
+  return `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p><div class="t10">
+    ${list(all)}${card(all.find((p) => p.id === picked))}</div>
+    <p class="hint">Separation on one computer, not separate accounts. Each person’s conversations and memory are their own.</p>
+  ${eachPerson()}
   <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">Groups</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">Signing in from other devices</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">What you share</button></div>`;
-
-  return html;
 }
 
-export async function load() {
-  await loadProfiles();
-}
+export function load() { return loadProfiles(); }
 
 export function init() {
   loadProfiles();
-  on("p-sel", (el) => {
-    const profileId = el.dataset.v;
-    const found = profiles.find(p => p.id === profileId);
-    if (found) {
-      selectedProfile = found;
-      render();
-    }
-  });
-  // A person's role decides what they may do on this computer: that change waits for the security review, so it stays greyed.
+  on("p-sel", (el) => { picked = el.dataset.v; render(); });
   markLive(["p-sel"]);
 }
 
-export const live = {
-  "p-sel": null,
-};
+export const live = { "p-sel": true };
