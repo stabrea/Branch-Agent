@@ -3244,8 +3244,6 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
   .test-b17{flex-wrap:wrap}
   .test-b17 .btn{flex:1}
 }
-||||||| parent of 36b5c146 (feat(window): pass 17 settings rows and their words, with a stand-in for the shared demo rows)
-||||||| parent of 896078de (feat(window): pass 17 settings rows and their words, with a stand-in for the shared demo rows)
 /* area: p17 settings (prototype patch17b: rule tester, network sentences, why is this set, move in, compare, savings) */
 .lead-b17{margin:0;color:var(--ink-2);font-size:13.5px;line-height:1.5}
 .why-b17 .grow{display:grid;gap:2px;min-width:0}
@@ -3522,3 +3520,20 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .obt .prow .btn{flex:none}
 .obt-add{display:inline-flex;align-items:center;gap:6px;margin-top:14px;justify-self:start}
 @media (max-width:760px){.obt-kinds,.obt-skills{grid-template-columns:minmax(0,1fr)}}
+
+/* area: sidebar-resize */
+/* The list sits above the conversation, so the whole 9px edge is grabbable (with a background both are stacking
+   contexts, and the conversation, drawn later, covered the edge's right half). */
+@media (min-width:761px){.body>.side{z-index:2}}
+/* With the list hidden, its edge stays at the window's left: a slim strip that drags the list back out. */
+.app.side-hidden .side{border-right-width:0}
+.app.side-hidden .side>.resizer{visibility:visible;left:0;right:auto;width:6px}
+.app.side-hidden .side>.resizer::after{left:0}
+.app.side-hidden .side>.resizer:hover::after,.app.side-hidden .side>.resizer.drag::after,.app.side-hidden .side>.resizer:focus-visible::after{background:var(--accent);width:3px;left:0}
+.app.side-hidden .side>.resizer .grip9{left:0}
+.resizer:focus-visible{outline:none}.resizer:focus-visible::after{background:var(--accent);width:2px;left:3.5px}
+.resizer:focus-visible .grip9{opacity:1}
+/* the rail hides the computer button's arrow too, as the prototype's rail does (its .chev is an svg here, not a span) */
+.app.rail9 .side .machine>svg{display:none}
+/* Focus mode steps the list aside entirely, its edge too */
+.app.focus .side>.resizer{visibility:hidden}
