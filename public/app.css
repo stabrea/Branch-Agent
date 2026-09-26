@@ -3289,3 +3289,11 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .pair-match15{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
 .pair-match15 input{width:16px;height:16px;margin:0}
 .dlg-f [data-act="pair-letin"]:disabled{opacity:.45;cursor:not-allowed}
+
+/* area: desktop fixes */
+/* The desktop window has no system frame, so its top row is what moves it (the prototype draws that row as the
+   window's frame). What can be pressed in the row still presses, and anything drawn over it (a menu, a dialog, a
+   notice, a walkthrough) keeps its own clicks: the desktop works out the moving area whatever is on top. */
+.titlebar{-webkit-app-region:drag}
+.titlebar button,.titlebar input,.titlebar select,.titlebar textarea,.titlebar a,.titlebar label,.titlebar [data-act],.titlebar [role="button"],.titlebar [contenteditable],.titlebar [tabindex]{-webkit-app-region:no-drag}
+.pop,.scrim,.tipx,.toast,.notif,.lockscreen,.notes-layer,.first,.ckpt-q,.voice,.ach-toast,.ach-big,.tour-layer,.upd-walk,.ob9,.welcome10,.splash11,.ss-wrap16,.restart16,.qawrap17c{-webkit-app-region:no-drag}
