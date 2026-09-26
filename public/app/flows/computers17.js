@@ -14,6 +14,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { ic, av, toast, openPop, closePop, mi, radio } from "../core/ui.js";
+import { t } from "../../i18n.js";
 
 const DESKTOP = ["win32", "darwin", "linux"];
 const PLATFORM = { win32: "Windows", darwin: "macOS", linux: "Linux" };
@@ -23,7 +24,7 @@ const C = { devices: null, views: new Map(), picks: new Map(), listeners: [], as
 export function computers() {
   const paired = (C.devices ?? []).filter((d) => DESKTOP.includes(d.platform))
     .map((d) => ({ id: d.id, name: d.name, os: PLATFORM[d.platform] ?? d.platform, icon: d.platform === "darwin" ? "mac" : "monitor" }));
-  return [{ id: "this", name: "This computer", os: "Your Windows desktop", icon: "monitor" }, ...paired];
+  return [{ id: "this", name: t("dashboard.computer.title"), os: t("window.settings.computer.your-windows-desktop"), icon: "monitor" }, ...paired];
 }
 const computerOf = (id) => computers().find((c) => c.id === id);
 const trunkName = (id) => E.trunks.find((t) => t.id === id)?.name ?? "";
@@ -73,32 +74,32 @@ async function toggle(id, cid) {
 export function itsTab(id) {
   const view = C.views.get(id);
   if (!view) { if (!C.asked.has(id)) { C.asked.add(id); loadAll(); } return '<div class="its17d"></div>'; }
-  const name = esc(trunkName(id)), on = view.allowed, max = view.atOnce;
-  const rows = computers().map((x) => `<label class="ic-row17d"><input type="checkbox" data-sw="itsc17d" data-id="${esc(id)}" data-v="${esc(x.id)}" ${on.includes(x.id) ? "checked" : ""} aria-label="${name} may use ${esc(x.name)}"><span class="ico-tile">${ic(x.icon, "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.os)}</small></span></label>`).join("");
+  const on = view.allowed, max = view.atOnce;
+  const rows = computers().map((x) => `<label class="ic-row17d"><input type="checkbox" data-sw="itsc17d" data-id="${esc(id)}" data-v="${esc(x.id)}" ${on.includes(x.id) ? "checked" : ""} aria-label="${esc(t("window.p17d.may-use", { name: trunkName(id), computer: x.name }))}"><span class="ico-tile">${ic(x.icon, "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.os)}</small></span></label>`).join("");
   const nums = [1, 2, 3, 4].map((n) => `<button type="button" data-act="itsmax17d" data-id="${esc(id)}" data-v="${n}" aria-pressed="${max === n}" ${n > Math.max(1, on.length) ? "disabled" : ""}>${n}</button>`).join("");
   const first = on.length ? on.slice(0, 3).map((cid, i) => `<button type="button" data-act="itsfirst17d" data-id="${esc(id)}" data-v="${esc(cid)}" aria-pressed="${i === 0}">${esc(computerOf(cid)?.name ?? "")}</button>`).join("")
-    : '<button type="button" disabled aria-pressed="false">No computer</button>';
-  return `<div class="its17d"><p class="hint" data-css="margin:0">Which computers ${name} may use. Each task runs on one; a conversation can pick which.</p>
+    : `<button type="button" disabled aria-pressed="false">${t("window.p17d.no-computer")}</button>`;
+  return `<div class="its17d"><p class="hint" data-css="margin:0">${esc(t("window.p17d.its-hint", { name: trunkName(id) }))}</p>
     <div class="ic-list17d">${rows}</div>
-    <div class="ic-ctl17d"><span><b>At once</b><small>How many tasks it may run side by side, one per computer.</small></span><span class="seg">${nums}</span></div>
-    <div class="ic-ctl17d"><span><b>A new conversation starts on</b><small>You can change it in the conversation’s computer menu.</small></span><span class="seg">${first}</span></div>
-    ${cloudOffer(`Give ${name} its own cloud computer`, "Always on, so its work carries on while this PC sleeps. Off until you choose: it costs money each month and runs outside this PC.", id)}</div>`;
+    <div class="ic-ctl17d"><span><b>${t("window.settings.computer.at-once")}</b><small>${t("window.p17d.at-once-hint")}</small></span><span class="seg">${nums}</span></div>
+    <div class="ic-ctl17d"><span><b>${t("window.p17d.starts-on")}</b><small>${t("window.p17d.starts-on-hint")}</small></span><span class="seg">${first}</span></div>
+    ${cloudOffer(esc(t("window.p17d.cloud-own", { name: trunkName(id) })), t("window.p17d.cloud-own-hint"), id)}</div>`;
 }
 
 /* The cloud offer: a cloud computer is made and billed by an outside provider Branch has no account with, so Set one up
    stays greyed (cloudnew17d has no handler). */
 function cloudOffer(title, sub, id = "") {
-  return `<div class="cl-offer17d" role="note"><span class="ico-tile">${ic("cloud17d", "s")}</span><span class="grow"><b>${title}</b><small>${sub}</small></span><button class="btn sm" type="button" data-act="cloudnew17d"${id ? ` data-id="${esc(id)}"` : ""}>Set one up</button></div>`;
+  return `<div class="cl-offer17d" role="note"><span class="ico-tile">${ic("cloud17d", "s")}</span><span class="grow"><b>${title}</b><small>${sub}</small></span><button class="btn sm" type="button" data-act="cloudnew17d"${id ? ` data-id="${esc(id)}"` : ""}>${t("window.places.automations17.set-one-up")}</button></div>`;
 }
 /** Settings › Computer, above Add a computer, while no cloud computer exists (none can, in this build). */
-export const settingsCloudOffer = () => cloudOffer("An always-on cloud computer for a Trunk", "It keeps working while this PC sleeps or is switched off. Off until you choose: it costs money each month and runs outside this PC. Branch offers it when a task would run past bedtime.");
+export const settingsCloudOffer = () => cloudOffer(t("window.p17d.cloud-offer"), t("window.p17d.cloud-offer-hint"));
 
 /* ---------- Settings › Computer: Which Trunk uses which ---------- */
 export function trunkRow17(trunk) {
   const id = esc(trunk.id), view = C.views.get(trunk.id);
   const chips = view ? computers().map((x) => `<button type="button" class="chip6" data-act="comp-chip" data-id="${id}" data-v="${esc(x.id)}" aria-pressed="${view.allowed.includes(x.id)}">${esc(x.name)}</button>`).join("") : "";
   const nums = [1, 2, 3, 4].map((n) => `<button type="button" data-act="comp-max" data-id="${id}" data-v="${n}" aria-pressed="${view?.atOnce === n}">${n}</button>`).join("");
-  return `<div class="prow percomp8">${av(trunk, 32)}<span class="grow"><b>${esc(trunk.name ?? "")}</b><span class="chips8">${chips}</span></span><label class="max8"><small>At once</small><span class="seg">${nums}</span></label></div>`;
+  return `<div class="prow percomp8">${av(trunk, 32)}<span class="grow"><b>${esc(trunk.name ?? "")}</b><span class="chips8">${chips}</span></span><label class="max8"><small>${t("window.settings.computer.at-once")}</small><span class="seg">${nums}</span></label></div>`;
 }
 
 /* ---------- the full-size view's computer menu ---------- */
@@ -124,7 +125,7 @@ export function pickChip(sid) {
   const st = pickState(sid);
   if (!st) { if (!C.picks.has(sid)) { C.picks.set(sid, null); loadPick(sid); } return ""; }
   const one = computerOf(st.using);
-  const label = st.list.length > 1 ? `${ic("layers", "s")}${st.list.length} computers` : `${ic(one?.icon ?? "monitor", "s")}${esc(one?.name ?? "")}`;
+  const label = st.list.length > 1 ? `${ic("layers", "s")}${esc(t("window.p17d.n-computers", { count: st.list.length }))}` : `${ic(one?.icon ?? "monitor", "s")}${esc(one?.name ?? "")}`;
   return `<button class="st7-pick" type="button" data-act="comp-pick">${label}${ic("down", "s")}</button>`;
 }
 function pickMenu(sid) {
@@ -132,10 +133,10 @@ function pickMenu(sid) {
   if (!st) return "";
   const { pick, list, using } = st, trunkId = pick.trunkId;
   const max = pick.atOnce;
-  const limit = trunkId && max !== null ? `<p class="pp comp-max17d">Up to ${max} at once${list.length > max ? `, of ${list.length} allowed` : ""}. <button class="link" type="button" data-act="edit" data-id="${esc(trunkId)}">Change</button></p>` : "";
-  const here = list.length ? `<div class="ph">This conversation uses</div>${list.map((x) => radio("convcomp17d", x.id, esc(x.name), esc(x.os), using === x.id)).join("")}${limit}<hr>` : "";
-  const allowed = trunkId ? `<div class="ph">Allowed for ${esc(trunkName(trunkId))}</div>${computers().map((x) => `<button class="mi" type="button" role="menuitemcheckbox" aria-checked="${(pick.allowed ?? computers().map((c) => c.id)).includes(x.id)}" data-act="comp-toggle" data-v="${esc(x.id)}"><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(x.name)}</span><span class="mi-s">${esc(x.os)}</span></span></button>`).join("")}<hr>` : "";
-  return here + allowed + mi("comp-add", "plus", "Add a computer") + mi("setgo", "gear", "Manage computers", "", 'data-v="computer"');
+  const limit = trunkId && max !== null ? `<p class="pp comp-max17d">${esc(list.length > max ? t("window.p17d.up-to-of", { max, count: list.length }) : t("window.p17d.up-to", { max }))} <button class="link" type="button" data-act="edit" data-id="${esc(trunkId)}">${t("window.settings.voice.change")}</button></p>` : "";
+  const here = list.length ? `<div class="ph">${t("window.p17d.conversation-uses")}</div>${list.map((x) => radio("convcomp17d", x.id, esc(x.name), esc(x.os), using === x.id)).join("")}${limit}<hr>` : "";
+  const allowed = trunkId ? `<div class="ph">${esc(t("window.p17d.allowed-for", { name: trunkName(trunkId) }))}</div>${computers().map((x) => `<button class="mi" type="button" role="menuitemcheckbox" aria-checked="${(pick.allowed ?? computers().map((c) => c.id)).includes(x.id)}" data-act="comp-toggle" data-v="${esc(x.id)}"><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(x.name)}</span><span class="mi-s">${esc(x.os)}</span></span></button>`).join("")}<hr>` : "";
+  return here + allowed + mi("comp-add", "plus", t("window.flows.comp.add")) + mi("setgo", "gear", t("window.p17d.manage-computers"), "", 'data-v="computer"');
 }
 
 async function pickComputer(el) {
@@ -144,7 +145,7 @@ async function pickComputer(el) {
   try {
     await api("devices/pick", { sessionId: sid, deviceId: v });
     await loadPick(sid);
-    toast(`This conversation uses ${computerOf(v)?.name ?? ""}.`);
+    toast(t("window.p17d.conversation-uses-now", { name: computerOf(v)?.name ?? "" }));
   } catch (error) { toast(error.message); }
 }
 async function toggleHere(el) {
@@ -156,14 +157,14 @@ async function toggleHere(el) {
   const anchor = document.querySelector(".st7-pick");
   if (anchor) openPop(anchor, pickMenu(sid), { force: true });
   const n = view.allowed.length;
-  toast(`${trunkName(pick.trunkId)} may use ${n ? `${n} ${n === 1 ? "computer" : "computers"}` : "no computer"}.`);
+  toast(t(n === 0 ? "window.p17d.may-use-none" : n === 1 ? "window.p17d.may-use-one" : "window.p17d.may-use-many", { name: trunkName(pick.trunkId), count: n }));
 }
 
 async function setMax(el) {
   const id = el.dataset.id, n = +el.dataset.v;
   const view = C.views.get(id) ?? await loadView(id);
   if (!view || !await save(id, view.allowed, n)) return;
-  toast(`${trunkName(id)} may run ${n} ${n === 1 ? "task" : "tasks"} at once.`);
+  toast(t(n === 1 ? "window.p17d.may-run-one" : "window.p17d.may-run-many", { name: trunkName(id), count: n }));
 }
 async function setFirst(el) {
   const id = el.dataset.id, view = C.views.get(id);
@@ -181,8 +182,8 @@ export function init() {
   on("convcomp17d", (el) => pickComputer(el));
   on("comp-toggle", (el) => toggleHere(el));
   document.addEventListener("change", (e) => {
-    const t = e.target;
-    if (t.dataset?.sw !== "itsc17d") return;
-    toggle(t.dataset.id, t.dataset.v);
+    const box = e.target;
+    if (box.dataset?.sw !== "itsc17d") return;
+    toggle(box.dataset.id, box.dataset.v);
   });
 }

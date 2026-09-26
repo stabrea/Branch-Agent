@@ -3,25 +3,28 @@
    guest; Branch has neither, so no call, meeting, live view or result card can happen. Both would ship off anyway
    (calls cost by the minute and reach people outside Branch; the meeting bot listens to everyone there). Drawn: the
    message box's + menu items, saying "off", and Settings › Voice › Calls and meetings at Advanced, every switch off and
-   no choice pressed. None of call17d, meet17d or the cmsw17d switches has a handler, so each greys itself. */
+   no choice pressed. None of call17d, meet17d or the cmsw17d switches has a handler, so each greys itself. Every word
+   goes through t() (public/locales). */
 
 import { esc } from "../core/dom.js";
 import { mi } from "../core/ui.js";
 import { ctlSeg } from "../settings/parts.js";
+import { t } from "../../i18n.js";
 
 /** The + menu's two items, after the rest. */
-export const plus17d = () => "<hr>" + mi("call17d", "call17d", "Phone call…", "off") + mi("meet17d", "meet17d", "Join a meeting…", "off");
+export const plus17d = () => "<hr>" + mi("call17d", "call17d", t("window.p17d.phone-call"), t("comfort.choice.off")) + mi("meet17d", "meet17d", t("window.p17d.join-meeting"), t("comfort.choice.off"));
 
 const sw = (v, title, sub) => `<div class="ctl"><b>${esc(title)}</b><input class="sw" type="checkbox" data-sw="cmsw17d" data-v="${v}" aria-label="${esc(title)}"><small>${esc(sub)}</small></div>`;
+const k = (name) => t(`window.p17d.${name}`);
 
 /** Settings › Voice, at Advanced. */
 export function calls17d() {
-  const rows = sw("call", "Phone calls", "Call you, or call someone for you. Off until you choose: calls cost money by the minute and reach people outside Branch.")
-    + `<div class="ctl"><b>Calling from</b><span class="right"><button class="btn sm" type="button" data-act="call17d">Set up</button></span><small>Your Twilio number. Its key is in the locker.</small></div>`
-    + ctlSeg("Who it may call", "Numbers you approve once, or anyone you name in a message.", ["People I approve", "Anyone I name"], null)
-    + ctlSeg("Recording", "It always says first that it’s an AI assistant calling for you.", ["Only if they agree", "Never"], null)
-    + sw("meet", "Meeting notes", "A Trunk joins Meet, Teams or Zoom as a guest and brings the notes back. Off until you choose: it listens to everyone there.")
-    + ctlSeg("Join from your calendar", "It never joins a meeting by itself unless you pick the second.", ["Only when I ask", "Meetings I’m invited to"], null)
-    + ctlSeg("Send notes afterwards", "Sending to other people asks you first.", ["To me", "To everyone there"], null);
-  return `<div class="sec x15-sec"><h2>Calls and meetings</h2><p class="hint">Phone calls go through your own Twilio number; meeting notes use your connected calendar.</p>${rows}</div>`;
+  const rows = sw("call", k("phone-calls"), k("phone-calls-hint"))
+    + `<div class="ctl"><b>${esc(k("calling-from"))}</b><span class="right"><button class="btn sm" type="button" data-act="call17d">${esc(t("window.places.automations17.set-one-up"))}</button></span><small>${esc(k("calling-from-hint"))}</small></div>`
+    + ctlSeg(k("who-may-call"), k("who-may-call-hint"), [t("window.flows.chw.approved"), k("anyone-i-name")], null)
+    + ctlSeg(k("recording"), k("recording-hint"), [k("only-if-agree"), t("window.flows.trunk.never")], null)
+    + sw("meet", t("window.places.automations.meeting-notes"), k("meeting-notes-hint"))
+    + ctlSeg(k("join-from-calendar"), k("join-from-calendar-hint"), [k("only-when-ask"), k("meetings-invited")], null)
+    + ctlSeg(k("send-notes"), k("send-notes-hint"), [k("to-me"), k("to-everyone")], null);
+  return `<div class="sec x15-sec"><h2>${esc(k("calls-meetings"))}</h2><p class="hint">${esc(k("calls-meetings-hint"))}</p>${rows}</div>`;
 }
