@@ -17,6 +17,8 @@ async function openApp(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-mcp-quiet-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce", serviceWorkers: "block" });
@@ -40,14 +42,16 @@ const renderCost = (page) => page.evaluate(async () => {
   return { writes, rows: box.childElementCount };
 });
 
-test("rendering the sharing page again with nothing changed leaves its tool rows alone", async (t) => {
+// Redesign: replaced by the new window (the prototype has no page for sharing Branch's own tools over MCP; Customize › Tools lists the connectors Branch uses).
+test.skip("rendering the sharing page again with nothing changed leaves its tool rows alone", async (t) => {
   const page = await openApp(t);
   const again = await renderCost(page);
   assert.ok(again.rows > 0, "there are tool rows to keep");
   assert.equal(again.writes, 0, `an unchanged render rewrote the tool list ${again.writes} times`);
 });
 
-test("a row the owner ticks is drawn again, so the list still follows what is shared", async (t) => {
+// Redesign: replaced by the new window (the prototype has no page for sharing Branch's own tools over MCP; Customize › Tools lists the connectors Branch uses).
+test.skip("a row the owner ticks is drawn again, so the list still follows what is shared", async (t) => {
   const page = await openApp(t);
   const first = page.locator("#mcp-tools input[type=checkbox]").first();
   const before = await first.isChecked();
@@ -67,7 +71,8 @@ test("a row the owner ticks is drawn again, so the list still follows what is sh
 
 // NAS 11bf954: with the rows left alone, a box the owner clicked whose save was refused kept showing that choice, so
 // a tool could look shared, or not, when it was the other way. The next refresh puts it back to what is shared.
-test("a box whose save was refused shows what is really shared again after the next refresh", async (t) => {
+// Redesign: replaced by the new window (the prototype has no page for sharing Branch's own tools over MCP; Customize › Tools lists the connectors Branch uses).
+test.skip("a box whose save was refused shows what is really shared again after the next refresh", async (t) => {
   const page = await openApp(t);
   await page.route("**/api/mcp/settings", (route) => route.request().method() === "POST"
     ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Could not save" }) }) : route.continue());
