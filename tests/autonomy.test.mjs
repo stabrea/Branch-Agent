@@ -55,15 +55,19 @@ async function fixture(t) {
     return answer.body;
   };
   const on = (...parts) => Promise.all(parts.map((part) => api("/api/autonomy/switch", { part, mode: "on" })));
+  const off = (...parts) => Promise.all(parts.map((part) => api("/api/autonomy/switch", { part, mode: "off" })));
   const command = (line, sessionId, key) => call("/api/commands/run", { surface: "window", line, ...(sessionId ? { sessionId } : {}) }, key);
   await api("/api/commands/settings", { mode: "on" });
-  return { app, provider, server, call, api, on, command, owner: app.runtime.owner };
+  return { app, provider, server, call, api, on, off, command, owner: app.runtime.owner };
 }
 
 // ---- the switches ---------------------------------------------------------------------------------
 
 test("every part ships off: no tools, no instructions, and changes are refused in one sentence", async (t) => {
-  const { app, api, call, on } = await fixture(t);
+  const { app, api, call, on, off } = await fixture(t);
+  // The owner's rule (ships on, 2026-09-26): every part ships "when needed"; what "off" does is tested by switching each off.
+  assert.deepEqual(Object.values((await api("/api/autonomy")).modes), autonomyParts.map(() => "when-needed"));
+  await off(...autonomyParts);
   const { modes } = await api("/api/autonomy");
   assert.deepEqual(Object.values(modes), autonomyParts.map(() => "off"));
   for (const part of autonomyParts) for (const tool of autonomyTools[part]) assert.equal(app.registry.names().includes(tool), false, tool);
@@ -117,7 +121,9 @@ test("blueprints check every blank, fill each once on one line, and draft the ri
 });
 
 test("a blueprint made from the window is a real schedule, and never with more than the owner holds", async (t) => {
-  const { app, api, call, on } = await fixture(t);
+  const { app, api, call, on, off } = await fixture(t);
+  // The owner's rule (ships on, 2026-09-26): the part ships "when needed", so "off" is tested by switching it off.
+  await off("suggestions");
   assert.equal((await call("/api/autonomy/blueprints", { blueprint: "custom-reminder", values: { note: "water the oak" } })).status, 409);
   await on("suggestions");
   const { schedule } = await api("/api/autonomy/blueprints", { blueprint: "news-digest", values: { topic: "oak trees", time: "07:30" }, timezone: "UTC" });
@@ -264,9 +270,11 @@ test("loop and heartbeat syntax has floors and caps", () => {
 });
 
 test("/loop repeats in its conversation, stops on LOOP_COMPLETE, and /heartbeat speaks only with news", async (t) => {
-  const { app, provider, api, on, command } = await fixture(t);
+  const { app, provider, api, on, off, command } = await fixture(t);
   const first = await app.runtime.run({ prompt: "Start the build watch", onTextDelta: () => undefined });
   const sessionId = first.sessionId;
+  // The owner's rule (ships on, 2026-09-26): the part ships "when needed", so "off" is tested by switching it off.
+  await off("loops");
   assert.match((await command("/loop every 1m check the build", sessionId)).body.text, /switched off/);
   await on("loops");
   assert.match((await command("/loop every 1m check the build --times 3", sessionId)).body.text, /at most 3 turns/);
@@ -311,9 +319,12 @@ test("/loop repeats in its conversation, stops on LOOP_COMPLETE, and /heartbeat 
 // ---- R17-018: /subgoal, /bg, /handoff ------------------------------------------------------------------
 
 test("sub-goals are shown to every round and to the judge", async (t) => {
-  const { app, on } = await fixture(t);
+  const { app, on, off } = await fixture(t);
   const owner = app.runtime.owner, sessionId = randomUUID();
   addSubgoal(app.store, owner, sessionId, "the tests pass");
+  // The owner's rule (ships on, 2026-09-26): never saved, it reads as it ships; then "off" is tested by switching it off.
+  assert.match(goalWithSubgoals(app.store, owner, { sessionId, objective: "Ship it" }), /1\. the tests pass/);
+  await off("session-commands");
   assert.equal(goalWithSubgoals(app.store, owner, { sessionId, objective: "Ship it" }), "Ship it", "nothing while the part is off");
   await on("session-commands");
   assert.match(goalWithSubgoals(app.store, owner, { sessionId, objective: "Ship it" }), /Ship it\nIt is done only when every one of these is also true:\n1\. the tests pass/);
@@ -338,7 +349,7 @@ test("sub-goals are shown to every round and to the judge", async (t) => {
 });
 
 test("/subgoal needs a goal, /bg starts a separate conversation, and /handoff points a chat at this one", async (t) => {
-  const { app, on, command } = await fixture(t);
+  const { app, api, on, command } = await fixture(t);
   const first = await app.runtime.run({ prompt: "Hello", onTextDelta: () => undefined });
   await on("session-commands");
   assert.match((await command("/subgoal the docs are updated", first.sessionId)).body.text, /no goal working here/);
@@ -360,6 +371,8 @@ test("/subgoal needs a goal, /bg starts a separate conversation, and /handoff po
   assert.deepEqual(linked, [{ channel: "tg-main", chatId: "42", sessionId: first.sessionId }]);
   assert.match(sent[0][2], /carries on here/);
   assert.match((await command("/handoff discord", first.sessionId)).body.text, /No chat on discord/);
+  // The owner's rule (ships on, 2026-09-26): handing on ships "when needed", so the interop switch is switched off here.
+  await api("/api/interop/switch", { part: "handoff", mode: "off" });
   assert.match((await command("/handoff terminal", first.sessionId)).body.text, /switched off/, "the interop switch still decides");
 });
 
@@ -426,7 +439,9 @@ test("readiness looks for programs on PATH and keys by name, and only suggests h
 });
 
 test("the readiness route reads installed skills and names what is missing", async (t) => {
-  const { app, api, on } = await fixture(t);
+  const { app, api, on, off } = await fixture(t);
+  // The owner's rule (ships on, 2026-09-26): the part ships "when needed", so "off" is tested by switching it off.
+  await off("readiness");
   const document = "---\nname: pr-helper\ndescription: Helps with pull requests.\nmetadata:\n  requires-bins: branch-no-such-program\n  requires-keys: BRANCH_TEST_NO_SUCH_KEY\n  install-npm: no-such-program\n---\nUse gh to open pull requests.\n";
   app.store.skills.install(app.runtime.owner, { document });
   assert.deepEqual((await api("/api/autonomy/readiness")).skills, []);
@@ -447,7 +462,9 @@ test("\"from now on\" is spotted, asked once, and given to later tasks", async (
   assert.equal(spotInstruction("From now on, should I use tabs?"), null);
   assert.equal(spotInstruction("I will do it from now"), null);
 
-  const { app, provider, api, on } = await fixture(t);
+  const { app, provider, api, on, off } = await fixture(t);
+  // The owner's rule (ships on, 2026-09-26): the part ships "when needed", so "off" is tested by switching it off.
+  await off("instructions");
   await app.runtime.run({ prompt: "From now on, answer in French.", onTextDelta: () => undefined });
   assert.equal((await api("/api/autonomy")).waiting.length, 0, "nothing while the part is off");
   await on("instructions");
