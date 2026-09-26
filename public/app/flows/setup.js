@@ -53,7 +53,8 @@ const pressed = (on) => `aria-pressed="${on}"`;
 const pose = (i) => POSES[i] ? `<img class="pose11 ob-pose11" src="/art/branch-${POSES[i]}.webp" alt="" loading="lazy" decoding="async" draggable="false">` : "";
 const prov = (act, k, v, icon, name, sub, on) =>
   `<button class="prov" type="button" data-act="${act}" data-k="${k}" data-v="${v}" ${pressed(on)}><span class="ico-tile">${ic(icon, "s")}</span><b>${name}</b><small>${sub}</small></button>`;
-const ctl = (id, name, sub) => `<div class="ctl"><b>${name}</b><input class="sw" type="checkbox" id="${id}" aria-label="${name}" data-sw="set"><small>${sub}</small></div>`;
+/* A switch row: drawn from the engine's value; `off` disables only this switch (not read yet, or not possible here). */
+const ctl = (id, name, sub, on, off) => `<div class="ctl"><b>${name}</b><input class="sw" type="checkbox" id="${id}" aria-label="${name}" data-sw="${id}" ${on ? "checked" : ""} ${off ? "disabled" : ""}><small>${sub}</small></div>`;
 
 function languageControl() {
   const now = language();
@@ -154,9 +155,52 @@ function reach(o) {
 /* What this Branch can use, every row from the engine (flows/setup-tools.js). */
 const tools = (o) => toolsStep(o, draw);
 
+/* Step 8, Keep it running: three on/off switches, read from the engine when the step opens (loadKeep).
+   - The gateway: GET/POST /api/never-break. "when-needed" and "on" both run it (src/never-break/gateway-config.ts), so
+     an old "when-needed" reads as on and the switch saves "on" or "off". It takes effect the next time Branch starts,
+     said right under its row once saved. No OS permission is involved.
+   - Starting at sign-in: GET /api/deployment autostart, POST /api/deployment/autostart. Windows writes the per-person
+     sign-in list (no administrator prompt); a Mac uses the app's login item, which macOS may want approved in System
+     Settings › Login Items. Only an installed app can be registered, so a source checkout says so and only this switch
+     is off.
+   - Updating by itself: GET/POST /api/comfort, notify.autoUpdate "install" or "off".
+   A click saves at once. In a first setup (onboarding not done) a switch still at its shipped off is drawn on (the
+   ship-on rule: none of these spends, sends, deletes or uses the microphone or camera) and saved on Continue. */
+const KEEP = ["gw", "boot", "upd"];
+const keepOf = (o) => (o.keep ??= { ready: false, boot: null, upd: null, platform: "", touched: new Set(), busy: new Set() });
+function keepState(o) {
+  const k = keepOf(o), boot = k.boot;
+  const real = { gw: o.gw == null ? null : o.gw !== "off", boot: boot ? boot.enabled : null, upd: k.upd == null ? null : k.upd === "install" };
+  const shipped = { gw: o.gw === "off", boot: boot?.available === true && !boot.enabled, upd: k.upd === "off" };
+  const first = !E.state?.onboarding?.done;
+  const shown = Object.fromEntries(KEEP.map((n) => [n, real[n] === true || (first && !k.touched.has(n) && shipped[n])]));
+  return { real, shown };
+}
+
+function bootWhy(boot, platform) {
+  if (boot.available) return "";
+  if (!boot.installed) return t(platform === "darwin" ? "window.flows.setup.boot-install-mac" : platform === "win32" ? "window.flows.setup.boot-install-windows" : "window.flows.setup.boot-install-other");
+  return t("window.flows.setup.boot-not-here");
+}
+
+function bootNotes(boot, platform) {
+  const why = bootWhy(boot, platform);
+  if (why) return `<p class="hint ob-keep-note">${why}</p>`;
+  if (!boot.needsApproval) return "";
+  const open = boot.settingsLink && typeof window.branchDesktop?.openExternal === "function"
+    ? `<button class="btn sm" type="button" data-act="ob-login-items">${t("action.open-system-settings")}</button>` : "";
+  return `<p class="hint ob-keep-note">${t("window.flows.setup.boot-approve")}</p>${open}`;
+}
+
 function keep(o) {
-  const seg = [["off", t("accounts.switch.off")], ["when-needed", t("accounts.switch.when-needed")], ["on", t("accounts.switch.on")]].map(([v, l]) => `<button type="button" ${pressed(o.gw === v)} data-act="ob-gw" data-v="${v}">${l}</button>`).join("");
-  return `<h2 tabindex="-1">${t("window.flows.setup.step-keep")}</h2><div class="ctl"><b>${t("window.flows.setup.gateway")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.flows.setup.gateway")}">${seg}</span></span><small>${t("window.flows.setup.gateway-hint")}</small></div>${ctl("ob-boot", mac() ? t("window.flows.setup.start-mac") : t("window.flows.setup.start-windows"), mac() ? t("window.flows.setup.menu-bar") : t("window.flows.setup.tray"))}${ctl("ob-upd", t("comfort.update.install"), t("window.flows.setup.upd-hint"))}${o.gwNote ? `<p class="hint">${esc(o.gwNote)}</p>` : ""}`;
+  const k = keepOf(o), { shown } = keepState(o), boot = k.boot;
+  const off = (n, known) => !k.ready || !known || k.busy.has(n);
+  const gwRow = ctl("ob-gw", t("window.flows.setup.gateway"), t("window.flows.setup.gateway-hint"), shown.gw, off("gw", o.gw != null));
+  const gwNote = o.gwNote ? `<p class="hint ob-keep-note">${t("never-break.saved")}</p>` : "";
+  const bootRow = ctl("ob-boot", mac() ? t("window.flows.setup.start-mac") : t("window.flows.setup.start-windows"), mac() ? t("window.flows.setup.menu-bar") : t("window.flows.setup.tray"),
+    shown.boot, off("boot", boot?.available === true));
+  const updRow = ctl("ob-upd", t("comfort.update.install"), t("window.flows.setup.upd-hint"), shown.upd, off("upd", k.upd != null));
+  return `<h2 tabindex="-1">${t("window.flows.setup.step-keep")}</h2>${gwRow}${gwNote}${bootRow}${boot ? bootNotes(boot, k.platform) : ""}${updRow}`;
 }
 
 function people() {
@@ -321,8 +365,10 @@ async function go(i) {
   if (o.i === 4 && (o.tpls.size || o.picks.size)) {
     try { await makeTrunks(o); o.error = ""; } catch (error) { o.error = error.message; draw(); return; }
   }
+  if (o.i === 7 && i > 7) await applyKeep(o);
   o.i = i;
   draw();
+  if (i === 7) loadKeep(o);
   if (i === STEPS.length - 1) runChecks(o);
 }
 
@@ -346,7 +392,7 @@ async function runChecks(o) {
   if (test.presetName) o.checks[1].name = test.presetName;
   settle(1, !!test.ok, test.ok ? t("window.flows.setup.answered-lower", { s: (test.ms / 1000).toFixed(1) }) : test.error ?? t("window.flows.setup.did-not-answer"));
   const gw = await api("never-break").catch(() => null);
-  const GW = { off: "comfort.choice.off", "when-needed": "terminal.state.whenNeeded", on: "terminal.state.on" };
+  const GW = { off: "comfort.choice.off", "when-needed": "terminal.state.on", on: "terminal.state.on" }; // when-needed runs it too
   settle(2, !!gw, gw ? (GW[gw.mode] ? t(GW[gw.mode]) : gw.mode) : t("window.flows.setup.not-answering"));
   HEALTH.forEach(([name], j) => {
     const item = health?.items?.find((x) => x.name === name);
@@ -457,15 +503,53 @@ async function remoteLetIn({ approve, kind, request } = {}) {
   }
 }
 
-async function saveGateway(v) {
-  const o = S.ob;
-  try { const view = await api("never-break", { mode: v }); o.gw = view.mode ?? v; o.gwNote = view.note ?? ""; } catch (error) { toast(error.message); }
+/* Keep it running, read when the step opens: the gateway's mode, whether Branch starts at sign-in here (and whether it
+   can), and whether it updates by itself. A read that fails says why and leaves its switch off. */
+async function loadKeep(o) {
+  const k = keepOf(o);
+  const read = (path) => api(path).catch((error) => { toast(error.message); return null; });
+  const [gw, dep, comfort] = await Promise.all([read("never-break"), read("deployment"), read("comfort")]);
+  o.gw = gw?.mode ?? null;
+  k.boot = dep?.autostart ? { ...dep.autostart, installed: dep.installed === true } : null;
+  k.platform = dep?.platform ?? "";
+  k.upd = comfort?.values?.notify?.autoUpdate ?? null;
+  k.ready = true;
+  if (S.ob === o) draw();
+}
+
+/* One switch saved through its engine route; the engine's answer is what is drawn next. */
+const KEEP_SAVE = {
+  gw: async (o, on) => { const view = await api("never-break", { mode: on ? "on" : "off" }); o.gw = view.mode; o.gwNote = !!view.note; },
+  boot: async (o, on) => { const view = await api("deployment/autostart", { enabled: on }); Object.assign(o.keep.boot, view); },
+  upd: async (o, on) => { const view = await api("comfort", { card: "notify", values: { autoUpdate: on ? "install" : "off" } }); o.keep.upd = view.values?.notify?.autoUpdate ?? o.keep.upd; },
+};
+
+async function saveKeep(o, name, on) {
+  const k = keepOf(o);
+  k.touched.add(name);
+  k.busy.add(name);
   draw();
+  try { await KEEP_SAVE[name](o, on); } catch (error) { toast(error.message); }
+  k.busy.delete(name);
+  if (S.ob === o) draw();
+}
+
+/* Continue from Keep it running: a switch drawn on by the ship-on rule, still off in the engine, is saved now. */
+async function applyKeep(o) {
+  const k = keepOf(o);
+  if (!k.ready) return;
+  const { real, shown } = keepState(o);
+  for (const name of KEEP) if (shown[name] && real[name] === false) await saveKeep(o, name, true);
+}
+
+function openLoginItems() {
+  const link = S.ob?.keep?.boot?.settingsLink;
+  if (link) Promise.resolve(window.branchDesktop?.openExternal?.(link)).catch((error) => toast(error.message));
 }
 
 export function init() {
   initLocalPick();
-  markLive(["sw:ob-trust", "sw:ob-lang", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-where-remote", "ob-test", "ob15", "ob-tpl", "ob-gw", "ob-propose", "ob-prop", "sw:ob-life"]);
+  markLive(["sw:ob-trust", "sw:ob-lang", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-where-remote", "ob-test", "ob15", "ob-tpl", "ob-propose", "ob-prop", "sw:ob-life", "sw:ob-gw", "sw:ob-boot", "sw:ob-upd", "ob-login-items"]);
   on("ob-where-remote", () => pickRemote());
   onPaired.add((said) => remoteLetIn(said));
   on("onboard", (el) => openSetup(Number(el?.dataset?.v) || 1));
@@ -477,10 +561,12 @@ export function init() {
   on("ob-test", () => test());
   on("ob15", (el) => { if (el.dataset.k === "look") { run("themeset", el); draw(); } else saveAsks(el.dataset.v); });
   on("ob-tpl", (el) => { const i = +el.dataset.i; if (S.ob.tpls.has(i)) S.ob.tpls.delete(i); else S.ob.tpls.add(i); draw(); });
-  on("ob-gw", (el) => saveGateway(el.dataset.v));
   on("ob-propose", () => propose());
   on("ob-prop", (el) => { const name = S.ob.proposals[+el.dataset.i]?.name; if (!name) return; if (S.ob.picks.has(name)) S.ob.picks.delete(name); else S.ob.picks.add(name); draw(); });
   document.addEventListener("input", (e) => { if (e.target.id === "ob-life" && S.ob) S.ob.life = e.target.value; });
+  on("ob-login-items", () => openLoginItems());
+  const KEEP_IDS = { "ob-gw": "gw", "ob-boot": "boot", "ob-upd": "upd" };
+  document.addEventListener("change", (e) => { const name = KEEP_IDS[e.target.id]; if (name && S.ob) saveKeep(S.ob, name, e.target.checked); });
   initToolsStep(draw);
   document.addEventListener("change", (e) => { if (e.target.id === "ob-trust" && S.ob) { S.ob.trust = e.target.checked; draw(); } });
   document.addEventListener("change", (e) => { if (e.target.id === "ob-lang" && S.ob) pickLanguage(e.target.value); });
