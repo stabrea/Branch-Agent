@@ -503,8 +503,9 @@ export class ChannelRouter {
     const mayApprove = !asked || chatMayApprove(this.runtime.registry.permissionOf(asked.tool), this.chatApprovals(channel, from));
     if (read.decision === "allow" && asked && !mayApprove)
       return { decision: "in-window", tool: asked.tool, refusal: approveInWindow(asked.label || asked.tool) };
+    // PR #289 second review: the yes lands on exactly the question vetted above, so it still answers while another waits.
     const result = this.runtime.approve(sessionId, read.decision, read.remember,
-      read.fingerprint || undefined, channel);
+      asked?.fingerprint ?? (read.fingerprint || undefined), channel);
     return { decision: result.decision, tool: result.tool };
   }
   /**

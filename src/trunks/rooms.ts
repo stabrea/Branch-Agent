@@ -353,7 +353,8 @@ export class TrunkRooms {
     // owner's one-time overrule carries to the turn taken again), never kept for the room.
     const asked = this.deps.runtime.waitingApprovals(sessionId).find((q) => !value.fingerprint || q.fingerprint === value.fingerprint);
     const remember: PolicyRemember = asked?.onceOnly ? "never" : value.remember;
-    const answered = this.deps.runtime.approve(sessionId, value.decision, remember, value.fingerprint);
+    // PR #289 second review: answer the question found above, so a member's answer still lands while another waits.
+    const answered = this.deps.runtime.approve(sessionId, value.decision, remember, asked?.fingerprint ?? value.fingerprint);
     const fresh = this.get(id);
     fresh.events = fresh.events.map((e) => (e.kind === "waiting" && e.memberId === value.memberId ? { ...e, answered: true } : e));
     this.put({ ...fresh, needsYou: this.waiting(id).length > 0 });
