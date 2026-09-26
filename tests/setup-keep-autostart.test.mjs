@@ -5,7 +5,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deploymentApi, noSignInStartHereWords } from "../dist/deployment-api.js";
+import { appRuntime, deploymentApi, noSignInStartHereWords } from "../dist/deployment-api.js";
 import { macLoginItemsLink } from "../dist/install/autostart.js";
 import { runKey, runValueName } from "../dist/install/installer.js";
 import { macLoginItem } from "../dist/desktop/login-item.js";
@@ -45,6 +45,26 @@ test("a source checkout has no program to register, so it is refused in the engi
   const reg = registry();
   await assert.rejects(post(context({ executable: null, autostartDeps: reg.deps }), "win32", { enabled: true }), /has to be installed on this computer before it can start with Windows\.$/);
   assert.deepEqual(reg.calls, []);
+});
+
+test("the background engine, run by the installed app's own program in node mode, can still switch it on", async () => {
+  const reg = registry();
+  const ctx = context({ executable: null, installRoot: null, autostartDeps: reg.deps });
+  const post2 = (appRuntime, body) => deploymentApi({ version: "1" }, { method: "POST", url: "/", headers: {} }, "/api/deployment/autostart", ctx, async () => body, () => {}, { platform: "win32", appRuntime });
+  const on = await post2(exe, { enabled: true });
+  assert.equal(on.available, true);
+  assert.equal(reg.values.get(runValueName), `"${exe}" --start-minimized`, "the app's program, never node");
+  const calls = reg.calls.length;
+  await assert.rejects(post2(null, { enabled: true }), /has to be installed/);
+  assert.equal(reg.calls.length, calls, "a plain runtime runs nothing");
+});
+
+test("only the installed app's program counts as its runtime: not plain Node, not Electron from a checkout", () => {
+  const app = "C:\\Users\\pat\\AppData\\Local\\Programs\\Branch Agent\\Branch Agent.exe";
+  assert.equal(appRuntime({ ELECTRON_RUN_AS_NODE: "1" }, { electron: "44.3.0" }, app), app);
+  assert.equal(appRuntime({}, { electron: "44.3.0" }, app), null, "the app's window runs its engine in-process and says where it is");
+  assert.equal(appRuntime({ ELECTRON_RUN_AS_NODE: "1" }, {}, "C:\\Program Files\\nodejs\\node.exe"), null);
+  assert.equal(appRuntime({ ELECTRON_RUN_AS_NODE: "1" }, { electron: "44.3.0" }, "C:\\src\\Branch\\node_modules\\electron\\dist\\electron.exe"), null);
 });
 
 test("a Mac uses the app's login item, and says when macOS wants it approved in Login Items", async () => {

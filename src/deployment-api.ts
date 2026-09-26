@@ -56,6 +56,19 @@ export interface DeploymentDeps {
   platform?: NodeJS.Platform;
   /** Sends a signal to a process; only used to close this engine after it has answered. */
   signal?: (pid: number, signal: NodeJS.Signals) => void;
+  /** The app's own program when this engine runs inside it in node mode (see `appRuntime`); tests pass it in. */
+  appRuntime?: string | null;
+}
+
+/**
+ * The installed app's program when this engine is that program run in node mode: the background engine on Windows
+ * starts as `"Branch Agent.exe" cli.js start` with ELECTRON_RUN_AS_NODE and is not told its own path. A plain Node, or
+ * Electron from a source checkout's node_modules, is never an installed app, so neither is ever registered.
+ */
+export function appRuntime(env: NodeJS.ProcessEnv = process.env, versions: NodeJS.ProcessVersions = process.versions,
+  execPath: string = process.execPath): string | null {
+  if (!versions.electron || env.ELECTRON_RUN_AS_NODE !== "1") return null;
+  return /[\\/]node_modules[\\/]/.test(execPath) ? null : execPath;
 }
 
 /**
@@ -84,8 +97,12 @@ export interface AutostartView extends AutostartState { available: boolean; need
 const noSignInStart = { enabled: false, minimized: false, command: null, needsApproval: false, settingsLink: "" };
 export const noSignInStartHereWords = "Starting by itself is not available on this kind of computer yet. Open Branch when you want it.";
 
-async function autostartView(context: DeploymentContext, platform: NodeJS.Platform): Promise<AutostartView> {
-  if (!context.executable) return { ...noSignInStart, available: false };
+/** The program the sign-in list would start: the installed app's own, or none from a source checkout. */
+const signInProgram = (context: DeploymentContext, deps: DeploymentDeps): string | null =>
+  context.executable || (deps.appRuntime === undefined ? appRuntime() : deps.appRuntime);
+
+async function autostartView(context: DeploymentContext, platform: NodeJS.Platform, deps: DeploymentDeps): Promise<AutostartView> {
+  if (!signInProgram(context, deps)) return { ...noSignInStart, available: false };
   if (context.loginItem) {
     const { enabled, needsApproval } = context.loginItem.read();
     return { ...noSignInStart, enabled, needsApproval, settingsLink: needsApproval ? macLoginItemsLink : "", available: true };
@@ -94,13 +111,14 @@ async function autostartView(context: DeploymentContext, platform: NodeJS.Platfo
   return { ...noSignInStart, ...(await autostartState({}, context.autostartDeps)), available: true };
 }
 
-async function saveAutostart(context: DeploymentContext, platform: NodeJS.Platform, body: unknown): Promise<AutostartView> {
+async function saveAutostart(context: DeploymentContext, platform: NodeJS.Platform, deps: DeploymentDeps, body: unknown): Promise<AutostartView> {
   const { enabled, minimized } = EnabledSchema.parse(body);
-  if (!context.executable) throw new Error(`Branch has to be installed on this computer before it can ${startsBySelfWords(platform)}.`);
+  const program = signInProgram(context, deps);
+  if (!program) throw new Error(`Branch has to be installed on this computer before it can ${startsBySelfWords(platform)}.`);
   if (context.loginItem) context.loginItem.set(enabled);
   else if (platform !== "win32") throw new Error(noSignInStartHereWords);
-  else await setAutostart(enabled, { executable: context.executable, minimized: minimized ?? true }, context.autostartDeps);
-  return autostartView(context, platform);
+  else await setAutostart(enabled, { executable: program, minimized: minimized ?? true }, context.autostartDeps);
+  return autostartView(context, platform, deps);
 }
 
 function notInstalledDaemon(platform: NodeJS.Platform): { action: "status"; taskName: string; installed: false; message: string } {
@@ -122,13 +140,13 @@ export function daemonOptions(context: DeploymentContext, platform: NodeJS.Platf
   };
 }
 
-async function overview(app: Branch, context: DeploymentContext, platform: NodeJS.Platform): Promise<unknown> {
+async function overview(app: Branch, context: DeploymentContext, platform: NodeJS.Platform, deps: DeploymentDeps): Promise<unknown> {
   const installed = Boolean(context.executable);
   return {
     installed,
     installRoot: context.installRoot,
     dataDir: context.dataDir,
-    autostart: await autostartView(context, platform),
+    autostart: await autostartView(context, platform, deps),
     daemon: installed
       ? await daemonCommand("status", daemonOptions(context, platform))
       : notInstalledDaemon(platform),
@@ -200,14 +218,14 @@ export async function deploymentApi(
   deps: DeploymentDeps = {},
 ): Promise<unknown | undefined> {
   const platform = deps.platform ?? process.platform;
-  if (request.method === "GET" && path === "/api/deployment") return overview(app, context, platform);
+  if (request.method === "GET" && path === "/api/deployment") return overview(app, context, platform, deps);
   if (request.method === "GET" && path === "/api/deployment/suggestion") return suggestion(app, context, platform);
   // "Don't ask again": only the owner reaches this (an unlisted change is refused to everyone else).
   if (request.method === "POST" && path === "/api/deployment/suggestion") {
     app.store.profiles.requireOwner("Suggestions");
     return { settings: neverSuggest(app.store, app.runtime.owner, await readBody(request)) };
   }
-  if (request.method === "POST" && path === "/api/deployment/autostart") return saveAutostart(context, platform, await readBody(request));
+  if (request.method === "POST" && path === "/api/deployment/autostart") return saveAutostart(context, platform, deps, await readBody(request));
   if (request.method === "POST" && path === "/api/deployment/daemon") {
     const { action } = DaemonSchema.parse(await readBody(request));
     return daemonCommand(action as DaemonAction, daemonOptions(context, platform));
