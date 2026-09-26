@@ -189,7 +189,7 @@ function setAccent(v) {
 const startFromWorn = () => startCed(wornId().startsWith("my-") ? BASE : wornId());
 
 export function initThemes() {
-  markLive(["skins", "skin", "skinf", "skinprev", "ce-new", "ce-mode", "ce-acc", "ce-fill", "ce-cancel", "ce-save", "my-edit", "my-dup", "my-code",
+  markLive(["sw:skin-q", "sw:ce-name", "sw:ce-base", "sw:paste6", "sw:acc-pick", ...EF.flatMap(([k]) => ["sw:ce-" + k, "sw:ceh-" + k]), "skins", "skin", "skinf", "skinprev", "ce-new", "ce-mode", "ce-acc", "ce-fill", "ce-cancel", "ce-save", "my-edit", "my-dup", "my-code",
     "my-del", "my-del-yes", "my-paste", "my-paste-go", "acc-set", "acc-save", "sw:g-contrast", "sw:a-contrast"]);
   on("skins", () => skinGallery());
   on("skin", async (el) => { await wear(el.dataset.v); renderNow(); skinGallery(); });

@@ -73,7 +73,7 @@ function pick(n) {
 }
 
 export function initPalette() {
-  markLive(["palette", "pal"]);
+  markLive(["palette", "pal", "sw:pal-in"]);
   on("palette", () => openPalette());
   on("pal", (el) => pick(+el.dataset.i));
   document.addEventListener("input", (e) => { if (e.target.id === "pal-in") { P.sel = 0; paint(e.target.value); } });

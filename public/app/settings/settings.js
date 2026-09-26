@@ -152,7 +152,7 @@ export function init() {
   for (const page of Object.values(PAGES)) {
     live.push(...(page.live ? Object.keys(page.live) : []));
   }
-  markLive(["setpage", "setgo", "setlevel", ...live]);
+  markLive(["setpage", "setgo", "setlevel", "sw:set-q", ...live]);
 }
 
 export function after(main) {

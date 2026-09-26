@@ -266,7 +266,7 @@ export function init() {
   initSelfChange();
   initTeach({ start: startConversation });
   onRender(drawPane);
-  markLive(["ask", "send", "side", "stop-run"]);
+  markLive(["ask", "send", "side", "stop-run", "sw:prompt"]);
   on("stop-run", () => stopRun());
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
   /* Live once the engine scopes a standing yes to one Trunk (PR #285); until then features.js keeps it greyed. */

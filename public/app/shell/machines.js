@@ -73,7 +73,7 @@ async function saveName(el) {
 }
 
 export function initMachines() {
-  markLive(["machines", "machine-here", "renamecomp", "rc-save"]);
+  markLive(["sw:rc-name", "machines", "machine-here", "renamecomp", "rc-save"]);
   on("machines", (el) => openMachines(el));
   on("machine-here", () => closePop());
   on("renamecomp", (el) => renameDialog(el));

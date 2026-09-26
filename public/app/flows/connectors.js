@@ -58,7 +58,7 @@ async function installFile(file) {
 const ADD = { mcp: connectorCatalog, skills: addSkill, agents: connectAgent };
 
 export function init() {
-  markLive(["tool-add", "t9-own", "sk-src"]);
+  markLive(["tool-add", "t9-own", "sk-src", "sw:sk-file"]);
   /* A plugin or a command-line tool has no add form the engine backs yet: the button opens that kind in Customize. */
   on("tool-add", (el) => { if (ADD[el.dataset.v]) ADD[el.dataset.v](); else { closePop(); showTool(el.dataset.v, null); renderNow(); } });
   on("t9-own", () => ownServer());

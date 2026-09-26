@@ -253,7 +253,7 @@ async function saveGateway(v) {
 }
 
 export function init() {
-  markLive(["onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-test", "ob15", "ob-tpl", "ob-gw"]);
+  markLive(["sw:ob-trust", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-test", "ob15", "ob-tpl", "ob-gw"]);
   on("onboard", () => openSetup());
   on("ob-go", (el) => go(+el.dataset.v));
   on("ob-next", () => go(S.ob.i + 1));

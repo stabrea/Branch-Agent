@@ -421,10 +421,14 @@ function soon(el) {
 }
 
 /* After a draw: every control that is not live gets the one greyed-out treatment. A data-act control also needs a
-   registered handler, so nothing can be marked live with nothing behind it. */
+   registered handler, so nothing can be marked live with nothing behind it. A form field (a switch, a number box, a
+   search box, a dialog's field) is live only when the code that reads it marked "sw:" plus its id live, or "sw:" plus
+   its data-sw for one without an id; a field that only shows a value (readonly) or carries one (hidden) is left as is. */
 export function greyOut(root) {
   for (const el of root.querySelectorAll("[data-act]")) if (!isLive(el.dataset.act) || !has(el.dataset.act)) soon(el);
-  for (const el of root.querySelectorAll("input[data-sw], select[data-sw]")) {
+  for (const el of root.querySelectorAll("input, select, textarea")) {
+    if (el.type === "hidden" && !el.dataset.sw) continue;
+    if (el.readOnly && !el.dataset.sw) continue;
     if (isLive("sw:" + (el.id || el.dataset.sw))) continue;
     soon(el);
     el.disabled = true;

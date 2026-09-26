@@ -118,7 +118,7 @@ function dismissWelcome() {
 }
 
 export function init() {
-  markLive(["firstrun", "fr-next", "fr-skip", "fr-tour", "fr-way", "fr-recs", "fr-tmpl", "welcome-x"]);
+  markLive(["sw:fr-gw", "sw:fr-upd", "firstrun", "fr-next", "fr-skip", "fr-tour", "fr-way", "fr-recs", "fr-tmpl", "welcome-x"]);
   on("firstrun", () => startFirst());
   on("fr-next", () => go(F.step + 1));
   on("fr-way", () => practice());

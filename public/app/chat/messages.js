@@ -258,7 +258,7 @@ export function queueRow() {
   if (!mine() || !M.followUps.length) return "";
   return `<div class="dockrow15"><button type="button" class="bgchip15 q15" data-act="queue15" aria-haspopup="menu">${ic("clock", "s")}${M.followUps.length} waiting</button></div>`;
 }
-const queuePop = () => `<div class="ph">Waiting line · sent after this step</div>${M.followUps.map((f, i) => `<div class="mi qrow15"><span class="q-n15">${i + 1}</span><input class="inp" value="${esc(f.prompt)}" data-q15="${esc(f.id)}" aria-label="Queued message ${i + 1}"><button type="button" class="icon-btn" aria-label="Move up" data-act="qup15" data-id="${esc(f.id)}" ${i ? "" : "disabled"}>${ic("up", "s")}</button><button type="button" class="icon-btn" aria-label="Remove" data-act="qrm15" data-id="${esc(f.id)}">${ic("x", "s")}</button></div>`).join("") || '<p class="hint" data-css="margin:6px 10px">Nothing waiting.</p>'}`;
+const queuePop = () => `<div class="ph">Waiting line · sent after this step</div>${M.followUps.map((f, i) => `<div class="mi qrow15"><span class="q-n15">${i + 1}</span><input class="inp" value="${esc(f.prompt)}" data-sw="q15" data-q15="${esc(f.id)}" aria-label="Queued message ${i + 1}"><button type="button" class="icon-btn" aria-label="Move up" data-act="qup15" data-id="${esc(f.id)}" ${i ? "" : "disabled"}>${ic("up", "s")}</button><button type="button" class="icon-btn" aria-label="Remove" data-act="qrm15" data-id="${esc(f.id)}">${ic("x", "s")}</button></div>`).join("") || '<p class="hint" data-css="margin:6px 10px">Nothing waiting.</p>'}`;
 
 /* The every-few-seconds re-read stays quiet when it fails: the status bar already says the engine is not answering. */
 async function loadQueue(id, polling = false) {
@@ -374,7 +374,7 @@ async function usePrompt(el) {
 
 export function initMessages(context) {
   X = context;
-  markLive(["pin15", "pinjump15", "pinlist15", "u-edit", "rw-what", "rw-go", "undo", "inspect", "slash6-pick", "prompts-fill",
+  markLive(["sw:rw-text", "sw:q15", "pin15", "pinjump15", "pinlist15", "u-edit", "rw-what", "rw-go", "undo", "inspect", "slash6-pick", "prompts-fill",
     "mention-pick", "queue15", "qup15", "qrm15", "roommenu", "spendmenu", "project"]);
   on("pin15", (el) => togglePin(el));
   on("pinjump15", (el) => jump(el));

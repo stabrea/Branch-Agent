@@ -93,7 +93,7 @@ export function init() {
   on("if-open", (el) => openFile(el.dataset.f));
   on("if-save", (el) => save(el.dataset.f));
   on("if-back", (el) => putBack(el.dataset.f));
-  markLive(["if-open", "if-save", "if-back"]);
+  markLive(["if-open", "if-save", "if-back", "sw:if-text"]);
 }
 
 export const live = { "if-open": true, "if-save": true, "if-back": true };

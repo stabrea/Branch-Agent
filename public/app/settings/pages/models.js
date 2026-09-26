@@ -111,9 +111,23 @@ async function stopDownload() {
   } catch (error) { toast(error.message); }
 }
 
+/* Most steps in one task: the engine's own limit (GET /api/knobs values.limits.maxSteps), saved with
+   POST /api/knobs { card: "limits", values: { maxSteps } }, which keeps the card's other values. */
+let knobs = null;
+async function loadKnobs() {
+  try { knobs = await api("knobs"); } catch (error) { knobs = null; toast(error.message); }
+  renderNow();
+}
+async function saveSteps(box) {
+  try { knobs = await api("knobs", { card: "limits", values: { maxSteps: Number(box.value) } }); } catch (error) { toast(error.message); }
+  renderNow();
+}
+
 export function init() {
   loadAccounts();
   loadLocal();
+  loadKnobs();
+  document.addEventListener("change", (e) => { if (e.target.id === "m-steps") saveSteps(e.target); });
   on("mtab", (el) => { tab = el.dataset.v; renderNow(); });
   on("download", () => openDownload());
   on("dl-go", (el) => startDownload(el));
@@ -121,19 +135,24 @@ export function init() {
   markLive(["mtab", "download", "dl-go", "lm-stop"]);
 }
 
-export function load() { loadAccounts(); return loadLocal(); }
+export function load() { loadAccounts(); loadKnobs(); return loadLocal(); }
 
-export const live = { mtab: true, download: true, "dl-go": true, "lm-stop": true };
+export const live = { mtab: true, download: true, "dl-go": true, "lm-stop": true, "sw:m-steps": true };
 
 /* The Advanced and Technical sections: drawn in place and greyed until each has its engine setting wired. */
 const seg = (label, opts) => `<span class="right"><span class="seg" role="group" aria-label="${label}">${opts.map((o) => `<button type="button" aria-pressed="false" data-act="seg">${o}</button>`).join("")}</span></span>`;
 const num = (label, unit) => `<span class="right num15"><input class="inp" aria-label="${label}" disabled>${unit ? `<small>${unit}</small>` : ""}</span>`;
+const steps = () => {
+  const value = knobs?.values?.limits?.maxSteps;
+  return value == null ? num("Most steps in one task", "steps")
+    : `<span class="right num15"><input class="inp" id="m-steps" type="number" min="1" max="500" step="1" value="${esc(value)}" aria-label="Most steps in one task"><small>steps</small></span>`;
+};
 const row = (b, right, small = "") => `<div class="ctl"><b>${b}</b>${right}<small>${small}</small></div>`;
 const sw = (id, b, small) => `<div class="ctl"><b>${b}</b><input class="sw" type="checkbox" id="${id}" aria-label="${b}" data-sw="set"><small>${small}</small></div>`;
 
 /* The model choices are "Same model" and the engine's own model presets (GET /api/state models). */
 const presetNames = () => (E.state?.models?.presets ?? []).map((p) => esc(p.name));
-const advanced = () => `<div class="sec x15-sec"><h2>Budgets</h2>${row("Most steps in one task", num("Most steps in one task", "steps"), "It stops and asks when it gets there.")}${row("Spend cap per task", num("Spend cap per task", "USD"), "Only for accounts that bill per use.")}${row("Sub-tasks at once", seg("Sub-tasks at once", ["1", "3", "5"]), "Parts of a big task that can run side by side.")}</div>`
+const advanced = () => `<div class="sec x15-sec"><h2>Budgets</h2>${row("Most steps in one task", steps(), "It stops and asks when it gets there.")}${row("Spend cap per task", num("Spend cap per task", "USD"), "Only for accounts that bill per use.")}${row("Sub-tasks at once", seg("Sub-tasks at once", ["1", "3", "5"]), "Parts of a big task that can run side by side.")}</div>`
   + `<div class="sec x15-sec"><h2>Models for smaller jobs</h2>${row("Sub-tasks and side jobs", seg("Sub-tasks and side jobs", ["Same model", ...presetNames()]), "Titles, summaries and searches inside a task.")}${sw("f15-pick-the-model-per-task", "Pick the model per task", "Easy tasks go to a quick model, hard ones to the best you have.")}${row("Planning model", seg("Planning model", ["Same model", ...presetNames()]), "Writes the plan in Plan first.")}${sw("f15-mix-models-on-hard-questions", "Mix models on hard questions", "Asks two and merges the best of each. Off until you choose: it doubles the cost.")}</div>`
   + `<div class="sec x15-sec"><h2>Compare models</h2>${row("Model arena", '<span class="right"><button class="btn sm" type="button" data-act="soon">Open the arena</button></span>', "The same task to two models, you pick the better. Ratings build up over time.")}${row("Test suites", '<span class="right"><button class="btn sm" type="button" data-act="soon">See history</button></span>', "Your own tasks with a check for each, with history.")}</div>`;
 

@@ -238,7 +238,7 @@ function onSearch(e) {
 export function openAddAcct(pool = null) { return open(pool); }
 
 export function init() {
-  markLive(["addacct", "aa-prov", "aa-back", "aa-done", "aa-key", "aa-grp", "aa-nm", "aa-tr", "aa-pos", "aa-local", "aa-gone", "acct-menu", "acct-first", "acct-out"]);
+  markLive(["sw:aa-q", "sw:aa-key", "sw:aa-name", "addacct", "aa-prov", "aa-back", "aa-done", "aa-key", "aa-grp", "aa-nm", "aa-tr", "aa-pos", "aa-local", "aa-gone", "acct-menu", "acct-first", "acct-out"]);
   on("addacct", (el) => open(el.dataset.v || null));
   on("aa-prov", (el) => pick(el.dataset.v));
   on("aa-back", () => { Object.assign(W, { step: 1, pool: null, saved: null, name: "", error: "" }); draw(); });

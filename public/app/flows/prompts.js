@@ -31,7 +31,7 @@ function showBlanks(text) {
 }
 
 export function init() {
-  markLive(["prompt-new", "prompt-save"]);
+  markLive(["prompt-new", "prompt-save", "sw:pr-name", "sw:pr-cmd", "sw:pr-text"]);
   on("prompt-new", () => newPrompt());
   on("prompt-save", () => savePrompt());
   document.addEventListener("input", (e) => { if (e.target.id === "pr-text") showBlanks(e.target.value); });
