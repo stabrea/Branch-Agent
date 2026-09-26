@@ -10,6 +10,7 @@ import { greyOut } from "./core/features.js";
 import { VIEWS } from "./views.js";
 import { drawShell, initShell, PLACE_VIEWS, placeHead, wide } from "./shell/shell.js";
 import { showSignIn } from "./shell/signin.js";
+import { showLock, watchLock, initLock } from "./shell/applock.js";
 import { openConversation } from "./chat/chat.js";
 import { goHome } from "./chat/goto.js";
 import { initLanguage } from "../i18n.js";
@@ -70,6 +71,7 @@ async function boot() {
   listen();
   listenTips();
   initShell();
+  initLock();
   onRender(drawShell);
   onRender(drawMain);
   onRender(drawWidth);
@@ -105,8 +107,11 @@ async function connect(refusal = "") {
   try { await refresh(); }
   catch (error) {
     if (error.status === 401 || error.status === 429) { showSignIn(() => connect(true), refusal || error.status === 429 ? error.message : ""); return; }
+    /* App lock: a locked engine answers 423, and the window shows only the lock screen (shell/applock.js). */
+    if (error.status === 423) { showLock(); return; }
     E.error = error; render(); return;
   }
+  if (await watchLock(E.state?.lock)) return;
   link.onChange = () => renderNow();
   let queued = null;
   stream([], () => {

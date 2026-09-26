@@ -210,9 +210,10 @@ async function auditRecord(page) {
   await closeDlg(page);
 }
 
-/* Held back for review: the app lock and the emergency stop, pressed and let go. The stop's row still follows the
-   engine: pressed through the API, it offers "Let them resume", which stays greyed too. The password manager is live
-   (unhold-approvals, verify-unhold-approvals.cjs); only Windows, which the engine cannot ask, stays greyed. */
+/* Held back for review: the emergency stop, pressed and let go. The stop's row still follows the engine: pressed through
+   the API, it offers "Let them resume", which stays greyed too. The app lock is live (verify-app-lock.cjs presses it) and
+   the password manager is live (unhold-approvals, verify-unhold-approvals.cjs); only Windows, which the engine cannot
+   ask, stays greyed. */
 async function heldBack(page) {
   await openPage(page, "secrets");
   check("password manager: Bitwarden and 1Password live, Windows greyed", (await page.locator('[data-act="vaultb17"]').count()) === 2
@@ -220,7 +221,7 @@ async function heldBack(page) {
     && await greyed(page.locator('[data-act="vaultwinb17"]')));
   check("a row with no readout yet stays greyed", await greyed(page.locator('[data-act="demob17-soon"][data-k="keys"]')));
   await openPage(page, "permissions");
-  check("app lock stays greyed", await greyed(page.locator('[data-act="applockb17"]')));
+  check("app lock is live, not greyed", !(await greyed(page.locator('[data-act="applockb17"]'))));
   check("emergency stop: pressing it stays greyed", await greyed(page.locator('[data-act="estopb17"]')));
   await api("safety-extras/stop", { everything: true });
   await openPage(page, "general");

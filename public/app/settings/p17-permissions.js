@@ -15,8 +15,9 @@
    tightens. Off makes Branch less careful, so it is sent first without confirmLoosening; the engine refuses it and its
    words are shown in a confirm, and only "Turn it off" there sends it again with confirmLoosening. Lockdown refuses
    both in its own words. The switch is drawn again from the engine after every answer.
+   App lock: live, from ./applock17.js (GET /api/lock, POST /api/lock/pin and /api/lock/settings).
    Greyed: "Hold back keys found in answers" (the engine's leak guard is always on and has no switch; an off switch
-   would weaken a guard), the app lock (a PIN) and the emergency stop; the rows under "Guards that are always on" have
+   would weaken a guard) and the emergency stop; the rows under "Guards that are always on" have
    no readout yet. */
 import { esc, render } from "../core/dom.js";
 import { api, token } from "../core/api.js";
@@ -28,6 +29,7 @@ import { sw15, seg15 } from "./rows15.js";
 import { demos17, demo17, row17, sec17, pill17 } from "./rows17.js";
 import { t } from "../../i18n.js";
 import { say } from "../core/words.js";
+import { applockRow, initApplock } from "./applock17.js";
 
 const P = { kit: null, safety: null, result: null, fw: null, why: [] };
 
@@ -54,7 +56,7 @@ export function sections17(lv) {
     + sw15("Hold back keys found in answers", "A key or password in a reply is hidden before it is sent anywhere.", false)
     + demo17("trust"));
   html += sec17(t("window.settings.p17-permissions.locks-and-records"),
-    seg15(t("window.settings.p17-permissions.app-lock"), "", [["off", t("accounts.switch.off")], ["quiet", t("window.settings.p17-permissions.after-15-min")], ["pin", t("window.places.automations.always")]], null, "applockb17")
+    applockRow()
     + (stopped ? row17(t("safety.stop.title"), t("window.settings.p17-permissions.stopped-every-task-is-halted-nothing"), t("window.settings.p17-permissions.let-them-resume"), "estoprelb17")
       : row17(t("safety.stop.title"), t("window.settings.p17-permissions.stops-every-task-at-once-on"), t("window.settings.p17-permissions.stop-everything"), "estopb17"))
     + demos17(["audit", "practice"]));
@@ -176,6 +178,7 @@ export function init17() {
   if (started) return;
   started = true;
   onDemo17("audit", { open: () => openAudit(), go: () => saveAudit() });
+  initApplock();
   on("ruletestb17", () => { P.result = null; ruleDlg(); });
   on("rulerunb17", () => runRule());
   on("rulepickb17", (el) => { const box = $("#rule-in-b17"); if (box) box.value = el.dataset.v; runRule(); });
