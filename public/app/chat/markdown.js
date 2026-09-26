@@ -1,6 +1,6 @@
 /* Answers arrive as Markdown. This draws the safe subset the conversation needs — paragraphs, line breaks, bold,
    italic, inline code, code blocks, headings, lists, tables, links and quotes — from escaped text, so nothing in an
-   answer can become markup. No images, no javascript: links, all hrefs http(s) only with rel="noopener". A ```chart
+   answer can become markup. No images, no javascript: links, all hrefs http(s) only opening in a new tab with rel="noopener noreferrer", so the window itself is never led away. A ```chart
    block is drawn as the design's chart card (chart.js), a ```mermaid block as the diagram card (diagram.js). */
 
 import { esc } from "../core/dom.js";
@@ -12,7 +12,7 @@ const inline = (s) => {
   // Links: [text](url) but only http(s) urls; input is already escaped, so don't double-escape
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
     if (!/^https?:\/\//.test(url)) return match; // not http(s), return literal
-    return `<a href="${url}" rel="noopener">${text}</a>`;
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
   });
   // Code: backticks; content is already escaped
   s = s.replace(/`([^`]+)`/g, (match, code) => `<code>${code}</code>`);
