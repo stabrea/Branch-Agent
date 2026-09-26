@@ -2,6 +2,9 @@
    the engine: models from GET /api/accounts and /api/local-models, a hello through POST /api/models/test, the look,
    how much it asks (POST /api/conversation-mode/settings), Trunks made with POST /api/trunks, chat apps from
    GET /api/channel-setup, the gateway (POST /api/never-break), and the engine's own checks (GET /api/health).
+   "Another computer" opens the same "Pair another computer" dialog as Settings (flows/pair.js: the invitation, the
+   owner's yes with the check code, Tailscale when the link only answers here); once the owner lets one in, it is the
+   one picked here, and GET /api/devices says when it has connected. "This computer" stays the default.
    Choices the engine cannot act on yet keep their place and are greyed out. */
 
 import { $, esc, applyCss, renderNow } from "../core/dom.js";
@@ -15,6 +18,7 @@ import { logo } from "../core/logos.js";
 import { t, language, LANGUAGES } from "../../i18n.js";
 import { say } from "../core/words.js";
 import { canSpeak, chooseLanguage } from "../shell/language.js";
+import { startPairing, onPaired } from "./pair.js";
 import { toolsStep, initToolsStep } from "./setup-tools.js";
 
 const STEPS = ["window.flows.setup.step-welcome", "window.flows.setup.step-where", "layout.modelTabs", "window.flows.setup.step-yours", "window.flows.setup.step-trunks", "window.flows.setup.step-reach", "dashboard.filter.tools",
@@ -57,12 +61,21 @@ function welcome(o) {
   return `${languageControl()}<div class="ob-stage11"><video class="pose11 vid11 ob-art11" src="/art/anim-idle.webm" poster="/art/branch-wave.webp" muted loop autoplay playsinline aria-hidden="true"></video></div><h2>${t("window.flows.first.hi")}</h2><p>${t("window.flows.setup.hi-lede")}</p><div class="ob-trust"><b>${t("window.flows.setup.safe")}</b><ul class="may6"><li>${ic("check", "s")}${t("window.flows.setup.safe-asks")}</li><li>${ic("check", "s")}${t("window.flows.setup.safe-stay")}</li><li>${ic("check", "s")}${t("window.flows.setup.safe-stop")}</li></ul><label class="chk ob-agree"><input type="checkbox" id="ob-trust" ${o.trust ? "checked" : ""}><span class="ob-box" aria-hidden="true">${ic("check", "s")}</span><span>${t("window.flows.setup.understand")}</span></label></div>`;
 }
 
+/* The computer let in from here: its name (the engine's), and whether GET /api/devices says it is connected. Until it
+   is, the step it still needs is the one `branch node pair` prints on it when the yes arrives. */
+function remoteStatus(o) {
+  const r = o.remote;
+  if (!r || o.where !== "remote") return "";
+  const said = r.connected ? t("devices.device.connected") : `${ic("spin", "s spin")} ${t("pair.waiting.computer")} <code>branch node run</code>`;
+  return `<div class="status ob-remote" role="status" data-css="margin-top:12px"><span class="sdot"></span><div><b>${esc(r.name)}</b><p>${said}</p></div></div>`;
+}
+
 function where(o) {
   return `<h2 tabindex="-1">${t("window.flows.setup.where")}</h2><p>${t("window.flows.setup.where-lede")}</p><div class="provs">
     ${prov("ob-set", "where", "this", "monitor", t("dashboard.computer.title"), t("window.flows.setup.this-computer-hint"), o.where === "this")}
-    ${prov("ob-where-remote", "where", "remote", "key", t("studio.tab.computer"), t("window.flows.setup.another-hint"), false)}
+    ${prov("ob-where-remote", "where", "remote", "key", t("studio.tab.computer"), o.remote ? esc(o.remote.name) : t("window.flows.setup.another-hint"), o.where === "remote")}
     ${prov("ob-where-keepoak", "where", "keepoak", "globe", t("window.flows.setup.keepoak"), t("window.flows.setup.keepoak-hint"), false)}
-    ${prov("ob-set", "where", "later", "clock", t("window.flows.setup.later"), t("window.flows.setup.later-hint"), o.where === "later")}</div>`;
+    ${prov("ob-set", "where", "later", "clock", t("window.flows.setup.later"), t("window.flows.setup.later-hint"), o.where === "later")}</div>${remoteStatus(o)}`;
 }
 
 function modelRows(o) {
@@ -208,7 +221,7 @@ async function load(o) {
    Models step when no model is set up yet. */
 export async function openSetup(jump = 1) {
   origin.setup = true;
-  S.ob = { i: 0, jump, trust: false, where: "this", pools: [], local: [], channels: [], connected: [], servers: [], gw: "off", asks: "ask", tpls: new Set(), test: null, checks: [], error: "", gwNote: "",
+  S.ob = { i: 0, jump, trust: false, where: "this", remote: null, pools: [], local: [], channels: [], connected: [], servers: [], gw: "off", asks: "ask", tpls: new Set(), test: null, checks: [], error: "", gwNote: "",
     life: "", proposals: [], picks: new Set(), proposing: false, note: "" };
   draw();
   await load(S.ob).catch(() => {});
@@ -354,6 +367,38 @@ async function pickLanguage(code) {
   draw();
 }
 
+/* "Another computer": a computer already let in from this setup is picked again; otherwise pairing starts, and the
+   card is picked only once the owner lets one in (below). Closing or refusing leaves the choice as it was. */
+function pickRemote() {
+  const o = S.ob;
+  if (o.remote) { o.where = "remote"; draw(); return; }
+  startPairing("computer");
+}
+
+/* After the owner's yes to this card's dialog: that computer is the one picked, and GET /api/devices is read until it
+   says it is connected (the other computer dials in once it runs). A phone let in from "Reach it anywhere" changes
+   nothing here. Stops when setup closes, another computer is let in, or it connects. */
+async function remoteLetIn({ approve, kind, request } = {}) {
+  const o = S.ob;
+  if (!o || !approve || kind !== "computer" || !request?.deviceId || ["ios", "android"].includes(request.platform)) return;
+  const r = o.remote = { id: request.deviceId, name: request.name, connected: false };
+  o.where = "remote";
+  draw();
+  while (S.ob === o && o.remote === r && !r.connected) {
+    await new Promise((done) => setTimeout(done, 1500));
+    let view;
+    try { view = await api("devices"); } catch (error) { toast(error.message); return; }
+    const device = (view.devices ?? []).find((d) => d.id === r.id);
+    if (!device) { // taken off the list meanwhile: nothing is picked in its name
+      if (S.ob === o && o.remote === r) { o.remote = null; if (o.where === "remote") o.where = "this"; draw(); }
+      return;
+    }
+    r.name = device.name;
+    r.connected = device.connected === true;
+    if (r.connected && S.ob === o) draw();
+  }
+}
+
 async function saveGateway(v) {
   const o = S.ob;
   try { const view = await api("never-break", { mode: v }); o.gw = view.mode ?? v; o.gwNote = view.note ?? ""; } catch (error) { toast(error.message); }
@@ -361,7 +406,9 @@ async function saveGateway(v) {
 }
 
 export function init() {
-  markLive(["sw:ob-trust", "sw:ob-lang", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-test", "ob15", "ob-tpl", "ob-gw", "ob-propose", "ob-prop", "sw:ob-life"]);
+  markLive(["sw:ob-trust", "sw:ob-lang", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-where-remote", "ob-test", "ob15", "ob-tpl", "ob-gw", "ob-propose", "ob-prop", "sw:ob-life"]);
+  on("ob-where-remote", () => pickRemote());
+  onPaired.add((said) => remoteLetIn(said));
   on("onboard", (el) => openSetup(Number(el?.dataset?.v) || 1));
   on("ob-go", (el) => go(+el.dataset.v));
   on("ob-next", () => { if (S.ob.i === 0 && !S.ob.trust) { nudgeTrust(); return; } go(S.ob.i === 0 ? S.ob.jump : S.ob.i + 1); });

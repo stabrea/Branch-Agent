@@ -3554,6 +3554,7 @@
   "pair.waiting.computer": "Esperando al otro equipo…",
   "pair.onlyHere": "Ahora mismo, Branch aquí solo responde en este mismo equipo, así que otro equipo o un teléfono no pueden llegar a él. Ábrelo primero a tu red privada y vuelve luego para una invitación nueva.",
   "pair.onlyHere.open": "Abrir Equipo y navegador",
+  "pair.onlyHere.tailscale": "Abrirlo a Tailscale",
   "strip.kind.computer": "Equipo",
   "strip.here": "Este equipo",
   "strip.status.working": "Trabajando",
