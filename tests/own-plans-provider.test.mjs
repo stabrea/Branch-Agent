@@ -141,3 +141,73 @@ test("a plan removed during a call is never moved to", async () => {
   assert.equal(answer.content, "from three");
   assert.deepEqual(asked, ["one", "three"], "the removed plan was skipped");
 });
+
+// Q248 (NAS p207): the same for a plan switched off, not removed, while the pick is answering.
+test("a plan switched off during a call is never moved to", async () => {
+  const saved = pool();
+  const asked = [];
+  const plan = (id) => ({ name: id, async complete() {
+    asked.push(id);
+    if (id === "one") { saved.accounts.find((account) => account.id === "two").disabled = true; throw new ProviderHttpError(429, 60_000, "rate_limit_exceeded"); }
+    return { content: `from ${id}`, toolCalls: [] };
+  } });
+  const provider = new AccountPoolProvider(plan("original"), {
+    owner: "local", pool: "chatgpt", model: "gpt-6-sol", settings: () => structuredClone(saved), states: new Map(), cursor: { value: 0 },
+    providerFor: async (id) => plan(id), capReached: () => false, record: () => {}, personIsNotOwner: () => false,
+    sessionChoice: () => null, rememberChoice: () => {}, now: () => Date.parse(at),
+  });
+  const answer = await provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal });
+  assert.equal(answer.content, "from three");
+  assert.deepEqual(asked, ["one", "three"], "the switched-off plan was skipped");
+});
+
+// NAS 5606f75 (p205 M6): sharing switched off during a call names the plan that hit its limit, not the list's first.
+test("sharing switched off during a call names the plan that hit its limit, not the list's first", async () => {
+  const saved = pool({ defaultAccount: "two" });
+  const plan = (id) => ({ name: id, async complete() {
+    if (id === "two") { saved.autoSwitch = false; throw new ProviderHttpError(429, 60_000, "rate_limit_exceeded"); }
+    return { content: `from ${id}`, toolCalls: [] };
+  } });
+  const provider = new AccountPoolProvider(plan("original"), {
+    owner: "local", pool: "chatgpt", model: "gpt-6-sol", settings: () => structuredClone(saved), states: new Map(), cursor: { value: 0 },
+    providerFor: async (id) => plan(id), capReached: () => false, record: () => {}, personIsNotOwner: () => false,
+    sessionChoice: () => null, rememberChoice: () => {}, now: () => Date.parse(at),
+  });
+  await assert.rejects(provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal }),
+    (error) => error.name === "AccountLimitError" && /^The account "two" has reached its plan limit/.test(error.message));
+});
+
+// NAS p203/p205 (N8): own plans switched off while the next plan answers keeps the conversation's pick; it is not replaced.
+test("own plans switched off while the next plan answers keeps the conversation's pick", async () => {
+  const saved = pool();
+  const plan = (id) => ({ name: id, async complete() {
+    if (id === "one") throw new ProviderHttpError(429, 60_000, "rate_limit_exceeded");
+    if (id === "two") saved.ownPlans = false;
+    return { content: `from ${id}`, toolCalls: [] };
+  } });
+  const choices = new Map([["s1", "one"]]);
+  const provider = new AccountPoolProvider(plan("original"), {
+    owner: "local", pool: "chatgpt", model: "gpt-6-sol", settings: () => structuredClone(saved), states: new Map(), cursor: { value: 0 },
+    providerFor: async (id) => plan(id), capReached: () => false, record: () => {}, personIsNotOwner: () => false,
+    sessionChoice: (session) => choices.get(session) ?? null, rememberChoice: (session, id) => choices.set(session, id), now: () => Date.parse(at),
+  });
+  const answer = await withAccountCall({ sessionId: "s1" }, () => provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal }));
+  assert.equal(answer.content, "from two");
+  assert.equal(choices.get("s1"), "one", "the pick is replaced only while own plans is still on");
+});
+
+// Mac mini 313c472 (NAS p207): JSON errors are read only from programs that print JSON. Copilot answers in plain
+// text, so a JSON-looking line in its reply (a log it read, a file it quoted) is the task's text, never its own error.
+test("a plain-text program's reply is never read as its own errors, whatever JSON lines it quotes", async () => {
+  const { CliAgentProvider, cliAgentCatalog } = await import("../dist/providers/cli-agent.js");
+  const copilot = cliAgentCatalog.find((row) => row.id === "copilot");
+  const stopped = async (line) => {
+    const stdout = `The log it read ends with:\n${line}\nso the job stopped there.`;
+    const provider = new CliAgentProvider(copilot, {}, async () => ({ code: 1, stdout, stderr: "" }), { name: "COPILOT_HOME", path: "/tmp/second" });
+    return provider.complete({ messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal }).then(() => null, (error) => error.name);
+  };
+  assert.equal(await stopped(JSON.stringify({ type: "error", message: "You've hit your usage limit. Try again later." })), "Error");
+  assert.equal(await stopped(JSON.stringify({ type: "result", is_error: true, result: "Claude AI usage limit reached|1790370000" })), "Error");
+  assert.equal(await stopped(JSON.stringify({ type: "error", message: "Not logged in. Please run /login" })), "Error");
+  assert.equal(await stopped(JSON.stringify({ type: "turn.failed", error: { message: "Not logged in. Please run /login" } })), "Error");
+});
