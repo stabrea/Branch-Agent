@@ -2928,3 +2928,29 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 
 /* area: bugfix-3 */
 .acadd-bf3 .btn{max-width:100%;min-width:0;height:auto;min-height:32px;padding-top:6px;padding-bottom:6px;white-space:normal;text-align:left}
+
+/* area: automations engine (pass 17d, parts 5 and 6: words to a schedule, procedure changes) */
+.prop17d{display:grid;gap:12px;margin:10px 0 4px;padding:14px 16px;border-radius:16px;border:1px solid var(--accent);background:linear-gradient(180deg,var(--accent-tint),transparent 60%),var(--raise);min-width:0}
+.pp-h17d{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pp-h17d .pill{margin-left:auto}
+.pp-g17d{display:grid;grid-template-columns:minmax(0,160px) minmax(0,1fr);gap:12px}
+.pp-g17d .seg{max-width:100%}
+@media (max-width:560px){.pp-g17d{grid-template-columns:1fr}}
+.need17d span{color:var(--warn)}
+.need17d .inp{border-color:var(--warn)}
+.pp-first17d{margin:0;font-size:13px;color:var(--ink-2)}
+.pp-cron17d{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.prop17d .seg{max-width:100%}
+.df-k17d{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--ink-3);margin:6px 0}
+.df-k17d .add{color:var(--ok)}.df-k17d .rm{color:var(--bad)}
+.df17d{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:13px}
+.df17d li{display:flex;gap:10px;padding:8px 12px;border-top:1px solid var(--line)}
+.df17d li:first-child{border-top:0}
+.df17d em{font-style:normal;flex:none;width:12px;font-family:var(--mono);font-weight:700}
+.df17d li.add{background:var(--ok-tint)}.df17d li.add em{color:var(--ok)}
+.df17d li.rm{background:var(--bad-tint);text-decoration:line-through;color:var(--ink-2)}.df17d li.rm em{color:var(--bad)}
+.df17d li.same{color:var(--ink-2)}
+.fh17d{margin-top:14px;display:grid;gap:6px;font-size:13px}
+.fh17d ol{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.fh17d li{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.fh17d li .grow{display:grid;min-width:0}.fh17d small{color:var(--ink-3);font-size:12px}

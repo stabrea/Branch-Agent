@@ -165,10 +165,19 @@ async function exportMemory(el) {
 }
 async function openArchive() {
   closePop();
-  let archived;
-  try { archived = (await api("memory/archive")).archived; } catch (error) { toast(error.message); return; }
+  let archived, total;
+  try { ({ archived, total } = await api("memory/archive")); } catch (error) { toast(error.message); return; }
   const rows = archived.map((a) => `<div class="prow"><span class="grow"><b>${esc(a.data?.text ?? "")}</b><small>${esc(["archived " + new Date(a.archivedAt).toLocaleDateString([], { month: "short", day: "numeric" }), a.note].filter(Boolean).join(" · "))}</small></span><button class="btn ghost sm" type="button" data-act="memarch15" data-id="${esc(a.id)}">Restore</button></div>`).join("");
-  openDlg({ title: "Archived facts", body: `<div class="rows">${rows}</div><p class="hint">Archived facts are never used. Purge removes them for good.</p>`, foot: '<button class="btn ghost bad" type="button" data-act="toast">Purge all</button><button class="btn" type="button" data-act="dlg-close">Done</button>' });
+  openDlg({ title: "Archived facts", body: `<div class="rows">${rows}</div><p class="hint">Archived facts are never used. Purge removes them for good.</p>`, foot: `<button class="btn ghost bad" type="button" data-act="memarch15" data-v="purge" data-n="${esc(total)}" ${total ? "" : "disabled"}>Purge all</button><button class="btn" type="button" data-act="dlg-close">Done</button>` });
+}
+/* Purge all: the engine removes every archived fact for good. Its confirm step is how many the owner was shown; when
+   that is no longer how many there are, nothing is removed and its sentence is shown. */
+async function purgeArchive(el) {
+  const count = Number(el.dataset.n);
+  let done;
+  try { done = await api("memory/archive/purge", { confirm: "purge", count }); } catch (error) { toast(error.message); return; }
+  await openArchive();
+  toast(`Purged ${done.purged} archived facts.`);
 }
 async function restoreFact(id) {
   try { await api(`memory/archive/${encodeURIComponent(id)}/restore`, {}); } catch (error) { toast(error.message); return; }
@@ -194,6 +203,6 @@ export function init() {
   on("tidydo15", (el) => decideTidy(el));
   on("memmore15", (el) => memoryMenu(el));
   on("memexp15", (el) => exportMemory(el));
-  /* The menu's row opens the archive; a row's Restore (with its id) puts that fact back. */
-  on("memarch15", (el) => (el.dataset.id ? restoreFact(el.dataset.id) : openArchive()));
+  /* The menu's row opens the archive; a row's Restore (with its id) puts that fact back; Purge all removes them all. */
+  on("memarch15", (el) => (el.dataset.v === "purge" ? purgeArchive(el) : el.dataset.id ? restoreFact(el.dataset.id) : openArchive()));
 }
