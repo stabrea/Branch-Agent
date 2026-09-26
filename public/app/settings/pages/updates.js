@@ -58,7 +58,7 @@ function draw() {
   html += "<div class=\"sec danger8\"><h2>Remove Branch</h2><div class=\"rows\">";
   html += "<div class=\"ctl\"><b>Keep my conversations and settings</b><input class=\"sw\" type=\"checkbox\" id=\"dz-keep\" aria-label=\"Keep my conversations and settings\" data-sw=\"set\"><small>Branch finds them again if you install it later.</small></div>";
   html += "</div>";
-  html += "<div class=\"ctl\"><b>Type Branch Agent to confirm</b><span class=\"right\"><input class=\"inp\" id=\"dz-confirm\" autocomplete=\"off\" data-css=\"width:180px\" aria-label=\"Type Branch Agent to confirm\"></span><small>It is there so a misclick can’t remove Branch.</small></div>";
+  html += "<div class=\"ctl\"><b>Type Branch Agent to confirm</b><span class=\"right\"><input class=\"inp\" id=\"dz-confirm\" data-sw=\"set\" disabled autocomplete=\"off\" data-css=\"width:180px\" aria-label=\"Type Branch Agent to confirm\"></span><small>It is there so a misclick can’t remove Branch.</small></div>";
   html += "<div class=\"acts\"><button class=\"btn dz\" type=\"button\" id=\"dz-go\" data-act=\"uninstall\" disabled>Remove Branch and everything it installed</button></div>";
   html += "</div>";
 

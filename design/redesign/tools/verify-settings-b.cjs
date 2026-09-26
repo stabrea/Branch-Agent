@@ -87,6 +87,39 @@ async function rollBack(page) {
   check("self-rollback: the setting is back as it was", !onMode((await api("event-loop")).settings.mode));
 }
 
+/* Roll back never loosens: undoing a change that made Branch more careful is refused by the engine (the window never
+   sends confirmLoosening), the refusal is shown word for word, and nothing changes. Put back through the API after. */
+async function rollBackRefused(page) {
+  await api("settings-kit/apply", { plan: { source: "set", key: "loop_guard", field: "mode", value: "on" }, accept: ["loop_guard.mode"] });
+  const newest = (await api("settings-kit/history")).records[0];
+  await openPage(page, "general");
+  await openPage(page, "self");
+  await page.locator(`[data-act="self-rollback"][data-id="${newest.id}"]`).click();
+  await settle(page, 1200);
+  const words = (await page.locator(".toast").last().textContent().catch(() => "")) ?? "";
+  const after = (await api("settings-kit/history")).records.find((r) => r.id === newest.id);
+  const guard = (await api("settings-kit")).settings.find((s) => s.key === "loop_guard").fields.find((f) => f.field === "mode").value;
+  check("self-rollback refuses a loosening undo: the engine's words are shown", /less careful/.test(words), words);
+  check("self-rollback refuses a loosening undo: the change is not undone", !after?.undoneBy && guard === "on", `undoneBy ${after?.undoneBy ?? "none"}, mode ${guard}`);
+  await api("settings-kit/undo", { record: newest.id, confirmLoosening: true });
+}
+
+/* Permissions › Lockdown: the page's button follows the engine, and re-reads it when the page opens again after
+   Lockdown changed elsewhere (here: through the API, as the banner's "Turn it off" would). */
+async function lockdownFollows(page) {
+  await openPage(page, "permissions");
+  const btn = page.locator('[data-act="perm-lock"]');
+  check("perm-lock starts as the engine says", (await btn.textContent()) === ((await api("lockdown")).on ? "Turn Lockdown off" : "Turn Lockdown on"));
+  await btn.click();
+  await settle(page, 1500);
+  check("perm-lock: Lockdown is on in the engine", (await api("lockdown")).on === true);
+  check("perm-lock: the button now offers to turn it off", (await btn.textContent()) === "Turn Lockdown off");
+  await api("lockdown", { on: false });
+  await openPage(page, "general");
+  await openPage(page, "permissions");
+  check("permissions re-reads Lockdown when opened again", (await page.locator('[data-act="perm-lock"]').textContent()) === "Turn Lockdown on");
+}
+
 /* Saved sign-ins › Remove: a sign-in written through the engine is listed, and Remove takes it off the engine's list. */
 async function removeSignIn(page) {
   await api("vault-autofill/settings", { logins: [{ name: "verify-one", site: "one.example", item: "verify one" }, { name: "verify-two", site: "two.example", item: "verify two" }] });
@@ -145,7 +178,9 @@ async function copyAddress(page) {
     await copyAddress(page);
     await updatingItself(page);
     await rollBack(page);
+    await rollBackRefused(page);
     await removeSignIn(page);
+    await lockdownFollows(page);
   } catch (e) { check("script finished", false, e.message); }
   check("no page errors", errors.length === 0, errors.join(" | "));
   await browser.close();

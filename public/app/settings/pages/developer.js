@@ -10,7 +10,7 @@ import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
 
-const D = { ls: null, dbg: null, interop: null, counters: null, loop: null, comfort: null };
+const D = { ls: null, dbg: null, interop: null, counters: null, loop: null, comfort: null, tracing: null };
 const onMode = (mode) => (mode ? mode !== "off" : false);
 const mode = (on) => (on ? "when-needed" : "off");
 const part = (name) => D.interop?.parts?.find((p) => p.part === name)?.mode;
@@ -20,9 +20,9 @@ const part = (name) => D.interop?.parts?.find((p) => p.part === name)?.mode;
 const WIRES = {
   "dv-ls": [() => D.ls?.enabled === true, (on) => api("developer/language-servers", { ...D.ls, enabled: on })],
   "dv-dbg": [() => D.dbg?.enabled === true, (on) => api("developer/debug-adapters", { ...D.dbg, enabled: on })],
-  [id15("Flow search")]: [() => onMode(part("flow-search")), (on) => api("interop/switch", { part: "flow-search", mode: mode(on) })],
-  [id15("Send metrics with OpenTelemetry")]: [() => onMode(D.counters?.mode), (on) => api("usage/counters", { mode: mode(on) })],
-  [id15("Is Branch keeping up")]: [() => onMode(D.loop?.mode), (on) => api("event-loop", { mode: mode(on) })],
+  "f15-flow-search": [() => onMode(part("flow-search")), (on) => api("interop/switch", { part: "flow-search", mode: mode(on) })],
+  "f15-send-metrics-with-opentelemetry": [() => onMode(D.counters?.mode), (on) => api("usage/counters", { mode: mode(on) })],
+  "f15-is-branch-keeping-up": [() => onMode(D.loop?.mode), (on) => api("event-loop", { mode: mode(on) })],
 };
 const value = (id) => WIRES[id]?.[0]() ?? false;
 const sw = (title, sub) => sw15(title, sub, value(id15(title)));
@@ -50,7 +50,7 @@ export function draw() {
     + code15("Loop a prompt", "Or /heartbeat for the check-in list.", "/loop 10m check the build"));
   html += sec15("System",
     sw("Portable mode", "Data beside the program, for a USB stick.")
-    + sw("Send metrics with OpenTelemetry", "otlp://127.0.0.1:4317")
+    + sw("Send metrics with OpenTelemetry", D.tracing?.endpoint ?? "")
     + seg15("Status line", "", [["default", "Default"], ["minimal", "Minimal"], ["script", "My script"]], statusLine)
     + sw("Find Branch on other computers nearby", "Tools and models on your network.")
     + sw("Is Branch keeping up", "Warns when the engine stalls for more than 5 seconds.")
@@ -59,10 +59,10 @@ export function draw() {
 }
 
 async function loadAll() {
-  const [ls, dbg, interop, counters, loop, comfort] = await Promise.all(
-    ["developer/language-servers", "developer/debug-adapters", "interop", "usage/counters", "event-loop", "comfort"]
+  const [ls, dbg, interop, counters, loop, comfort, tracing] = await Promise.all(
+    ["developer/language-servers", "developer/debug-adapters", "interop", "usage/counters", "event-loop", "comfort", "tracing/settings"]
       .map((path) => api(path).catch((error) => { toast(error.message); return null; })));
-  Object.assign(D, { ls, dbg, interop, counters: counters?.counters ?? null, loop: loop?.settings ?? null, comfort });
+  Object.assign(D, { ls, dbg, interop, counters: counters?.counters ?? null, loop: loop?.settings ?? null, comfort, tracing: tracing?.settings ?? null });
   render();
 }
 
@@ -72,7 +72,7 @@ async function copyAddress() {
 
 export function init() {
   on("dv-copy", () => copyAddress());
-  markLive(["dv-copy", ...Object.keys(WIRES).map((id) => "sw:" + id)]);
+  markLive(["dv-copy", "sw:dv-ls", "sw:dv-dbg", "sw:f15-flow-search", "sw:f15-send-metrics-with-opentelemetry", "sw:f15-is-branch-keeping-up"]);
   document.addEventListener("change", async (e) => {
     const wire = WIRES[e.target.id];
     if (!wire) return;

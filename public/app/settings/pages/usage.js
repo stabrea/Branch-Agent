@@ -165,7 +165,7 @@ export function init() {
   loadSuites();
   loadGlance();
   loadRetention();
-  markLive(Object.keys(WIRES).map((id) => "sw:" + id));
+  markLive(["sw:u-ring", "sw:u-ckpt", "sw:u-ask"]);
   document.addEventListener("change", async (e) => {
     const wire = WIRES[e.target.id];
     if (!wire) return;

@@ -62,7 +62,9 @@ function statusSection() {
   const version = E.state?.version;
   let html = "<div class=\"status\"><span class=\"sdot \"></span><div>";
   html += "<b>Running</b>";
-  if (version) html += "<p>Engine " + esc(version) + " · the gateway watches it and starts it again if it stops.</p>";
+  // "the gateway watches it" only while the engine says the gateway is on or when-needed (GET /api/never-break).
+  const watched = D.gw?.mode && D.gw.mode !== "off" ? " · the gateway watches it and starts it again if it stops." : ".";
+  if (version) html += "<p>Engine " + esc(version) + watched + "</p>";
   html += "</div></div>";
   html += `<div class="acts" data-css="margin-top:12px"><button class="btn" type="button" data-act="doctor">${ic("check", "s")}Check and fix</button><button class="btn" type="button" data-act="gw-restart">${ic("retry", "s")}Restart the engine</button><button class="btn ghost" type="button" data-act="soon">Reload without dropping work</button></div>`;
   return html;
@@ -74,8 +76,8 @@ function policySection() {
   const own = D.policy ? (denied("settings.change") ? "never" : "ask") : null;
   const timings = D.policy ? (denied("gateway.propose") ? "never" : "suggest") : null;
   const upd = D.comfort?.notify?.autoUpdate ?? null;
-  // Loosening always asks: the engine takes no standing yes for it, so its one choice is the engine's own rule.
-  const loosen = D.policy ? "ask" : null;
+  // Loosening always asks, but the engine returns no value for it, so no choice is shown pressed.
+  const loosen = null;
   return "<div class=\"sec\"><h2>What Branch may change about itself</h2>"
     + seg15("Its own settings", "It shows you the change first, tried on a throwaway copy.", [["ask", "Ask me first"], ["never", "Never"]], own)
     + seg15("Loosening what it may do", "Asked every time; the answer is never kept.", [["ask", "Ask every time"]], loosen)

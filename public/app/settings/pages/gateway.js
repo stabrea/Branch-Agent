@@ -17,8 +17,8 @@ const onMode = (mode) => (mode ? mode !== "off" : false);
 const mode = (on) => (on ? "when-needed" : "off");
 
 const WIRES = {
-  [id15("Pause a chat app from the chat")]: [() => onMode(D.reach?.modes?.["platform-pause"]), (on) => api("reach/switch", { part: "platform-pause", mode: mode(on) })],
-  [id15("Send files into chats")]: [() => onMode(D.personal?.modes?.["chat-files"]), (on) => api("personal/switch", { part: "chat-files", mode: mode(on) })],
+  "f15-pause-a-chat-app-from-the-chat": [() => onMode(D.reach?.modes?.["platform-pause"]), (on) => api("reach/switch", { part: "platform-pause", mode: mode(on) })],
+  "f15-send-files-into-chats": [() => onMode(D.personal?.modes?.["chat-files"]), (on) => api("personal/switch", { part: "chat-files", mode: mode(on) })],
 };
 const sw = (title, sub) => sw15(title, sub, WIRES[id15(title)]?.[0]() ?? false);
 
@@ -48,7 +48,7 @@ export function init() {
     api("never-break", { mode: next }).then(() => loadGateway(), (e) => toast(e.message));
   });
   on("gw-prop", (el) => answerProposal(el.dataset.v === "use"));
-  markLive(["gw-mode", "gw-prop", ...Object.keys(WIRES).map((id) => "sw:" + id)]);
+  markLive(["gw-mode", "gw-prop", "sw:f15-pause-a-chat-app-from-the-chat", "sw:f15-send-files-into-chats"]);
   document.addEventListener("change", async (e) => {
     const wire = WIRES[e.target.id];
     if (!wire) return;

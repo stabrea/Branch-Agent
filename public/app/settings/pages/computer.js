@@ -16,16 +16,17 @@ const coding = (part) => onMode(D.coding?.modes?.[part]);
 const setCoding = (part, on) => api("coding/switch", { part, mode: on ? "when-needed" : "off" });
 
 /* Each live switch: its current value from the engine, and the route that changes it. */
+/* Keys are the switches' ids (id15 of each title), written out so each can be found by name. */
 const WIRES = {
-  [id15("Page notes and “Send to Branch”")]: [() => onMode(D.notes?.mode), (on) => api("browser/notes/settings", { mode: on ? "when-needed" : "off" })],
-  [id15("Try ideas on a branch")]: [() => coding("worktrees"), (on) => setCoding("worktrees", on)],
-  [id15("Check and format files after editing")]: [() => coding("format-on-edit"), (on) => setCoding("format-on-edit", on)],
-  [id15("Draft a pull request from a task")]: [() => onMode(D.prs?.mode), (on) => api("developer/pull-requests", { mode: on ? "when-needed" : "off" })],
-  [id15("Remember the shell")]: [() => coding("shell-snapshot"), (on) => setCoding("shell-snapshot", on)],
-  [id15("Read a file before editing it")]: [() => coding("read-first"), (on) => setCoding("read-first", on)],
-  [id15("Keep large tool outputs")]: [() => coding("large-output"), (on) => setCoding("large-output", on)],
-  [id15("Read Jupyter notebooks")]: [() => coding("notebooks"), (on) => setCoding("notebooks", on)],
-  [id15("Review checks and a checklist per task")]: [() => coding("review-checks") && coding("checklist"),
+  "f15-page-notes-and-send-to-branch-": [() => onMode(D.notes?.mode), (on) => api("browser/notes/settings", { mode: on ? "when-needed" : "off" })],
+  "f15-try-ideas-on-a-branch": [() => coding("worktrees"), (on) => setCoding("worktrees", on)],
+  "f15-check-and-format-files-after-editing": [() => coding("format-on-edit"), (on) => setCoding("format-on-edit", on)],
+  "f15-draft-a-pull-request-from-a-task": [() => onMode(D.prs?.mode), (on) => api("developer/pull-requests", { mode: on ? "when-needed" : "off" })],
+  "f15-remember-the-shell": [() => coding("shell-snapshot"), (on) => setCoding("shell-snapshot", on)],
+  "f15-read-a-file-before-editing-it": [() => coding("read-first"), (on) => setCoding("read-first", on)],
+  "f15-keep-large-tool-outputs": [() => coding("large-output"), (on) => setCoding("large-output", on)],
+  "f15-read-jupyter-notebooks": [() => coding("notebooks"), (on) => setCoding("notebooks", on)],
+  "f15-review-checks-and-a-checklist-per-task": [() => coding("review-checks") && coding("checklist"),
     async (on) => { await setCoding("review-checks", on); await setCoding("checklist", on); }],
 };
 const sw = (title, sub) => sw15(title, sub, WIRES[id15(title)]?.[0]() ?? false);
@@ -38,7 +39,9 @@ async function loadAll() {
 }
 
 export function init() {
-  markLive(Object.keys(WIRES).map((id) => "sw:" + id));
+  markLive(["sw:f15-page-notes-and-send-to-branch-", "sw:f15-try-ideas-on-a-branch", "sw:f15-check-and-format-files-after-editing",
+    "sw:f15-draft-a-pull-request-from-a-task", "sw:f15-remember-the-shell", "sw:f15-read-a-file-before-editing-it",
+    "sw:f15-keep-large-tool-outputs", "sw:f15-read-jupyter-notebooks", "sw:f15-review-checks-and-a-checklist-per-task"]);
   document.addEventListener("change", async (e) => {
     const wire = WIRES[e.target.id];
     if (!wire) return;
@@ -92,7 +95,8 @@ const browserMore = () => sec15("The browser, more",
   seg15("Run the browser in a sandbox", "", [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]], null)
   + sw("Record browser tasks", "A step-by-step trace you can replay.")
   + sw("Number the clickable things", "Faster and steadier on busy pages.")
-  + btn15("Site skills", "What Branch learned about the sites you use.", "See sites", "site-skills")
+  // The engine has no list or count of site skills, so the prototype's "See N sites" button is not drawn.
+  + `<div class="ctl"><b>Site skills</b><small>What Branch learned about the sites you use.</small></div>`
   + sw("Page notes and “Send to Branch”", "A right-click in Chrome or Edge sends the page to a Trunk. Turns on when the browser extension is installed."));
 
 const code = () => sec15("Code",

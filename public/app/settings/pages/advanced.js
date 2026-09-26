@@ -67,7 +67,7 @@ export function draw() {
   // Level-specific content (shown at advanced level and above)
   if (lv >= 1) {
     html += "<div class=\"sec x15-sec\"><h2>Memory</h2>";
-    html += "<div class=\"ctl\"><b>Most facts it keeps</b><span class=\"right num15\"><input class=\"inp\" id=\"ad-facts\" aria-label=\"Most facts it keeps\" data-sw=\"set\"><small>facts</small></span><small>Tidy up suggests what to archive when it gets close.</small></div>";
+    html += "<div class=\"ctl\"><b>Most facts it keeps</b><span class=\"right num15\"><input class=\"inp\" id=\"ad-facts\" value=\"" + esc(E.state?.memoryCapacity?.maxFacts ?? "") + "\" aria-label=\"Most facts it keeps\" data-sw=\"set\" disabled><small>facts</small></span><small>Tidy up suggests what to archive when it gets close.</small></div>";
     html += "<div class=\"ctl\"><b>Match by meaning</b><input class=\"sw\" type=\"checkbox\" id=\"f15-match-by-meaning\" aria-label=\"Match by meaning\" data-sw=\"set\"><small>Finds “invoice” when the fact says “bill”.</small></div>";
     html += "<div class=\"ctl\"><b>Share memory between Trunks</b><input class=\"sw\" type=\"checkbox\" id=\"f15-share-memory-between-trunks\" aria-label=\"Share memory between Trunks\" data-sw=\"set\"><small>Off: each Trunk keeps its own.</small></div>";
     html += "<div class=\"ctl\"><b>Outside memory</b><span class=\"right\"><span class=\"seg\" role=\"group\" aria-label=\"Outside memory\"><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">None</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Mem0</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Honcho</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Hindsight</button></span></span><small></small></div>";

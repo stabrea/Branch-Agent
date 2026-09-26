@@ -6,6 +6,7 @@ import { markLive } from "../../core/features.js";
 import { render, esc } from "../../core/dom.js";
 import { api } from "../../core/api.js";
 import { toast, ic } from "../../core/ui.js";
+import { setLockdown } from "../../chat/approvals.js";
 
 const HEAD = `<h1>Permissions</h1><p class="lede">What Trunks may do without asking you first.</p>`;
 
@@ -26,7 +27,7 @@ const BASE_SWITCHES = `@@STATUS@@
 
 const PINNED = `<div class="sec"><h2>Pinned settings</h2><p class="hint" data-css="margin:0 0 8px">A pinned setting is fixed. Someone else who uses this computer sees it pinned and can’t change it any way.</p>@@PINS@@<div class="acts" data-css="margin-top:8px"><button class="btn sm" type="button" data-act="pin-add8"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Pin a setting</button></div></div>`;
 
-const RULES = `<div class="sec x15-sec"><h2>Rules for each tool and folder</h2><p class="hint" data-css="margin:0 0 6px">The first rule that matches wins. Everything else follows the mode.</p><div class="rows"></div><div class="acts" data-css="margin-top:8px"><button class="btn sm" type="button" data-act="soon"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add a rule</button></div><div class="ctl"><b>Practice runs</b><input class="sw" type="checkbox" id="f15-practice-runs" aria-label="Practice runs" data-sw="set"><small>A Trunk can show what it would do without doing it.</small></div><div class="ctl"><b>Messages per conversation per hour</b><span class="right num15"><input class="inp" id="p-rate" aria-label="Messages per conversation per hour" data-sw="set"></span><small>Stops a runaway loop.</small></div></div><div class="sec x15-sec"><h2>Checks before anything runs</h2><div class="ctl"><b>Scan commands for hidden characters</b><input class="sw" type="checkbox" id="f15-scan-commands-for-hidden-characters" aria-label="Scan commands for hidden characters" data-sw="set"><small>Invisible and look-alike characters that hide what a command does.</small></div><div class="ctl"><b>Scan for personal details</b><input class="sw" type="checkbox" id="f15-scan-for-personal-details" aria-label="Scan for personal details" data-sw="set"><small>Card numbers, ID numbers and addresses are held back from outside services.</small></div><div class="ctl"><b>Authenticator code for sensitive tools</b><input class="sw" type="checkbox" id="f15-authenticator-code-for-sensitive-tools" aria-label="Authenticator code for sensitive tools" data-sw="set"><small>A six-digit code before sending money or deleting a lot.</small></div></div>`;
+const RULES = `<div class="sec x15-sec"><h2>Rules for each tool and folder</h2><p class="hint" data-css="margin:0 0 6px">The first rule that matches wins. Everything else follows the mode.</p><div class="rows"></div><div class="acts" data-css="margin-top:8px"><button class="btn sm" type="button" data-act="soon"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add a rule</button></div><div class="ctl"><b>Practice runs</b><input class="sw" type="checkbox" id="f15-practice-runs" aria-label="Practice runs" data-sw="set"><small>A Trunk can show what it would do without doing it.</small></div><div class="ctl"><b>Messages per conversation per hour</b><span class="right num15"><input class="inp" id="p-rate" aria-label="Messages per conversation per hour" data-sw="set" disabled></span><small>Stops a runaway loop.</small></div></div><div class="sec x15-sec"><h2>Checks before anything runs</h2><div class="ctl"><b>Scan commands for hidden characters</b><input class="sw" type="checkbox" id="f15-scan-commands-for-hidden-characters" aria-label="Scan commands for hidden characters" data-sw="set"><small>Invisible and look-alike characters that hide what a command does.</small></div><div class="ctl"><b>Scan for personal details</b><input class="sw" type="checkbox" id="f15-scan-for-personal-details" aria-label="Scan for personal details" data-sw="set"><small>Card numbers, ID numbers and addresses are held back from outside services.</small></div><div class="ctl"><b>Authenticator code for sensitive tools</b><input class="sw" type="checkbox" id="f15-authenticator-code-for-sensitive-tools" aria-label="Authenticator code for sensitive tools" data-sw="set"><small>A six-digit code before sending money or deleting a lot.</small></div></div>`;
 
 const ISOLATION = `<div class="sec x15-sec"><h2>Isolation</h2><div class="ctl"><b>A container per Trunk</b><span class="right"><span class="seg" role="group" aria-label="A container per Trunk"><button type="button" aria-pressed="false" data-act="seg">Off</button><button type="button" aria-pressed="false" data-act="seg">For code</button><button type="button" aria-pressed="false" data-act="seg">Always</button></span></span><small></small></div><div class="ctl"><b>System sandbox for commands</b><span class="right"><span class="seg" role="group" aria-label="System sandbox for commands"><button type="button" aria-pressed="false" data-act="seg">Off</button><button type="button" aria-pressed="false" data-act="seg">When needed</button><button type="button" aria-pressed="false" data-act="seg">Always</button></span></span><small></small></div><div class="ctl"><b>Add sign-ins from outside the sandbox</b><input class="sw" type="checkbox" id="f15-add-sign-ins-from-outside-the-sandbox" aria-label="Add sign-ins from outside the sandbox" data-sw="set"><small>The sandbox never holds a password; Branch adds it on the way out.</small></div><div class="ctl"><b>Verify each release</b><input class="sw" type="checkbox" id="f15-verify-each-release" aria-label="Verify each release" data-sw="set"><small>Checks the signature before installing an update.</small></div><div class="ctl"><b>Pin SSH hosts</b><input class="sw" type="checkbox" id="f15-pin-ssh-hosts" aria-label="Pin SSH hosts" data-sw="set"><small>Refuses a computer whose fingerprint changed.</small></div><div class="ctl"><b>Downloads may come from</b><span class="right"><span class="seg" role="group" aria-label="Downloads may come from"><button type="button" aria-pressed="false" data-act="seg">Anywhere</button><button type="button" aria-pressed="false" data-act="seg">Known sites</button><button type="button" aria-pressed="false" data-act="seg">Ask each time</button></span></span><small></small></div></div>`;
 
@@ -82,7 +83,19 @@ function fill(html) {
     .replace(/@@(read|browse|message)@@/g, (_, id) => (allowed(id) ? "checked" : ""));
 }
 
+/* Lockdown can change elsewhere (the banner's "Turn it off"); the window marks #app "locked" from the engine
+   (chat/approvals.js syncLockdown). When that mark changes, the page re-reads the engine once. */
+let seenLock = null;
+function followLockdown() {
+  const mark = document.getElementById("app")?.classList.contains("locked") ?? null;
+  if (mark === null || mark === seenLock) return;
+  const first = seenLock === null;
+  seenLock = mark;
+  if (!first && P.loaded) load();
+}
+
 export function draw() {
+  followLockdown();
   const lev = level();
   let html = HEAD + osSection() + BASE_SWITCHES + PINNED;
   if (lev >= 1) html += RULES;
@@ -92,7 +105,8 @@ export function draw() {
 
 export function init() {
   markLive(["sw:p-read", "sw:p-browse", "sw:p-send", "perm-lock"]);
-  on("perm-lock", async () => { try { await api("lockdown", { on: !P.locked }); } catch (error) { toast(error.message); } await load(); });
+  // Through the same path as the banner, so the banner and this page agree; then the page re-reads.
+  on("perm-lock", async () => { await setLockdown(!P.locked); await load(); });
   document.addEventListener("change", async (e) => {
     const id = SWITCH[e.target.id];
     if (!id) return;
