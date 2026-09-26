@@ -3599,7 +3599,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         if (handlesDevicesPath(path)) {
           app.store.profiles.requireOwner("Your devices");
           const answer = await devicesApi({ devices: app.devices, store: app.store, owner: app.runtime.owner, method: request.method ?? "GET",
-            readBody: () => readBody(request, 16384), baseUrl: remote.status().url ?? url }, path).catch((error: unknown) => {
+            readBody: () => readBody(request, 16384), baseUrl: remote.status().url ?? url,
+            trunkOf: (sessionId) => app.trunks.trunkForConversation(sessionId)?.trunkId ?? null }, path).catch((error: unknown) => {
             throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
           });
           if (answer === undefined) throw new HttpError(404, "Endpoint not found");

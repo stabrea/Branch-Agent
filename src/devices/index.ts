@@ -6,7 +6,7 @@ import { onLockdownChange } from "../lockdown.js"; // mac7/lockdown-fix
 import { deviceTools } from "./capabilities.js";
 import { DeviceHub, type HubOptions } from "./hub.js";
 import { DeviceJoin, type JoinDeps } from "./join.js"; // phase2/shell
-import { registerDeviceTools } from "./tools.js";
+import { registerDeviceTools, type ComputerRule } from "./tools.js";
 
 /**
  * mac7/nodes: "Devices" — the owner's other computers and phones lending Branch a few abilities
@@ -36,12 +36,15 @@ export class Devices {
     });
   }
   private readonly stopListening: () => void;
+  /** P17-D §9: the computers each Trunk may use, set by createBranch once the Trunks exist. */
+  computerRule: ComputerRule | null = null;
 
   /** The tools are in the catalog exactly while the feature is not off. */
   private sync(): void {
     for (const name of deviceTools) this.deps.registry.unregister(name);
     if (this.book.savedMode() !== "off") // mac7/lockdown-fix: Lockdown is refused at use, not by unregistering
-      registerDeviceTools(this.deps.registry, { store: this.deps.store, owner: this.deps.owner, book: this.book, hub: this.hub, files: this.deps.files });
+      registerDeviceTools(this.deps.registry, { store: this.deps.store, owner: this.deps.owner, book: this.book, hub: this.hub, files: this.deps.files,
+        rule: () => this.computerRule });
   }
 
   setMode(input: unknown): DeviceMode {

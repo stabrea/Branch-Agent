@@ -1087,6 +1087,8 @@ ${run.output.slice(0, 6000)}`;
     // eng-trunk-controls: a paused Trunk starts nothing new, whoever asks; said in words, above the first await.
     const paused = trunk ? this.trunkPaused(trunk.trunkId) : null;
     if (paused) throw new Error(paused);
+    const atOnce = trunk ? this.trunkAtOnce(trunk.trunkId) : null; // P17-D §9: never more side by side than the owner allowed
+    if (atOnce) throw new Error(atOnce);
     if (trunk) {
       instructions += trunk.instructions;
       options = { ...options, permissions: trunk.permissions,
@@ -1427,6 +1429,8 @@ ${run.output.slice(0, 6000)}`;
   trunkStartsElsewhere: (id: string) => Error | null = () => null;
   /** eng-trunk-controls: why a Trunk may not start anything now (it is paused), in words, or null (set by src/trunks). */
   trunkPaused: (id: string) => string | null = () => null;
+  /** P17-D §9: why a Trunk may not start another task now (it runs as many as it may at once), in words, or null (set by src/trunks). */
+  trunkAtOnce: (id: string) => string | null = () => null;
   /** eng-trunk-controls: the tasks running as this Trunk right now. */
   runsOfTrunk(trunkId: string): string[] {
     return [...this.trunkRuns].filter(([, id]) => id === trunkId).map(([runId]) => runId);

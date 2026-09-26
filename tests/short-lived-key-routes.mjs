@@ -333,6 +333,7 @@ export const ROUTES = {
   "/api/devices/invite": "owner POST",
   "/api/devices/invite/cancel": "owner POST",
   "/api/devices/pick": "owner POST",
+  "/api/devices/pick/:id": "secret-read", // P17-D §9: a conversation's pick and its Trunk's computers
   // phase2/shell: lending this computer to another Branch from the window. Reading where it stands
   // (with the check code) is refused to keys by the /api/devices reads rule; answering and leaving are the owner's.
   "/api/devices/join": "owner POST",
@@ -407,6 +408,8 @@ export const ROUTES = {
   // eng-trunk-controls: pausing and resuming a Trunk, or all of them, is the owner's.
   "/api/trunks/:id/pause": "owner POST",
   "/api/trunks/:id/resume": "owner POST",
+  // P17-D §9: the computers a Trunk may use and how many at once; reading names the owner's computers.
+  "/api/trunks/:id/computers": "owner GET,POST",
   "/api/trunks/pause-all": "owner POST",
   "/api/trunks/resume-all": "owner POST",
   "/api/trunks/rooms/:id": "owner POST",

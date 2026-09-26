@@ -5,7 +5,7 @@ import type { Store } from "../store.js";
 import { CapabilitySchema, capabilityInfo, capabilities, offeredOn } from "./capabilities.js";
 import type { Devices } from "./index.js";
 import { pairingBusy, pairingRefused } from "./book.js";
-import { pickDevice } from "./tools.js";
+import { isComputer, pickDevice, pickedDevice, trunkComputerRefusal } from "./tools.js";
 import { keyCheck } from "./protocol.js";
 
 /**
@@ -29,6 +29,8 @@ export interface DevicesHttpDeps {
   readBody: () => Promise<unknown>;
   /** The address a device should dial: the paired door while it is open, otherwise this computer. */
   baseUrl: string;
+  /** P17-D §9: the Trunk a conversation belongs to, or null for the owner's own assistant. */
+  trunkOf?: (sessionId: string) => string | null;
 }
 
 /**
@@ -76,7 +78,20 @@ export const codeNotConfirmed =
 const deviceRoute = /^\/api\/devices\/([a-f0-9]{16})\/(switch|folder|share|rename|revoke)$/;
 const requestRoute = /^\/api\/devices\/requests\/([a-f0-9]{32})$/;
 const SwitchSchema = z.object({ capability: CapabilitySchema, on: z.boolean() }).strict();
-const PickSchema = z.object({ sessionId: z.string().uuid(), deviceId: z.string().regex(/^[a-f0-9]{16}$/).nullable() }).strict();
+/** P17-D §9: "this" is this PC picked on purpose, so a Trunk's first computer does not stand in for it. */
+const PickSchema = z.object({ sessionId: z.string().uuid(), deviceId: z.union([z.literal("this"), z.string().regex(/^[a-f0-9]{16}$/)]).nullable() }).strict();
+const pickedPath = /^\/api\/devices\/pick\/([a-f0-9-]{36})$/;
+
+/**
+ * P17-D §9: what a conversation's computer menu needs: what it picked, and, for a Trunk's conversation, the
+ * computers that Trunk may use (null while the owner saved no list) and how many at once.
+ */
+function pickedFor(deps: DevicesHttpDeps, sessionId: string): unknown {
+  const trunkId = deps.trunkOf?.(sessionId) ?? null;
+  const limits = trunkId ? deps.devices.computerRule?.saved(trunkId) ?? null : null;
+  return { sessionId, picked: pickedDevice(deps.store, deps.owner, sessionId), trunkId,
+    allowed: limits?.allowed ?? null, atOnce: limits?.atOnce ?? null };
+}
 
 async function deviceChange(deps: DevicesHttpDeps, id: string, action: string): Promise<unknown> {
   const { book } = deps.devices;
@@ -113,6 +128,8 @@ async function joinRoute(deps: DevicesHttpDeps, path: string): Promise<unknown> 
 export async function devicesApi(deps: DevicesHttpDeps, path: string): Promise<unknown> {
   const { devices, method } = deps;
   if (path === "/api/devices" && method === "GET") return overview(deps);
+  const picked = pickedPath.exec(path);
+  if (picked && method === "GET") return pickedFor(deps, picked[1]!);
   if (path === "/api/devices/join" || path === "/api/devices/join/leave") return joinRoute(deps, path); // phase2/shell
   if (method !== "POST") return undefined;
   if (path === "/api/devices/mode") return { mode: devices.setMode(await deps.readBody()) };
@@ -124,7 +141,12 @@ export async function devicesApi(deps: DevicesHttpDeps, path: string): Promise<u
   if (path === "/api/devices/invite/cancel") { devices.book.cancelInvite(); return { cancelled: true }; }
   if (path === "/api/devices/pick") {
     const { sessionId, deviceId } = PickSchema.parse(await deps.readBody());
-    if (deviceId && !devices.book.device(deviceId)) throw new DevicesHttpError(404, "That device is not on the list.");
+    const device = deviceId && deviceId !== "this" ? devices.book.device(deviceId) : undefined;
+    if (deviceId && deviceId !== "this" && !device) throw new DevicesHttpError(404, "That device is not on the list.");
+    // P17-D §9: one of a Trunk's conversations may pick only a computer that Trunk may use.
+    const trunkId = deps.trunkOf?.(sessionId) ?? null;
+    if (deviceId && trunkId && devices.computerRule && (deviceId === "this" || (device && isComputer(device)))
+      && !devices.computerRule.allows(trunkId, deviceId)) throw new DevicesHttpError(403, trunkComputerRefusal);
     pickDevice(deps.store, deps.owner, sessionId, deviceId);
     return { sessionId, deviceId };
   }
