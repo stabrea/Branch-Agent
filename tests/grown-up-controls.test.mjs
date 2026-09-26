@@ -65,7 +65,9 @@ test("the danger zone keeps its warning enclosure", async (t) => {
     return { borderStyle: style.borderTopStyle, borderColor: style.borderTopColor, bad, radius: style.borderTopLeftRadius };
   });
   assert.equal(appearance.borderStyle, "solid");
-  assert.equal(appearance.borderColor, appearance.bad);
+  // Pass 17 draws the enclosure in the warning colour, softened: the same red, at any opacity.
+  const rgb = (css) => { const n = css.match(/[\d.]+/g).map(Number); return css.startsWith("color(") ? n.slice(0, 3).map((v) => Math.round(v * 255)) : n.slice(0, 3); };
+  assert.deepEqual(rgb(appearance.borderColor), rgb(appearance.bad));
   assert.notEqual(appearance.radius, "0px");
   assert.deepEqual(errors, []);
 });
@@ -304,7 +306,9 @@ test.skip("the destructive danger zone keeps its warning enclosure", async (t) =
     };
   });
   assert.equal(appearance.borderStyle, "solid");
-  assert.equal(appearance.borderColor, appearance.bad);
+  // Pass 17 draws the enclosure in the warning colour, softened: the same red, at any opacity.
+  const rgb = (css) => { const n = css.match(/[\d.]+/g).map(Number); return css.startsWith("color(") ? n.slice(0, 3).map((v) => Math.round(v * 255)) : n.slice(0, 3); };
+  assert.deepEqual(rgb(appearance.borderColor), rgb(appearance.bad));
   assert.notEqual(appearance.radius, "0px");
   assert.deepEqual(f.errors, []);
 });

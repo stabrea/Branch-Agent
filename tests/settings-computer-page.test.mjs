@@ -31,8 +31,9 @@ const sections = (page) => page.evaluate(() => [...document.querySelectorAll("#l
    computers the owner paired, from the engine (GET /api/devices), not only this one. */
 const pageHeads = (page) => page.locator(".set-col").locator("h1, h2, h3, h4").evaluateAll((all) =>
   all.filter((node) => node.checkVisibility()).map((node) => node.textContent.trim()));
-const REGULAR_NOW = ["Computer & browser", "Computers they may use", "Which Trunk uses which", "On a computer", "The browser"];
-const ADVANCED_NOW = [...REGULAR_NOW, "Phones lent to Branch", "The browser, more", "Code"];
+// The prototype (pass 17) adds "Phones lent to Branch" to the page itself, so it shows at every level.
+const REGULAR_NOW = ["Computer & browser", "Computers they may use", "Which Trunk uses which", "On a computer", "The browser", "Phones lent to Branch"];
+const ADVANCED_NOW = [...REGULAR_NOW, "The browser, more", "Code", "On a computer, more"];
 
 test("Computer & browser has the prototype's sections at Regular and Advanced, at every width", async (t) => {
   const { settingsWindow, openSettingsPage, setLevel } = await import("./settings-window.mjs");

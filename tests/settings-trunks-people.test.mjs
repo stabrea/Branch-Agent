@@ -59,7 +59,8 @@ for (const width of [1440, 400]) {
     const { page, errors } = await settingsWindow(t, { name: "settings-trunks", width, height: 950 });
     await openSettingsPage(page, "people");
     const heads = await page.locator(".set-col").locator("h1, h2, h3").evaluateAll((all) => all.filter((node) => node.checkVisibility()).map((node) => node.textContent.trim()));
-    assert.deepEqual(heads, ["People", "Each person"]);
+    // The prototype's person card has its "May" section (what that person may do).
+    assert.deepEqual(heads, ["People", "May", "Each person"]);
     assert.deepEqual((await page.locator('.set-col [data-act="p-open-team"]').allInnerTexts()).map((words) => words.trim()),
       ["Groups", "Signing in from other devices", "What you share"]);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${width} px fits`);

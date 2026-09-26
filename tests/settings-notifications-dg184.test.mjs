@@ -29,7 +29,8 @@ test("DG-184 Notifications has the prototype's sections at 1440 and 400 px and e
       await setLevel(page, one);
       const col = page.locator(".set-col");
       const headings = await col.locator("h1, h2, h3, h4").evaluateAll((all) => all.filter((node) => node.checkVisibility()).map((node) => node.textContent.trim()));
-      assert.deepEqual(headings, ["Notifications", "Tell me when…", "Updates"], `${width} px, ${one}`);
+      // The prototype's page has "Quiet" (days off) after "Tell me when…".
+      assert.deepEqual(headings, ["Notifications", "Tell me when…", "Quiet", "Updates"], `${width} px, ${one}`);
       assert.equal(await col.getByRole("button", { name: /^Save/ }).count(), 0, "saved as you go");
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, `${width} px: no sideways scrolling`);
     }
