@@ -8,10 +8,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defaultPreset, presetsFromEnv } from "./providers.js";
+import { presetsFromEnv } from "./providers.js";
+import { noModelWords } from "./no-model.js";
 import { ChatGPTAuth, FileTokenVault } from "./chatgpt-auth.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
-import { DemoProvider } from "./demo.js";
 import { startServer } from "./server.js";
 import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
@@ -118,7 +118,7 @@ async function serve(
     ...(link ? {} : { quit: () => void stopEngine?.() }),
   });
   console.log(
-    `Branch Agent listening at ${server.url}\nProvider: ${app.runtime.provider.name}\nWorkspace: ${app.runtime.workspace}\nLocal session token (paste into browser): ${server.token}`,
+    `Branch Agent listening at ${server.url}\nProvider: ${app.runtime.models.configured ? app.runtime.provider.name : noModelWords}\nWorkspace: ${app.runtime.workspace}\nLocal session token (paste into browser): ${server.token}`,
   );
   let closing: Promise<void> | null = null;
   const stop = () => {
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
   // instead of refusing. With nothing running this answers null and everything opens here as before.
   const answered = await overRunningBranch(command, dataDir);
   if (answered !== null) { process.exitCode = answered; return; }
-  const presets = command === "demo" ? [defaultPreset(new DemoProvider())] : presetsFromEnv();
+  const presets = presetsFromEnv();
   const chatgpt = new ChatGPTAuth(new FileTokenVault(join(dataDir, "chatgpt-auth.json")), { userAgent: "BranchAgent" });
   const { app, close } = await configuredApp({ workspace, dataDir, presets, chatgpt });
   if (command === "start") {
@@ -647,7 +647,7 @@ async function watchCommand(app: Awaited<ReturnType<typeof configuredApp>>["app"
   console.error(`[watch] stopped after ${handle.runs} run(s).`);
 }
 /**
- * `branch run` and `branch demo`. With `--json` every event goes to stdout as one JSON object per
+ * `branch run`. With `--json` every event goes to stdout as one JSON object per
  * line while the task works, and the human wording goes to stderr, so a script can read one and a
  * person can watch the other. The exit code says what happened: see `exitCodeFor`.
  */
@@ -658,7 +658,6 @@ async function runOnce(
   inTerminal: boolean,
 ): Promise<void> {
   const flags: RunFlags = parseRunArgs(process.argv.slice(3));
-  if (command === "demo") flags.prompt = "Run the deterministic file write/read/verify fixture.";
   // Carrying a stopped task on needs no new words: it takes up its own request again.
   if (!flags.prompt && !flags.resumeRunId) throw new Error('Provide a prompt: branch run "your request"');
   const writer = {

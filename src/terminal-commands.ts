@@ -60,7 +60,7 @@ export function activeModel(runtime: Runtime, presetId: string | undefined): str
 export function statusLine(runtime: Runtime, sessionId: string | undefined, presetId: string | undefined, width: number): string {
   const summary = runtime.models.summary(runtime.owner);
   const active = presetId ?? summary.activePreset ?? summary.defaultPreset;
-  const preset = runtime.models.presets.get(active);
+  const preset = runtime.models.find(active);
   const totals = sessionTotals(runtime, sessionId, preset?.model ?? active);
   const policy = readPolicy(runtime.store, runtime.owner);
   const label = policyPresets().find((entry) => entry.id === policy.preset)?.label ?? "Rules I set myself";

@@ -263,11 +263,24 @@ import { ReadFirstGuard } from "./coding/read-first.js"; // mac7/coding-next
 import { allowedForThisRun, projectTestsVerdict } from "./coding/project-tests.js"; // mac7/coding-next, mac7/tests-unattended
 import { codingOn } from "./coding/settings.js"; // mac7/coding-next
 
+/**
+ * The scripted test fixture (src/demo.ts), and only while Node's test runner runs this process: `node --test` sets
+ * NODE_TEST_CONTEXT in every test file's process, which is the fixture flag here. It keeps the hundreds of tests that
+ * open Branch without naming a model working. Branch itself (`branch start`, the desktop app) always passes its
+ * presets, even an empty list, so it never reaches this and never meets a made-up model.
+ */
+function testFixturePresets(): ModelPreset[] {
+  return process.env.NODE_TEST_CONTEXT ? [defaultPreset(new DemoProvider())] : [];
+}
+
 export async function createBranch(options: {
   workspace: string;
   dataDir: string;
   provider?: Provider;
-  /** Named model presets; the first is the default. Overrides `provider`. */
+  /**
+   * Named model presets; the first is the default. Overrides `provider`. An empty list, or neither this nor
+   * `provider`, means no model is set up yet: every request is refused in plain words until one is added.
+   */
   presets?: ModelPreset[];
   /** ChatGPT account sign-in; when present and signed in, ChatGPT presets are registered. */
   chatgpt?: ChatGPTAuth;
@@ -499,7 +512,7 @@ export async function createBranch(options: {
   // The page half is filled in later, if and when a browser is configured for this launch.
   const computer: ComputerLayers = { window: desktop };
   registerComputer(registry, computer);
-  const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
+  const presets = options.presets ?? (options.provider ? [defaultPreset(options.provider)] : testFixturePresets());
   const runtime = new Runtime(
     store,
     registry,
@@ -1773,6 +1786,7 @@ export * from "./tool-index.js";
 export * from "./tool-usage.js";
 export * from "./runtime.js";
 export * from "./demo.js";
+export * from "./no-model.js";
 export * from "./providers.js";
 export * from "./knowledge.js";
 export * from "./memory.js";

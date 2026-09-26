@@ -32,7 +32,6 @@ export const cliCommands: { name: string; summary: string; options: string[]; no
   { name: "logs", summary: "Print what happened during one task", options: ["--json"] },
   { name: "approve", summary: "Answer a task that stopped to ask: approve <task id> yes|no", options: ["--json"] },
   { name: "completion", summary: "Print a completion script for bash, zsh, fish or PowerShell", options: [] },
-  { name: "demo", summary: "Run the offline demonstration", options: ["--json"] },
   { name: "doctor", summary: "Check that everything works", options: ["--probe", "--fix"] },
   // mac7/diagnostics: nothing is sent; it shows, saves a zip, or prints a GitHub issue link.
   { name: "report", summary: "Report a problem: show what a report holds, save it as a zip, or print a GitHub issue link", options: ["log", "--save", "--without", "--issue", "--json"] },
