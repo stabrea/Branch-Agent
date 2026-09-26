@@ -8,6 +8,8 @@
      switchto (the person menu), p-switch (the person's card) and pin-ok: POST /api/profiles/switch {profileId, pin}.
      invite, p-invite, p-inv-tab, p-inv-role, p-inv-go: the invite dialog; "On this computer" is POST /api/profiles
        {name, pin, role}. The other two tabs have no engine route and stay greyed.
+     si-owner (Team › Signing in, "Ask for my PIN when switching back to me") and owner-pin-set: POST
+       /api/profiles/owner-pin {pin} to set it, {pin: null} to switch it off.
      p-role: POST /api/profiles/<id>/role {role}. p-code: POST /api/people/<id>/reset-code. p-signout: POST
        /api/people/<id>/sign-out. p-remove: POST /api/profiles/<id>/remove. */
 import { $, esc, render, renderNow } from "../core/dom.js";
@@ -74,6 +76,32 @@ function pinOk(el) {
   if (!PIN.test(typed)) { field?.setAttribute("aria-invalid", "true"); return; }
   field?.removeAttribute("aria-invalid");
   switchTo(el.dataset.v || null, typed, el.dataset.from);
+}
+
+/* ---------- the owner's PIN for switching back ---------- */
+
+/* Turning it on asks for the PIN the engine needs; the switch then shows what the engine says (E.profiles.ownerPin). */
+function ownerPinSwitch(e) {
+  if (e.target.id !== "si-owner") return;
+  const on = e.target.checked;
+  e.target.checked = !on;
+  if (!on) return saveOwnerPin(null);
+  const owner = ownerName();
+  openDlg({ title: "The owner’s PIN", body: `<p data-css="margin:0;color:var(--ink-2)">Switching back to ${esc(owner)} asks for this PIN. Five wrong tries wait five minutes.</p><div class="field"><label for="owner-pin-new">PIN</label><input class="inp" id="owner-pin-new" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>`,
+    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="owner-pin-set">Save</button>' });
+}
+
+function ownerPinSet() {
+  const field = $("#owner-pin-new");
+  const typed = field?.value ?? "";
+  if (field) field.value = "";
+  if (!PIN.test(typed)) { field?.setAttribute("aria-invalid", "true"); return; }
+  saveOwnerPin(typed);
+}
+
+async function saveOwnerPin(pin) {
+  try { await api("profiles/owner-pin", { pin }); closeDlg(); } catch (error) { toast(error.message); }
+  await reread();
 }
 
 /* ---------- inviting someone ---------- */
@@ -147,7 +175,9 @@ async function remove(el) {
 
 export function init() {
   markLive(["switchto", "p-switch", "pin-ok", "sw:pin-try", "invite", "p-invite", "p-inv-tab", "p-inv-role", "p-inv-go", "sw:inv-n", "sw:inv-pin",
-    "p-role", "p-code", "p-signout", "p-remove"]);
+    "p-role", "p-code", "p-signout", "p-remove", "sw:si-owner", "owner-pin-set", "sw:owner-pin-new"]);
+  document.addEventListener("change", ownerPinSwitch);
+  on("owner-pin-set", () => ownerPinSet());
   on("switchto", (el) => startSwitch(el, "menu"));
   on("p-switch", (el) => startSwitch(el, "card"));
   on("pin-ok", (el) => pinOk(el));
