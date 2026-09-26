@@ -49,12 +49,17 @@ test("the card sits in Settings › Advanced, its switches work, and the checkli
   await card.waitFor();
   assert.equal(await card.locator("h3.settings-card-title").innerText(), "Coding polish");
   assert.equal(await page.evaluate(() => document.getElementById("coding-card")?.parentElement?.id ?? null), "lx-page-advanced");
-  assert.equal(await page.locator("#coding-switch-review-checks").inputValue(), "off");
+  assert.equal(await page.locator("#coding-switch-review-checks").inputValue(), "when-needed", "as shipped (the defaults train)");
   await page.locator("#coding-switch-format-on-edit").selectOption("when-needed");
   for (let i = 0; i < 100 && app.coding.modes()["format-on-edit"] !== "when-needed"; i++) await page.waitForTimeout(50);
   assert.equal(app.coding.modes()["format-on-edit"], "when-needed");
   await page.locator("#coding-formatters").waitFor();
   await page.locator("#coding-switch-ci").selectOption("on");
+  // It ships when needed, so its fields are already drawn: wait for the switch to be saved and the card redrawn
+  // before typing, or the redraw can clear what was typed.
+  for (let i = 0; i < 100 && app.coding.modes().ci !== "on"; i++) await page.waitForTimeout(50);
+  assert.equal(app.coding.modes().ci, "on");
+  await page.waitForTimeout(300);
   await page.locator("#coding-ci-model").waitFor();
   await page.locator("#coding-ci-model").fill("claude-sonnet-4-5");
   await page.locator("#coding-ci-endpoint").fill("https://api.anthropic.com/v1");

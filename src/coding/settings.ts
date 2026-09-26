@@ -3,8 +3,10 @@ import type { Store } from "../store.js";
 
 /**
  * Bucket R17-D (wave mac7): "coding polish". Each part has the owner's three-way switch — off, when
- * needed, on — kept in a settings record of its own. Every part ships off except `read-first`, a guard
- * that only makes things stricter, which ships on (Q250, the owner's "what ships on" rule).
+ * needed, on — kept in a settings record of its own. Under the owner's "what ships on" rule, `read-first`,
+ * a guard that only makes things stricter, ships on (Q250), and every part that only adds tools or waits
+ * for the owner's own step ships when needed (the defaults train). `worktrees` (a full copy of the project
+ * on disk) and `fewer-rounds` still ship off.
  *
  *   off          the part does nothing and refuses in one plain sentence; its tools are not listed
  *   when-needed  it works, and its tools are a line in the index until the work calls for them
@@ -66,14 +68,23 @@ export const codingTools: Record<CodingPart, readonly string[]> = {
   "fewer-rounds": ["files.read_many"],
 };
 
-/** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, and its tools. */
-export const codingToolFeatures: readonly (readonly [string, string, readonly string[]])[] = codingParts
-  .filter((part) => codingTools[part].length > 0)
-  .map((part) => [codingKey(part), `${codingLabels[part].charAt(0).toLowerCase()}${codingLabels[part].slice(1)} is switched on`, codingTools[part]] as const);
-
 /** Q250: the parts that ship on. A part the owner has never switched is in the mode named here. */
 const shipsOn: ReadonlySet<CodingPart> = new Set<CodingPart>(["read-first"]);
-export const codingDefault = (part: CodingPart): CodingMode => (shipsOn.has(part) ? "on" : "off");
+/**
+ * The defaults train: the parts that ship when needed. None spends, sends, deletes, listens or loads the
+ * computer by itself: format-on-edit waits for a formatter the owner names, shell-snapshot for the owner's
+ * Take, and mentions fetches only an address the owner typed.
+ */
+const shipsWhenNeeded: ReadonlySet<CodingPart> = new Set<CodingPart>([
+  "format-on-edit", "shell-snapshot", "mentions", "init", "ci", "checklist", "path-rules", "large-output", "notebooks", "review-checks",
+]);
+export const codingDefault = (part: CodingPart): CodingMode =>
+  (shipsOn.has(part) ? "on" : shipsWhenNeeded.has(part) ? "when-needed" : "off");
+
+/** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, its tools, and how it ships. */
+export const codingToolFeatures: readonly (readonly [string, string, readonly string[], CodingMode])[] = codingParts
+  .filter((part) => codingTools[part].length > 0)
+  .map((part) => [codingKey(part), `${codingLabels[part].charAt(0).toLowerCase()}${codingLabels[part].slice(1)} is switched on`, codingTools[part], codingDefault(part)] as const);
 
 export function codingMode(store: Pick<Store, "get">, owner: string, part: CodingPart): CodingMode {
   const data = (store.get("settings", owner, codingKey(part))?.data ?? {}) as Record<string, unknown>;

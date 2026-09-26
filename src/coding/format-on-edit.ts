@@ -109,6 +109,10 @@ export class EditChecks {
     if (context.dryRun || !codingOn(this.deps.store, this.deps.owner, "format-on-edit")) return result;
     const paths = editedPaths(tool, args);
     if (!paths.length) return result;
+    // The defaults train: with no formatter named and no language server to ask, there is nothing to check,
+    // so the edit's answer stays exactly as it was (a saved recipe still matches what it recorded).
+    const settings = this.settings();
+    if (!Object.keys(settings.formatters).length && !(settings.diagnostics && this.deps.servers.enabled())) return result;
     const checks: FileCheck[] = [];
     for (const path of paths) checks.push(await this.check(path, context).catch((error: Error) => ({ path, formatter: null, reformatted: false, note: error.message.slice(0, 300) })));
     const afterEdit = { files: checks };

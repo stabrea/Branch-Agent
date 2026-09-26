@@ -78,6 +78,9 @@ export function registerNotebooks(registry: ToolRegistry, files: WorkspaceFiles)
     name: "notebook.read", permission: "files.read", group: "code",
     description: "Read a Jupyter notebook (.ipynb) as numbered cells: kind, source and what each cell printed. Pictures are named, not included. Use from/to for a range; moreFrom says where to carry on.",
     parameters: NotebookReadSchema,
+    // It reads one notebook, so the rules judge that file (its from/to are cell numbers, not places).
+    target: (input) => input.path,
+    targets: (input) => [{ kind: "read" as const, path: input.path }],
     execute: (input) => readNotebook(files, input),
   });
 }

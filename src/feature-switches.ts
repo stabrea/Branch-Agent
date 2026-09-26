@@ -97,12 +97,14 @@ export const interopToolFeatures: readonly (readonly [string, string, readonly s
   ["interop-flow-search", "finding a better flow is switched on", ["flow.search"]],
   ["interop-agent-market", "sharing assistants is switched on", ["assistant.market"]],
 ];
-const savedMode = (store: Reader, owner: string, key: string, field: "mode" | "systemVoice" = "mode"): FeatureMode => {
+const savedMode = (store: Reader, owner: string, key: string, field: "mode" | "systemVoice" = "mode", shipped: FeatureMode = "off"): FeatureMode => {
   if (lockdownOverrides(store, owner, key)) return "off"; // mac7/lockdown-fix: Lockdown wins over a saved mode
   const data = (store.get("settings", owner, key)?.data ?? {}) as Record<string, unknown>;
   const mode = FeatureModeSchema.safeParse(data[field]);
   if (mode.success) return mode.data;
-  return field === "mode" && data.enabled === true ? "when-needed" : "off";
+  if (field === "mode" && data.enabled === true) return "when-needed";
+  // The defaults train: a feature the owner never switched is in the mode it ships in.
+  return field === "mode" && data[field] === undefined ? shipped : "off";
 };
 
 /**
@@ -133,7 +135,7 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   // ── R17-A: Trunks (src/trunks/settings.ts keeps these lists). ──
   ...trunkToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac7/r17-d: coding polish (src/coding/settings.ts keeps these lists). ──
-  ...codingToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  ...codingToolFeatures.map(([key, reason, tools, shipped]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key, "mode", shipped) })),
   // ── R17-C: files, voice, devices and personal connectors (src/personal/settings.ts keeps these lists). ──
   ...personalToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── r17-i: reach and platform (src/reach/settings.ts keeps these lists). ──

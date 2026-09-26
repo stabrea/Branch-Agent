@@ -43,12 +43,17 @@ async function fixture(t, provider = scripted()) {
   return { app, root, workspace, put, on, context: (extra = {}) => ({ ...app.runtime.context({ runId: app.store.createRun(app.runtime.owner, "test").id }), ...extra }) };
 }
 
-test("every part but read-first ships off, its tools are left out, and the three-way switch loads or hides them", async (t) => {
+test("read-first ships on, the parts that only add tools ship when needed, and the three-way switch loads or hides them", async (t) => {
   const { app } = await fixture(t);
-  // Q250: read-first, a guard that only makes things stricter, ships on under the owner's "what ships on" rule.
-  for (const part of codingParts) assert.equal(app.coding.modes()[part], part === "read-first" ? "on" : "off", `${part} as shipped`);
-  const all = codingParts.flatMap((part) => codingTools[part]);
-  for (const name of all) assert.equal(app.registry.names().includes(name), false, `${name} is not listed while off`);
+  // Q250 and the defaults train (the owner's "what ships on" rule): read-first, a guard that only makes things
+  // stricter, ships on; worktrees (a full copy of the project on disk) and fewer-rounds still ship off.
+  const shipped = { "read-first": "on", worktrees: "off", "fewer-rounds": "off" };
+  for (const part of codingParts) assert.equal(app.coding.modes()[part], shipped[part] ?? "when-needed", `${part} as shipped`);
+  for (const part of codingParts)
+    for (const name of codingTools[part]) assert.equal(app.registry.names().includes(name), (shipped[part] ?? "when-needed") !== "off", `${name} is listed only while its part is not off`);
+  assert.deepEqual(switchedToolTiers(app.store, app.runtime.owner, app.registry.names()).preload, [], "when needed preloads nothing");
+  app.coding.setMode("notebooks", "off");
+  assert.equal(app.registry.names().includes("notebook.read"), false);
   app.coding.setMode("notebooks", "when-needed");
   assert.ok(app.registry.names().includes("notebook.read"));
   assert.deepEqual(switchedToolTiers(app.store, app.runtime.owner, app.registry.names()).preload, []);
@@ -87,6 +92,7 @@ test("R17-041: an answer over 64 KiB fails while off, and is kept in a file, sec
   const { app, context } = await fixture(t);
   const long = `token=sk-live-SECRETSECRET ${"x".repeat(70_000)}`;
   app.registry.register({ name: "test.long", permission: "files.read", description: "long", parameters: (await import("zod")).z.object({}).strict(), execute: async () => ({ text: long }) });
+  app.coding.setMode("large-output", "off"); // it ships when needed (the defaults train)
   await assert.rejects(app.registry.execute("test.long", {}, context()), /64 KiB/);
   app.coding.setMode("large-output", "on");
   const outputs = new LargeOutputs(app.store, app.runtime.owner, (text) => text.replaceAll("sk-live-SECRETSECRET", "[hidden]"));
@@ -111,6 +117,7 @@ test("R17-037: /init asks the model, project.init writes AGENTS.md once, and an 
   assert.deepEqual(facts.commands, ["npm run build", "npm run test"]);
   assert.match(draftInstructions(facts), /`npm run test`[\s\S]*`src\/`/);
   const host = { runtime: app.runtime };
+  app.coding.setMode("init", "off"); // it ships when needed (the defaults train)
   assert.match(initCommand({ host, argument: "" }).text, /switched off/);
   assert.equal(lookup("init").name, "init");
   assert.equal(PARITY.find((row) => row.theirs.startsWith("/init")).status, "built");
@@ -269,6 +276,7 @@ test("R17-034: the snapshot reads the login shell once, drops anything key-like,
   const calls = [];
   const runner = async (run) => { calls.push(run); return { exitCode: 0, stdout: output, stderr: "", timedOut: false }; };
   const snapshots = new ShellSnapshots(app.store, app.runtime.owner, { runner, env: { SHELL: "/bin/zsh" }, platform: "darwin", home: "/Users/o" });
+  app.coding.setMode("shell-snapshot", "off"); // it ships when needed (the defaults train)
   await assert.rejects(snapshots.take(), /switched off/);
   on("shell-snapshot");
   await snapshots.take();
@@ -428,6 +436,7 @@ test("R17-043: the project's review checks run as read-only helpers against the 
   await put(".agents/checks/logging.md", "No passwords in logs.\n");
   await put("README.md", "# Falcon\n\nChanged.\n");
   await put("src/api.ts", "export const x = 1;\n");
+  app.coding.setMode("review-checks", "off"); // it ships when needed (the defaults train)
   await assert.rejects(app.coding.checks.run({ only: [] }, context()), /switched off/);
   on("review-checks");
   const outcome = await app.runtime.executeTool("review.checks", {}, { mode: "owner" });
@@ -479,7 +488,8 @@ test("the API: switches, settings and refusals in plain words", async (t) => {
   const { app } = await fixture(t);
   const { codingApi } = await import("../dist/coding/api.js");
   const call = (method, path, body) => codingApi({ coding: app.coding, runtime: app.runtime, method, query: new URLSearchParams(), readBody: async () => body }, path);
-  assert.equal((await call("GET", "/api/coding")).modes.checklist, "off");
+  assert.equal((await call("GET", "/api/coding")).modes.checklist, "when-needed", "as shipped (the defaults train)");
+  assert.equal((await call("POST", "/api/coding/switch", { part: "init", mode: "off" })).mode, "off");
   await assert.rejects(call("GET", "/api/coding/init"), (error) => error.status === 409 && /switched off/.test(error.message));
   assert.equal((await call("POST", "/api/coding/switch", { part: "init", mode: "when-needed" })).mode, "when-needed");
   assert.match((await call("GET", "/api/coding/init")).prompt, /project.init/);
