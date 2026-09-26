@@ -13,6 +13,12 @@ export async function streamRunEvents(store: Store, runId: string, response: Ser
   let last = after, closed = false;
   response.on("close", () => { closed = true; });
   while (!closed && Date.now() < deadline) {
+    // Q253: the stream follows who is at the window. Once the window is switched to someone whose run this is
+    // not, it ends before anything more is sent; reconnecting asks the route again, which refuses.
+    if (store.run(runId)?.owner !== store.profiles.scope()) {
+      response.write(`event: end\ndata: ${JSON.stringify({ status: "switched" })}\n\n`);
+      break;
+    }
     for (const event of store.events(runId).filter((e) => e.id > last)) {
       response.write(`id: ${event.id}\nevent: ${event.kind}\ndata: ${JSON.stringify({ id: event.id, kind: event.kind, data: event.data, createdAt: event.createdAt })}\n\n`);
       last = event.id;
@@ -63,6 +69,9 @@ export async function streamOwnerEvents(
   response.on("close", () => { closed = true; });
   response.write(`event: ready\ndata: ${JSON.stringify({ after: last, kinds: [...wanted] })}\n\n`);
   while (!closed && Date.now() < deadline) {
+    // Q253: whose events these are was fixed when the stream opened. Once the window is switched to someone
+    // else, it ends before anything more is sent, and reconnecting opens a stream of the new person's own.
+    if (store.profiles.scope() !== owner) break;
     // recentEvents comes back newest first, so it is turned round to keep the stream in order.
     const fresh = store.recentEvents(owner, 200).filter((event) => event.id > last).reverse();
     for (const event of fresh) {
