@@ -102,7 +102,7 @@ function pipxLaunch(args: string[]): PackageRef | null {
  * `cmd /c npx …`, the usual way Windows settings start an npx server: the program after `/c` (or
  * `/k`), with cmd's own switches before it skipped. Anything else comes back unchanged.
  */
-function unwrapCmd(command: string, args: readonly string[]): [string, string[]] {
+export function unwrapCmd(command: string, args: readonly string[]): [string, string[]] {
   if (programName(command) !== "cmd") return [command, [...args]];
   const at = args.findIndex((argument) => /^\/[ck]$/i.test(argument));
   if (at < 0 || !args[at + 1]) return [command, [...args]];

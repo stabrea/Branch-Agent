@@ -20,7 +20,8 @@
  *   ... refused outright", src/lockdown.ts).
  * - A server at a web address reaches outside this computer through the owner's network rules; it is saved on.
  * - The yes is bound to the launch line, not to the program's bytes, so nothing the line runs may be in the workspace,
- *   where a task can write: not the program, not the folder it starts in, not a file it is given (src/mcp-workspace-guard.ts).
+ *   where a task can write: not the program, not the folder it starts in, not a file it is given (also as a file: URL),
+ *   not inline code that names a place there, not a package taken from there (src/mcp-workspace-guard.ts).
  *   Checked when a server is added and again before every start, including the starts as Branch starts.
  * - Who answered is read when the answer is given (ApprovalGate.onResolved), not when the answer is looked at.
  * - The waiting question's conversation and fingerprint are listed only to the owner at the window.
