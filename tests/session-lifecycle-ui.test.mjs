@@ -1,5 +1,4 @@
 import test from 'node:test';
-import { showEverything } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -29,9 +28,10 @@ async function fixture(t, provider) {
   const sourceId = seed(app, 'Juniper lifecycle source');
   const original = JSON.stringify(app.store.sessionView('local', sourceId));
   const server = await startServer(app, { dataDir: join(root, 'private'), port: 0 });
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true, serviceWorkers: 'block' });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(server.url); await page.getByLabel('Session token', { exact: true }).fill(server.token);
   /* The page's own settling point is waited for on the very next line. The click itself
@@ -40,9 +40,22 @@ async function fixture(t, provider) {
      the loaded Windows checker. Nothing is waited for less: a real signal replaces a proxy. */
   await page.getByRole('button', { name: 'Connect', exact: true }).click({ noWaitAfter: true });
   await page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
-  /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
-  await showEverything(page);
   return { app, page, root, sourceId, original, errors };
+}
+/* Redesign: the new window (public/app/**). A conversation opens from its row in the sidebar list; the open one's row
+   carries aria-current="true". Carrying a saved conversation on as a new one is the sidebar search's "Past sessions"
+   result ([data-act="sr-sess"]) and its dialog's "Carry it on" ([data-act="sess-carry"], POST /api/sessions/{id}/duplicate),
+   as in the prototype's showSession(). */
+const row = (page, id) => page.locator(`#side [data-act="chat"][data-id="${id}"]`);
+const currentId = (page) => page.evaluate(() => document.querySelector('#side [data-act="chat"][aria-current="true"]')?.dataset.id ?? null);
+async function openConversation(page, id) {
+  await row(page, id).click();
+  await page.locator('#conversation').getByText('Saved response for', { exact: false }).first().waitFor();
+}
+async function pastSession(page, query, id) {
+  await page.locator('#side-q').fill(query);
+  await page.locator(`#side [data-act="sr-sess"][data-v="${id}"]`).click({ timeout: 10000 });
+  return page.getByRole('button', { name: 'Carry it on', exact: true });
 }
 const card = (page, id) => page.locator(`#saved-list article[data-session-id="${id}"]`);
 /* One step, inside the page: the notice area is found and read in the same breath, so a redraw
@@ -74,7 +87,43 @@ async function exportFile(f) {
   return path;
 }
 
-test('saved conversations search, paginate, export/import a JSON file, and resume after reload', async (t) => {
+/* Redesign: a conversation is exported from its own More menu (data-act="chatmenu" › "Export conversation",
+   data-act="export-conv"). As the prototype's, it saves the engine's Markdown copy to Library › Documents
+   (GET /api/sessions/<id>/export?format=markdown, then POST /api/documents), and downloads nothing. In the desktop app the
+   engine's JSON archive also goes to the Save dialog through the guarded IPC (window.branchDesktop.exportConversation,
+   branch:export-conversation, #362), stood in for here. */
+test("Export conversation saves Markdown to Library › Documents, and hands the desktop app the JSON archive (the new window)", async (t) => {
+  const f = await fixture(t);
+  const documents = () => f.page.evaluate(async () => (await (await fetch('/api/documents', {
+    headers: { authorization: 'Bearer ' + sessionStorage.getItem('branch-token') } })).json()).documents ?? []);
+  const exportIt = async () => {
+    await openConversation(f.page, f.sourceId);
+    await f.page.locator('[data-act="chatmenu"]').first().click();
+    await f.page.locator('#app > .pop [data-act="export-conv"]').click();
+    await f.page.locator('.toast').filter({ hasText: 'Saved as Markdown to Library › Documents.' }).waitFor({ timeout: 30000 });
+  };
+  let downloads = 0; f.page.on('download', () => downloads++);
+  const before = (await documents()).length;
+  await exportIt();
+  const docs = await documents();
+  assert.equal(docs.length, before + 1, 'one document is added');
+  assert.ok(docs.some((d) => d.name === `conversation-${f.sourceId.slice(0, 8)}.md`), 'the Markdown copy is in Library › Documents');
+  assert.equal(downloads, 0, 'the browser downloads nothing');
+  /* The desktop app's preload, stood in for: it records what the window hands the guarded export. */
+  await f.page.addInitScript(() => { window.__handed = []; window.branchDesktop = Object.freeze({ exportConversation: async (text) => { window.__handed.push(text); return { saved: true }; } }); });
+  await f.page.reload(); await f.page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
+  await exportIt();
+  await f.page.waitForFunction(() => window.__handed.length === 1, null, { timeout: 15000 });
+  const archive = JSON.parse(await f.page.evaluate(() => window.__handed[0]));
+  assert.equal(archive.format, 'branch-agent-conversation');
+  assert.deepEqual(archive.messages, f.app.store.messages(f.sourceId));
+  assert.equal(JSON.stringify(f.app.store.sessionView('local', f.sourceId)), f.original, 'exporting changes nothing');
+  assert.deepEqual(f.errors, []);
+});
+
+// Redesign: replaced by the new window (the saved-conversations dialog with its search and "Load more conversations", and
+// importing a conversation file, are not in the design; exporting is ported above).
+test.skip('saved conversations search, paginate, export/import a JSON file, and resume after reload', async (t) => {
   const f = await fixture(t);
   for (let index = 0; index < 21; index++) seed(f.app, `Other saved conversation ${index}`);
   await library(f.page); assert.equal(await f.page.locator('#saved-list article').count(), 20);
@@ -119,13 +168,19 @@ test('duplicating a saved conversation preserves the source and follows up in th
   const f = await fixture(t, { name: 'duplicate-fixture', complete: async request => {
     received = structuredClone(request.messages); return { content: 'Independent follow-up', toolCalls: [] };
   } });
-  await library(f.page, 'Juniper');
-  await card(f.page, f.sourceId).getByRole('button', { name: 'Duplicate', exact: true }).click(); await ready(f.page);
-  const id = await f.page.locator('#conversation').getAttribute('data-session-id');
+  await (await pastSession(f.page, 'Juniper', f.sourceId)).click();
+  await f.page.waitForFunction((source) => {
+    const id = document.querySelector('#side [data-act="chat"][aria-current="true"]')?.dataset.id;
+    return id && id !== source;
+  }, f.sourceId, { timeout: 20000 });
+  await ready(f.page);
+  const id = await currentId(f.page);
   assert.notEqual(id, f.sourceId); assert.deepEqual(f.app.store.messages(id), f.app.store.messages(f.sourceId));
-  assert.match(await f.page.locator('#session-context').innerText(), /files and saved memory are shared/);
-  await f.page.getByLabel('Your message', { exact: true }).fill('A different path');
-  await f.page.locator('#send').click(); await ready(f.page);
+  // Redesign: replaced by the new window (the "files and saved memory are shared" line is not in the design).
+  await f.page.locator('#prompt').fill('A different path');
+  await f.page.locator('#send').click();
+  await f.page.locator('#conversation').getByText('Independent follow-up').waitFor({ timeout: 30000 }); await ready(f.page);
+  assert.equal(await currentId(f.page), id, 'the follow-up is in the new conversation');
   assert.deepEqual(received.filter(message => message.role !== 'system'), [
     ...f.app.store.messages(f.sourceId), { role: 'user', content: 'A different path' },
   ]);
@@ -133,7 +188,8 @@ test('duplicating a saved conversation preserves the source and follows up in th
   assert.deepEqual(f.errors, []);
 });
 
-test('invalid and oversized import files report errors without changing the selected conversation', async (t) => {
+// Redesign: replaced by the new window (importing a conversation file is not in the design).
+test.skip('invalid and oversized import files report errors without changing the selected conversation', async (t) => {
   const f = await fixture(t); await library(f.page);
   await card(f.page, f.sourceId).getByRole('button', { name: 'Open', exact: true }).click(); await ready(f.page);
   for (const [buffer, expected] of [[Buffer.from('{broken'), /valid conversation JSON/], [Buffer.alloc(4 * 1024 * 1024 + 1), /at most 4 MiB/], [Buffer.from('{}'), /format|Invalid/]]) {
@@ -150,19 +206,34 @@ test('pending send blocks saved conversation switching, duplicate, and file impo
   const f = await fixture(t, { name: 'pending-fixture', complete: async () => {
     started.resolve(); await release.promise; return { content: 'finished', toolCalls: [] };
   } });
-  await library(f.page); await card(f.page, f.sourceId).getByRole('button', { name: 'Open', exact: true }).click(); await ready(f.page);
-  await f.page.getByLabel('Your message', { exact: true }).fill('Keep working'); await f.page.locator('#send').click(); await started.promise;
-  await library(f.page);
-  for (const label of ['Open', 'Duplicate']) assert.equal(await card(f.page, f.sourceId).getByRole('button', { name: label, exact: true }).isDisabled(), true);
-  assert.equal(await f.page.locator('#import-conversation').isDisabled(), true);
-  assert.equal(await f.page.locator('#conversation-import').isDisabled(), true);
-  assert.equal(await f.page.locator('#new-session').isDisabled(), true);
-  await card(f.page, f.sourceId).getByRole('button', { name: 'Duplicate', exact: true }).evaluate(button => button.click());
-  assert.equal(await f.page.locator('#conversation').getAttribute('data-session-id'), f.sourceId);
-  release.resolve(); await ready(f.page); assert.deepEqual(f.errors, []);
+  await openConversation(f.page, f.sourceId); await ready(f.page);
+  await f.page.locator('#prompt').fill('Keep working'); await f.page.locator('#send').click(); await started.promise;
+  // The prototype (the lead, 2026-09-26): while a task works, an empty box shows Stop instead of Send, and Send is not
+  // disabled; a message typed then is queued through the engine's busy send.
+  await f.page.locator('#send[aria-label="Stop"][data-act="stop-run"]').waitFor({ timeout: 10000 });
+  /* Redesign: the design lets a person move between conversations while one works (rows show "Working"), and has no
+     import (replaced by the new window). Carrying the source on while its answer is pending is still refused: read now,
+     asserted last. */
+  /* While searching, the results stand in the list's place (as the prototype's do), so no row says which conversation is
+     open: the engine's refusal is waited for, the dialog closed and the search cleared before the open row is read. */
+  const carry = await pastSession(f.page, 'Juniper', f.sourceId).then(async (button) => {
+    await button.evaluate(b => b.click());
+    await f.page.locator('.toast').filter({ hasText: "Wait for this conversation's active task" }).waitFor({ timeout: 10000 });
+    await f.page.getByRole('button', { name: 'Close', exact: true }).first().click();
+    await f.page.locator('#side [data-act="sq-clear"]').click();
+    return currentId(f.page);
+  }).catch(error => error.message);
+  release.resolve(); await ready(f.page);
+  await f.page.locator('#conversation').getByText('finished', { exact: true }).waitFor({ timeout: 30000 });
+  assert.equal(await currentId(f.page), f.sourceId, 'the answer lands in the conversation it was asked in');
+  assert.deepEqual(f.app.store.messages(f.sourceId).slice(-2).map(m => m.content), ['Keep working', 'finished']);
+  assert.deepEqual(f.errors, []);
+  assert.equal(carry, f.sourceId, 'Carry it on is held while a send is pending');
 });
 
-test('failed duplicate or imported view retains each new ID and retry never creates another copy', async (t) => {
+// Redesign: replaced by the new window (the "Retry opening conversation" button and importing a conversation file are
+// not in the design; a failed read is the window's toast).
+test.skip('failed duplicate or imported view retains each new ID and retry never creates another copy', async (t) => {
   const f = await fixture(t); let fail = true, copies = 0, imports = 0;
   f.page.on('request', request => {
     if (request.url().endsWith('/duplicate')) copies++;

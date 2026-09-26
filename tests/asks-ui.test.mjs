@@ -15,7 +15,8 @@ import { startServer } from "../dist/server.js";
 
 const PUBLIC = new URL("../public/", import.meta.url);
 
-// Redesign: public files deleted
+// Redesign: replaced by the new window (public/asks.js and its locale keys belong to the old window; the new page loads
+// public/app/main.js only, and the asks' cards are not in the design).
 test.skip("every word on the smaller asks' cards has English and real French", async () => {
   const source = await readFile(new URL("asks.js", PUBLIC), "utf8");
   const keys = [...new Set([...source.matchAll(/"(asks\.[a-zA-Z.]+)"/g)].map((m) => m[1]))];
@@ -27,7 +28,9 @@ test.skip("every word on the smaller asks' cards has English and real French", a
   assert.match(await readFile(new URL("index.html", PUBLIC), "utf8"), /<script src="\/asks.js" type="module"><\/script>/);
 });
 
-test("the cards sit in their homes, the switches work from the window, and nothing scrolls sideways", async (t) => {
+// Redesign: replaced by the new window (the smaller asks' cards, "Sending requests where they belong" and the others, are
+// not in design/redesign/prototype.html or the design document; Customize, Library and Settings are drawn from the design).
+test.skip("the cards sit in their homes, the switches work from the window, and nothing scrolls sideways", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-asks-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
     provider: { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } } });
