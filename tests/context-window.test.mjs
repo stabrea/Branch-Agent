@@ -8,8 +8,9 @@
  * fitted, or can't hold the conversation, is passed over for the next, and so is one a task starts on
  * while the chosen connection rests. A fold reads what it drops even when the connection writing its
  * summary is small: all a fold reads, in as many requests as that takes, ending at a turn of the person's,
- * and it keeps what was written before a request failed. The task is refused as too long only when
- * folding cannot make it fit. Scripted models only: nothing leaves this computer.
+ * and it keeps what was written before a request failed or the task ran out of tokens. A summary is
+ * only asked for with the whole reply ceiling, so one cut short is never kept. The task is refused as
+ * too long only when folding cannot make it fit. Scripted models only: nothing leaves this computer.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -509,9 +510,9 @@ test("a small side-job connection writes all of a fold it can carry, in as many 
   assert.equal(folded.readMessages, undefined, "the fold read all a fold reads");
 });
 
-/** 400 short turns, about 45 tokens each: far more than one request to a model loaded with 4,096 carries. */
-function tinyTurns(app, sessionId, size = () => 3) {
-  for (let n = 1; n <= 400; n++) app.store.message(sessionId, { role: n % 2 ? "user" : "assistant",
+/** 400 short turns (or `count`), about 45 tokens each: far more than one request to a model loaded with 4,096 carries. */
+function tinyTurns(app, sessionId, size = () => 3, count = 400) {
+  for (let n = 1; n <= count; n++) app.store.message(sessionId, { role: n % 2 ? "user" : "assistant",
     content: `Turn ${n}: ` + "earlier findings about the photo library and its folders ".repeat(size(n)) });
 }
 const foldedPart = /more is left to fold/;
@@ -742,4 +743,47 @@ test("when the connection writing a fold fails inside a long run of tool calls, 
   const next = await app.runtime.run({ prompt: "and again?", sessionId, ...tools });
   assert.equal(next.status, "completed", next.output);
   assert.equal(opening(own.main.at(-1)).role, "user");
+});
+
+/**
+ * A writer that keeps to the reply ceiling it is sent, as a real model does: its reply, at three characters a
+ * token, is cut there. Each reply names its request and the last turn it was sent.
+ */
+function keepsToCeiling(name) {
+  return writer(name, (n, request) =>
+    (`summary ${n} through turn ${Math.max(...turnsIn(request.messages[1].content))}: ` + longSummary()).slice(0, request.maxTokens * 3));
+}
+
+test("a fold that runs out of the task's tokens keeps its last whole summary, drops only the turns it covered, and the next task carries on", async (t) => {
+  // Task budgets spread across one summary request's cost (about 3,500 tokens), so the fold runs out at every point in one.
+  for (const maxTokens of [12900, 13800, 14700, 15600, 16500]) {
+    const own = keepsToCeiling("ollama-like");
+    const app = await fixture(t, [unknown(scripted("unused"))]);
+    const localId = localConnection(app, own, 4096);
+    const sessionId = app.store.createSession(app.runtime.owner);
+    // 120 short turns and long summaries: a fold of about a dozen requests, more than the task's tokens allow.
+    tinyTurns(app, sessionId, () => 3, 120);
+    const run = await app.runtime.run({ prompt: "and now?", sessionId, ...tools, budget: { maxSteps: 60, maxTokens } });
+    const asked = own.side.filter(isSummary);
+    assert.deepEqual(asked.map((request) => request.maxTokens).filter((ceiling) => ceiling !== 2048), [],
+      `${maxTokens}: every summary request went out with the whole reply ceiling`);
+    assert.equal(run.status, "budget_exceeded", `${maxTokens}: ${run.output}`);
+    assert.match(run.output, /Token budget exhausted/);
+    const { summary } = app.store.workingMessages(sessionId);
+    assert.equal(summary?.length, 6000, `${maxTokens}: the summary kept is a whole one`);
+    assert.ok(summary.startsWith(`summary ${asked.length} through turn ${carried(asked).last}:`), `${maxTokens}: the last one written`);
+    const whole = asked.filter((request) => request.maxTokens === 2048);
+    assert.deepEqual(lostTurns(app, sessionId, whole, 120), [], `${maxTokens}: every turn dropped was carried by a request whose summary is kept`);
+    const [folded] = events(app, run, "context.compacted");
+    assert.ok(folded.readMessages > 0, "the part of the fold that was read is kept");
+    assert.equal(folded.failedRequests, undefined, "no request failed: the one the task could not afford was never sent");
+    assert.equal(app.runtime.models.health.get(localId)?.consecutiveFailures ?? 0, 0, "running out of tokens is not the connection's failure");
+    // The next task carries on from the part kept, with the whole of its own budget.
+    const next = await app.runtime.run({ prompt: "and again?", sessionId, ...tools });
+    assert.equal(next.status, "completed", `${maxTokens}: ${next.output}`);
+    const later = own.side.filter(isSummary).slice(asked.length);
+    assert.ok(later[0].messages[1].content.includes(summary), `${maxTokens}: building on the summary kept`);
+    assert.deepEqual(later.map((request) => request.maxTokens).filter((ceiling) => ceiling !== 2048), []);
+    assert.deepEqual(lostTurns(app, sessionId, [...whole, ...later], 120), [], `${maxTokens}: no earlier turn was dropped unread`);
+  }
 });

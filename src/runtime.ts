@@ -2388,20 +2388,28 @@ ${run.output.slice(0, 6000)}`;
    * request is sent exactly what a fold has always sent; a smaller one is sent it in several requests
    * of whole messages, each building on the summary so far, until it has read it all. When the
    * side-job connection does not answer, the connection this round goes to writes the rest; any other
-   * failure ends the reading with what was written so far.
+   * failure ends the reading with what was written so far. A request is sent only while the task can
+   * still spend its whole reply, so no summary is cut short: one it can no longer afford ends the
+   * reading there, before it is sent, and the task runs out of tokens with what was written so far.
    */
   private async readForFold(run: Run, context: ToolContext, route: ModelRoute, failed: ModelPreset | undefined, previous: string,
     lines: string[], note: Record<string, number>): Promise<FoldReading> {
     const cover = foldCoverage(lines), current = route.candidates[route.index]!;
     let prior = previous, read = 0, requests = 0, reply = "", skip = failed, failure: FoldReading["failure"];
     const writers: string[] = [], failedWriters: string[] = [];
+    const asked: ToolContext = { ...context, permissions: new Set() };
     while (read < cover && !failure) {
       const next = this.nextFoldRequest(run, route, skip, prior, lines, read, cover);
       if (!next) break;
+      const ask = summaryAsk(prior, next.transcript);
+      if (context.budget.remaining() - estimateTokens({ messages: ask, tools: this.toolsFor(asked) }) < this.replyCeiling(run)) {
+        failure = { error: new BudgetError(`Token budget exhausted.${this.spentOnRun(run.id, next.preset.model)}`), writer: next.preset };
+        break;
+      }
       if (!requests) this.store.event(run.id, "context.compacting", { ...note, writer: next.preset.id, ...next.note }); // R17-049
       requests++;
       try {
-        reply = (await this.complete(run, summaryAsk(prior, next.transcript), { ...context, permissions: new Set() }, next.preset, null)).content.trim().slice(0, 6000);
+        reply = (await this.complete(run, ask, asked, next.preset, null)).content.trim().slice(0, 6000);
       } catch (error) {
         failedWriters.push(next.preset.id);
         if (next.preset.id !== current.id && fallbackEligible(error) && !context.signal.aborted) skip = next.preset;
@@ -2586,6 +2594,10 @@ ${run.output.slice(0, 6000)}`;
     if (input >= context.budget.remaining())
       throw new BudgetError("Token budget exhausted before provider retry");
   }
+  /** The longest reply this task's requests ask for; a request gets less only when the task's tokens are short. */
+  private replyCeiling(run: Run): number {
+    return this.replyCeilings.get(run.id) ?? baseReplyCeiling;
+  }
   private async complete(
     run: Run,
     messages: Message[],
@@ -2608,7 +2620,7 @@ ${run.output.slice(0, 6000)}`;
     // written down as an attempt, so a round that never reached the provider really does cost
     // nothing — in the inspector and in the figures alike. The step count still applies, so a task
     // cannot go round for ever on kept answers.
-    const maxTokens = Math.min(this.replyCeilings.get(run.id) ?? baseReplyCeiling, Math.max(0, context.budget.remaining() - input));
+    const maxTokens = Math.min(this.replyCeiling(run), Math.max(0, context.budget.remaining() - input));
     const cacheKey: CacheKeyParts = {
       provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
       messages, tools: tools.map((tool) => ({ name: tool.name, description: tool.description })),
