@@ -27,7 +27,7 @@ import { markLive } from "../core/features.js";
 import { toast, openDlg, closeDlg, dialog, $ } from "../core/ui.js";
 import { sw15, seg15 } from "./rows15.js";
 import { demos17, demo17, row17, sec17, pill17 } from "./rows17.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 import { say } from "../core/words.js";
 import { applockRow, initApplock } from "./applock17.js";
 
@@ -157,7 +157,7 @@ async function setReviewer(on, confirmLoosening = false) {
 /* ---------- the record of every widening or narrowing ---------- */
 async function openAudit() {
   const { entries } = await api("audit?limit=100");
-  const day = (at) => new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const day = (at) => new Date(at).toLocaleString(language(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const rows = (entries ?? []).map((e) => `<div class="prow"><span class="grow"><b>${esc(e.subject)}</b><small>${esc(day(e.at))} · ${esc(e.reason)}</small></span>${pill17("idle", e.outcome)}</div>`).join("");
   openDlg({ title: t("window.settings.p17-permissions.every-change-to-what-branch-may"), body: `<div class="rows demo-b17">${rows}</div>`,
     foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("delight.ach.close")}</button><button class="btn pri" type="button" data-act="demodob17" data-k="audit">${t("window.places.automations17.export-as-csv")}</button>` });

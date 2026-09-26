@@ -17,7 +17,7 @@ import { markLive } from "../core/features.js";
 import { toast, openDlg, dialog } from "../core/ui.js";
 import { seg15 } from "./rows15.js";
 import { demos17, demo17, row17, sec17 } from "./rows17.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 const C = { suites: [], suite: null, runs: [], savings: null, rounds: null };
 
@@ -45,7 +45,7 @@ function cmpDlg() {
   const rows = newestPerModel();
   const seg = `<div class="seg" role="group" aria-label="${t("window.settings.p17-models.test-suite")}">${C.suites.map((s) => `<button type="button" data-act="cmpsuiteb17" data-v="${esc(s.id)}" aria-pressed="${C.suite === s.id}">${esc(s.name)} · ${esc(s.tasks?.length ?? 0)}</button>`).join("")}</div>`;
   const table = `<table class="tbl-b17"><thead><tr><th>${t("coding.ci.model")}</th><th>${t("window.settings.p17-models.right")}</th><th>${t("window.settings.p17-models.cost")}</th><th>${t("comfort.status.item.time")}</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(nameOf(r.preset))}</td><td>${t("delight.ach.progress", { now: esc(r.summary.passed), goal: esc(r.summary.total) })}</td><td>${r.summary.dollars == null ? "" : `$${esc(r.summary.dollars.toFixed(2))}`}</td><td>${esc(time(r.summary.latencyMs?.mean))}</td></tr>`).join("")}</tbody></table>`;
-  const last = C.runs[0] ? `<p class="hint" data-css="margin:0">${t("window.settings.p17-models.last-run-value-each-task-checked", { value: esc(new Date(C.runs[0].startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })) })}</p>` : "";
+  const last = C.runs[0] ? `<p class="hint" data-css="margin:0">${t("window.settings.p17-models.last-run-value-each-task-checked", { value: esc(new Date(C.runs[0].startedAt).toLocaleDateString(language(), { month: "short", day: "numeric" })) })}</p>` : "";
   openDlg({ title: t("window.settings.p17-models.compare-models"), wide: true, body: seg + table + last,
     foot: `<button class="btn ghost" type="button" data-act="cmpsideb17">${t("window.settings.p17-models.side-by-side")}</button><button class="btn pri" type="button" data-act="cmprunb17" ${presets().length >= 2 && C.suite ? "" : "disabled"}>${t("window.places.library17.run-again")}</button>` });
 }

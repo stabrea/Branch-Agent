@@ -12,7 +12,7 @@ import { markLive } from "../core/features.js";
 import { toast, openDlg } from "../core/ui.js";
 import { seg15 } from "./rows15.js";
 import { demos17, demo17, row17, sec17, pill17 } from "./rows17.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 import { say } from "../core/words.js";
 
 /* ---------- Gateway ---------- */
@@ -24,7 +24,7 @@ const ENDED = () => ({ activated: ["ok", t("window.places.kept")], superseded: [
 async function openJournal() {
   let entries;
   try { entries = (await api("never-break/journal")).entries ?? []; } catch (error) { toast(error.message); return; }
-  const when = (at) => new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const when = (at) => new Date(at).toLocaleString(language(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const rows = entries.map((e) => `<div class="prow"><span class="grow"><b>${esc(e.fromVersion)} → ${esc(e.toVersion)}</b><small>${esc(when(e.finishedAt ?? e.startedAt))}</small></span>${ENDED()[e.state] ? pill17(...ENDED()[e.state]) : ""}</div>`).join("");
   openDlg({ title: t("window.settings.p17-more.never-break-the-journal"), wide: true, body: `<p class="lead-b17">${t("window.settings.p17-more.each-change-to-how-branch-runs")}</p><div class="rows">${rows}</div>`,
     foot: `<button class="btn ghost" type="button" data-act="nbtryb17">${t("window.settings.p17-more.try-a-bad-change")}</button><button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });

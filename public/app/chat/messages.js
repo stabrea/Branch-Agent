@@ -20,7 +20,7 @@ import { ic, av, mi, toast, openPop, closePop, openDlg, closeDlg } from "../core
 import { markLive } from "../core/features.js";
 import { moreButton, addMoreItem } from "./more.js";
 import { loadSteps, everyStepItem } from "./timeline.js"; // pass 17: Look inside and More gain "Every step"
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 const M = { sid: null, pins: [], followUps: [], room: null, spend: null, commands: null, slashBox: null, slashI: 0, edit: null };
 /* What the conversation module hands over: its state, a way to send words, and a way to re-read a conversation. */
@@ -182,7 +182,7 @@ function who() {
 }
 function contextWords(n) {
   const limit = mine() ? M.room?.limit : 0;
-  return limit ? t("window.chat.msg.context-of", { n: n.toLocaleString(), limit: limit.toLocaleString(), pct: Math.round((n / limit) * 100) }) : n.toLocaleString();
+  return limit ? t("window.chat.msg.context-of", { n: n.toLocaleString(language()), limit: limit.toLocaleString(language()), pct: Math.round((n / limit) * 100) }) : n.toLocaleString(language());
 }
 
 async function inspect(el) {
