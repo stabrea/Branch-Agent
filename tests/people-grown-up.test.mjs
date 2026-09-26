@@ -174,7 +174,7 @@ test("a person's own card ticks only what Branch enforces and names their own Tr
     assert.ok(onlyRead(await mayOf(own)), `${person.name}'s own card ticks only what Branch enforces`);
     const facts = await factsOf(own);
     if (person === kim) assert.deepEqual(facts, ownerSees, "Kim's own Trunks are the ones the owner's card lists, not room names");
-    else assert.equal(facts[0], "Trunks=None", "Sam is in no room");
+    else assert.equal(facts[0], "Trunks=—", "Sam is in no room: the card writes \"—\" for none (#361)");
     await f.call("/api/profiles/switch", { profileId: null });
   }
   assert.deepEqual(f.errors, []);
