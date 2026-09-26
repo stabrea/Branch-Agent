@@ -6,6 +6,7 @@ import { ic, av } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
 import { renderNow } from "../core/dom.js";
+import { recBar } from "../chat/rec.js";
 
 let lastHealthCheck = 0;
 let cachedHealth = null;
@@ -104,8 +105,7 @@ export function draw() {
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
 
   let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div><div class="scroll"><div class="place" data-css="max-width:1000px">
-    <div class="recbar"><span class="mark mark-face rec-mark" aria-hidden="true"></span><span class="rec-t"><b>Keep your Trunks running when Branch is closed?</b><span class="rec">Recommended</span><small>The gateway keeps Telegram, your phone and automations working, and restarts Branch if it ever stops.</small></span>
-    <button class="btn pri sm" type="button" data-act="rec" data-k="gw" data-v="yes">Yes</button><button class="btn sm" type="button" data-act="rec" data-k="gw" data-v="later">Not now</button><button class="btn ghost sm" type="button" data-act="rec" data-k="gw" data-v="never">Don't ask again</button></div>
+    ${recBar()}
     <h1>Overview</h1><p class="lede">What's happening across your Trunks, at a glance.</p>
     <div class="ov">`;
 

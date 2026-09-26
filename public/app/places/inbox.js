@@ -16,6 +16,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { openConversation } from "../chat/chat.js";
+import { recBar } from "../chat/rec.js";
 
 let asks = [];
 let changeRequests = [];
@@ -87,8 +88,7 @@ export function draw() {
 
   const count = asks.length + E.state.trunkWaiting.length;
   let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div><div class="scroll"><div class="place">
-    <div class="recbar"><span class="mark mark-face rec-mark" aria-hidden="true"></span><span class="rec-t"><b>Keep your Trunks running when Branch is closed?</b><span class="rec">Recommended</span><small>The gateway keeps Telegram, your phone and automations working, and restarts Branch if it ever stops.</small></span>
-    <button class="btn pri sm" type="button" data-act="rec" data-k="gw" data-v="yes">Yes</button><button class="btn sm" type="button" data-act="rec" data-k="gw" data-v="later">Not now</button><button class="btn ghost sm" type="button" data-act="rec" data-k="gw" data-v="never">Don’t ask again</button></div>
+    ${recBar()}
     <h1>Inbox</h1><p class="lede">Everything a Trunk is waiting on you for, what finished, and a record of what ran.</p>
     <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === "needs" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="needs">Needs you<span class="n">${count}</span></button><button class="tab" role="tab" type="button" aria-selected="${tab === "finished" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="finished">Finished</button><button class="tab" role="tab" type="button" aria-selected="${tab === "history" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="history">History</button></div>`;
 
