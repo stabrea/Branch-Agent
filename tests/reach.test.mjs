@@ -32,11 +32,17 @@ async function scratchApp(t) {
   return { app, root, store: app.store };
 }
 const on = (store, ...parts) => { for (const part of parts) saveReachMode(store, owner, part, { mode: "on" }); };
+const off = (store, ...parts) => { for (const part of parts) saveReachMode(store, owner, part, { mode: "off" }); };
 const allow = { assertAllowed: async () => undefined };
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 
 test("every part ships off: its tools are not offered, and it refuses in one sentence", async (t) => {
   const { app, store } = await scratchApp(t);
+  // The owner's rule (ships on, 2026-09-26): these ship "when needed"; the rest stay off for the reasons in
+  // src/reach/settings.ts. What "off" does is tested by switching every part off.
+  const shipsOn = ["machines", "send", "platform-pause", "skill-bundles", "usb", "notes", "arena"];
+  assert.deepEqual(app.reachParts.modes(), Object.fromEntries(reachParts.map((part) => [part, shipsOn.includes(part) ? "when-needed" : "off"])));
+  for (const part of reachParts) await app.reachParts.setMode(part, { mode: "off" });
   const names = new Set(app.registry.names());
   for (const part of reachParts) {
     for (const tool of reachTools[part]) assert.equal(names.has(tool), false, `${tool} is offered while off`);
@@ -78,6 +84,7 @@ test("R17-076: other computers are asked only fixed routes, with their key fille
     { id: "old", name: "Old laptop", address: "https://down.example", secret: "OLD_KEY", labels: [] },
   ];
   const window = new MachineWindow(store, owner, { list: () => machines }, fetcher, async (name) => `key-of-${name}`);
+  off(store, "machines"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
   await assert.rejects(window.look({ machine: "gpu", view: "health" }), /switched off/);
   on(store, "machines");
   assert.deepEqual(window.list().map((m) => Object.keys(m).sort()), [["address", "id", "labels", "name"], ["address", "id", "labels", "name"]]);
@@ -287,6 +294,7 @@ test("R17-081: branch send reaches only chats that talked first, and never a pau
   const { store } = await scratchApp(t);
   const delivered = [];
   const router = { chats: () => [{ channel: "telegram", chatId: "c1" }], deliver: async (...args) => { delivered.push(args); return { queued: 0 }; } };
+  off(store, "send"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
   await assert.rejects(sendToChat(store, owner, router, { channel: "telegram", chat: "c1", text: "hi" }), /switched off/);
   on(store, "send", "platform-pause");
   await assert.rejects(sendToChat(store, owner, router, { channel: "telegram", chat: "someone-else", text: "hi" }), /already talked to it/);
@@ -403,6 +411,7 @@ test("R17-083: skill bundles are written, looked at, and brought in switched off
   const { app, root, store } = await scratchApp(t);
   const installed = store.skills.install(owner, { document: skill("bundle-me").document });
   const bundles = new SkillBundles({ store, owner, files: app.files, policy: allow, fetcher: async () => { throw new Error("no network"); } });
+  off(store, "skill-bundles"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
   await assert.rejects(bundles.write({ name: "Mine", skills: [installed.id], path: "b/mine.branch-skills" }), /switched off/);
   on(store, "skill-bundles");
   await bundles.write({ name: "Mine", skills: [installed.id], path: "b/mine.branch-skills" });
@@ -447,6 +456,7 @@ test("R17-084: USB devices are read from ioreg and /sys, and a task starts only 
   let clock = 1_000_000;
   const started = [];
   const usb = new UsbTrigger({ store, owner, list: async () => { listed++; return plugged; }, start: async (prompt, label) => { started.push({ prompt, label }); }, now: () => clock });
+  off(store, "usb"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
   assert.deepEqual(await usb.tick(), []);
   assert.equal(listed, 0, "nothing is looked at while off");
   on(store, "usb");
@@ -483,6 +493,7 @@ test("R17-085: notes are only changed when kept, and the arena moves Elo ratings
     ask: async (preset, instructions, text) => { asked.push({ preset, instructions, text }); return `answer from ${preset ?? "default"}`; },
   };
   const notes = new Notes(store, owner, models);
+  off(store, "notes"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
   assert.throws(() => notes.list(), /switched off/);
   on(store, "notes", "arena");
   const note = notes.save({ title: "Groceries", body: "milk eggs bread" });
@@ -517,6 +528,8 @@ test("the /api/reach routes: the owner's switches, a refusal while off, and the 
   const { reachApi } = await import("../dist/reach/api.js");
   const call = (path, body, method = body === undefined ? "GET" : "POST") =>
     reachApi({ reach: app.reachParts, method, query: new URL(`http://x${path}`).searchParams, readBody: async () => body }, path.split("?")[0]);
+  // The owner's rule (ships on, 2026-09-26): some parts ship "when needed"; "off" is tested by switching them off.
+  for (const part of reachParts) await call("/api/reach/switch", { part, mode: "off" });
   const overview = await call("/api/reach");
   assert.ok(Object.values(overview.modes).every((mode) => mode === "off"));
   await assert.rejects(call("/api/reach/notes/rewrite", { id: randomUUID(), style: "fix" }), (e) => e.status === 409);
