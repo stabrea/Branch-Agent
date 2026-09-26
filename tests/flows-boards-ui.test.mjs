@@ -27,7 +27,9 @@ test("every word on the flows-and-boards cards has English and real French, and 
     const source = await readFile(new URL(`app/${file}`, PUBLIC), "utf8");
     const keys = [...new Set([...source.matchAll(/\bt\("([A-Za-z0-9_.-]+)"/g)].map((m) => m[1]))];
     assert.ok(keys.length > 40, `${file}: ${keys.length} keys`);
-    assert.deepEqual(keys.filter((key) => !en[key] || !fr[key] || (en[key] === fr[key] && !/\{\w+\}/.test(en[key]))), [], file);
+    // The same words in French on purpose: "version {version}".
+    const cognates = new Set(["window.places.automations.version-version"]);
+    assert.deepEqual(keys.filter((key) => !en[key] || !fr[key] || (en[key] === fr[key] && !cognates.has(key))), [], file);
     assert.equal(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(source), false, `${file}: no colour written down`);
   }
   const commands = ["commands.queue", "commands.busy", "commands.focus", "commands.installs"];

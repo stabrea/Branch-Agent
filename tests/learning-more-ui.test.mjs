@@ -24,7 +24,9 @@ test("every word on the learning cards has English and real French, and the scri
   const source = await readFile(new URL("app/places/library17.js", PUBLIC), "utf8");
   const keys = [...new Set([...source.matchAll(/\bt\("([A-Za-z0-9_.-]+)"/g)].map((m) => m[1]))];
   assert.ok(keys.length > 40);
-  assert.deepEqual(keys.filter((key) => !en[key] || !fr[key] || (en[key] === fr[key] && !/\{\w+\}/.test(en[key]))), []);
+  // The same words in French on purpose: "{documents} documents · {chunks} passages".
+  const cognates = new Set(["window.places.library17.documents-documents-chunks-passages"]);
+  assert.deepEqual(keys.filter((key) => !en[key] || !fr[key] || (en[key] === fr[key] && !cognates.has(key))), []);
   assert.equal(/#[0-9a-f]{3,8}\b|rgba?\(/i.test(source), false, "no colour is written down");
   // Loaded by the place that draws Library (public/app/places/library.js imports it).
   assert.match(await readFile(new URL("app/places/library.js", PUBLIC), "utf8"), /from "\.\/library17\.js"/);

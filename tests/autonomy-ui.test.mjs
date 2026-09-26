@@ -20,14 +20,13 @@ const PUBLIC = new URL("../public/", import.meta.url);
 test("every word on the automation cards has English and real French, and no colour is written down", async () => {
   const en = JSON.parse(await readFile(new URL("locales/en.json", PUBLIC), "utf8"));
   const fr = JSON.parse(await readFile(new URL("locales/fr.json", PUBLIC), "utf8"));
-  // The same word in both languages on purpose: "Hooks" is used in French too.
-  const cognates = new Set(["window.places.automations17.hooks"]);
+  // The same words in both languages on purpose: "Hooks" is used in French too, and "version {version}".
+  const cognates = new Set(["window.places.automations17.hooks", "window.places.automations.version-version"]);
   for (const file of ["automations17.js", "automations.js"]) {
     const source = await readFile(new URL(`app/places/${file}`, PUBLIC), "utf8");
     const keys = [...new Set([...source.matchAll(/\bt\("([A-Za-z0-9_.-]+)"/g)].map((m) => m[1]))];
     assert.ok(keys.length > 40, `${file}: ${keys.length} keys`);
-    assert.deepEqual(keys.filter((key) => !en[key] || !fr[key] || (en[key] === fr[key] && !cognates.has(key)
-      && !/\{\w+\}/.test(en[key]))), [], file);
+    assert.deepEqual(keys.filter((key) => !en[key] || !fr[key] || (en[key] === fr[key] && !cognates.has(key))), [], file);
     assert.equal(/#[0-9a-f]{3,8}\b|rgba?\(/i.test(source), false, `${file}: no colour written down`);
   }
 });
