@@ -21,7 +21,11 @@
    Welcome French and saves it to the engine and this browser; after a reload it is still French; Settings › Appearance
    then shows Français.
    Page errors must be zero. The engine's language is left at "auto" at the end. */
-const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
+/* The repository's own Playwright first, so the check never needs anything from an installed copy of Branch. */
+let playwright;
+try { playwright = require("playwright"); }
+catch { playwright = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright"); }
+const { chromium } = playwright;
 
 const PORT = process.env.PORT, TOKEN = process.env.TOKEN;
 if (!PORT || !TOKEN) { console.error("Set PORT and TOKEN."); process.exit(2); }
