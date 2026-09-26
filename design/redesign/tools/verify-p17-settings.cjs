@@ -198,6 +198,20 @@ async function journal(page) {
   await closeDlg(page);
 }
 
+/* Permissions › Every change to what Branch may reach: the engine's record, and its CSV. */
+async function auditRecord(page) {
+  await openPage(page, "permissions");
+  await page.locator('[data-act="demob17"][data-k="audit"]').click();
+  await settle(page, 1200);
+  const { entries } = await api("audit?limit=100");
+  const shown = await dlg(page).locator(".rows .prow b").allTextContents();
+  check("record: one row per engine entry, newest first", shown.length === entries.length && shown[0] === entries[0]?.subject, `${shown.length} of ${entries.length}`);
+  const [download] = await Promise.all([page.waitForEvent("download"), dlg(page).locator('[data-act="demodob17"][data-k="audit"]').click()]);
+  const lines = require("node:fs").readFileSync(await download.path(), "utf8").trim().split("\n").length;
+  check("record: Export as CSV saves the engine's spreadsheet", lines > entries.length, `${lines} lines`);
+  await closeDlg(page);
+}
+
 /* Held back for review: the app lock, the password manager and letting the stop go. Then the stop itself. */
 async function heldAndStop(page) {
   await openPage(page, "secrets");
@@ -226,7 +240,7 @@ async function heldAndStop(page) {
     await page.getByRole("button", { name: "Connect" }).click();
     await page.locator("#main").waitFor();
     await settle(page, 1500);
-    for (const step of [ruleTester, firewall, whyIsThisSet, moveIn, exportAll, compare, advanced, journal, heldAndStop]) {
+    for (const step of [ruleTester, firewall, whyIsThisSet, moveIn, exportAll, compare, advanced, journal, auditRecord, heldAndStop]) {
       try { await step(page); } catch (e) { check(`${step.name} finished`, false, e.message); await closeDlg(page).catch(() => {}); }
     }
   } catch (e) { check("script finished", false, e.message); }

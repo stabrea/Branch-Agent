@@ -6,10 +6,13 @@
    engine's own words (GET /api/settings-kit/why/<key>.<field>); Put back is POST /api/settings-kit/apply with that one
    field's shipped value and never confirmLoosening, so the engine itself refuses a put-back that loosens anything.
    Emergency stop: POST /api/safety-extras/stop { everything: true }, read back from GET /api/safety-extras.
+   Every change to what Branch may reach: the engine's record (GET /api/audit), and Export as CSV saves
+   GET /api/audit/export.csv.
    Security-held, greyed: the two switches here (one loosens approvals, one hides keys), the app lock (a PIN) and
    letting the emergency stop go (it loosens a stop); the rows under "Guards that are always on" have no readout yet. */
 import { esc, render } from "../core/dom.js";
-import { api } from "../core/api.js";
+import { api, token } from "../core/api.js";
+import { onDemo17 } from "../places/demo17.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { toast, openDlg, closeDlg, dialog, $ } from "../core/ui.js";
@@ -131,10 +134,30 @@ async function stop() {
   await load17();
 }
 
+/* ---------- the record of every widening or narrowing ---------- */
+async function openAudit() {
+  const { entries } = await api("audit?limit=100");
+  const day = (at) => new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const rows = (entries ?? []).map((e) => `<div class="prow"><span class="grow"><b>${esc(e.subject)}</b><small>${esc(day(e.at))} · ${esc(e.reason)}</small></span>${pill17("idle", e.outcome)}</div>`).join("");
+  openDlg({ title: "Every change to what Branch may reach", body: `<div class="rows demo-b17">${rows}</div>`,
+    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Close</button><button class="btn pri" type="button" data-act="demodob17" data-k="audit">Export as CSV</button>' });
+}
+/* The CSV is not JSON, so it is fetched with the session key and saved as it came. */
+async function saveAudit() {
+  const key = token.get();
+  const response = await fetch("/api/audit/export.csv", { cache: "no-store", headers: key ? { authorization: "Bearer " + key } : {} });
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || String(response.status));
+  const url = URL.createObjectURL(await response.blob());
+  const a = Object.assign(document.createElement("a"), { href: url, download: `branch-record-${new Date().toISOString().slice(0, 10)}.csv` });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 let started = false;
 export function init17() {
   if (started) return;
   started = true;
+  onDemo17("audit", { open: () => openAudit(), go: () => saveAudit() });
   on("ruletestb17", () => { P.result = null; ruleDlg(); });
   on("rulerunb17", () => runRule());
   on("rulepickb17", (el) => { const box = $("#rule-in-b17"); if (box) box.value = el.dataset.v; runRule(); });
