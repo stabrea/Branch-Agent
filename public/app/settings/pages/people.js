@@ -1,7 +1,7 @@
 /* Settings › People, 1:1 with the prototype's card, from the engine's own list (GET /api/profiles): you, the owner,
    then everyone with a profile on this computer, each with the role and what the role lets them have Branch do
    (roles[].effective, roles[].categories). Picking a person to look at is window state. Switching person, roles,
-   one-time codes, signing out and removing somebody are security-sensitive, so they are drawn greyed for review.
+   one-time codes, signing out and removing somebody are wired in flows/people.js, through the engine's own guards.
    The same list and card are Team › People (places/team.js draws peopleBody()), both from the list the window holds
    (E.profiles, the same GET /api/profiles, read again when this page opens). "Signed in on" names the devices each
    person is signed in on now, from the owner's sign-in card (GET /api/people/settings people[].signedIn[].device). */
@@ -94,8 +94,8 @@ function facts(p) {
 function actions(p) {
   if (p.id === OWNER) return '<p class="hint">You’re the owner. Only you change how Branch is set up.</p>';
   const first = String(p.name ?? "").split(" ")[0];
-  const roles = ["adult", "child"].map((r) => `<button type="button" data-act="p-role" data-v="${r}" aria-pressed="${p.role === r}">${esc(label(r))}</button>`).join("");
-  return `<div class="acts" data-css="margin-top:14px"><button class="btn sm" type="button" data-act="p-switch" data-v="${esc(p.id)}">Switch to ${esc(first)}</button><span class="seg">${roles}</span><button class="btn ghost sm" type="button" data-act="p-code">Make a one-time code</button><button class="btn ghost sm" type="button" data-act="p-signout">Sign out everywhere</button><button class="btn ghost sm" type="button" data-act="p-remove">Remove</button></div>`;
+  const roles = ["adult", "child"].map((r) => `<button type="button" data-act="p-role" data-v="${r}" data-id="${esc(p.id)}" aria-pressed="${p.role === r}">${esc(label(r))}</button>`).join("");
+  return `<div class="acts" data-css="margin-top:14px"><button class="btn sm" type="button" data-act="p-switch" data-v="${esc(p.id)}">Switch to ${esc(first)}</button><span class="seg">${roles}</span><button class="btn ghost sm" type="button" data-act="p-code" data-id="${esc(p.id)}">Make a one-time code</button><button class="btn ghost sm" type="button" data-act="p-signout" data-id="${esc(p.id)}">Sign out everywhere</button><button class="btn ghost sm" type="button" data-act="p-remove" data-id="${esc(p.id)}">Remove</button></div>`;
 }
 
 function card(p) {
@@ -130,6 +130,9 @@ export function draw() {
 }
 
 export function load() { return loadProfiles(); }
+
+/* flows/people.js: after adding somebody, the card shows them. */
+export function pickPerson(id) { picked = id; }
 
 /* Picking whom to look at, for both pages; registered once, by whichever starts first. */
 export function startPeople() {

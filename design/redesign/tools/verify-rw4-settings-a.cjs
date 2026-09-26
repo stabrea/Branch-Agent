@@ -114,7 +114,8 @@ async function people(page) {
     const role = (await api("profiles")).roles.find((r) => r.profileId === made.id);
     const ticked = await card.locator('.acts10 input:checked').count();
     check("people: May shows the engine's effective kinds", ticked === role.categories.length, `${ticked} ticked, engine ${role.categories.length}`);
-    for (const a of ["p-switch", "p-role", "p-code", "p-signout", "p-remove"]) check(`greyed (security): ${a}`, await greyed(page, `.t9-detail [data-act="${a}"]`));
+    // unhold/people: live now, each proved against the engine in verify-unhold-people.cjs.
+    for (const a of ["p-switch", "p-role", "p-code", "p-signout", "p-remove"]) check(`live: ${a}`, !(await greyed(page, `.t9-detail [data-act="${a}"]`)));
   } finally { await api(`profiles/${made.id}/remove`, {}); }
 }
 

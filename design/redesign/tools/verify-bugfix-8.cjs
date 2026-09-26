@@ -129,7 +129,9 @@ async function everyone(page) {
   check("E the person here now is marked Here now", (await tile.innerText()).split("Here now").length === 2);
   await page.locator('#side [data-act="owner"]').click();
   const others = page.locator('.pop [data-act="switchto"]');
-  check("E switching person stays greyed", await greyed(others.nth(1)));
+  // unhold/people: switching person is live now (it asks for the PIN; proved in verify-unhold-people.cjs), so this only
+  // checks it is not greyed and that opening the menu switched nobody.
+  check("E switching person is live", !(await greyed(others.nth(1))));
   await page.keyboard.press("Escape");
   check("E nobody was switched to (GET /api/profiles isOwner)", (await api("profiles")).isOwner === true);
 }

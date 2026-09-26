@@ -346,10 +346,11 @@ async function team(page) {
   check("team live: the task's own words, no raw id and no made-up label", liveText.includes("A task that stops to ask you") && !/[0-9a-f]{8}-[0-9a-f]{4}-/.test(liveText) && !liveText.includes("Task"));
   await act(page, "ptab", { place: "team", v: "people" });
   // Team › People is the prototype's peopleTab (pass 10c), whose invite is p-invite, the same list as Settings › People.
-  check("p-invite (Team › People) stays greyed", await page.locator('#main .place [data-act="p-invite"][aria-disabled="true"]').count() === 1);
+  // unhold/people: live now; adding somebody through it is proved in verify-unhold-people.cjs.
+  check("p-invite (Team › People) is live", await page.locator('#main .place [data-act="p-invite"]:not([aria-disabled="true"])').count() === 1);
   await act(page, "view", { v: "overview" });
   await sleep(800);
-  check("invite stays greyed", await page.locator('#main [data-act="invite"][aria-disabled="true"]').count() === 1);
+  check("invite is live (proved in verify-unhold-people.cjs)", await page.locator('#main [data-act="invite"]:not([aria-disabled="true"])').count() === 1);
   await act(page, "ptab", { place: "library", v: "documents" });
   check("dv15 is live now (proved in verify-places17.cjs)", await page.locator('[data-act="dv15"]:not([aria-disabled="true"])').count() === 2);
 }

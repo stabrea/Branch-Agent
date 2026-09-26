@@ -206,6 +206,11 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
     const chosen = NewPersonRoleSchema.parse(role);
     const made = profiles.create(person);
     if (chosen !== "adult") app.runtime.roles.save(made.id, { role: chosen });
+    // unhold/people: who was added and as what is written down; the PIN never is.
+    audit(app.store, app.runtime.owner, {
+      action: "policy.changed", actor: app.runtime.owner, subject: `${made.name}'s profile`,
+      reason: `The owner added somebody to this computer as ${roleLabels[chosen].label}`, outcome: "added",
+    });
     return made;
   }
   if (request.method === "POST" && path === "/api/profiles/switch") {
@@ -233,14 +238,26 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
   const role = new RegExp(`^/api/profiles/(${idPattern})/role$`).exec(path);
   if (role && request.method === "POST") {
     profiles.requireOwner("Deciding what somebody here may do");
-    return app.runtime.roles.save(role[1]!, await body());
+    const saved = app.runtime.roles.save(role[1]!, await body());
+    // unhold/people: what somebody here may do is written down each time the owner changes it.
+    const name = profiles.list().find((profile) => profile.id === role[1])?.name ?? "somebody";
+    audit(app.store, app.runtime.owner, {
+      action: "policy.changed", actor: app.runtime.owner, subject: `${name}'s role`,
+      reason: `The owner set what ${name} may do: ${roleLabels[saved.role].label}`, outcome: "saved",
+    });
+    return saved;
   }
   if (role && request.method === "GET") return app.runtime.roles.get(role[1]!);
   const remove = new RegExp(`^/api/profiles/(${idPattern})/remove$`).exec(path);
   if (remove && request.method === "POST") {
     profiles.requireOwner("Removing somebody from this computer");
     await body();
+    const name = profiles.list().find((profile) => profile.id === remove[1])?.name;
     const removed = profiles.remove(remove[1]!);
+    if (removed.removed) audit(app.store, app.runtime.owner, { // unhold/people
+      action: "policy.changed", actor: app.runtime.owner, subject: `${name}'s profile`,
+      reason: "The owner removed somebody from this computer", outcome: "removed",
+    });
     if (removed.removed) app.people.forgetProfile(remove[1]!); // bucket 19: their sign-ins, passkeys and shares go too
     return removed;
   }

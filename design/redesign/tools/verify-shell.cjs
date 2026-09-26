@@ -188,7 +188,7 @@ async function person(page, version) {
   check("help", !!(await page.waitForSelector(".tour-layer .tour-card", { timeout: 5000 }).catch(() => null)), "the walkthrough starts");
   await page.keyboard.press("Escape");
   await page.click('[data-act="owner"]');
-  check("switchto (greyed)", (await page.getAttribute('.pop [data-act="switchto"]', "aria-disabled")) === "true", "switching person stays greyed (security)");
+  check("switchto (live)", (await page.getAttribute('.pop [data-act="switchto"]', "aria-disabled")) !== "true", "switching person is live; proved in verify-unhold-people.cjs");
   await page.keyboard.press("Escape");
 }
 

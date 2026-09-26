@@ -23,6 +23,7 @@ import { M, machineName, loadMachineName } from "./machines.js";
 import { chatOwner, pinChat, renameDlg } from "../flows/trunk.js";
 import { unreadDot, recentClass, markAllButton, unreadItem, initUnread } from "../chat/unread.js"; // pass 17
 import { initQuick, quickItem } from "../chat/quick.js";
+import { init as initPeople } from "../flows/people.js"; // unhold/people: switching person, invites, roles
 
 const WIDE = matchMedia("(min-width: 761px)");
 const PLACES = [["overview", "home", "Overview"], ["inbox", "inbox", "Inbox"], ["automations", "clock", "Automations"],
@@ -292,6 +293,7 @@ function about() {
 }
 function initPerson() {
   markLive(["owner", "help", "about", "hide", "pat"]);
+  initPeople();
   on("pat", () => pat());
   document.addEventListener("keydown", (e) => { if (e.target.id === "pet-cv" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); pat(); } });
   on("owner", (el) => openPop(el, ownerMenu()));

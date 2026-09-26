@@ -5,7 +5,7 @@ import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { render, esc } from "../../core/dom.js";
 import { api } from "../../core/api.js";
-import { toast, ic } from "../../core/ui.js";
+import { toast, ic, openPop, closePop } from "../../core/ui.js";
 import { setLockdown } from "../../chat/approvals.js";
 import { sections17, init17, load17 } from "../p17-permissions.js";
 
@@ -40,7 +40,7 @@ async function load() {
   const [pol, cats, lock, os, kit] = await Promise.all([api("policy").catch(() => null), api("approvals/categories").catch(() => null), api("lockdown").catch(() => null),
     api("os-permissions").catch((error) => { toast(error.message); return null; }), api("settings-kit").catch((error) => { toast(error.message); return null; })]);
   Object.assign(P, { policy: pol?.policy ?? null, presets: pol?.presets ?? [], categories: cats?.categories ?? [], locked: !!lock?.on, loaded: true,
-    os: os ?? null, pins: kit?.pins ?? [] });
+    os: os ?? null, pins: kit?.pins ?? [], kit: kit?.settings ?? [] });
   render();
 }
 
@@ -63,10 +63,29 @@ function osSection() {
   return `<div class="sec x15-sec"><h2>${mac ? "This Mac" : "This PC"}</h2><p class="hint" data-css="margin:0 0 6px">${hint}</p><div class="rows">${html}</div></div>`;
 }
 
-/* Pinned settings from GET /api/settings-kit. Unpinning lets someone else change it again, so Unpin stays greyed. */
+/* Pinned settings from GET /api/settings-kit; pinning and unpinning are POST /api/settings-kit/pins {key, field, pinned},
+   which only the owner reaches (the household table and settings-kit's own requireOwner). */
 function pinRows() {
   if (!P.pins?.length) return '<div class="rows"></div>';
-  return `<div class="rows">${P.pins.map((x, i) => `<div class="prow"><span class="ico-tile">${ic("pin", "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.label)}</small></span><button class="btn ghost sm" type="button" data-act="pin-rm8" data-i="${i}">Unpin</button></div>`).join("")}</div>`;
+  return `<div class="rows">${P.pins.map((x) => `<div class="prow"><span class="ico-tile">${ic("pin", "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.label)}</small></span><button class="btn ghost sm" type="button" data-act="pin-rm8" data-key="${esc(x.key)}" data-field="${esc(x.field)}">Unpin</button></div>`).join("")}</div>`;
+}
+
+/* "Pin a setting": every setting the engine's catalogue lists that is not pinned yet, in the engine's words; a setting
+   with more than one part names the part beside it. */
+function pinMenu(el) {
+  const items = (P.kit ?? []).flatMap((s) => s.fields.filter((f) => !f.pinned).map((f) =>
+    `<button class="mi" type="button" role="menuitem" data-act="pin-do8" data-key="${esc(s.key)}" data-field="${esc(f.field)}"><span class="mi-t">${esc(s.name)}</span>${s.fields.length > 1 ? `<span class="r">${esc(f.label)}</span>` : ""}</button>`));
+  openPop(el, `<div class="ph">Pin a setting</div>${items.join("")}`);
+}
+
+async function setPinned(el, pinned) {
+  closePop();
+  const name = (P.kit ?? []).find((s) => s.key === el.dataset.key)?.name ?? "";
+  try {
+    await api("settings-kit/pins", { key: el.dataset.key, field: el.dataset.field, pinned });
+    toast(pinned ? `${name} is pinned.` : `${name} is no longer pinned.`);
+  } catch (error) { toast(error.message); }
+  await load();
 }
 
 /* On means "without asking": the kind is set to allow, or it has no rule of its own and the preset lets it through
@@ -105,7 +124,10 @@ export function draw() {
 }
 
 export function init() {
-  markLive(["sw:p-read", "sw:p-browse", "sw:p-send", "perm-lock"]);
+  markLive(["sw:p-read", "sw:p-browse", "sw:p-send", "perm-lock", "pin-add8", "pin-do8", "pin-rm8"]);
+  on("pin-add8", (el) => pinMenu(el));
+  on("pin-do8", (el) => setPinned(el, true));
+  on("pin-rm8", (el) => setPinned(el, false));
   // Through the same path as the banner, so the banner and this page agree; then the page re-reads.
   on("perm-lock", async () => { await setLockdown(!P.locked); await load(); });
   document.addEventListener("change", async (e) => {
