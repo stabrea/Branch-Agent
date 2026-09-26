@@ -60,6 +60,16 @@ async function main() {
     await signIn(page);
     // A conversation filed under the default project, made through the engine, so Default has a real count to show.
     const seeded = await api("run", { prompt: `Default project check ${stamp}` });
+    // Settings › General on its own, before the fold has read anything: its rows are the engine's, with their counts.
+    await page.reload();
+    await page.waitForSelector("#side .machine");
+    await page.click('#side .owner-row [data-act="view"][data-v="settings"]');
+    const own = await until(async () => {
+      const got = await api("projects"), n = got.conversations.default ?? 0;
+      const row = await page.$eval('#main [data-act="proj-edit"][data-v="default"]', (b) => b.closest(".prow").textContent);
+      return row.includes(`${n} conversation`) && n >= 1 ? row : null;
+    });
+    check("Settings rows on their own", !!own, `Settings › General, opened first, shows "${(own ?? "").trim()}" as GET /api/projects counts`);
     await openFold(page);
     const firstRows = await until(() => rowsMatch(page));
     check("sidebar rows", !!firstRows && firstRows.some(([id, n]) => id === "default" && Number(n) >= 1), `rows ${JSON.stringify(firstRows)} equal GET /api/projects all + conversations`);

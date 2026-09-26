@@ -44,7 +44,7 @@ export const projectRows = () => (!ownerHere() ? "" : P.all.map((pr) => `<button
   + `<button class="nav" type="button" data-act="proj-new">${ic("plus", "s")}${t("action.new-project")}</button>`);
 
 const lines = (words) => {
-  const n = words ? words.split("\n").length : 0;
+  const kept = (words ?? "").replace(/\s+$/, ""), n = kept ? kept.split("\n").length : 0;
   return n ? t(n === 1 ? "window.places.project.line-one" : "window.places.project.lines-many", { n }) : t("agent-files.empty");
 };
 
@@ -129,12 +129,14 @@ const typedName = () => {
   return name;
 };
 
-/* A new project's id is made from its name, and never one already in use: saving an id that exists replaces that project. */
+/* A new project's id is made from its name, and never one already in use: saving an id that exists replaces that project.
+   Nor one the engine keeps for its own secrets (src/projects.ts reservedProjectId), which the owner never chose. */
+const reserved = (id) => id === "model-connections" || id === "branch-safety" || /^acct-[0-9a-f]{12}$/.test(id);
 function newId(name) {
   const base = name.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "project";
   const taken = new Set(P.all.map((pr) => pr.id));
   let id = base;
-  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+  for (let n = 2; taken.has(id) || reserved(id); n++) id = `${base}-${n}`;
   return id;
 }
 
