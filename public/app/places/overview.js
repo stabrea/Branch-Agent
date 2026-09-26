@@ -21,7 +21,7 @@ function formatSpend(amount) {
 
 function nowTile() {
   const running = E.state.runs?.filter(r => r.status === "running" || r.status === "needs_input") || [];
-  const waiting = (E.state.trunkWaiting?.length || 0) + (E.state.attention?.length || 0) + approvals;
+  const waiting = (E.state.trunkWaiting?.length || 0) + (E.state.attention ?? []).filter((w) => !w.parentRunId).length + approvals;
   let html = `<div class="tile"><h2>Now</h2>`;
   if (!running.length) html += `<p>Nothing is running right now.</p>`;
   else running.slice(0, 3).forEach(r => html += `<div class="row" data-act="chat" data-id="${esc(r.sessionId || "")}"><span class="avw">${av({}, 34)}</span><div class="inf"><b>${esc(r.prompt?.split("\n")[0]?.slice(0, 40) ?? "")}</b></div></div>`);
@@ -142,9 +142,11 @@ export async function after() {
     }
   }
 
-  // Tasks waiting for a yes (GET /api/policy), so Answer N waiting counts what the Inbox asks about
+  // Tasks waiting for a yes (GET /api/policy), so Answer N waiting counts what the Inbox asks about: not a helper's
+  // question (parentRunId), which is answered in its task's Activity › Helpers
   const policy = await api("policy").catch(() => null);
-  if (policy && (policy.waiting?.length ?? 0) !== approvals) { approvals = policy.waiting?.length ?? 0; needsRender = true; }
+  const asked = (policy?.waiting ?? []).filter((q) => !q.parentRunId).length;
+  if (policy && asked !== approvals) { approvals = asked; needsRender = true; }
 
   // Fetch conversation mode if not yet cached
   if (!conversationMode) {

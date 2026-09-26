@@ -80,12 +80,15 @@ function mayRows(p) {
 }
 
 function facts(p) {
+  // Whole dollars as the prototype writes them ("$5 a day"), cents when there are any ("$2.50 a day").
+  const money = (n) => `$${Number.isInteger(n) ? n : Number(n).toFixed(2)}`;
   if (p.id === OWNER) return `<dt>Trunks</dt><dd>All</dd><dt>Projects</dt><dd>All</dd><dt>Daily allowance</dt><dd>No limit</dd><dt>PIN</dt><dd>${profiles()?.ownerPin ? "Set" : "—"}</dd><dt>Signed in on</dt><dd>This computer</dd>`;
   const g = roleOf(p.id)?.effective ?? roleOf(p.id)?.grant ?? {};
   const projects = (g.projects ?? []).length ? g.projects.join(", ") : "All";
-  const allowance = g.dailySpendLimit > 0 ? `$${g.dailySpendLimit} a day` : "No limit";
+  const allowance = g.dailySpendLimit > 0 ? `${money(g.dailySpendLimit)} a day` : "No limit";
   const on = devices(p.id);
-  return `<dt>Projects</dt><dd>${esc(projects)}</dd><dt>Daily allowance</dt><dd>${esc(allowance)}</dd><dt>PIN</dt><dd>Set</dd>${on.length ? `<dt>Signed in on</dt><dd>${esc(on.join(", "))}</dd>` : ""}`;
+  // The engine's grant (src/profile-roles.ts RoleGrantSchema) holds no Trunk list, so the prototype's "—" stands for it.
+  return `<dt>Trunks</dt><dd>—</dd><dt>Projects</dt><dd>${esc(projects)}</dd><dt>Daily allowance</dt><dd>${esc(allowance)}</dd><dt>PIN</dt><dd>Set</dd>${on.length ? `<dt>Signed in on</dt><dd>${esc(on.join(", "))}</dd>` : ""}`;
 }
 
 function actions(p) {

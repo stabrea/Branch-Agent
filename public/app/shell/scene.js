@@ -139,7 +139,7 @@ export function drawPet() {
 
 /* What the pet says: a Trunk that needs a yes first, else a tip that is true of this window. */
 function petWords() {
-  const waiting = (E.state?.attention ?? [])[0];
+  const waiting = (E.state?.attention ?? []).find((w) => !w.parentRunId); // a helper's question is not in the Inbox
   if (waiting) return `${waiting.who || "Branch"} needs a yes. It’s in your Inbox.`;
   return ["Ctrl K finds anything, even settings.", "Hover anything to see what it does."][Math.floor(Date.now() / 60000) % 2];
 }
@@ -189,5 +189,5 @@ function walk() {
   drawPet();
   const bubble = $("#pet-say");
   if (bubble && !bubble.hidden && Date.now() > P.until) bubble.hidden = true;
-  if (Date.now() > P.cool && bubble?.hidden && (E.state?.attention ?? []).length) { P.cool = Date.now() + 300000; say(petWords()); }
+  if (Date.now() > P.cool && bubble?.hidden && (E.state?.attention ?? []).some((w) => !w.parentRunId)) { P.cool = Date.now() + 300000; say(petWords()); }
 }

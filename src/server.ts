@@ -769,14 +769,23 @@ async function settleAsked(app: Branch, asked: { runId: string; sessionId: strin
   return "settled";
 }
 function attention(app: Branch) {
-  type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; canContinue?: true; who?: string; room?: string; open?: string };
+  type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; parentRunId?: string; canContinue?: true; who?: string; room?: string; open?: string };
   return app.store.waitingRuns(app.runtime.owner).map((run): Waiting => {
     // phase2/rooms (integration review): a Trunk's question says which Trunk, and a room member's opens the room.
     const by = app.trunks.conversations.answerer(run.sessionId);
-    return { runId: run.id, sessionId: run.sessionId, question: waitingWords(app, run), createdAt: run.createdAt,
+    return { runId: run.id, sessionId: run.sessionId, question: waitingWords(app, run), createdAt: run.createdAt, ...helperMark(app, run.id),
       ...(run.status === "interrupted" ? { canContinue: true as const } : {}),
       ...(by ? { who: by.name, open: by.sessionId, ...(by.room ? { room: by.room } : {}) } : {}) };
   });
+}
+/**
+ * Pass 17 (Helpers): a helper's question (a task another task started, "run.started" parentRunId) names the task that
+ * started it. It is answered in that task's Activity › Helpers, so the window keeps it out of the Inbox's counts and list.
+ * Only a task that exists counts: the learning passes mark their own rows "learning".
+ */
+function helperMark(app: Branch, runId: string): { parentRunId?: string } {
+  const parent = app.store.events(runId).find((event) => event.kind === "run.started")?.data.parentRunId;
+  return typeof parent === "string" && app.store.run(parent) ? { parentRunId: parent } : {};
 }
 /** What a waiting task says: its question, or for one Branch closed on, the note that it can be continued. */
 function waitingWords(app: Branch, run: Run): string {
@@ -1634,7 +1643,8 @@ async function api(
     // name of their own: nothing they do reaches the owner's folder or the owner's memory.
     return runToolChecksSafely(app, AbortSignal.timeout(120000));
   if (request.method === "GET" && path === "/api/policy")
-    return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
+    return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(),
+      waiting: app.runtime.approvals.waiting().map((asked) => ({ ...asked, ...helperMark(app, asked.runId) })) };
   if (request.method === "POST" && path === "/api/policy") {
     const input = await readBody(request);
     return { policy: recordedWrite(app.store, app.runtime.owner, { writer: "owner-in-window", source: "card", detail: "policy" }, ["policy"],

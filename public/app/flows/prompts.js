@@ -20,6 +20,7 @@ async function savePrompt() {
   try {
     const saved = await api("prompts", { title, command, body });
     closeDlg();
+    document.dispatchEvent(new Event("branch-prompts")); // the "/" menu reads its list again (chat/messages.js)
     toast(`Saved. Type /${saved.command || command} anywhere.`);
   } catch (error) { toast(error.message); }
 }
