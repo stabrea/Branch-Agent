@@ -15,8 +15,12 @@
  *   refuse a server whose version changed. Each discovered tool is weighed by the owner's approval settings the way
  *   MCP preflight does (src/mcp-policy.ts): a tool the settings refuse outright is left out, and a server with nothing
  *   left is not started. Every call its tools make still goes through the approval gate like any other tool.
+ * - Only the owner's yes starts it: a yes given while the window is switched to a household profile counts as a no.
+ * - While Lockdown is on, a command server is not started, by a switch or as Branch starts ("leaving a program running
+ *   ... refused outright", src/lockdown.ts).
  * - A server at a web address reaches outside this computer through the owner's network rules; it is saved on.
  */
+export const lockdownStartRefusal = "Lockdown is on, so Branch does not start a program on this computer. Turn Lockdown off first.";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -25,6 +29,7 @@ import { audit } from "./audit.js";
 import { approvalQuestion, type ApprovalGate } from "./approvals.js";
 import { askerOf, runOrigin } from "./key-context.js";
 import { evaluatePolicy, readPolicy } from "./policy.js";
+import { lockdownActive } from "./lockdown.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
@@ -146,6 +151,7 @@ export class OwnMcpServers {
       await this.open(entry, entry.tools.length === 0);
       return { server: this.view(this.find(id)), said: `${entry.name} is on.` };
     }
+    if (lockdownActive(this.deps.store, this.deps.owner())) throw new Error(lockdownStartRefusal);
     await this.deps.vet(entry.server.command, entry.server.args);
     const pending = this.waiting.get(id) ?? this.ask(entry);
     return { server: this.view(entry), said: pending.question };
@@ -182,8 +188,10 @@ export class OwnMcpServers {
     this.stopWaiting(id);
     if (open) { gate.resolve(pending.sessionId, pending.fingerprint); store.finish(pending.runId, "cancelled", "Nobody answered."); return; }
     const asker = askerOf(runOrigin(store, pending.runId));
-    const yes = gate.answer(pending.sessionId, startTool, id, pending.fingerprint, true) === "allow"
+    const said = gate.answer(pending.sessionId, startTool, id, pending.fingerprint, true) === "allow"
       || gate.takeJustNow(pending.sessionId, startTool, pending.fingerprint, asker);
+    // A yes from a household profile at the window is not the owner's: the program stays off.
+    const yes = said && store.profiles.isOwner() && !lockdownActive(store, this.deps.owner());
     store.finish(pending.runId, "completed", yes ? "You said yes." : "You said no.");
     if (!yes) return;
     const entry = this.saved().find((item) => item.id === id);
@@ -270,7 +278,7 @@ export class OwnMcpServers {
     this.launchIds = [...launchIds];
     for (const entry of this.saved()) {
       if (!entry.on || this.launchIds.includes(entry.id)) continue;
-      if (entry.server.transport === "stdio" && entry.approved !== launchFingerprint(entry.server)) { this.update(entry.id, { on: false }); continue; }
+      if (entry.server.transport === "stdio" && (entry.approved !== launchFingerprint(entry.server) || lockdownActive(this.deps.store, this.deps.owner()))) { this.update(entry.id, { on: false }); continue; }
       await this.open(entry, entry.tools.length === 0).catch(() => undefined);
     }
   }

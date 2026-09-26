@@ -56,7 +56,7 @@ async function clisApi(app: ConnectorsHost, request: IncomingMessage, path: stri
 }
 
 async function flagsApi(app: ConnectorsHost, request: IncomingMessage, path: string): Promise<unknown> {
-  if (path === "/api/reply-flags" && request.method === "GET") return { flags: app.replyFlags.list() };
+  if (path === "/api/reply-flags" && request.method === "GET") return { flags: app.replyFlags.marks() };
   if (path === "/api/reply-flags" && request.method === "POST") {
     app.store.profiles.requireOwner("Reporting a reply");
     return app.replyFlags.add(await readBody(request));

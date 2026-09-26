@@ -100,6 +100,21 @@ test("a command server is saved off, starts only after the owner's yes, and asks
   assert.deepEqual((await api(url, token, "/api/mcp/servers")).servers, []);
 });
 
+test("a yes from a household profile does not start it, and Lockdown refuses the start", async (t) => {
+  const { app, url, token } = await fixture(t);
+  const { server: { id } } = await api(url, token, "/api/mcp/servers", notes);
+  await api(url, token, `/api/mcp/servers/${id}/start`, {});
+  const question = (await api(url, token, "/api/policy")).waiting.find((q) => q.tool === "mcp.start");
+  app.store.profiles.isOwner = () => false; // the window switched to a household person's profile
+  await api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint });
+  await until(async () => (await api(url, token, "/api/mcp/servers")).servers[0].waiting === null);
+  await new Promise((r) => setTimeout(r, 3000));
+  assert.equal(toolsOf(app, id).length, 0, "only the owner's yes starts a program");
+  delete app.store.profiles.isOwner;
+  app.store.save("settings", app.runtime.owner, "lockdown", { on: true, since: new Date().toISOString(), before: {} });
+  await assert.rejects(api(url, token, `/api/mcp/servers/${id}/start`, {}), /Lockdown is on/);
+});
+
 test("a yes holds across a restart only for the exact launch it was given for", async (t) => {
   const { app, url, token } = await fixture(t);
   const { server: { id } } = await api(url, token, "/api/mcp/servers", notes);
@@ -190,6 +205,7 @@ test("flag a reply: kept on this computer, listed, exported only by a POST, and 
   assert.equal(kept.flag.reply, "The answer is 41.", "the reply's words come from the conversation");
   const listed = await api(url, token, "/api/reply-flags");
   assert.equal(listed.flags.length, 1);
+  assert.ok(!("note" in listed.flags[0]) && !("reply" in listed.flags[0]), "reading the list never hands back the reply or the note");
   const out = await api(url, token, "/api/reply-flags/export", {});
   assert.equal(out.flags[0].note, "It is 42.");
   assert.ok(!JSON.stringify(out).includes("hello"), "no other message of the conversation goes out");

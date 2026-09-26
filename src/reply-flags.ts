@@ -38,6 +38,13 @@ const text = (content: unknown): string =>
 export class ReplyFlags {
   constructor(private readonly store: Store, private readonly owner: () => string) {}
 
+  /**
+   * What any reader may see (GET /api/reply-flags, open to a short-lived key like other reads): which replies are
+   * flagged and why, never the reply's words or the note. Those leave only through the owner's export.
+   */
+  marks(): Pick<ReplyFlag, "id" | "sessionId" | "messageId" | "reasons" | "at">[] {
+    return this.list().map(({ id, sessionId, messageId, reasons, at }) => ({ id, sessionId, messageId, reasons, at }));
+  }
   list(): ReplyFlag[] {
     const saved = Saved.safeParse(this.store.get("settings", this.owner(), key)?.data ?? {});
     return saved.success ? saved.data.flags : [];

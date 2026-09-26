@@ -172,8 +172,8 @@ async function flag(page) {
   await page.locator('.dlg [data-act="flsave17c"]').click();
   const said = await lastToast(page, "Flagged. Kept on this computer only.");
   check("flsave17c: the engine's words", Boolean(said), said ?? "no toast");
-  const kept = (await api("reply-flags")).flags[0];
-  check("flsave17c: GET /api/reply-flags has the reasons, the note and only that reply", kept && kept.reasons.join() === "wrong,unsafe" && kept.note === "It is 42." && kept.reply === "Six times seven is 41.");
+  const kept = (await api("reply-flags/export", {})).flags[0];
+  check("flsave17c: the owner's export (POST /api/reply-flags/export) has the reasons, the note and only that reply", kept && kept.reasons.join() === "wrong,unsafe" && kept.note === "It is 42." && kept.reply === "Six times seven is 41.");
   await settle(page, 800);
   check("the flag shows under the reply, its button pressed", (await page.locator(".flb17c").count()) === 1 && (await button.getAttribute("aria-pressed")) === "true");
   await page.locator('.flb17c [data-act="flrm17c"]').click();
