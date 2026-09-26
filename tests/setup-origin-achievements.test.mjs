@@ -19,10 +19,11 @@ async function fixture(t) {
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
-  /* One client for both, so a mark cannot ride along to the next request on the same connection unseen. */
+  /* One client for both, as the window sends them, so a mark cannot ride along to the next request on the same
+     connection unseen. */
   const call = async (method, path, body, setup = false) => {
     const response = await fetch(new URL(path, server.url), {
-      method, headers: { authorization: `Bearer ${server.token}`, ...(setup ? { "x-branch-origin": "setup" } : {}),
+      method, headers: { authorization: `Bearer ${server.token}`, "x-branch-origin": setup ? "setup" : "window",
         ...(body === undefined ? {} : { "content-type": "application/json" }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
@@ -69,6 +70,20 @@ test("once setup is over, the same things count and are celebrated", async (t) =
   assert.ok(fresh.includes("tasks:1") && fresh.includes("conversations:1"), "the owner's own task and conversation");
   assert.equal(fresh.includes("event:trunk.turn:1"), false, "the introduction made in setup still is not counted");
   assert.ok((await got()).has("audit:policy.changed:1"));
+});
+
+test("work setup left running is marked only until the window asks for something from outside setup", async () => {
+  const { noteSetupOrigin, fromSetup } = await import("../dist/setup-origin.js");
+  /* A timer made inside a setup request carries its mark; `next` is the header of the request that arrives meanwhile. */
+  const leftRunning = (next) => new Promise((resolve) => setImmediate(() => {
+    noteSetupOrigin("setup");
+    const during = fromSetup();
+    setTimeout(() => resolve([during, fromSetup()]), 20);
+    setTimeout(() => noteSetupOrigin(next), 5);
+  }));
+  assert.deepEqual(await leftRunning(undefined), [true, true], "the terminal or the desktop app's own checks say nothing either way");
+  assert.deepEqual(await leftRunning("window"), [true, false], "the window outside setup ends it");
+  noteSetupOrigin("window");
 });
 
 test("a Trunk made in setup counts as a conversation once the owner talks in it", async (t) => {
