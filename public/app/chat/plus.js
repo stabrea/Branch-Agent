@@ -1,7 +1,8 @@
 /* The composer's + menu, 1:1 with the prototype's. Attach files reads the picked files in this window and sends them with
    the next message (POST /api/run attachments, within the engine's limits); Mention and Use a skill type @ or / into the box;
    Temporary conversation starts the next conversation as one the engine never keeps (POST /api/run temporary); Who
-   answers in this conversation is Branch or one of the engine's Trunks (GET and POST /api/trunks/conversations/<id>),
+   answers in this conversation is Branch or one of the engine's Trunks (GET and POST /api/trunks/conversations/<id>; the
+   Trunks only while the engine's "conversations" part is on),
    drawn for an ordinary or Trunk conversation once the engine has said who answers it. Folders, screenshots and asking
    questions first stay greyed until the engine can do them. */
 
@@ -25,15 +26,15 @@ function menu() {
 }
 
 /* Who answers the open conversation, as the engine said when it was opened; a room is chosen through its members instead.
-   While the engine's "conversations" part is off (GET /api/trunks modes.conversations) it refuses a Trunk, so the Trunks
-   are drawn greyed; handing the conversation back to Branch still works then. */
+   The list is who may be chosen, as the prototype's is: while the engine's "conversations" part is off (GET /api/trunks
+   modes.conversations) it refuses a Trunk, so only Branch is offered, and a Trunk already answering stays shown, greyed. */
 const radio = (v, t, s, on, off = false) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${on}" data-act="who" data-v="${esc(v)}"${off ? ' disabled aria-disabled="true"' : ""}><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(t)}</span>${s ? `<span class="mi-s">${s}</span>` : ""}</span></button>`;
 function whoRows() {
   const w = Q.whoFor === S.chat ? Q.who : null;
   if (!S.chat || !w || (w.kind !== "plain" && w.kind !== "trunk")) return "";
-  const now = w.trunk?.id ?? "", off = E.trunkModes?.conversations === "off";
+  const now = w.trunk?.id ?? "", off = (E.trunkModes?.conversations ?? "off") === "off";
   return '<hr><div class="ph">Who answers in this conversation</div>' + radio("", "Branch", "The assistant on this computer", now === "")
-    + (w.trunks ?? []).map((t) => radio(t.id, t.name, "", now === t.id, off)).join("");
+    + (w.trunks ?? []).filter((t) => !off || now === t.id).map((t) => radio(t.id, t.name, "", now === t.id, off)).join("");
 }
 
 /** What the engine said about the open conversation (GET /api/trunks/conversations/<id>), or null. */
