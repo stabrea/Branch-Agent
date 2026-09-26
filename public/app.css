@@ -3244,8 +3244,6 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
   .test-b17{flex-wrap:wrap}
   .test-b17 .btn{flex:1}
 }
-||||||| parent of 36b5c146 (feat(window): pass 17 settings rows and their words, with a stand-in for the shared demo rows)
-||||||| parent of 896078de (feat(window): pass 17 settings rows and their words, with a stand-in for the shared demo rows)
 /* area: p17 settings (prototype patch17b: rule tester, network sentences, why is this set, move in, compare, savings) */
 .lead-b17{margin:0;color:var(--ink-2);font-size:13.5px;line-height:1.5}
 .why-b17 .grow{display:grid;gap:2px;min-width:0}
@@ -3491,6 +3489,54 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .ob9 .ob-tpl[aria-pressed="true"]::before{content:"";position:absolute;top:14px;right:16px;width:4px;height:8px;border:solid var(--on-btn,#fff);border-width:0 2px 2px 0;transform:rotate(45deg);z-index:1}
 .ob-props15{margin-top:12px}
 .ob-props15 > b{display:block;font-size:13px;margin-bottom:8px}
+/* A status-bar popover over the message box: the box fades back and takes no clicks until the popover closes. */
+#composer.under-pop{opacity:.28;pointer-events:none;transition:opacity .14s var(--ease17)}
+@media (prefers-reduced-motion:reduce){#composer.under-pop{transition:none}}
+
+/* area: setup-tools */
+.obt{display:grid;gap:4px;padding-bottom:8px}
+.obt-h{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);margin:22px 0 10px}
+.obt>.obt-h:first-child{margin-top:4px}
+.obt-hint{margin:8px 0 0}
+.obt-kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;align-items:start}
+.obt-kind{border:1px solid var(--line);border-radius:14px;background:var(--raise);transition:border-color .15s}
+.obt-kind:hover,.obt-kind[open]{border-color:var(--line-2)}
+.obt-kind summary{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;list-style:none;border-radius:14px}
+.obt-kind summary::-webkit-details-marker{display:none}
+.obt-kind summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.obt-kt{display:grid;min-width:0;flex:1}
+.obt-kt b{font-size:13.5px;font-weight:600}
+.obt-kt small{font-size:12px;color:var(--ink-3)}
+.obt-pills{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.obt-names{display:flex;flex-wrap:wrap;gap:4px;padding:0 12px 12px;max-height:180px;overflow:auto}
+.obt-names code{font:11px var(--mono);color:var(--ink-2);background:var(--fill);border-radius:6px;padding:2px 6px}
+.obt-skills{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.obt-skill{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:var(--raise);cursor:pointer}
+.obt-skill:hover{border-color:var(--line-2)}
+.obt-skill .obt-kt small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.obt-clis{display:flex;flex-wrap:wrap;gap:6px;padding:10px 4px 2px}
+.obt-cli{font:12px var(--mono);padding:3px 9px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-3)}
+.obt-cli.on{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));color:var(--ink);background:var(--ok-tint)}
+.obt .prow .btn{flex:none}
+.obt-add{display:inline-flex;align-items:center;gap:6px;margin-top:14px;justify-self:start}
+@media (max-width:760px){.obt-kinds,.obt-skills{grid-template-columns:minmax(0,1fr)}}
+
+/* area: sidebar-resize */
+/* The list sits above the conversation, so the whole 9px edge is grabbable (with a background both are stacking
+   contexts, and the conversation, drawn later, covered the edge's right half). */
+@media (min-width:761px){.body>.side{z-index:2}}
+/* With the list hidden, its edge stays at the window's left: a slim strip that drags the list back out. */
+.app.side-hidden .side{border-right-width:0}
+.app.side-hidden .side>.resizer{visibility:visible;left:0;right:auto;width:6px}
+.app.side-hidden .side>.resizer::after{left:0}
+.app.side-hidden .side>.resizer:hover::after,.app.side-hidden .side>.resizer.drag::after,.app.side-hidden .side>.resizer:focus-visible::after{background:var(--accent);width:3px;left:0}
+.app.side-hidden .side>.resizer .grip9{left:0}
+.resizer:focus-visible{outline:none}.resizer:focus-visible::after{background:var(--accent);width:2px;left:3.5px}
+.resizer:focus-visible .grip9{opacity:1}
+/* the rail hides the computer button's arrow too, as the prototype's rail does (its .chev is an svg here, not a span) */
+.app.rail9 .side .machine>svg{display:none}
+/* Focus mode steps the list aside entirely, its edge too */
+.app.focus .side>.resizer{visibility:hidden}
 
 /* area: chrome-wordmark */
 /* An icon beside its words: centred on the words' line with a gap, never nudged by a margin. */
@@ -3521,6 +3567,7 @@ p.ic-t,div.ic-t{display:flex}
 /* A Mac draws its window buttons at 18,16 (src/desktop/main.ts): the switcher keeps clear of them, and the web window
    draws the same three dots there. */
 .app.mac.merged14 .side .machine{margin-top:3px;margin-left:84px}
+.app.mac.merged14.rail9 .side .machine{margin-top:40px;margin-left:12px}
 .app.mac.merged14 .drag17{background:radial-gradient(circle at 24px 22px,#FF5F57 5.5px,transparent 6px),radial-gradient(circle at 44px 22px,#FEBC2E 5.5px,transparent 6px),radial-gradient(circle at 64px 22px,#28C840 5.5px,transparent 6px)}
 /* The view starts at the top: its scroller runs under the row (nothing sits under the buttons at rest), and a bar at the
    top of the view (a suggestion, find, pins, Lockdown's banner) starts below it. */

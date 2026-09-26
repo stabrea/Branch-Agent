@@ -6,7 +6,7 @@ import { render } from "./dom.js";
 import { t } from "../../i18n.js";
 
 const SAVED_KEY = "branch-window";
-const SAVED = ["level", "placesShut", "theme", "sideW"];
+const SAVED = ["level", "placesShut", "theme", "sideW", "paneW", "dockW", "rail", "sideHidden"];
 
 export const S = {
   view: "chat",
@@ -18,6 +18,10 @@ export const S = {
   placesShut: false,
   theme: null,
   sideW: null,
+  paneW: null,
+  dockW: null,
+  rail: false,
+  sideHidden: false,
   signedIn: true,
 };
 

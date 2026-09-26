@@ -68,6 +68,7 @@ let popAnchor = null;
 export function closePop(opt = {}) {
   const anchor = liveAnchor(), open = !!popEl;
   popEl?.remove();
+  document.getElementById("composer")?.classList.remove("under-pop");
   popAnchor?.setAttribute("aria-expanded", "false");
   popEl = popAnchor = null;
   if (opt.refocus && open && anchor) openerOf(anchor)?.focus({ preventScroll: true });
@@ -114,7 +115,7 @@ export function openPop(anchor, html, opt = {}) {
   popAnchor = anchor;
   anchor.setAttribute("aria-expanded", "true");
   place(popEl, root.getBoundingClientRect(), anchor.getBoundingClientRect(), opt.right);
-  offComposer(popEl, root.getBoundingClientRect(), anchor);
+  underPop(popEl, anchor);
   if (fresh) popEl.classList.add("in17"); /* pass 17: a popover that opens fresh eases in once; a redraw does not replay it */
   popEl.querySelector("button:not([aria-disabled='true']),input")?.focus({ preventScroll: true });
 }
@@ -123,16 +124,14 @@ document.addEventListener("pointerdown", (e) => {
   if (popEl && !popEl.contains(e.target) && !liveAnchor()?.contains(e.target)) closePop();
 }, true);
 
-/* A popover opened from outside the message box (the status bar's usage, tasks or version) never sits over it: when it
-   would, it goes above the box, still inside the window. */
-function offComposer(el, a, anchor) {
+/* A popover stays next to the button that opened it (the owner: "this is the correct space"). When one opened from outside
+   the message box lands over it, the box steps back, faded and out of reach, until the popover closes, as a Mac menu
+   sits over what is behind it. */
+function underPop(el, anchor) {
   const box = document.getElementById("composer");
   if (!box || box.contains(anchor)) return;
   const c = box.getBoundingClientRect(), p = el.getBoundingClientRect();
-  if (anchor.getBoundingClientRect().top < c.bottom) return;
-  if (!(p.left < c.right && p.right > c.left && p.top < c.bottom && p.bottom > c.top)) return;
-  const above = c.top - a.top - p.height - 6;
-  if (above >= 8) el.style.top = above + "px";
+  box.classList.toggle("under-pop", p.left < c.right && p.right > c.left && p.top < c.bottom && p.bottom > c.top);
 }
 
 function place(el, a, r, right) {

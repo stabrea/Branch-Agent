@@ -6,6 +6,7 @@ import { lockdownActive } from "./lockdown.js";
 import { clearSessionPlanAct, saveSessionPlanAct } from "./plan-act.js";
 import { policyPresets, readPolicy } from "./policy.js";
 import { conversationCarrier, outsideSourceOf } from "./outside-origin.js"; // mac7/outside-review
+import { personConversation } from "./household-approvals.js"; // Q261
 import {
   ConversationModeSchema, clearConversationMode, conversationModeSettings, modeChoices,
   readConversationMode, saveConversationMode, saveConversationModeSettings, type ConversationMode,
@@ -96,7 +97,11 @@ export async function conversationModeApi(app: ModeApp, method: string, url: URL
   }
   if (method === "GET") {
     const sessionId = url.searchParams.get("sessionId");
-    return view(app, sessionId && z.string().uuid().safeParse(sessionId).success ? sessionId : null);
+    const valid = sessionId && z.string().uuid().safeParse(sessionId).success ? sessionId : null;
+    // Q261: a household person at the window reads the mode of their own conversation only (lent included); another
+    // conversation's id reads as no conversation at all.
+    const theirs = valid && (app.store.profiles.isOwner() || personConversation(app.store, app.runtime.owner, valid)) ? valid : null;
+    return view(app, theirs);
   }
   if (method !== "POST") throw new ConversationModeError(405, "Use GET or POST");
   const choice = ChoiceSchema.parse(await readBody());
