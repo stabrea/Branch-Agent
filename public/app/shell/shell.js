@@ -172,7 +172,8 @@ export function initShell() {
   initPerson();
   markLive(["chat", "newconv", "newmenu", "places14", "themeset", "theme-flip", "side-toggle", "guide", "focus", "new-with", "pin-id", "rename-id"]);
   // With no id (Settings' back button before any conversation is open) it just goes back to the conversation view.
-  on("chat", (el) => { closePop(); if (el.dataset.id) openConversation(el.dataset.id); else { S.view = "chat"; renderNow(); } });
+  // area places: "new" is a new Trunk (flows/trunk.js).
+  on("chat", (el) => { closePop(); if (el.dataset.id === "new") return run("new-trunk", el); if (el.dataset.id) openConversation(el.dataset.id); else { S.view = "chat"; renderNow(); } });
   on("newconv", () => { closePop(); startConversation(); });
   on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", binding("newConversation") ? `<kbd>${esc(spoken(binding("newConversation")))}</kbd>` : "") + mi("new-trunk", "plus", "New Trunk") + mi("new-room", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"')));
   on("places14", () => { S.placesShut = !S.placesShut; save(); renderNow(); });
