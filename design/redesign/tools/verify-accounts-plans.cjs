@@ -14,8 +14,8 @@
    Covered: aa-grp (Your plan, Coding assistants), aa-plan, aa-dev, aa-chk, aa-cli, aa-fin, aa-done on a ChatGPT and a
    program list (the extra account's own sign-in), Gemini's key step without a Google client id (no aa-goo), and the
    GitHub and Telegram marks, the Email glyph and a letter tile in Add an account, Customize › Channels and Setup's
-   "Reach it anywhere". Last it starts the engine again on the same data folder and prints (INFO, not a check) which
-   connections came back. SHOTS=<folder> saves a light and a dark picture of each step. */
+   "Reach it anywhere". Last it starts the engine again on the same data folder and checks that ChatGPT and Claude
+   Code are still connected. SHOTS=<folder> saves a light and a dark picture of each step. */
 const { chromium } = require("playwright");
 const http = require("node:http");
 const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = require("node:fs");
@@ -99,12 +99,13 @@ async function setupReach(page) {
   check("Setup › Reach it anywhere: Telegram's own logo and Email's mail glyph", tg === 1 && mail === 1, `telegram ${tg}, email ${mail}`);
 }
 
-/* Not a check: what survives the engine starting again on the same data folder (said in the PR as a known limit). */
+/* The engine started again on the same data folder: the connections the wizard made are all back. */
 async function afterRestart(createBranch, temp, dataDir, chatgpt) {
   const again = await createBranch({ workspace: join(temp, "workspace"), dataDir, chatgpt });
   try {
     const ids = [...again.runtime.models.presets.keys()];
-    console.log(`INFO  after a restart: ChatGPT connection ${ids.some((id) => id.startsWith("chatgpt")) ? "kept" : "gone"}; Claude Code connection ${ids.includes("cli-claude-code") ? "kept" : "gone (POST /api/providers/cli-agents registers it in memory only)"}`);
+    check("after a restart on the same data folder: ChatGPT and Claude Code are both still connected",
+      ids.some((id) => id.startsWith("chatgpt")) && ids.includes("cli-claude-code"), ids.filter((id) => id.startsWith("chatgpt") || id.startsWith("cli-")).slice(0, 3).join(", "));
   } finally { await again.close(); }
 }
 
