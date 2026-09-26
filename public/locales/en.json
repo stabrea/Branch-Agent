@@ -6898,7 +6898,7 @@
   "window.flows.setup.tools-refused": "{count} not allowed",
   "window.flows.setup.tools-free": "No approval needed",
   "window.flows.setup.tools-off": "{count} off",
-  "window.flows.setup.tools-mode": "Approvals as a new conversation has them: {mode}.",
+  "window.flows.setup.tools-mode": "Counted for a new conversation, which starts on {mode}.",
   "window.flows.setup.tools-trunks": "Recommended for your Trunks",
   "window.flows.setup.tools-no-trunks": "No Trunks picked yet, so nothing is recommended.",
   "window.flows.setup.tools-for": "For {names}",

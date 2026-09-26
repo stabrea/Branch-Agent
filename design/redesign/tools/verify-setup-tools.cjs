@@ -4,9 +4,11 @@
      run:    PORT=<port> TOKEN=<hex> node design/redesign/tools/verify-setup-tools.cjs
    What it changes, through the window, and puts back: three starter Trunks made in step 5 (Inbox Manager, Researcher,
    Bug Reproduction; they stay), one skill that comes with Branch installed, turned on and off again, the Google
-   connector switched off and on again, and the command-line tools found here allowed and taken back again. */
+   connector switched off and on again, the command-line tools found here allowed and taken back again, and the example
+   notes server shipped with Branch added (switched off) and removed again. */
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
 const { mkdirSync } = require("node:fs");
+const { resolve } = require("node:path");
 
 const { PORT, TOKEN } = process.env;
 if (!PORT || !TOKEN) { console.error("Set PORT and TOKEN."); process.exit(2); }
@@ -174,6 +176,24 @@ async function connects(page) {
   check("setup is still open behind the dialogs", (await page.locator(".ob9 .obt").count()) === 1);
 }
 
+/* A server added from this step shows in it once the dialog closes, without leaving the step. The example notes server
+   that ships with Branch is saved switched off (it reads no files and opens no network connection) and removed again. */
+async function addServer(page) {
+  await page.locator('.ob9 [data-act="tool-add"][data-v="mcp"]').click();
+  await page.locator('.dlg [data-act="t9-own"]').click();
+  await page.locator("#mcp-name").waitFor();
+  await page.locator('.dlg [data-act="mcp-how"][data-v="cmd"]').click();
+  await page.fill("#mcp-name", "Notes");
+  await page.fill("#mcp-cmd", `"${process.execPath}" "${resolve("dist/examples/mcp-notes-server.js")}"`);
+  await page.locator('.dlg [data-act="mcp-save"]').click();
+  const saved = await until(async () => (await api("mcp/servers")).servers.find((s) => s.name === "Notes"));
+  check("Add a tool server saves through POST /api/mcp/servers", saved);
+  const shown = await until(async () => (await page.locator(".ob9 .obt .prow .grow b", { hasText: "Notes" }).count()) === 1);
+  check("the new server is listed in step 7 without leaving it", shown && (await page.locator(".ob9 .obt .obt-h", { hasText: "Tool servers" }).count()) === 1);
+  await page.screenshot({ path: `${SHOTS}/step7-server.png` });
+  if (saved) await api(`mcp/servers/${saved.id}/remove`, {});
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await (await browser.newContext({ viewport: { width: 1280, height: 860 } })).newPage();
@@ -193,6 +213,7 @@ async function connects(page) {
     await personalToggle(page);
     await cliToggle(page, clis);
     await connects(page);
+    await addServer(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await settle(page, 500);
     await page.screenshot({ path: `${SHOTS}/step7-phone.png` });

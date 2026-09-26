@@ -6898,7 +6898,7 @@
   "window.flows.setup.tools-refused": "{count} nicht erlaubt",
   "window.flows.setup.tools-free": "Keine Freigabe nötig",
   "window.flows.setup.tools-off": "{count} aus",
-  "window.flows.setup.tools-mode": "Freigaben wie in einem neuen Gespräch: {mode}.",
+  "window.flows.setup.tools-mode": "Gezählt für ein neues Gespräch, das mit {mode} beginnt.",
   "window.flows.setup.tools-trunks": "Empfohlen für deine Trunks",
   "window.flows.setup.tools-no-trunks": "Noch keine Trunks gewählt, daher gibt es keine Empfehlungen.",
   "window.flows.setup.tools-for": "Für {names}",

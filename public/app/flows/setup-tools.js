@@ -14,7 +14,7 @@
    - Tool servers: the engine's list (GET /api/mcp/connections, read by setup.js), and "Add a tool server". */
 
 import { esc } from "../core/dom.js";
-import { ic, toast } from "../core/ui.js";
+import { app, ic, toast } from "../core/ui.js";
 import { S, E, refresh } from "../core/state.js";
 import { api } from "../core/api.js";
 import { markLive } from "../core/features.js";
@@ -38,10 +38,12 @@ async function load(o, redraw) {
   const errors = [];
   const open = o.obt?.open ?? new Set();
   o.obt = { ...(o.obt ?? {}), loading: true, open };
-  const [view, personal, clis, skills, channels] = await Promise.all(["setup/tools", "personal", "clis", "skills/browser", "channels"].map((path) => read(path, errors)));
+  const paths = ["setup/tools", "personal", "clis", "skills/browser", "channels", "mcp/servers", "mcp/connections"];
+  const [view, personal, clis, skills, channels, own, conn] = await Promise.all(paths.map((path) => read(path, errors)));
   const signin = {};
   for (const id of ["google", "microsoft"]) if (neededParts(view).has(id)) signin[id] = (await read(`personal/signin/${id}`, errors))?.status ?? null;
-  o.obt = { loading: false, open, view, personal, clis, skills: skills?.skills ?? [], channels: channels?.channels ?? [], signin, errors };
+  o.obt = { loading: false, open, view, personal, clis, skills: skills?.skills ?? [], channels: channels?.channels ?? [], signin, errors,
+    own: own?.servers ?? [], conn: conn?.servers ?? [] };
   if (S.ob === o) redraw();
 }
 
@@ -137,8 +139,11 @@ function found(o) {
   return `<h3 class="obt-h">${K("found")}</h3><div class="prow"><span class="ico-tile">${ic("term", "s")}</span><span class="grow"><b>${K("clis")}</b><small>${list.length ? K("clis-hint") : K("clis-none")}</small></span>${toggle}</div>${chips ? `<div class="obt-clis">${chips}</div>` : ""}`;
 }
 
+/* Your own servers (GET /api/mcp/servers) and the launch file's (GET /api/mcp/connections), as Customize › Tools lists them. */
 function servers(o) {
-  const rows = (o.servers ?? []).map((s) => [s.id ?? s.name, s.name ?? s.id, s.description ?? ""]);
+  const own = o.obt.own.map((s) => [s.id, s.name, [s.how, s.on ? t("accounts.switch.on") : t("accounts.switch.off"), s.error].filter(Boolean).join(" · ")]);
+  const launch = o.obt.conn.filter((s) => !o.obt.own.some((x) => x.id === s.id)).map((s) => [s.id, s.id, s.summary ?? s.lastError ?? ""]);
+  const rows = [...own, ...launch];
   const list = rows.length ? `<h3 class="obt-h">${K("servers")}</h3><div class="rows">${rows.map(([id, n, s]) => `<div class="prow">${logo(id, n, 28)}<span class="grow"><b>${esc(n)}</b><small>${esc(s)}</small></span></div>`).join("")}</div>` : "";
   return `${list}<button class="link obt-add" type="button" data-act="tool-add" data-v="mcp">${ic("plug", "s")}${K("add-server")}</button>`;
 }
@@ -196,6 +201,17 @@ export function initToolsStep(redraw) {
     const el = e.target;
     if (S.ob && (el.id === "obt-cli" || el.dataset?.sw === "obt-skill" || el.dataset?.sw === "obt-part")) flip(el, redraw);
   });
+  /* A dialog opened from this step (a chat app's setup, the connector catalogue) may have connected or added something:
+     once the last dialog is gone, the step reads everything again. A wizard moving to its next page replaces its dialog
+     in the same moment, so the check waits a turn. */
+  new MutationObserver((changes) => {
+    const closed = changes.some((c) => [...c.removedNodes].some((n) => n.classList?.contains("scrim")));
+    if (!closed) return;
+    setTimeout(() => {
+      const o = S.ob;
+      if (o?.obt && !o.obt.loading && document.querySelector(".ob9 .obt") && !document.querySelector(".scrim")) load(o, redraw);
+    }, 0);
+  }).observe(app(), { childList: true });
   /* Which kind is open is window state, kept so a redraw leaves it open. */
   document.addEventListener("toggle", (e) => {
     const kind = e.target?.dataset?.kind;

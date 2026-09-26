@@ -6899,7 +6899,7 @@
   "window.flows.setup.tools-refused": "{count} non autorisés",
   "window.flows.setup.tools-free": "Aucune approbation nécessaire",
   "window.flows.setup.tools-off": "{count} désactivés",
-  "window.flows.setup.tools-mode": "Approbations comme pour une nouvelle conversation : {mode}.",
+  "window.flows.setup.tools-mode": "Compté pour une nouvelle conversation, qui commence en mode {mode}.",
   "window.flows.setup.tools-trunks": "Recommandés pour vos Trunks",
   "window.flows.setup.tools-no-trunks": "Aucun Trunk choisi pour l’instant, donc rien n’est recommandé.",
   "window.flows.setup.tools-for": "Pour {names}",
