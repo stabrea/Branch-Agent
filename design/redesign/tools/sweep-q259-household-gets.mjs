@@ -36,7 +36,7 @@ savePromptLibrarySettings(app.store, owner, { mode: "on" });
 savePrompt(app.store, owner, { title: "zqmark-prompt-title", body: "zqmark-saved-body", command: "zqmarkcmd" }, () => false);
 saveAssistantIdentity(app.store, owner, { name: "Branch Agent", instructions: "zqmark-instructions", expectedRevision: 0 });
 for (const table of ["schedules", "triggers", "webhooks", "procedures", "workflows", "specialists"])
-  app.store.save(table, owner, `zqmark-${table}`, { name: `zqmark-${table}`, prompt: `zqmark-${table}` });
+  app.store.save(table, owner, `zqmark-${table}`, { name: `zqmark-${table}`, prompt: `zqmark-${table}`, status: "pending", dueAt: new Date().toISOString() });
 const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
 
 // Left out: streams that never end, and anything about closing, removing or updating Branch or driving this computer.

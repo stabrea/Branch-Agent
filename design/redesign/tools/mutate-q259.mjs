@@ -33,6 +33,7 @@ const M = [
   ["S24", "dist/terminal-cli.js", "choosePreset(app.runtime, args.join(\" \"), (name) => `Run branch permissions ${name} confirm to go ahead.`)", "choosePreset(app.runtime, args.join(\" \"))"],
   ["S25", "dist/commands/api.js", "const saved = surface === \"dashboard\" || householdHere(app.store, surface) ? []", "const saved = surface === \"dashboard\" ? []"],
   ["S26", "dist/server.js", "/trace does).\n        if (!run || run.owner !== app.store.profiles.scope())", "/trace does).\n        if (!run || run.owner !== app.runtime.owner)"],
+  ["S27", "dist/household-routes.js", "const householdRefusedReads = [/^\\/api\\/agents\\/pairing$/, /^\\/api\\/brief$/, /^\\/api\\/research$/];", "const householdRefusedReads = [/^\\/api\\/agents\\/pairing$/];"],
   ["S26b", "dist/server.js", "const run = app.store.run(trajectory[1]);\n        if (!run || run.owner !== app.store.profiles.scope())", "const run = app.store.run(trajectory[1]);\n        if (!run || run.owner !== app.runtime.owner)"],
 ];
 // Some mutations are two edits made together for one run.

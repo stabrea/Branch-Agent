@@ -11,7 +11,7 @@
  * - GET /api/policy sends them no policy; GET /api/approvals/categories none of the owner's rules.
  * - GET /api/audit and its spreadsheet, GET /api/usage and its spreadsheet, GET /api/prompts: their own part only.
  * - /inspect, /steps, /trajectory and the Markdown export find only their own; doing a task again is the owner's;
- *   the pairing link is refused to them.
+ *   the pairing link, the owner's morning brief and research reports are refused to them.
  * - branch run --preset/--save-preset are refused under Lockdown; --save-preset needs --confirm to loosen;
  *   branch permissions says `branch permissions <name> confirm`.
  *
@@ -42,6 +42,7 @@
  *   S24 branch permissions: the /preset words again                                       → "branch permissions"
  *   S25 GET /api/commands: the owner's saved commands listed for a household person       → "only their commands"
  *   S26 /steps and /trajectory: find the owner's task for anybody                         → "task details"
+ *   S27 the owner's morning brief and research reports: not refused to a household person → "task details"
  * Run them all: node design/redesign/tools/mutate-q259.mjs (after npx tsc -p .).
  */
 import test from "node:test";
@@ -338,7 +339,14 @@ test("task details: /inspect, /steps, /trajectory and the Markdown export find o
   assert.equal(app.store.runs(app.runtime.owner).length, beforeRuns, "no task was started");
   const pairing = await call("GET", "/api/agents/pairing");
   assert.deepEqual([pairing.status, pairing.body.error], [400, refusal]);
+  for (const path of ["/api/brief", "/api/research"]) {
+    const read = await call("GET", path);
+    assert.deepEqual([read.status, read.body.error], [400, refusal], `${path} is the owner's`);
+  }
   asOwner();
+  app.store.save("schedules", app.runtime.owner, "zq-due", { prompt: "owner's due errand", status: "pending", dueAt: new Date().toISOString() });
+  assert.match((await call("GET", "/api/brief")).text, /owner's due errand/, "control: the owner's brief holds the owner's schedule");
+  assert.equal((await call("GET", "/api/research")).status, 200, "control: the owner's research");
   for (const part of ["inspect", "steps", "trajectory"]) assert.equal((await call("GET", `/api/runs/${owners.id}/${part}`)).status, 200, `control: ${part}`);
   assert.match((await call("GET", `/api/sessions/${owners.sessionId}/export?format=markdown`)).text, /owner's task/);
   assert.equal((await call("GET", "/api/agents/pairing")).status, 200, "control: the owner's pairing link");
