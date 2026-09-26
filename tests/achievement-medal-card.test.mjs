@@ -10,6 +10,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { saveDelightSettings } from "../dist/delight.js";
+import { achievementCatalogue } from "../dist/achievements.js";
 import { startServer } from "../dist/server.js";
 
 /* Redesign: the new window celebrates what the engine has earned and not yet celebrated (shell/celebrate.js, GET
@@ -17,7 +18,12 @@ import { startServer } from "../dist/server.js";
    a pill under the title bar's middle that leaves by itself), Gold and up as the big card with confetti (.ach-big,
    "Nice" closes it). The old top-right glass medal card, its copper eyebrow and click-to-dismiss are replaced by it.
    Each case earns the achievement in the engine, switched on, before the window opens. */
-const EARNED = { Bronze: "tool:all:1", Silver: "noticed:theme:light:night-owl:1", Gold: "noticed:themes:20" };
+// One real achievement of each tier, read from the engine's catalogue: tiers are cut by how hard each one is, so an
+// achievement added later can move another into the next tier (pass 17's pets moved "Night Owl by daylight" to Bronze).
+const catalogue = achievementCatalogue();
+const firstOf = (tier) => catalogue.find((a) => a.tier === tier);
+const PICKED = { Bronze: firstOf("Bronze"), Silver: firstOf("Silver"), Gold: firstOf("Gold") };
+const EARNED = Object.fromEntries(Object.entries(PICKED).map(([tier, a]) => [tier, a.id]));
 async function fixture(t, width, tiers = []) {
   const root = await mkdtemp(join(tmpdir(), "branch-medal-card-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
@@ -76,13 +82,13 @@ for (const width of [1440, 860, 400]) {
     const seen = await note(page);
     assert.deepEqual(seen.covered, [], "it covers none of the title bar's buttons");
     assert.equal(seen.inWindow, true, "inside the window");
-    assert.match(seen.text, /Achievement unlocked · 1 tool used · Bronze/, "its name and its tier");
+    assert.ok(seen.text.includes(`Achievement unlocked · ${PICKED.Bronze.name} · Bronze`), `its name and its tier: ${seen.text}`);
     assert.equal(seen.cut, false, "the achievement's name is not cut short");
     assert.equal(seen.role, "status", "still read out when it arrives");
     assert.equal(await page.locator(".ach-big").count(), 0, "a Bronze is not a party");
     let left = await fresh();
-    for (let i = 0; i < 20 && left.includes("tool:all:1"); i++) { await page.waitForTimeout(250); left = await fresh(); }
-    assert.equal(left.includes("tool:all:1"), false, "the engine is told, so it never shows again");
+    for (let i = 0; i < 20 && left.includes(EARNED.Bronze); i++) { await page.waitForTimeout(250); left = await fresh(); }
+    assert.equal(left.includes(EARNED.Bronze), false, "the engine is told, so it never shows again");
     assert.deepEqual(errors, []);
   });
 }
@@ -91,11 +97,11 @@ test("DG-014 a Silver is the same note, and Gold still gets its party instead", 
   const { page, errors } = await fixture(t, 1440, ["Silver"]);
   await celebrated(page, ".ach-toast");
   const seen = await note(page);
-  assert.match(seen.text, /Night Owl by daylight · Silver/);
+  assert.ok(seen.text.includes(`${PICKED.Silver.name} · Silver`), seen.text);
   assert.deepEqual(seen.covered, []);
   assert.deepEqual(errors, []);
   const gold = await fixture(t, 1440, ["Gold"]);
-  await celebrated(gold.page, ".ach-big .card", "20 themes tried")
+  await celebrated(gold.page, ".ach-big .card", PICKED.Gold.name)
     .catch(() => assert.fail("Gold keeps its party card"));
   assert.equal(await gold.page.locator(".ach-toast").count(), 0, "a Gold is not the small note");
   await gold.page.getByRole("button", { name: "Nice", exact: true }).click();
