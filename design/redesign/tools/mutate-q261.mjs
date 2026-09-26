@@ -25,6 +25,8 @@ const M = [
     "{ names: store.profiles.isOwner(), holder:", "{ names: true, holder:"],
   ["R9 /model command: names listed to a household person", "dist/commands/handlers.js",
     "{ names: !household, holder }", "{ names: true, holder }"],
+  ["R10 models/switch: the person's own conversation looked up under the owner", "dist/household-approvals.js",
+    "    return store.ownsSession(scope, sessionId) ? scope : owner;", "    return owner;"],
 ];
 const results = [];
 for (const [name, file, from, to] of M) {

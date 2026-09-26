@@ -24,6 +24,7 @@
  *   R7  models/switch: the conversation check removed                                             → "models/switch"
  *   R8  models/switch: the owner's connection names listed to a household person                  → "models/switch"
  *   R9  /model command: the owner's connection names listed to a household person                 → "models/switch"
+ *   R10 models/switch: the person's own conversation looked up under the owner (not switched)     → "models/switch"
  * Run them all: node design/redesign/tools/mutate-q261.mjs (after npx tsc -p .).
  */
 import test from "node:test";
