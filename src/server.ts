@@ -1334,6 +1334,9 @@ async function api(
   if (request.method === "GET" && path === "/api/os-permissions")
     return { permissions: await app.osPermissions.all(), ...permissionsContext() };
   // Batch 26 (wave 8): reading passwords out of the password manager the owner already has.
+  // Q255: the owner's alone, read and write; a household person is refused here, a short-lived key at the door.
+  if (path === "/api/credentials/settings" && (request.method === "GET" || request.method === "POST"))
+    app.store.profiles.requireOwner("Your password manager");
   if (request.method === "GET" && path === "/api/credentials/settings")
     return readCredentialSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/credentials/settings")

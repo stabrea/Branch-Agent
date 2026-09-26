@@ -153,7 +153,7 @@ export const ROUTES = {
   "/api/connections/oauth/sample/cancel": "owner POST",
   "/api/connections/oauth/start": "owner POST",
   "/api/context-files": "owner POST",
-  "/api/credentials/settings": "owner POST",
+  "/api/credentials/settings": "secret-read", // Q255: the owner's password-manager setup, read and write
   "/api/dashboard": "look",
   "/api/dashboard/": "prefix",
   "/api/dashboard/automations": "owner POST",

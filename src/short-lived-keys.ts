@@ -148,6 +148,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
   // sites they belong to. It holds no password, but it is a map of where the owner's passwords are.
   /^\/api\/vault-autofill(\/|$)/,
+  // Q255: the owner's password-manager helper setup (which services, the bw/op paths, the timeout). No
+  // secret is in it, but it is the owner's setup, like the saved sign-ins book above.
+  /^\/api\/credentials\/settings$/,
   // mac7/usage-bar: what each of the owner's connections has left, and how near its cap it is. That
   // is the owner's spending seen from another angle, so a household person and a script's key are
   // both refused the whole answer rather than shown a thinned-out one.
