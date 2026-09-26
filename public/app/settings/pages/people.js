@@ -13,6 +13,8 @@ import { toast } from "../../core/ui.js";
 import { E } from "../../core/state.js";
 import { people17 } from "../p17-more.js";
 import { level as level17 } from "../../core/state.js";
+import { t } from "../../../i18n.js";
+import { say } from "../../core/words.js";
 
 /* The prototype's words for the engine's seven kinds (src/tool-categories.ts), in the prototype's order. */
 const KINDS = [["read", "Look things up"], ["browse", "Use web pages"], ["files", "Write files"], ["commands", "Run commands"], ["message", "Send messages"], ["spend", "Spend money"], ["settings", "Change how Branch is set up"]];
@@ -65,53 +67,53 @@ const when = (at) => {
 };
 
 function item(p) {
-  const small = [label(p.role), p.lastUsedAt ? `last used ${when(p.lastUsedAt)}` : ""].filter(Boolean).join(" · ");
-  return `<button type="button" class="t9-item" data-act="p-sel" data-v="${esc(p.id)}" aria-current="${picked === p.id}">${avatar(p, 34, 13)}<span class="grow"><b>${esc(p.name)}${p.you ? " · you" : ""}</b><small>${esc(small)}</small></span></button>`;
+  const small = [label(p.role), p.lastUsedAt ? t("window.settings.people.last-used-when", { when: when(p.lastUsedAt) }) : ""].filter(Boolean).join(" · ");
+  return `<button type="button" class="t9-item" data-act="p-sel" data-v="${esc(p.id)}" aria-current="${picked === p.id}">${avatar(p, 34, 13)}<span class="grow"><b>${esc(p.name)}${p.you ? ` · ${t("window.settings.people.you")}` : ""}</b><small>${esc(small)}</small></span></button>`;
 }
 
 function list(all) {
-  return `<div class="t9-list">${all.length ? `<div class="grp8">On this computer</div>${all.map(item).join("")}` : ""}<button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Invite someone</button></div>`;
+  return `<div class="t9-list">${all.length ? `<div class="grp8">${t("glance.local")}</div>${all.map(item).join("")}` : ""}<button type="button" class="btn pri" data-css="margin-top:10px;justify-self:start" data-act="p-invite"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>${t("household.invite")}</button></div>`;
 }
 
 /* What the person may have Branch do: the engine's effective kinds for a profile, every kind for the owner. */
 function mayRows(p) {
   const kinds = p.id === OWNER ? KINDS.map(([k]) => k) : roleOf(p.id)?.categories ?? [];
-  return KINDS.map(([k, l]) => { const yes = kinds.includes(k); return `<label class="chk ${yes ? "" : "no10"}"><input type="checkbox" ${yes ? "checked" : ""} disabled aria-label="${esc(l)}"> ${esc(l)}</label>`; }).join("");
+  return KINDS.map(([k, l]) => { const yes = kinds.includes(k); return `<label class="chk ${yes ? "" : "no10"}"><input type="checkbox" ${yes ? "checked" : ""} disabled aria-label="${esc(say(l))}"> ${esc(say(l))}</label>`; }).join("");
 }
 
 function facts(p) {
   // Whole dollars as the prototype writes them ("$5 a day"), cents when there are any ("$2.50 a day").
   const money = (n) => `$${Number.isInteger(n) ? n : Number(n).toFixed(2)}`;
-  if (p.id === OWNER) return `<dt>Trunks</dt><dd>All</dd><dt>Projects</dt><dd>All</dd><dt>Daily allowance</dt><dd>No limit</dd><dt>PIN</dt><dd>${profiles()?.ownerPin ? "Set" : "—"}</dd><dt>Signed in on</dt><dd>This computer</dd>`;
+  if (p.id === OWNER) return `<dt>${t("settingsDirectory.trunks")}</dt><dd>${t("look.filter.all")}</dd><dt>${t("memory.movein.kind.project")}</dt><dd>${t("look.filter.all")}</dd><dt>${t("household.allowance")}</dt><dd>${t("window.settings.people.no-limit")}</dd><dt>PIN</dt><dd>${profiles()?.ownerPin ? t("household.pin.isSet") : "—"}</dd><dt>${t("household.devices")}</dt><dd>${t("dashboard.computer.title")}</dd>`;
   const g = roleOf(p.id)?.effective ?? roleOf(p.id)?.grant ?? {};
-  const projects = (g.projects ?? []).length ? g.projects.join(", ") : "All";
-  const allowance = g.dailySpendLimit > 0 ? `${money(g.dailySpendLimit)} a day` : "No limit";
+  const projects = (g.projects ?? []).length ? g.projects.join(", ") : t("look.filter.all");
+  const allowance = g.dailySpendLimit > 0 ? t("window.settings.people.amount-a-day", { amount: money(g.dailySpendLimit) }) : t("window.settings.people.no-limit");
   const on = devices(p.id);
   // The engine's grant (src/profile-roles.ts RoleGrantSchema) holds no Trunk list, so the prototype's "—" stands for it.
-  return `<dt>Trunks</dt><dd>—</dd><dt>Projects</dt><dd>${esc(projects)}</dd><dt>Daily allowance</dt><dd>${esc(allowance)}</dd><dt>PIN</dt><dd>Set</dd>${on.length ? `<dt>Signed in on</dt><dd>${esc(on.join(", "))}</dd>` : ""}`;
+  return `<dt>${t("settingsDirectory.trunks")}</dt><dd>—</dd><dt>${t("memory.movein.kind.project")}</dt><dd>${esc(projects)}</dd><dt>${t("household.allowance")}</dt><dd>${esc(allowance)}</dd><dt>PIN</dt><dd>${t("household.pin.isSet")}</dd>${on.length ? `<dt>${t("household.devices")}</dt><dd>${esc(on.join(", "))}</dd>` : ""}`;
 }
 
 function actions(p) {
-  if (p.id === OWNER) return '<p class="hint">You’re the owner. Only you change how Branch is set up.</p>';
+  if (p.id === OWNER) return `<p class="hint">${t("window.settings.people.youre-the-owner-only-you-change")}</p>`;
   const first = String(p.name ?? "").split(" ")[0];
   const roles = ["adult", "child"].map((r) => `<button type="button" data-act="p-role" data-v="${r}" data-id="${esc(p.id)}" aria-pressed="${p.role === r}">${esc(label(r))}</button>`).join("");
-  return `<div class="acts" data-css="margin-top:14px"><button class="btn sm" type="button" data-act="p-switch" data-v="${esc(p.id)}">Switch to ${esc(first)}</button><span class="seg">${roles}</span><button class="btn ghost sm" type="button" data-act="p-code" data-id="${esc(p.id)}">Make a one-time code</button><button class="btn ghost sm" type="button" data-act="p-signout" data-id="${esc(p.id)}">Sign out everywhere</button><button class="btn ghost sm" type="button" data-act="p-remove" data-id="${esc(p.id)}">Remove</button></div>`;
+  return `<div class="acts" data-css="margin-top:14px"><button class="btn sm" type="button" data-act="p-switch" data-v="${esc(p.id)}">${t("household.switchTo", { name: esc(first) })}</button><span class="seg">${roles}</span><button class="btn ghost sm" type="button" data-act="p-code" data-id="${esc(p.id)}">${t("people.admin.code")}</button><button class="btn ghost sm" type="button" data-act="p-signout" data-id="${esc(p.id)}">${t("people.admin.sign-out")}</button><button class="btn ghost sm" type="button" data-act="p-remove" data-id="${esc(p.id)}">${t("accounts.action.remove")}</button></div>`;
 }
 
 function card(p) {
   if (!p) return "";
-  const where = p.id === OWNER ? "This computer" : "This computer · PIN";
+  const where = p.id === OWNER ? t("dashboard.computer.title") : t("window.settings.people.this-computer-pin");
   return `<div class="t9-detail pcard10"><div class="t9-dh">${avatar(p, 44, 17)}<span class="grow"><b>${esc(p.name)}</b><small>${where}</small></span><span class="pill ${p.role === OWNER ? "ok" : "idle"}">${esc(label(p.role))}</span></div>
-    <div class="sec"><h2>May</h2><div class="acts10">${mayRows(p)}</div></div>
+    <div class="sec"><h2>${t("window.settings.people.may")}</h2><div class="acts10">${mayRows(p)}</div></div>
     <dl class="kv" data-css="margin-top:14px">${facts(p)}</dl>${actions(p)}</div>`;
 }
 
 /* Both are how the engine always works (greyed: PINs are for review): a profile cannot be made without a PIN
    (ProfileSchema), and each profile's records are its own (profiles.scope()). */
 function eachPerson() {
-  const pin = '<input class="sw" type="checkbox" id="pp-pin" checked aria-label="Ask for a PIN when switching person" data-sw="set">'; // state: every profile has a PIN
-  const own = '<input class="sw" type="checkbox" id="pp-own" checked aria-label="Keep conversations separate" data-sw="set">'; // state: each profile's records are its own
-  return `<div class="sec"><h2>Each person</h2><div class="ctl"><b>Ask for a PIN when switching person</b>${pin}<small>Four to eight digits, kept on this computer. Five wrong tries lock the profile for five minutes.</small></div><div class="ctl"><b>Keep conversations separate</b>${own}<small>People can’t read each other’s conversations unless they share one.</small></div></div>`;
+  const pin = `<input class="sw" type="checkbox" id="pp-pin" checked aria-label="${t("window.settings.people.ask-for-a-pin-when-switching")}" data-sw="set">`; // state: every profile has a PIN
+  const own = `<input class="sw" type="checkbox" id="pp-own" checked aria-label="${t("window.settings.people.keep-conversations-separate")}" data-sw="set">`; // state: each profile's records are its own
+  return `<div class="sec"><h2>${t("window.settings.people.each-person")}</h2><div class="ctl"><b>${t("window.settings.people.ask-for-a-pin-when-switching")}</b>${pin}<small>${t("window.settings.people.four-to-eight-digits-kept-on")}</small></div><div class="ctl"><b>${t("window.settings.people.keep-conversations-separate")}</b>${own}<small>${t("window.settings.people.people-cant-read-each-others-conversations")}</small></div></div>`;
 }
 
 /* The prototype's peopleTab(): the list, the card of whoever is picked, and the hint. Settings › People and Team › People. */
@@ -119,14 +121,14 @@ export function peopleBody() {
   pickDefault();
   const all = people();
   return `<div class="t10">${list(all)}${card(all.find((p) => p.id === picked))}</div>
-    <p class="hint">Separation on one computer, not separate accounts. Each person’s conversations and memory are their own.</p>`;
+    <p class="hint">${t("window.settings.people.separation-on-one-computer-not-separate")}</p>`;
 }
 
 export function draw() {
-  return `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p>
+  return `<h1>${t("people.admin.people")}</h1><p class="lede">${t("window.settings.people.everyone-who-uses-branch-on-this")}</p>
   ${peopleBody()}
   ${eachPerson()}
-  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">Groups</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">Signing in from other devices</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">What you share</button></div>${people17(level17())}`;
+  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">${t("people.admin.groups")}</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">${t("people.admin.title")}</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">${t("window.settings.people.what-you-share")}</button></div>${people17(level17())}`;
 }
 
 export function load() { return loadProfiles(); }

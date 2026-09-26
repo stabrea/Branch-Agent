@@ -10,20 +10,22 @@ import { markLive } from "../core/features.js";
 import { toast, openDlg } from "../core/ui.js";
 import { seg15 } from "./rows15.js";
 import { demos17, demo17, row17, sec17, pill17 } from "./rows17.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 /* ---------- Gateway ---------- */
-export const gateway17 = (lv) => (lv < 1 ? "" : sec17("Never break",
-  row17("Canary, journal and rollback", "Every change to how Branch runs is tried on a copy first; a bad one is rolled back by itself.", "Open the journal", "nbb17"))
-  + sec17("Chat apps, in depth", demos17(["tgdepth", "delivery", "voicenote", "broadcast", "router", "hookaddr"])));
+export const gateway17 = (lv) => (lv < 1 ? "" : sec17(t("window.settings.p17-more.never-break"),
+  row17(t("window.settings.p17-more.canary-journal-and-rollback"), t("window.settings.p17-more.every-change-to-how-branch-runs"), t("window.settings.p17-more.open-the-journal"), "nbb17"))
+  + sec17(t("window.settings.p17-more.chat-apps-in-depth"), demos17(["tgdepth", "delivery", "voicenote", "broadcast", "router", "hookaddr"])));
 
-const ENDED = { activated: ["ok", "Kept"], superseded: ["ok", "Kept"], "rolled-back": ["warn", "Rolled back"], failed: ["warn", "Rolled back"] };
+const ENDED = () => ({ activated: ["ok", t("window.places.kept")], superseded: ["ok", t("window.places.kept")], "rolled-back": ["warn", t("window.settings.p17-more.rolled-back")], failed: ["warn", t("window.settings.p17-more.rolled-back")] });
 async function openJournal() {
   let entries;
   try { entries = (await api("never-break/journal")).entries ?? []; } catch (error) { toast(error.message); return; }
   const when = (at) => new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  const rows = entries.map((e) => `<div class="prow"><span class="grow"><b>${esc(e.fromVersion)} → ${esc(e.toVersion)}</b><small>${esc(when(e.finishedAt ?? e.startedAt))}</small></span>${ENDED[e.state] ? pill17(...ENDED[e.state]) : ""}</div>`).join("");
-  openDlg({ title: "Never break: the journal", wide: true, body: `<p class="lead-b17">Each change to how Branch runs starts on a copy. A small canary checks the engine still answers; if it doesn’t, the change is rolled back by itself.</p><div class="rows">${rows}</div>`,
-    foot: '<button class="btn ghost" type="button" data-act="nbtryb17">Try a bad change</button><button class="btn" type="button" data-act="dlg-close">Close</button>' });
+  const rows = entries.map((e) => `<div class="prow"><span class="grow"><b>${esc(e.fromVersion)} → ${esc(e.toVersion)}</b><small>${esc(when(e.finishedAt ?? e.startedAt))}</small></span>${ENDED()[e.state] ? pill17(...ENDED()[e.state]) : ""}</div>`).join("");
+  openDlg({ title: t("window.settings.p17-more.never-break-the-journal"), wide: true, body: `<p class="lead-b17">${t("window.settings.p17-more.each-change-to-how-branch-runs")}</p><div class="rows">${rows}</div>`,
+    foot: `<button class="btn ghost" type="button" data-act="nbtryb17">${t("window.settings.p17-more.try-a-bad-change")}</button><button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });
 }
 
 /* ---------- Saved sign-ins ---------- */
@@ -31,20 +33,20 @@ const VAULT = { bitwarden: "Bitwarden fills sign-ins; Branch never sees them.", 
 export function secrets17(lv, services) {
   if (lv < 1) return "";
   const cur = ["bitwarden", "onepassword", "windows"].find((v) => (services ?? []).includes(v)) ?? null;
-  return sec17("Where passwords come from", seg15("Password manager", cur ? VAULT[cur] : "", [["bitwarden", "Bitwarden"], ["onepassword", "1Password"], ["windows", "Windows"]], cur, "vaultb17")
+  return sec17(t("window.settings.p17-more.where-passwords-come-from"), seg15(t("window.settings.p17-more.password-manager"), cur ? say(VAULT[cur]) : "", [["bitwarden", t("vault-autofill.service.bitwarden")], ["onepassword", t("vault-autofill.service.1password")], ["windows", "Windows"]], cur, "vaultb17")
     + demos17(["keys", "locker", "tokens"]));
 }
 
 /* ---------- the rest, by page ---------- */
-export const computer17 = (lv) => (lv < 1 ? "" : sec17("Where scripts run, more", demos17(["troubleshoot", "bgproc", "screenwatch", "profiles", "devpick", "editor"]))
-  + (lv >= 2 ? sec17("Limits, technical", demo17("jobobj")) : ""));
-export const accounts17 = (lv) => (lv < 1 ? "" : sec17("Terms", demo17("terms")));
-export const developer17 = (lv) => (lv < 2 ? "" : sec17("Build on Branch", demos17(["sdk", "cli", "events", "scopes", "tracing", "studies", "toolreport", "surfaces", "flowyaml"])));
-export const updates17 = (lv) => (lv < 1 ? "" : sec17("Help and updates, more", demos17(["handbook", "updfix"])));
-export const people17 = (lv) => (lv < 1 ? "" : sec17("Records", demo17("signed")));
-export const voice17 = (lv) => (lv < 1 ? "" : sec17("Talking, more", demo17("voiceapprove")));
-export const appearance17 = (lv) => (lv < 2 ? "" : sec17("Window, technical", demo17("frame")));
-export const self17 = (lv) => (lv < 1 ? "" : sec17("Settings you can talk to", demos17(["talksettings", "learncore"])));
+export const computer17 = (lv) => (lv < 1 ? "" : sec17(t("window.settings.p17-more.where-scripts-run-more"), demos17(["troubleshoot", "bgproc", "screenwatch", "profiles", "devpick", "editor"]))
+  + (lv >= 2 ? sec17(t("window.settings.p17-more.limits-technical"), demo17("jobobj")) : ""));
+export const accounts17 = (lv) => (lv < 1 ? "" : sec17(t("window.settings.p17-more.terms"), demo17("terms")));
+export const developer17 = (lv) => (lv < 2 ? "" : sec17(t("window.settings.p17-more.build-on-branch"), demos17(["sdk", "cli", "events", "scopes", "tracing", "studies", "toolreport", "surfaces", "flowyaml"])));
+export const updates17 = (lv) => (lv < 1 ? "" : sec17(t("window.settings.p17-more.help-and-updates-more"), demos17(["handbook", "updfix"])));
+export const people17 = (lv) => (lv < 1 ? "" : sec17(t("window.settings.p17-more.records"), demo17("signed")));
+export const voice17 = (lv) => (lv < 1 ? "" : sec17(t("window.settings.p17-more.talking-more"), demo17("voiceapprove")));
+export const appearance17 = (lv) => (lv < 2 ? "" : sec17(t("window.settings.p17-more.window-technical"), demo17("frame")));
+export const self17 = (lv) => (lv < 1 ? "" : sec17(t("window.settings.p17-more.settings-you-can-talk-to"), demos17(["talksettings", "learncore"])));
 
 let started = false;
 export function initMore17() {

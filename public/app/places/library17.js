@@ -28,6 +28,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { onDemo17, demoPlace17, demoDlg17 } from "./demo17.js";
 import { list17, when17 } from "./parts17.js";
+import { t } from "../../i18n.js";
 
 const L = { labels: { catalog: [], labels: [] }, label: null, graph: null, names: [], kg: null, links: [], problem: "" };
 const askable = (d) => Boolean(d.filePath) && /\.(csv|tsv|json|xlsx)$/i.test(d.filePath);
@@ -36,9 +37,9 @@ const documents = async () => (await api("documents")).documents ?? [];
 
 /* ---------- Work with documents ---------- */
 export function workSection() {
-  const tools = [["sqlb17", "term", "Ask a spreadsheet", "Questions in plain words or SQL, answered with a table and a chart. Read only."], ["doccmpb17", "doc", "Compare or edit exactly", "What changed between two versions, and edits that leave every other byte as it was."]];
-  const labels = level() >= 1 && L.labels.catalog.length ? `<div class="labels-b17" role="group" aria-label="Labels"><span>Labels</span>${L.labels.catalog.map((l) => `<button type="button" class="chip-b17" data-act="labelb17" data-v="${esc(l.label)}" aria-pressed="${L.label === l.label}">${esc(l.label)} <em>${esc(l.count)}</em></button>`).join("")}</div>` : "";
-  return `<div class="sec x15-sec"><h2>Work with documents</h2><div class="tools-b17">${tools.map(([a, i, t, s]) => `<button type="button" class="tool-b17" data-act="${a}"><span class="ico-tile">${ic(i, "s")}</span><span><b>${t}</b><small>${s}</small></span></button>`).join("")}</div>${labels}</div>`;
+  const tools = [["sqlb17", "term", t("window.places.library17.ask-a-spreadsheet"), t("window.places.library17.questions-in-plain-words-or-sql")], ["doccmpb17", "doc", t("window.places.library17.compare-or-edit-exactly"), t("window.places.library17.what-changed-between-two-versions-and")]];
+  const labels = level() >= 1 && L.labels.catalog.length ? `<div class="labels-b17" role="group" aria-label="${t("onscreen.labels")}"><span>${t("onscreen.labels")}</span>${L.labels.catalog.map((l) => `<button type="button" class="chip-b17" data-act="labelb17" data-v="${esc(l.label)}" aria-pressed="${L.label === l.label}">${esc(l.label)} <em>${esc(l.count)}</em></button>`).join("")}</div>` : "";
+  return `<div class="sec x15-sec"><h2>${t("window.places.library17.work-with-documents")}</h2><div class="tools-b17">${tools.map(([a, i, t, s]) => `<button type="button" class="tool-b17" data-act="${a}"><span class="ico-tile">${ic(i, "s")}</span><span><b>${t}</b><small>${s}</small></span></button>`).join("")}</div>${labels}</div>`;
 }
 /* The documents a chosen label leaves showing; every document while none is chosen. */
 export function labelled(docs) {
@@ -52,20 +53,20 @@ const SQ = { files: [], f: null, sql: "", result: null };
 function sqlChart(columns, rows) {
   if (columns.length !== 2 || !rows.length || !rows.every((r) => typeof r[1] === "number")) return "";
   const mx = Math.max(...rows.map((r) => Math.abs(r[1]))) || 1, h = 24;
-  return `<svg class="chart-b17" viewBox="0 0 320 ${rows.length * h + 6}" role="img" aria-label="Bar chart of the result">${rows.map(([l, v], i) => `<text x="0" y="${i * h + 16}">${esc(String(l).slice(0, 18))}</text><rect x="110" y="${i * h + 5}" width="${Math.max(2, (Math.abs(v) / mx) * 160).toFixed(1)}" height="14" rx="3"/><text class="v-b17" x="${(116 + (Math.abs(v) / mx) * 160).toFixed(1)}" y="${i * h + 16}">${esc(v.toLocaleString())}</text>`).join("")}</svg>`;
+  return `<svg class="chart-b17" viewBox="0 0 320 ${rows.length * h + 6}" role="img" aria-label="${t("window.places.library17.bar-chart-of-the-result")}">${rows.map(([l, v], i) => `<text x="0" y="${i * h + 16}">${esc(String(l).slice(0, 18))}</text><rect x="110" y="${i * h + 5}" width="${Math.max(2, (Math.abs(v) / mx) * 160).toFixed(1)}" height="14" rx="3"/><text class="v-b17" x="${(116 + (Math.abs(v) / mx) * 160).toFixed(1)}" y="${i * h + 16}">${esc(v.toLocaleString())}</text>`).join("")}</svg>`;
 }
 function sqlResult() {
   const r = SQ.result;
-  if (!r) return '<p class="hint" data-css="margin:0">Run it to see the table and the chart.</p>';
+  if (!r) return `<p class="hint" data-css="margin:0">${t("window.places.library17.run-it-to-see-the-table")}</p>`;
   const head = r.columns.map((c) => `<th>${esc(c)}</th>`).join("");
   const body = r.rows.map((row) => `<tr>${row.map((v) => `<td>${esc(v === null ? "" : typeof v === "number" ? v.toLocaleString() : v)}</td>`).join("")}</tr>`).join("");
   return `<div class="res-b17"><table class="tbl-b17"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>${sqlChart(r.columns, r.rows)}</div>`;
 }
 function drawSql() {
   const files = SQ.files.map((d) => `<button type="button" data-act="sqlfileb17" data-v="${esc(d.id)}" aria-pressed="${SQ.f === d.id}">${esc(d.name)}</button>`).join("");
-  openDlg({ title: "Ask a spreadsheet", wide: true,
-    body: `<div class="seg" role="group" aria-label="File">${files}</div><textarea class="inp sql-b17" id="sql-q-b17" rows="3" aria-label="SQL" spellcheck="false">${esc(SQ.sql)}</textarea>${sqlResult()}<p class="hint" data-css="margin:0">Read only: only SELECT runs, and the file is never changed.</p>`,
-    foot: `${SQ.result ? '<button class="btn ghost" type="button" data-act="sqlsaveb17">Save as a report</button>' : ""}<button class="btn pri" type="button" data-act="sqlrunb17" ${SQ.f ? "" : "disabled"}>${SQ.result ? "Run again" : "Run"}</button>` });
+  openDlg({ title: t("window.places.library17.ask-a-spreadsheet"), wide: true,
+    body: `<div class="seg" role="group" aria-label="${t("window.places.library17.file")}">${files}</div><textarea class="inp sql-b17" id="sql-q-b17" rows="3" aria-label="SQL" spellcheck="false">${esc(SQ.sql)}</textarea>${sqlResult()}<p class="hint" data-css="margin:0">${t("window.places.library17.read-only-only-select-runs-and")}</p>`,
+    foot: `${SQ.result ? `<button class="btn ghost" type="button" data-act="sqlsaveb17">${t("window.places.library17.save-as-a-report")}</button>` : ""}<button class="btn pri" type="button" data-act="sqlrunb17" ${SQ.f ? "" : "disabled"}>${SQ.result ? t("window.places.library17.run-again") : t("commands.dashboard.run")}</button>` });
 }
 async function openSql() {
   try { SQ.files = (await documents()).filter(askable); } catch (error) { toast(error.message); return; }
@@ -86,17 +87,17 @@ async function runSql() {
 
 /* ---------- Compare or edit exactly ---------- */
 const DC = { mode: "compare", docs: [], a: null, b: null, result: null };
-const docSelect = (id, value) => `<select class="inp" id="${id}" data-sw="${id}" aria-label="${id === "doc-a-b17" ? "First document" : "Second document"}">${DC.docs.map((d) => `<option value="${esc(d.id)}"${d.id === value ? " selected" : ""}>${esc(d.name)}</option>`).join("")}</select>`;
+const docSelect = (id, value) => `<select class="inp" id="${id}" data-sw="${id}" aria-label="${id === "doc-a-b17" ? t("window.places.library17.first-document") : t("window.places.library17.second-document")}">${DC.docs.map((d) => `<option value="${esc(d.id)}"${d.id === value ? " selected" : ""}>${esc(d.name)}</option>`).join("")}</select>`;
 function compareBody() {
   const r = DC.result;
-  const diffs = r ? `<p class="lead-b17">${esc(r.summary)}</p><div class="diffs-b17">${r.changes.map((c) => `<div class="dif-b17"><small>${esc(c.section)}</small>${c.before ? `<del>${esc(c.before)}</del>` : ""}${c.after ? `<ins>${esc(c.after)}</ins>` : ""}</div>`).join("")}</div><p class="hint" data-css="margin:0">The other ${esc(r.unchanged)} paragraphs are identical, formatting included.</p>` : "";
+  const diffs = r ? `<p class="lead-b17">${esc(r.summary)}</p><div class="diffs-b17">${r.changes.map((c) => `<div class="dif-b17"><small>${esc(c.section)}</small>${c.before ? `<del>${esc(c.before)}</del>` : ""}${c.after ? `<ins>${esc(c.after)}</ins>` : ""}</div>`).join("")}</div><p class="hint" data-css="margin:0">${t("window.places.library17.the-other-unchanged-paragraphs-are-identical", { unchanged: esc(r.unchanged) })}</p>` : "";
   return `<div class="test-b17">${docSelect("doc-a-b17", DC.a)}${docSelect("doc-b-b17", DC.b)}</div>${diffs}`;
 }
 function drawDoc() {
   const m = DC.mode;
-  openDlg({ title: m === "compare" ? "Compare two documents" : "Edit exactly", wide: true,
-    body: `<div class="seg" role="group" aria-label="What to do">${[["compare", "Compare"], ["edit", "Edit exactly"]].map(([v, l]) => `<button type="button" data-act="docmodeb17" data-v="${v}" aria-pressed="${m === v}">${l}</button>`).join("")}</div>${m === "compare" ? compareBody() : ""}`,
-    foot: m === "compare" ? '<button class="btn" type="button" data-act="dlg-close">Close</button><button class="btn pri" type="button" data-act="docsaveb17" data-v="compare">Save the comparison</button>' : '<button class="btn ghost" type="button" data-act="dlg-close">Not now</button><button class="btn pri" type="button" data-act="docsaveb17" data-v="edit">Make the edit</button>' });
+  openDlg({ title: m === "compare" ? t("window.places.library17.compare-two-documents") : t("window.places.library17.edit-exactly"), wide: true,
+    body: `<div class="seg" role="group" aria-label="${t("addons.filters.action")}">${[["compare", t("action.compare")], ["edit", t("window.places.library17.edit-exactly")]].map(([v, l]) => `<button type="button" data-act="docmodeb17" data-v="${v}" aria-pressed="${m === v}">${l}</button>`).join("")}</div>${m === "compare" ? compareBody() : ""}`,
+    foot: m === "compare" ? `<button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button><button class="btn pri" type="button" data-act="docsaveb17" data-v="compare">${t("window.places.library17.save-the-comparison")}</button>` : `<button class="btn ghost" type="button" data-act="dlg-close">${t("updates.busy.cancel")}</button><button class="btn pri" type="button" data-act="docsaveb17" data-v="edit">${t("window.places.library17.make-the-edit")}</button>` });
 }
 async function compareNow() {
   const a = DC.docs.find((d) => d.id === DC.a), b = DC.docs.find((d) => d.id === DC.b);
@@ -117,8 +118,8 @@ async function openDoc() {
 export function mapSection(view) {
   if (view !== "map") return "";
   const chips = L.names.map((n) => `<button type="button" class="chip-b17" data-act="kgb17" data-v="${esc(n.name)}" aria-pressed="${L.kg === n.name}">${esc(n.name)}</button>`).join("");
-  const links = L.kg ? `<ul class="kgl-b17">${L.links.map((k) => `<li><b>${esc(k.from)}</b> <span>${esc(k.relation)}</span> <b>${esc(k.to)}</b><small>from ${esc(k.citation?.document ?? "")}</small></li>`).join("")}</ul>` : "";
-  return `<div class="sec x15-sec kg-b17"><h2>Ask the map</h2><p class="hint" data-css="margin:0 0 8px">Pick a name to see what the documents say about it.</p><div class="chips-b17">${chips}</div>${links}</div>`;
+  const links = L.kg ? `<ul class="kgl-b17">${L.links.map((k) => `<li><b>${esc(k.from)}</b> <span>${esc(k.relation)}</span> <b>${esc(k.to)}</b><small>${t("window.places.library17.from-value", { value: esc(k.citation?.document ?? "") })}</small></li>`).join("")}</ul>` : "";
+  return `<div class="sec x15-sec kg-b17"><h2>${t("window.places.library17.ask-the-map")}</h2><p class="hint" data-css="margin:0 0 8px">${t("window.places.library17.pick-a-name-to-see-what")}</p><div class="chips-b17">${chips}</div>${links}</div>`;
 }
 async function askMap(el) {
   const name = el.dataset.v;
@@ -135,7 +136,7 @@ const MANAGE = [
   ["sources", "retry", ["Bring things in from other services", "Keeps a copy of chosen items from Drive, Notion or a notes vault, in sync.", "See sources"]],
   ["pages", "doc", ["Kept answers and long articles", "An answer you like becomes a page you can reopen; a long article is written section by section.", "See pages"]],
 ];
-export const manageSection = () => (level() >= 1 ? `<div class="sec x15-sec"><h2>Managing what it reads</h2><div class="rows">${MANAGE.map(([k, i, w]) => demoPlace17(k, i, w)).join("")}</div></div>` : "");
+export const manageSection = () => (level() >= 1 ? `<div class="sec x15-sec"><h2>${t("window.places.library17.managing-what-it-reads")}</h2><div class="rows">${MANAGE.map(([k, i, w]) => demoPlace17(k, i, w)).join("")}</div></div>` : "");
 
 /* ---------- Memory › How it learns ---------- */
 const LEARN = [
@@ -146,7 +147,7 @@ const LEARN = [
   ["memckpt", "shield", ["Memory checkpoints", "A snapshot of memory and every skill version, to go back to all at once.", "See checkpoints"]],
   ["memimport", "folder", ["Bring memories in", "From a JSON Lines file or an archive Branch exported, here or on another computer.", "Choose a file"]],
 ];
-export const learnSection = () => (level() >= 1 ? `<div class="sec x15-sec"><h2>How it learns</h2><div class="rows">${LEARN.map(([k, i, w]) => demoPlace17(k, i, w)).join("")}</div></div>` : "");
+export const learnSection = () => (level() >= 1 ? `<div class="sec x15-sec"><h2>${t("window.places.library17.how-it-learns")}</h2><div class="rows">${LEARN.map(([k, i, w]) => demoPlace17(k, i, w)).join("")}</div></div>` : "");
 
 const FV = { memory: null, versions: [] };
 const FC = { session: null, remove: [] };
@@ -154,46 +155,46 @@ const FC = { session: null, remove: [] };
 function registerManage() {
   onDemo17("kbmanage", { open: async () => {
     const { collections } = await api("knowledge");
-    demoDlg17("kbmanage", { title: "Knowledge bases", lead: "Your knowledge bases:", rows: list17(collections).map((c) => [c.name, `${c.documents} documents · ${c.chunks} passages`, c.note ? ["warn", c.note] : null]) });
+    demoDlg17("kbmanage", { title: t("window.places.library17.knowledge-bases"), lead: t("window.places.library17.your-knowledge-bases"), rows: list17(collections).map((c) => [c.name, t("window.places.library17.documents-documents-chunks-passages", { documents: c.documents, chunks: c.chunks }), c.note ? ["warn", c.note] : null]) });
   } });
   onDemo17("learnfolder", { open: async () => {
     const tour = await api("learn/tour", { subject: "code", of: "" });
-    demoDlg17("learnfolder", { title: "Understand a folder", go: "Start the tour", rows: (tour.steps ?? []).map((s) => [`${s.order} · ${s.title}`, s.words, null]) });
+    demoDlg17("learnfolder", { title: t("window.places.library17.understand-a-folder"), go: t("action.start-the-tour"), rows: (tour.steps ?? []).map((s) => [`${s.order} · ${s.title}`, s.words, null]) });
   } });
   onDemo17("sources", { open: async () => {
     const { status } = await api("asks/sources");
-    demoDlg17("sources", { title: "Bring things in from other services", lead: "Syncing:", go: "Sync now", rows: list17(status).map((s) => [s.id, [s.kind, s.syncedAt ? when17(s.syncedAt) : "", s.error].filter(Boolean).join(" · "), s.error ? ["warn", s.error.slice(0, 30)] : null]) });
+    demoDlg17("sources", { title: t("window.places.library17.bring-things-in-from-other-services"), lead: t("window.places.library17.syncing"), go: t("window.places.library17.sync-now"), rows: list17(status).map((s) => [s.id, [s.kind, s.syncedAt ? when17(s.syncedAt) : "", s.error].filter(Boolean).join(" · "), s.error ? ["warn", s.error.slice(0, 30)] : null]) });
   } });
   onDemo17("pages", { open: async () => {
     const { pages } = await api("asks/pages");
-    demoDlg17("pages", { title: "Kept answers and long articles", lead: "Kept:", go: "Write an article", rows: list17(pages).map((p) => [p.title, p.question || when17(p.updatedAt), null]) });
+    demoDlg17("pages", { title: t("window.places.library17.kept-answers-and-long-articles"), lead: t("window.places.library17.kept"), go: t("window.places.library17.write-an-article"), rows: list17(pages).map((p) => [p.title, p.question || when17(p.updatedAt), null]) });
   } });
 }
 
 function registerLearn() {
   onDemo17("habits", { open: async () => {
     const { noticed } = await api("memory/learned");
-    demoDlg17("habits", { title: "Habits it noticed", go: noticed.length ? "Keep all" : undefined, rows: noticed.map((n) => [n.text, n.evidence?.[0] ?? "", ["idle", "Suggested"]]) });
+    demoDlg17("habits", { title: t("window.places.library17.habits-it-noticed"), go: noticed.length ? t("window.places.library17.keep-all") : undefined, rows: noticed.map((n) => [n.text, n.evidence?.[0] ?? "", ["idle", t("window.places.customize.suggested")]]) });
   }, go: async () => {
     const { proposals } = await api("memory/learned", {});
     for (const p of proposals) await api(`memory/proposals/${encodeURIComponent(p.id)}/accept`, {});
     closeDlg();
     await refresh();
-    toast(`Kept ${proposals.length} habits. Each one is in Memory and can be forgotten.`);
+    toast(t("window.places.library17.kept-count-habits-each-one-is", { count: proposals.length }));
   } });
   onDemo17("learnlog", { open: async () => {
     const { entries } = await api("learning-more/journey?limit=50");
-    demoDlg17("learnlog", { title: "What it learned, week by week", rows: entries.map((e) => [e.title, [when17(e.at), e.detail].filter(Boolean).join(" · "), ["idle", e.kind]]) });
+    demoDlg17("learnlog", { title: t("window.places.library17.what-it-learned-week-by-week"), rows: entries.map((e) => [e.title, [when17(e.at), e.detail].filter(Boolean).join(" · "), ["idle", e.kind]]) });
   } });
   onDemo17("factver", { open: openVersions, go: restoreVersion });
   onDemo17("forgetconv", { open: () => openForget(), go: forgetConversation });
   onDemo17("memckpt", { open: async () => {
     const { checkpoints } = await api("memory/checkpoints");
-    demoDlg17("memckpt", { title: "Memory checkpoints", lead: "Checkpoints:", go: "Make one now", rows: checkpoints.map((c) => [when17(c.createdAt), `${c.label} · ${c.memories} facts · ${c.skills} skills`, ["ok", "Kept"]]) });
+    demoDlg17("memckpt", { title: t("window.places.library17.memory-checkpoints"), lead: t("window.places.library17.checkpoints"), go: t("window.places.library17.make-one-now"), rows: checkpoints.map((c) => [when17(c.createdAt), t("window.places.library17.label-memories-facts-skills-skills", { label: c.label, memories: c.memories, skills: c.skills }), ["ok", t("window.places.kept")]]) });
   }, go: async () => {
     const made = await api("memory/checkpoints", {});
     closeDlg();
-    toast(`Checkpoint made: ${made.memories} facts and ${made.skills} skills.`);
+    toast(t("window.places.library17.checkpoint-made-memories-facts-and-skills", { memories: made.memories, skills: made.skills }));
   } });
   onDemo17("memimport", { open: importMemories });
 }
@@ -205,8 +206,8 @@ async function openVersions() {
   FV.memory = newest ?? null;
   FV.versions = newest ? (await api(`memory/versions?id=${encodeURIComponent(newest.id)}`)).versions ?? [] : [];
   const earlier = FV.versions.find((v) => v.revision < newest?.revision);
-  demoDlg17("factver", { title: "Earlier versions of a fact", lead: newest?.data?.text ?? "", go: earlier ? `Put back the ${when17(earlier.createdAt)} version` : undefined,
-    rows: FV.versions.map((v) => [v.data?.text ?? "", when17(v.createdAt), v.revision === newest.revision ? ["ok", "Current"] : ["idle", "Earlier"]]) });
+  demoDlg17("factver", { title: t("window.places.library17.earlier-versions-of-a-fact"), lead: newest?.data?.text ?? "", go: earlier ? t("window.places.library17.put-back-the-createdat-version", { createdAt: when17(earlier.createdAt) }) : undefined,
+    rows: FV.versions.map((v) => [v.data?.text ?? "", when17(v.createdAt), v.revision === newest.revision ? ["ok", t("window.places.library17.current")] : ["idle", t("window.places.customize17.earlier")]]) });
 }
 async function restoreVersion() {
   const earlier = FV.versions.find((v) => v.revision < FV.memory?.revision);
@@ -214,7 +215,7 @@ async function restoreVersion() {
   await api("memory/versions/restore", { id: FV.memory.id, revision: earlier.revision });
   closeDlg();
   await refresh();
-  toast(`Put back “${earlier.data?.text ?? ""}”. The newer one is kept as a version.`);
+  toast(t("window.places.library17.put-back-value-the-newer-one", { value: earlier.data?.text ?? "" }));
 }
 
 /* Forgetting one conversation: the conversations to choose from, then what the engine would remove from the chosen one. */
@@ -223,14 +224,14 @@ async function openForget(sessionId = FC.session) {
   FC.remove = sessionId ? (await api("memory/forget/preview", { sessionId })).remove ?? [] : [];
   const title = (s) => s.opening || s.title || "";
   const chips = E.sessions.slice(0, 12).map((s) => `<button type="button" class="chip-b17" data-act="fconvb17" data-v="${esc(s.sessionId ?? s.id)}" aria-pressed="${(s.sessionId ?? s.id) === FC.session}">${esc(title(s))}</button>`).join("");
-  demoDlg17("forgetconv", { title: "Forget what one conversation taught", go: FC.remove.length ? `Forget these ${FC.remove.length}` : undefined, rows: FC.remove.map((m) => [m.text, when17(m.createdAt), ["idle", "Fact"]]) });
+  demoDlg17("forgetconv", { title: t("window.places.library17.forget-what-one-conversation-taught"), go: FC.remove.length ? t("window.places.library17.forget-these-remove", { remove: FC.remove.length }) : undefined, rows: FC.remove.map((m) => [m.text, when17(m.createdAt), ["idle", t("window.places.library17.fact")]]) });
   dialog()?.querySelector(".dlg-b")?.insertAdjacentHTML("afterbegin", `<div class="chips-b17">${chips}</div>`);
 }
 async function forgetConversation() {
   const answer = await api("memory/forget", { sessionId: FC.session, ids: FC.remove.map((m) => m.id) });
   closeDlg();
   await refresh();
-  toast(`Forgot ${answer.removed?.length ?? answer.removed ?? 0} facts. The conversation itself stays.`);
+  toast(t("window.places.library17.forgot-value-facts-the-conversation-itself", { value: answer.removed?.length ?? answer.removed ?? 0 }));
 }
 
 /* Bringing memories in: a JSON Lines file (or an archive Branch exported), sent as the engine's import takes it. */
@@ -245,7 +246,7 @@ function importMemories() {
       const report = await api("memory/import", body);
       await refresh();
       if (!report.imported && report.skipped?.length) toast(report.skipped[0].reason);
-      else toast(`Brought in ${report.imported ?? 0} facts.`);
+      else toast(t("window.places.library17.brought-in-value-facts", { value: report.imported ?? 0 }));
     } catch (error) { toast(error.message); }
   });
   input.click();

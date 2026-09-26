@@ -27,6 +27,8 @@ import * as advanced from "./pages/advanced.js";
 import * as developer from "./pages/developer.js";
 import * as achievements from "./pages/achievements.js";
 import * as self from "./pages/self.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 const PAGES = {
   general, people, appearance, notifications, instructions, models, local,
@@ -71,36 +73,36 @@ export function draw() {
   const lv = level();
   if (!started.has(S.setPage)) open(S.setPage);
   const q = searchText.trim().toLowerCase();
-  const extra = [lv >= 1 ? ["advanced", "Advanced"] : null, lv >= 2 ? ["developer", "Developer"] : null].filter(Boolean);
-  const groups = [...NAV, ...(extra.length ? [["More", extra]] : [])]
-    .map(([g, items]) => [g, items.filter(([, l]) => !q || l.toLowerCase().includes(q))])
+  const extra = [lv >= 1 ? ["advanced", t("settings.page.advanced")] : null, lv >= 2 ? ["developer", t("settings.card.developer")] : null].filter(Boolean);
+  const groups = [...NAV, ...(extra.length ? [[t("more.label"), extra]] : [])]
+    .map(([g, items]) => [g, items.filter(([, l]) => !q || say(l).toLowerCase().includes(q))])
     .filter(([, items]) => items.length);
   if ((S.setPage === "advanced" && lv < 1) || (S.setPage === "developer" && lv < 2)) S.setPage = "general";
 
   const nav = groups
     .map(([g, items]) =>
-      `<div class="grp">${esc(g)}</div>${items
-        .map(([id, l]) => `<button class="nav" type="button" data-act="setpage" data-v="${id}" aria-current="${S.setPage === id}">${esc(l)}</button>`)
+      `<div class="grp">${esc(say(g))}</div>${items
+        .map(([id, l]) => `<button class="nav" type="button" data-act="setpage" data-v="${id}" aria-current="${S.setPage === id}">${esc(say(l))}</button>`)
         .join("")}`
     )
-    .join("") || '<p class="hint" data-css="padding:0 10px">No page matches.</p>';
+    .join("") || `<p class="hint" data-css="padding:0 10px">${t("window.settings.settings.no-page-matches")}</p>`;
 
   const page = PAGES[S.setPage];
   const pageContent = page?.draw?.() ?? "";
 
   return `<div class="settings">
-    <nav class="set-nav" aria-label="Settings pages">
-      <button class="set-back" type="button" data-act="chat" ${S.chat ? `data-id="${esc(S.chat)}"` : ""}>${ic("back", "s")}Back to ${esc(E.state?.identity?.name || "Branch")}</button>
-      <label class="set-search">${ic("search", "s")}<input id="set-q" placeholder="Search settings" value="${esc(searchText)}" aria-label="Search settings"></label>
+    <nav class="set-nav" aria-label="${t("dashboard.pages.title")}">
+      <button class="set-back" type="button" data-act="chat" ${S.chat ? `data-id="${esc(S.chat)}"` : ""}>${ic("back", "s")}${t("window.settings.settings.back-to-value", { value: esc(E.state?.identity?.name || "Branch") })}</button>
+      <label class="set-search">${ic("search", "s")}<input id="set-q" placeholder="${t("settings.search")}" value="${esc(searchText)}" aria-label="${t("settings.search")}"></label>
       ${nav}
       <div class="set-level" data-css="display:grid;gap:6px">
-        <span>How much to show</span>
-        <span class="seg" role="group" aria-label="How much to show">
-          ${[["regular", "Regular"], ["advanced", "Advanced"], ["technical", "Technical"]]
+        <span>${t("appearance.howMuch")}</span>
+        <span class="seg" role="group" aria-label="${t("appearance.howMuch")}">
+          ${[["regular", t("settingsGrown.level.regular")], ["advanced", t("settings.page.advanced")], ["technical", t("settingsGrown.level.technical")]]
             .map(([v, l]) => `<button type="button" data-act="setlevel" data-v="${v}" aria-pressed="${S.level === v}" data-tip="${
-              v === "regular" ? "The essentials, in plain words."
-              : v === "advanced" ? "Every feature and the fine controls."
-              : "File paths, raw keys, launch variables, config and logs."
+              v === "regular" ? t("settingsGrown.level.regular.note")
+              : v === "advanced" ? t("settingsGrown.level.advanced.note")
+              : t("window.settings.settings.file-paths-raw-keys-launch-variables")
             }">${esc(l)}</button>`)
             .join("")}
         </span>

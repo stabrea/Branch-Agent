@@ -15,6 +15,7 @@ import { A, loadAccounts, ownerOnly } from "../../flows/account.js";
 import { L, loadLocal, gb, DOWNLOAD_ICON } from "./local.js";
 import { sections17, init17 } from "../p17-models.js";
 import { t } from "../../../i18n.js";
+import { say } from "../../core/words.js";
 
 const TABS = [["connections", "Connections"], ["defaults", "Defaults"], ["local", "On this computer"], ["second", "Second opinion"], ["media", "Media"]];
 let tab = "connections";
@@ -23,56 +24,56 @@ let following = null;
 
 function group(p) {
   const n = p.accounts.length;
-  const rows = p.accounts.map((a) => `<div class="acct-r"><span class="grow"><b>${esc(a.label)}</b><small>${esc(p.name ?? p.pool)}</small></span>${p.defaultAccount === a.id ? '<span class="pill ok"><i></i>Answers first</span>' : '<span class="pill idle"><i></i>Next in line</span>'}<button class="icon-btn" type="button" aria-label="More for ${esc(a.label)}" data-act="acct-menu" data-pool="${esc(p.pool)}" data-id="${esc(a.id)}">${ic("more", "s")}</button></div>`).join("");
-  return `<div class="acct-g"><div class="acct-gh">${logo(p.pool, p.name, 30)}<b>${esc(p.name ?? p.pool)}</b><span class="n6">${n ? `${n} ${n === 1 ? "account" : "accounts"}` : "Not set up"}</span></div>${rows}
-    <button class="add-row" type="button" data-act="addacct" data-v="${esc(p.pool)}" ${ownerOnly()}>${ic("plus", "s")}${n ? `Add another ${esc(p.name ?? p.pool)} account` : `Sign in to ${esc(p.name ?? p.pool)}`}</button></div>`;
+  const rows = p.accounts.map((a) => `<div class="acct-r"><span class="grow"><b>${esc(a.label)}</b><small>${esc(p.name ?? p.pool)}</small></span>${p.defaultAccount === a.id ? `<span class="pill ok"><i></i>${t("window.settings.models.answers-first")}</span>` : `<span class="pill idle"><i></i>${t("window.settings.models.next-in-line")}</span>`}<button class="icon-btn" type="button" aria-label="${t("window.settings.accounts.more-for-label", { label: esc(a.label) })}" data-act="acct-menu" data-pool="${esc(p.pool)}" data-id="${esc(a.id)}">${ic("more", "s")}</button></div>`).join("");
+  return `<div class="acct-g"><div class="acct-gh">${logo(p.pool, p.name, 30)}<b>${esc(p.name ?? p.pool)}</b><span class="n6">${n ? `${n} ${n === 1 ? "account" : "accounts"}` : t("vault-autofill.managers.off")}</span></div>${rows}
+    <button class="add-row" type="button" data-act="addacct" data-v="${esc(p.pool)}" ${ownerOnly()}>${ic("plus", "s")}${n ? t("window.settings.models.add-another-value-account", { value: esc(p.name ?? p.pool) }) : t("window.settings.models.sign-in-to-value", { value: esc(p.name ?? p.pool) })}</button></div>`;
 }
 
 function connections() {
-  return `<p class="hint" data-css="margin:2px 0 12px">You can sign in to the same service more than once. When one account runs low, Branch moves to the next. The order is in <button class="link" type="button" data-act="setpage" data-v="accounts">Settings › Accounts</button>.</p>
+  return `<p class="hint" data-css="margin:2px 0 12px">${t("window.settings.models.you-can-sign-in-to-the")} <button class="link" type="button" data-act="setpage" data-v="accounts">${t("window.settings.models.settings-accounts")}</button>.</p>
     <div class="acct-gs">${(A.view?.pools ?? []).map(group).join("")}</div>
-    <div class="acts" data-css="margin-top:14px"><button class="btn pri" type="button" data-act="addacct" ${ownerOnly()}>${ic("plus", "s")}Add an account</button></div>`;
+    <div class="acts" data-css="margin-top:14px"><button class="btn pri" type="button" data-act="addacct" ${ownerOnly()}>${ic("plus", "s")}${t("window.settings.accounts.add-an-account")}</button></div>`;
 }
 
 function defaults() {
   const m = E.state?.models;
   const presets = m?.presets ?? [];
-  return [["Everyday answers", "Most conversations."], ["Planning and hard problems", "When a task has many steps."], ["Quick and cheap jobs", "Sorting, tagging, short replies."], ["Summaries", "Keeping long conversations short."]]
+  return [[t("window.settings.models.everyday-answers"), t("window.settings.models.most-conversations")], [t("window.settings.models.planning-and-hard-problems"), t("window.settings.models.when-a-task-has-many-steps")], [t("window.settings.models.quick-and-cheap-jobs"), t("window.settings.models.sorting-tagging-short-replies")], [t("window.settings.models.summaries"), t("window.settings.models.keeping-long-conversations-short")]]
     .map(([n, s], i) => `<div class="ctl"><b>${n}</b><span class="right"><span class="seg">${presets.map((p) => `<button type="button" data-act="seg" aria-pressed="${i === 0 && p.id === m.defaultPreset}">${esc(p.name)}</button>`).join("")}</span></span><small>${s}</small></div>`).join("");
 }
 
 function local() {
   const have = L.data?.ollama?.models ?? [];
-  const ready = have[0] ? `<div class="status"><span class="sdot"></span><div><b>${esc(have[0].name)} is ready on this computer</b><p>Loaded when first asked · nothing leaves this computer.</p></div></div>` : "";
-  const rows = have.map((x) => `<div class="prow"><span class="ico-tile">${ic("cpu", "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${gb(x.size)}</small></span><button class="btn sm" type="button" data-act="toast">Use this</button></div>`).join("");
-  return `${ready}<div class="rows" data-css="margin-top:10px">${rows}</div><div class="acts" data-css="margin-top:12px"><button class="btn" type="button" data-act="download">${DOWNLOAD_ICON}Get another model</button></div>`;
+  const ready = have[0] ? `<div class="status"><span class="sdot"></span><div><b>${t("window.settings.models.name-is-ready-on-this-computer", { name: esc(have[0].name) })}</b><p>${t("window.settings.models.loaded-when-first-asked-nothing-leaves")}</p></div></div>` : "";
+  const rows = have.map((x) => `<div class="prow"><span class="ico-tile">${ic("cpu", "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${gb(x.size)}</small></span><button class="btn sm" type="button" data-act="toast">${t("window.settings.models.use-this")}</button></div>`).join("");
+  return `${ready}<div class="rows" data-css="margin-top:10px">${rows}</div><div class="acts" data-css="margin-top:12px"><button class="btn" type="button" data-act="download">${DOWNLOAD_ICON}${t("window.settings.models.get-another-model")}</button></div>`;
 }
 
 const BODIES = {
   connections, defaults, local,
-  second: () => ctl("m-second", "Ask a second model on hard questions", "Shows both answers side by side when they disagree.", false),
-  media: () => ctl("m-img", "Make pictures", "Uses your ChatGPT account.", false) + ctl("m-vid", "Make short videos", "Off until you choose a service.", false),
+  second: () => ctl("m-second", t("window.settings.models.ask-a-second-model-on-hard"), t("window.settings.models.shows-both-answers-side-by-side"), false),
+  media: () => ctl("m-img", t("window.settings.models.make-pictures"), t("window.settings.models.uses-your-chatgpt-account"), false) + ctl("m-vid", t("window.settings.models.make-short-videos"), t("window.settings.models.off-until-you-choose-a-service"), false),
 };
 
 export function draw() {
   const lv = level();
-  let html = `<h1>Models</h1><p class="lede">Which models answer, and where they run.</p><div class="tabs" role="tablist">${TABS.map(([id, l]) => `<button class="tab" role="tab" type="button" aria-selected="${tab === id}" data-act="mtab" data-v="${id}">${l}</button>`).join("")}</div>${BODIES[tab]()}`;
+  let html = `<h1>${t("layout.modelTabs")}</h1><p class="lede">${t("window.settings.models.which-models-answer-and-where-they")}</p><div class="tabs" role="tablist">${TABS.map(([id, l]) => `<button class="tab" role="tab" type="button" aria-selected="${tab === id}" data-act="mtab" data-v="${id}">${say(l)}</button>`).join("")}</div>${BODIES[tab]()}`;
   if (lv >= 1) html += advanced();
-  if (lv >= 2) html += TECHNICAL;
+  if (lv >= 2) html += TECHNICAL();
   return html + sections17(lv, tab);
 }
 
 /* ---------- Get another model ---------- */
 function downloadBody() {
   const recs = L.data?.recommendations ?? [];
-  return `<div class="rows">${recs.map((r) => `<div class="prow"><span class="ico-tile">${ic("cpu", "s")}</span><span class="grow"><b>${esc(r.model)}</b><small>${gb(r.downloadBytes)} · ${esc(r.expectation)}</small></span><button class="btn sm" type="button" data-act="dl-go" data-m="${esc(r.model)}" ${r.fits ? "" : "disabled"}>Download</button></div>`).join("")}</div>
-    <div class="progress" id="dl-p" hidden><u id="dl-bar"></u></div><p class="hint" id="dl-t" data-css="margin:0"></p><div class="acts" id="dl-stop" data-css="display:none"><button class="btn ghost sm" type="button" data-act="lm-stop">Stop</button></div>`;
+  return `<div class="rows">${recs.map((r) => `<div class="prow"><span class="ico-tile">${ic("cpu", "s")}</span><span class="grow"><b>${esc(r.model)}</b><small>${gb(r.downloadBytes)} · ${esc(r.expectation)}</small></span><button class="btn sm" type="button" data-act="dl-go" data-m="${esc(r.model)}" ${r.fits ? "" : "disabled"}>${t("window.settings.models.download")}</button></div>`).join("")}</div>
+    <div class="progress" id="dl-p" hidden><u id="dl-bar"></u></div><p class="hint" id="dl-t" data-css="margin:0"></p><div class="acts" id="dl-stop" data-css="display:none"><button class="btn ghost sm" type="button" data-act="lm-stop">${t("action.local-stop-setup")}</button></div>`;
 }
 
 async function openDownload() {
   following = null;
   if (!L.data) await loadLocal();
-  openDlg({ title: "Get another model", body: downloadBody() });
+  openDlg({ title: t("window.settings.models.get-another-model"), body: downloadBody() });
 }
 
 /* Draws the engine's own report of the download into the dialog: how far, and its words when it failed. */
@@ -109,7 +110,7 @@ async function stopDownload() {
   if (!following) return;
   try {
     const { stopped } = await api("local-models/stop", { model: following });
-    if (stopped) toast("Stopped. The part already downloaded is kept for next time.");
+    if (stopped) toast(t("window.settings.models.stopped-the-part-already-downloaded-is"));
   } catch (error) { toast(error.message); }
 }
 
@@ -150,16 +151,16 @@ const steps = () => {
   const value = knobs?.values?.limits?.maxSteps;
   /* A plain box, as the prototype's num15; nothing is shown until the engine has said what it keeps. */
   return value == null ? ""
-    : `<span class="right num15"><input class="inp" id="m-steps" value="${esc(value)}" aria-label="Most steps in one task"><small>steps</small></span>`;
+    : `<span class="right num15"><input class="inp" id="m-steps" value="${esc(value)}" aria-label="${t("knobs.field.maxSteps")}"><small>${t("window.settings.models.steps")}</small></span>`;
 };
 const row = (b, right, small = "") => `<div class="ctl"><b>${b}</b>${right}<small>${small}</small></div>`;
-const sw = (id, b, small) => `<div class="ctl"><b>${b}</b><input class="sw" type="checkbox" id="${id}" aria-label="${b}" data-sw="set"><small>${small}</small></div>`;
+const sw = (id, b, small) => `<div class="ctl"><b>${esc(say(b))}</b><input class="sw" type="checkbox" id="${id}" aria-label="${esc(say(b))}" data-sw="set"><small>${esc(say(small))}</small></div>`;
 
 /* The model choices are "Same model" and the engine's own model presets (GET /api/state models). */
 const presetNames = () => (E.state?.models?.presets ?? []).map((p) => esc(p.name));
-const advanced = () => `<div class="sec x15-sec"><h2>Budgets</h2>${row("Most steps in one task", steps(), "It stops and asks when it gets there.")}${row("Spend cap per task", num("Spend cap per task", "USD"), "Only for accounts that bill per use.")}${row("Sub-tasks at once", seg("Sub-tasks at once", ["1", "3", "5"]), "Parts of a big task that can run side by side.")}</div>`
-  + `<div class="sec x15-sec"><h2>Models for smaller jobs</h2>${row("Sub-tasks and side jobs", seg("Sub-tasks and side jobs", ["Same model", ...presetNames()]), "Titles, summaries and searches inside a task.")}${sw("f15-pick-the-model-per-task", "Pick the model per task", "Easy tasks go to a quick model, hard ones to the best you have.")}${row("Planning model", seg("Planning model", ["Same model", ...presetNames()]), "Writes the plan in Plan first.")}${sw("f15-mix-models-on-hard-questions", "Mix models on hard questions", "Asks two and merges the best of each. Off until you choose: it doubles the cost.")}</div>`
-  + `<div class="sec x15-sec"><h2>Compare models</h2>${row("Model arena", '<span class="right"><button class="btn sm" type="button" data-act="soon">Open the arena</button></span>', "The same task to two models, you pick the better. Ratings build up over time.")}${row("Test suites", '<span class="right"><button class="btn sm" type="button" data-act="compareb17">See history</button></span>', "Your own tasks with a check for each, with history.")}</div>`;
+const advanced = () => `<div class="sec x15-sec"><h2>${t("window.settings.models.budgets")}</h2>${row(t("knobs.field.maxSteps"), steps(), t("window.settings.models.it-stops-and-asks-when-it"))}${row(t("window.settings.models.spend-cap-per-task"), num(t("window.settings.models.spend-cap-per-task"), "USD"), t("window.settings.models.only-for-accounts-that-bill-per"))}${row(t("window.settings.models.sub-tasks-at-once"), seg(t("window.settings.models.sub-tasks-at-once"), ["1", "3", "5"]), t("window.settings.models.parts-of-a-big-task-that"))}</div>`
+  + `<div class="sec x15-sec"><h2>${t("window.settings.models.models-for-smaller-jobs")}</h2>${row(t("knobs.subtasks.title"), seg(t("knobs.subtasks.title"), [t("window.settings.models.same-model"), ...presetNames()]), t("window.settings.models.titles-summaries-and-searches-inside-a"))}${sw("f15-pick-the-model-per-task", "Pick the model per task", "Easy tasks go to a quick model, hard ones to the best you have.")}${row(t("window.settings.models.planning-model"), seg(t("window.settings.models.planning-model"), [t("window.settings.models.same-model"), ...presetNames()]), t("window.settings.models.writes-the-plan-in-plan-first"))}${sw("f15-mix-models-on-hard-questions", "Mix models on hard questions", "Asks two and merges the best of each. Off until you choose: it doubles the cost.")}</div>`
+  + `<div class="sec x15-sec"><h2>${t("window.settings.p17-models.compare-models")}</h2>${row(t("reach.arena.title"), `<span class="right"><button class="btn sm" type="button" data-act="soon">${t("window.settings.models.open-the-arena")}</button></span>`, t("window.settings.models.the-same-task-to-two-models"))}${row(t("window.settings.models.test-suites"), `<span class="right"><button class="btn sm" type="button" data-act="compareb17">${t("window.settings.models.see-history")}</button></span>`, t("window.settings.models.your-own-tasks-with-a-check"))}</div>`;
 
-const TECHNICAL = `<div class="sec x15-sec"><h2>Retries and timeouts</h2>${row("Retries when a service fails", num("Retries when a service fails", ""))}${row("Wait for the first word", num("Wait for the first word", "s"), "Then it tries the next account.")}${row("Model rounds per step", num("Model rounds per step", ""))}${row("Tool and command timeout", num("Tool and command timeout", "s"))}${row("Largest tool answer kept whole", num("Largest tool answer kept whole", "KB"), "Bigger answers are saved to a file and summarised.")}</div>`
-  + `<div class="sec x15-sec"><h2>Per connection</h2>${row("Thinking effort", seg("Thinking effort", ["Low", "Medium", "High"]), "For the connection in use; others keep their own.")}${row("Service tier", seg("Service tier", ["Standard", "Priority", "Flex"]), "Priority costs more; flex is cheaper and slower.")}${sw("f15-slow-down-near-a-rate-limit", "Slow down near a rate limit", "Spreads requests out instead of hitting the wall.")}${sw("f15-keep-claude-s-cache-warm", "Keep Claude’s cache warm", "A tiny request every 4 minutes during long tasks, so repeats cost less.")}${row("OpenRouter picks", seg("OpenRouter picks", ["Cheapest", "Fastest", "Only ones I list"]), "Which provider serves an OpenRouter model.")}${sw("f15-fewer-rounds", "Fewer rounds", "Groups tool calls that don’t depend on each other.")}</div>`;
+const TECHNICAL = () => `<div class="sec x15-sec"><h2>${t("window.settings.models.retries-and-timeouts")}</h2>${row(t("window.settings.models.retries-when-a-service-fails"), num(t("window.settings.models.retries-when-a-service-fails"), ""))}${row(t("window.settings.models.wait-for-the-first-word"), num(t("window.settings.models.wait-for-the-first-word"), "s"), t("window.settings.models.then-it-tries-the-next-account"))}${row(t("window.settings.models.model-rounds-per-step"), num(t("window.settings.models.model-rounds-per-step"), ""))}${row(t("window.settings.models.tool-and-command-timeout"), num(t("window.settings.models.tool-and-command-timeout"), "s"))}${row(t("window.settings.models.largest-tool-answer-kept-whole"), num(t("window.settings.models.largest-tool-answer-kept-whole"), "KB"), t("window.settings.models.bigger-answers-are-saved-to-a"))}</div>`
+  + `<div class="sec x15-sec"><h2>${t("window.settings.models.per-connection")}</h2>${row(t("window.settings.models.thinking-effort"), seg(t("window.settings.models.thinking-effort"), [t("knobs.option.effort-low"), t("appearance.textSize.medium"), t("knobs.option.effort-high")]), t("window.settings.models.for-the-connection-in-use-others"))}${row(t("window.settings.models.service-tier"), seg(t("window.settings.models.service-tier"), [t("window.settings.models.standard"), t("window.settings.models.priority"), t("window.settings.models.flex")]), t("window.settings.models.priority-costs-more-flex-is-cheaper"))}${sw("f15-slow-down-near-a-rate-limit", "Slow down near a rate limit", "Spreads requests out instead of hitting the wall.")}${sw("f15-keep-claude-s-cache-warm", "Keep Claude’s cache warm", "A tiny request every 4 minutes during long tasks, so repeats cost less.")}${row(t("window.settings.models.openrouter-picks"), seg(t("window.settings.models.openrouter-picks"), [t("settings-kit.preset.cheapest"), t("window.settings.models.fastest"), t("window.settings.models.only-ones-i-list")]), t("window.settings.models.which-provider-serves-an-openrouter-model"))}${sw("f15-fewer-rounds", "Fewer rounds", "Groups tool calls that don’t depend on each other.")}</div>`;

@@ -10,6 +10,8 @@ import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
 import { propCard, initScheduleCard } from "./schedule-card.js";
 import { ordersSection, onItsOwnSection, hooksSection, readAutomations17, initAutomations17 } from "./automations17.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 let heartbeat = null;
 let board = null;
@@ -33,7 +35,7 @@ const IDEAS = [
   ["Work", "Meeting notes", "After each meeting, notes and follow-ups in Library.", "after each calendar meeting, write notes and follow-ups into Library"],
   ["Work", "Weekly report", "Friday summary of what your Trunks did.", "every Friday at 4, summarise what my Trunks did this week"],
 ];
-const ideaCard = (x, i) => `<button type="button" class="idea15" data-act="idea15" data-i="${i}"><small>${esc(x[0])}</small><b>${esc(x[1])}</b><span>${esc(x[2])}</span></button>`;
+const ideaCard = (x, i) => `<button type="button" class="idea15" data-act="idea15" data-i="${i}"><small>${esc(say(x[0]))}</small><b>${esc(say(x[1]))}</b><span>${esc(say(x[2]))}</span></button>`;
 
 /* The engine's shared board (GET /api/flows-boards/board): its five lanes under the design's five column names. */
 const LANES = [["todo", "To do"], ["doing", "Doing"], ["review", "To check"], ["done", "Done"], ["blocked", "Stuck"]];
@@ -43,14 +45,14 @@ function assigneeFace(name) {
   return trunk ? av(trunk, 18) : name === "assistant" ? av({ kind: "main" }, 18) : "";
 }
 function boardCard(c) {
-  return `<div class="card15" role="listitem" draggable="true" data-card15="${esc(c.id)}"><b>${esc(c.title)}</b><span class="c-foot15">${assigneeFace(c.assignee)}<small>${esc(c.notes)}</small></span><button type="button" class="c-mv15" data-act="bmove15" data-id="${esc(c.id)}" aria-label="Move “${esc(c.title)}”">${ic("more", "s")}</button></div>`;
+  return `<div class="card15" role="listitem" draggable="true" data-card15="${esc(c.id)}"><b>${esc(c.title)}</b><span class="c-foot15">${assigneeFace(c.assignee)}<small>${esc(c.notes)}</small></span><button type="button" class="c-mv15" data-act="bmove15" data-id="${esc(c.id)}" aria-label="${t("window.places.automations.move-title", { title: esc(c.title) })}">${ic("more", "s")}</button></div>`;
 }
 function boardTab() {
-  const hint = `<p class="hint" data-css="margin:4px 0 10px">Work that takes more than one sitting. Trunks move their own cards; drag one to move it yourself.</p>`;
+  const hint = `<p class="hint" data-css="margin:4px 0 10px">${t("window.places.automations.work-that-takes-more-than-one")}</p>`;
   if (!board) return `<div class="x15" data-tab15="board">${hint}${boardProblem ? `<p class="hint">${esc(boardProblem)}</p>` : ""}</div>`;
   const cols = LANES.map(([k, label]) => {
     const cards = board.lanes?.[k] ?? [];
-    return `<section class="col15" data-col15="${k}" aria-label="${label}"><h3>${label}<span>${cards.length}</span></h3>${cards.map(boardCard).join("") || '<p class="c-empty15">Nothing here</p>'}</section>`;
+    return `<section class="col15" data-col15="${k}" aria-label="${say(label)}"><h3>${say(label)}<span>${cards.length}</span></h3>${cards.map(boardCard).join("") || `<p class="c-empty15">${t("window.places.automations.nothing-here")}</p>`}</section>`;
   }).join("");
   return `<div class="x15" data-tab15="board">${hint}<div class="board15" role="list">${cols}</div></div>`;
 }
@@ -81,14 +83,14 @@ function initDrag() {
    calls its tools directly, which is not started from the window, so Run now stays greyed under its own name. */
 function procedureRow(p) {
   const steps = Array.isArray(p.data?.definition?.steps) ? p.data.definition.steps.length : 0;
-  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(p.data?.definition?.name ?? '')}</b><small>${esc([`${steps} steps`, p.data?.status].filter(Boolean).join(' · '))}</small></span><button class="btn sm" type="button" data-act="proc-run" data-id="${esc(p.id)}">Run now</button><button class="btn sm" type="button" data-act="flow" data-id="${esc(p.id)}">Open</button></div>`;
+  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(p.data?.definition?.name ?? '')}</b><small>${esc([t("window.places.automations.steps-steps", { steps }), p.data?.status].filter(Boolean).join(' · '))}</small></span><button class="btn sm" type="button" data-act="proc-run" data-id="${esc(p.id)}">${t("autonomy.orders.run")}</button><button class="btn sm" type="button" data-act="flow" data-id="${esc(p.id)}">${t("ov.open")}</button></div>`;
 }
 /* A procedure that starts itself (GET /api/autonomy/procedures): its steps, its version once changed, and when it starts in
    the engine's words. Open edits its steps as a proposal (flow-editor.js, data-v="auto"). */
 let autoProcedures = [];
 function autoRow(p) {
-  const small = [`${p.procedure.steps.length} steps`, p.version > 1 ? `version ${p.version}` : "", p.starts].filter(Boolean).join(" · ");
-  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(p.procedure.name)}</b><small>${esc(small)}</small></span><button class="btn sm" type="button" data-act="proc-run" data-id="${esc(p.id)}">Run now</button><button class="btn sm" type="button" data-act="flow" data-id="${esc(p.id)}" data-v="auto">Open</button></div>`;
+  const small = [t("window.places.automations.steps-steps", { steps: p.procedure.steps.length }), p.version > 1 ? t("window.places.automations.version-version", { version: p.version }) : "", p.starts].filter(Boolean).join(" · ");
+  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(p.procedure.name)}</b><small>${esc(small)}</small></span><button class="btn sm" type="button" data-act="proc-run" data-id="${esc(p.id)}">${t("autonomy.orders.run")}</button><button class="btn sm" type="button" data-act="flow" data-id="${esc(p.id)}" data-v="auto">${t("ov.open")}</button></div>`;
 }
 
 export function draw() {
@@ -99,26 +101,26 @@ export function draw() {
   const triggers = E.state.triggers || [];
   const procedures = E.state.procedures || [];
 
-  let html = `<main class="main enter11" id="main"><div class="lock-banner">${ic('lock', 's')}Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div><div class="scroll"><div class="place">
-    <h1>Automations</h1><p class="lede">Work your Trunks do on their own.</p>
-    <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === 'scheduled' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="scheduled">Scheduled</button><button class="tab" role="tab" type="button" aria-selected="${tab === 'procedures' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="procedures">Procedures</button><button class="tab" role="tab" type="button" aria-selected="${tab === 'triggers' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="triggers">Triggers</button><button class="tab" role="tab" type="button" aria-selected="${tab === 'checkins' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="checkins">Check-ins</button><button class="tab" role="tab" type="button" aria-selected="${tab === 'board' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="board">Board</button></div>`;
+  let html = `<main class="main enter11" id="main"><div class="lock-banner">${ic('lock', 's')}${t("window.places.automations.lockdown-is-on-trunks-can-read")}<button type="button" data-act="lock">${t("lockdown.turnOff")}</button></div><div class="scroll"><div class="place">
+    <h1>${t("dashboard.automations.title")}</h1><p class="lede">${t("window.places.automations.work-your-trunks-do-on-their")}</p>
+    <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === 'scheduled' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="scheduled">${t("place.automations.scheduled")}</button><button class="tab" role="tab" type="button" aria-selected="${tab === 'procedures' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="procedures">${t("nav.procedures")}</button><button class="tab" role="tab" type="button" aria-selected="${tab === 'triggers' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="triggers">${t("asks.board.triggers")}</button><button class="tab" role="tab" type="button" aria-selected="${tab === 'checkins' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="checkins">${t("window.places.automations.check-ins")}</button><button class="tab" role="tab" type="button" aria-selected="${tab === 'board' ? 'true' : 'false'}" data-act="ptab" data-place="automations" data-v="board">${t("window.places.automations.board")}</button></div>`;
 
   if (tab === "scheduled") {
-    html += `<p class="hint" data-css="margin:4px 0 8px">Work a Trunk does on a schedule.</p>
-    <form class="nl" data-form="nl"><input class="inp" id="nl-in" placeholder="Describe it: &quot;every weekday at 8, check my inbox for invoices&quot;" aria-label="Describe a new automation"><button class="btn pri" type="submit" data-act="nl-add">Add</button></form>${propCard()}
-    <div class="rows" data-css="margin-top:8px">${schedules.length ? schedules.map((s, i) => `<div class="prow">${av({id: s.id}, 34)}<span class="grow"><b>${esc(String(s.data?.prompt ?? '').split('\n')[0].slice(0, 80))}</b><small>${esc(s.data?.dueAt ? new Date(s.data.dueAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '')}</small></span><button class="btn sm" type="button" data-act="sched-run" data-id="${esc(s.id || '')}">Run now</button></div>`).join('') : ''}</div>
-  <div class="sec ideas15"><div class="sec-h15"><h2>Ideas</h2><button type="button" class="link15" data-act="ideas15">See all ${IDEAS.length}</button></div><div class="idea-row15">${IDEAS.slice(0, 3).map(ideaCard).join('')}</div></div>${ordersSection()}${onItsOwnSection()}`;
+    html += `<p class="hint" data-css="margin:4px 0 8px">${t("window.places.automations.work-a-trunk-does-on-a")}</p>
+    <form class="nl" data-form="nl"><input class="inp" id="nl-in" placeholder="${esc(t("window.places.automations.describe-it-every-weekday-at-8"))}" aria-label="${t("window.places.automations.describe-a-new-automation")}"><button class="btn pri" type="submit" data-act="nl-add">${t("asks.runtimes.add")}</button></form>${propCard()}
+    <div class="rows" data-css="margin-top:8px">${schedules.length ? schedules.map((s, i) => `<div class="prow">${av({id: s.id}, 34)}<span class="grow"><b>${esc(String(s.data?.prompt ?? '').split('\n')[0].slice(0, 80))}</b><small>${esc(s.data?.dueAt ? new Date(s.data.dueAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '')}</small></span><button class="btn sm" type="button" data-act="sched-run" data-id="${esc(s.id || '')}">${t("autonomy.orders.run")}</button></div>`).join('') : ''}</div>
+  <div class="sec ideas15"><div class="sec-h15"><h2>${t("window.places.automations.ideas")}</h2><button type="button" class="link15" data-act="ideas15">${t("window.places.automations.see-all-count", { count: IDEAS.length })}</button></div><div class="idea-row15">${IDEAS.slice(0, 3).map(ideaCard).join('')}</div></div>${ordersSection()}${onItsOwnSection()}`;
 
   } else if (tab === "procedures") {
-    html += `<p class="hint" data-css="margin:4px 0 8px">Saved step-by-step routines, including ones a Trunk learned by watching you.</p>
-    <div class="acts" data-css="margin:6px 0"><button class="btn" type="button" data-act="teach-start" ${E.trunks.length ? "" : "disabled"}>${ic('play', 's')}Show a Trunk how, once</button></div>
+    html += `<p class="hint" data-css="margin:4px 0 8px">${t("window.places.automations.saved-step-by-step-routines-including")}</p>
+    <div class="acts" data-css="margin:6px 0"><button class="btn" type="button" data-act="teach-start" ${E.trunks.length ? "" : "disabled"}>${ic('play', 's')}${t("window.places.automations.show-a-trunk-how-once")}</button></div>
     <div class="rows" data-css="margin-top:8px">${autoProcedures.map(autoRow).join('')}${procedures.map(procedureRow).join('')}</div>
-  <div class="sec"><h2>Your saved prompts</h2><p class="hint" data-css="margin:0 0 8px">Things you ask for often. Each has its own command that works in the window, on the phone, in the terminal and in chat apps.</p><div class="rows">${(prompts?.prompts ?? []).slice(0, 3).map(p => `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"></path></svg></span><span class="grow"><b>${esc(p.title ?? '')}${p.command ? ` <code>/${esc(p.command)}</code>` : ''}</b><small>${esc([p.group, String(p.body ?? '').slice(0, 40)].filter(Boolean).join(' · '))}</small></span><button class="btn sm" type="button" data-act="prompt-use" data-v="${esc(p.id ?? '')}">Use</button></div>`).join('')}</div><div class="acts" data-css="margin-top:10px"><button class="btn" type="button" data-act="prompt-new">${ic('plus', 's')}New prompt</button></div></div>`;
+  <div class="sec"><h2>${t("prompts.card.title")}</h2><p class="hint" data-css="margin:0 0 8px">${t("window.places.automations.things-you-ask-for-often-each")}</p><div class="rows">${(prompts?.prompts ?? []).slice(0, 3).map(p => `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"></path></svg></span><span class="grow"><b>${esc(p.title ?? '')}${p.command ? ` <code>/${esc(p.command)}</code>` : ''}</b><small>${esc([p.group, String(p.body ?? '').slice(0, 40)].filter(Boolean).join(' · '))}</small></span><button class="btn sm" type="button" data-act="prompt-use" data-v="${esc(p.id ?? '')}">${t("prompts.action.use")}</button></div>`).join('')}</div><div class="acts" data-css="margin-top:10px"><button class="btn" type="button" data-act="prompt-new">${ic('plus', 's')}${t("window.places.automations.new-prompt")}</button></div></div>`;
 
   } else if (tab === "triggers") {
-    html += `<p class="hint" data-css="margin:4px 0 8px">Work that starts when something happens.</p>
-    <form class="nl" data-form="nl"><input class="inp soon" id="nl-in" placeholder="Describe it: &quot;when a PDF lands in Downloads, summarise it&quot;" aria-label="Describe a new automation" disabled aria-disabled="true" data-tip="Coming soon"><button class="btn pri soon" type="submit" disabled aria-disabled="true" data-tip="Coming soon">Add</button></form>
-    <div class="rows" data-css="margin-top:8px">${triggers.length ? triggers.map((t, i) => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(t.name ?? '')}</b><small>${esc(t.prompt ?? '')}</small></span><input class="sw" type="checkbox" id="auto-triggers-${i}" data-sw="trigger" data-id="${esc(t.id || '')}" ${t.enabled ? 'checked=""' : ''} aria-label="${esc(t.name ?? '')} on or off"></div>`).join('') : ''}</div>${hooksSection()}`;
+    html += `<p class="hint" data-css="margin:4px 0 8px">${t("window.places.automations.work-that-starts-when-something-happens")}</p>
+    <form class="nl" data-form="nl"><input class="inp soon" id="nl-in" placeholder="${esc(t("window.places.automations.describe-it-when-a-pdf-lands"))}" aria-label="${t("window.places.automations.describe-a-new-automation")}" disabled aria-disabled="true" data-tip="${t("window.places.automations.coming-soon")}"><button class="btn pri soon" type="submit" disabled aria-disabled="true" data-tip="${t("window.places.automations.coming-soon")}">${t("asks.runtimes.add")}</button></form>
+    <div class="rows" data-css="margin-top:8px">${triggers.length ? triggers.map((tr, i) => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(tr.name ?? '')}</b><small>${esc(tr.prompt ?? '')}</small></span><input class="sw" type="checkbox" id="auto-triggers-${i}" data-sw="trigger" data-id="${esc(tr.id || '')}" ${tr.enabled ? 'checked=""' : ''} aria-label="${t("window.places.automations.value-on-or-off", { value: esc(tr.name ?? '') })}"></div>`).join('') : ''}</div>${hooksSection()}`;
 
     markLive(triggers.map((_, i) => `sw:auto-triggers-${i}`));
   } else if (tab === "checkins") {
@@ -174,12 +176,12 @@ function checkinsTile(hb) {
   const hours = set?.activeHours ?? null;
   const seg = (act, v, label, pressed) => `<button type="button" aria-pressed="${pressed}" data-act="${act}" data-v="${v}">${label}</button>`;
   const history = (hb?.heartbeat?.state?.history ?? []).slice(-5).reverse();
-  return `<div class="tile"><div class="th"><b>Check in on its own</b><span class="pill ${on ? "ok" : "idle"} ml"><i></i>${on ? "On" : "Off"}</span></div><p>Branch looks at the list below every so often and speaks up only when there's news. It's HEARTBEAT.md, in plain words.</p>
-    <div class="ctl"><b>How often</b><span class="right"><span class="seg" role="group" aria-label="How often">${seg("hb-every", 15, "Every 15 min", every === "15")}${seg("hb-every", 30, "Every 30 min", every === "30")}${seg("hb-every", 60, "Every hour", every === "60")}${seg("hb-every", "off", "Off", every === "off")}</span></span><small>Quiet background work: no news, no message.</small></div>
-    <div class="ctl"><b>Which hours</b><span class="right"><span class="seg" role="group" aria-label="Which hours">${hours ? seg("hb-hours", "kept", `${esc(hhmm(hours.from))} – ${esc(hhmm(hours.to))}`, true) : ""}${seg("hb-hours", "always", "Always", !hours)}<button type="button" aria-pressed="false" data-act="seg">Work hours</button></span></span><small>Outside these hours it waits.</small></div>
-    <div class="ctl"><b>Quiet on weekends</b><input class="sw" type="checkbox" id="hb-wk" aria-label="Quiet on weekends" data-sw="hb-wk"><small>It still tells you if a Trunk is stuck.</small></div>
-    <div class="sec"><h2>What it checks</h2><div class="rows">${linesOf(hb).map((c, i) => `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"></path></svg></span><span class="grow"><b data-css="font-weight:500">${esc(c)}</b></span><button class="icon-btn" type="button" aria-label="Remove" data-act="hb-rm" data-i="${i}" data-css="width:28px;height:28px"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>`).join("")}</div><form class="nl" data-form="hb" data-css="margin-top:8px"><input class="inp" id="hb-in" placeholder="Add something to check: &quot;a reply from the landlord&quot;" aria-label="Add something to check"><button class="btn" type="submit">Add</button></form></div>
-    <div class="sec"><h2>Last check-ins</h2><ol class="tl">${history.map((h) => `<li class="${h.outcome === "failed" ? "" : "ok"}"><span>${esc(h.outcome)}<small>${esc(h.reason ?? "")}</small></span><time>${esc(new Date(h.startedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</time></li>`).join("")}</ol></div></div>${gateTiles(hb)}`;
+  return `<div class="tile"><div class="th"><b>${t("window.places.automations.check-in-on-its-own")}</b><span class="pill ${on ? "ok" : "idle"} ml"><i></i>${on ? t("accounts.switch.on") : t("accounts.switch.off")}</span></div><p>${t("window.places.automations.branch-looks-at-the-list-below")}</p>
+    <div class="ctl"><b>${t("settingsIndex.metering-every.2")}</b><span class="right"><span class="seg" role="group" aria-label="${t("settingsIndex.metering-every.2")}">${seg("hb-every", 15, t("window.places.automations.every-15-min"), every === "15")}${seg("hb-every", 30, t("window.places.automations.every-30-min"), every === "30")}${seg("hb-every", 60, t("window.places.automations.every-hour"), every === "60")}${seg("hb-every", "off", t("accounts.switch.off"), every === "off")}</span></span><small>${t("window.places.automations.quiet-background-work-no-news-no")}</small></div>
+    <div class="ctl"><b>${t("window.places.automations.which-hours")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.places.automations.which-hours")}">${hours ? seg("hb-hours", "kept", `${esc(hhmm(hours.from))} – ${esc(hhmm(hours.to))}`, true) : ""}${seg("hb-hours", "always", t("window.places.automations.always"), !hours)}<button type="button" aria-pressed="false" data-act="seg">${t("window.places.automations.work-hours")}</button></span></span><small>${t("window.places.automations.outside-these-hours-it-waits")}</small></div>
+    <div class="ctl"><b>${t("window.places.automations.quiet-on-weekends")}</b><input class="sw" type="checkbox" id="hb-wk" aria-label="${t("window.places.automations.quiet-on-weekends")}" data-sw="hb-wk"><small>${t("window.places.automations.it-still-tells-you-if-a")}</small></div>
+    <div class="sec"><h2>${t("window.places.automations.what-it-checks")}</h2><div class="rows">${linesOf(hb).map((c, i) => `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"></path></svg></span><span class="grow"><b data-css="font-weight:500">${esc(c)}</b></span><button class="icon-btn" type="button" aria-label="${t("accounts.action.remove")}" data-act="hb-rm" data-i="${i}" data-css="width:28px;height:28px"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>`).join("")}</div><form class="nl" data-form="hb" data-css="margin-top:8px"><input class="inp" id="hb-in" placeholder="${esc(t("window.places.automations.add-something-to-check-a-reply"))}" aria-label="${t("window.places.automations.add-something-to-check")}"><button class="btn" type="submit">${t("asks.runtimes.add")}</button></form></div>
+    <div class="sec"><h2>${t("window.places.automations.last-check-ins")}</h2><ol class="tl">${history.map((h) => `<li class="${h.outcome === "failed" ? "" : "ok"}"><span>${esc(h.outcome)}<small>${esc(h.reason ?? "")}</small></span><time>${esc(new Date(h.startedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</time></li>`).join("")}</ol></div></div>${gateTiles(hb)}`;
 }
 
 /* Each job whose check script waits for the owner's yes (GET /api/heartbeat schedules, gate.approved false): the job and
@@ -187,7 +189,7 @@ function checkinsTile(hb) {
    for separate review (POST /api/schedules/<id>/gate). */
 function gateTiles(hb) {
   const waiting = (hb?.schedules ?? []).filter((s) => s.gate && !s.gate.approved);
-  return waiting.map((s) => `<div class="tile" data-css="margin-top:14px"><div class="th"><b>A check script wants your yes</b><span class="pill work ml"><i></i>Needs you</span></div><p>“${esc(s.prompt)}” wants to run <code>${esc([s.gate.executable, ...(s.gate.args ?? [])].join(" "))}</code> before it starts.</p><div class="acts"><button class="btn pri sm" type="button" data-act="gate-yes" data-id="${esc(s.id)}">Allow</button><button class="btn ghost sm" type="button" data-act="gate-no" data-id="${esc(s.id)}">Not now</button></div></div>`).join("");
+  return waiting.map((s) => `<div class="tile" data-css="margin-top:14px"><div class="th"><b>${t("window.places.automations.a-check-script-wants-your-yes")}</b><span class="pill work ml"><i></i>${t("dashboard.needs.title")}</span></div><p>${t("window.places.automations.prompt-wants-to-run-command-before", { prompt: esc(s.prompt), command: `<code>${esc([s.gate.executable, ...(s.gate.args ?? [])].join(" "))}</code>` })}</p><div class="acts"><button class="btn pri sm" type="button" data-act="gate-yes" data-id="${esc(s.id)}">${t("trunks.room.allow")}</button><button class="btn ghost sm" type="button" data-act="gate-no" data-id="${esc(s.id)}">${t("updates.busy.cancel")}</button></div></div>`).join("");
 }
 
 async function saveHeartbeat(change, switchOn) {
@@ -206,10 +208,10 @@ export function init() {
   on("bmove15", (el) => {
     const card = cardOf(el.dataset.id);
     if (!card) return;
-    openPop(el, `<div class="ph">Move to</div>${LANES.map(([k, l]) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${card.lane === k}" data-act="bto15" data-id="${esc(card.id)}" data-v="${k}"><span class="mi-t">${l}</span></button>`).join("")}`, { right: true });
+    openPop(el, `<div class="ph">${t("window.places.automations.move-to")}</div>${LANES.map(([k, l]) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${card.lane === k}" data-act="bto15" data-id="${esc(card.id)}" data-v="${k}"><span class="mi-t">${say(l)}</span></button>`).join("")}`, { right: true });
   });
   on("bto15", (el) => moveCard(el.dataset.id, el.dataset.v));
-  on("ideas15", () => openDlg({ title: "Ideas for automations", wide: true, body: [...new Set(IDEAS.map((x) => x[0]))].map((g) => `<div class="idea-g15"><h3>${esc(g)}</h3><div class="idea-row15">${IDEAS.map((x, i) => (x[0] === g ? ideaCard(x, i) : "")).join("")}</div></div>`).join("") }));
+  on("ideas15", () => openDlg({ title: t("window.places.automations.ideas-for-automations"), wide: true, body: [...new Set(IDEAS.map((x) => x[0]))].map((g) => `<div class="idea-g15"><h3>${esc(say(g))}</h3><div class="idea-row15">${IDEAS.map((x, i) => (x[0] === g ? ideaCard(x, i) : "")).join("")}</div></div>`).join("") }));
   /* Fills the Scheduled box with the idea's words; nothing is saved here. */
   on("idea15", (el) => {
     closeDlg();
@@ -217,7 +219,7 @@ export function init() {
     S.tabs.automations = "scheduled";
     renderNow();
     const box = $("#nl-in");
-    if (box) { box.value = IDEAS[+el.dataset.i]?.[3] ?? ""; box.focus(); }
+    if (box) { box.value = say(IDEAS[+el.dataset.i]?.[3] ?? ""); box.focus(); }
   });
   initDrag();
   on("sched-run", async (el) => { try { await api(`schedules/${encodeURIComponent(el.dataset.id)}/trigger`, {}); await refresh(); renderNow(); } catch (error) { toast(error.message); } });

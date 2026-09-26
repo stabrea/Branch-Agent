@@ -22,6 +22,8 @@ import { tabBar } from "./parts.js";
 import { ctl } from "../settings/parts.js";
 import { people, peopleBody, startPeople, loadSignin } from "../settings/pages/people.js";
 import { api } from "../core/api.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 const tabs = [["live", "Live now"], ["people", "People"], ["groups", "Groups"],
   ["shared", "Shared"], ["agents", "Teams of specialists"], ["activity", "Activity"],
@@ -34,7 +36,7 @@ const firstLine = (text) => String(text ?? "").split("\n")[0].slice(0, 80);
 function person() {
   const name = personHere();
   const version = E.state?.version ? ` · Branch ${esc(E.state.version)}` : "";
-  return `<span class="tav6" data-css="--c:var(--accent);width:30px;height:30px;font-size:11px">${esc(initials(name))}<i class="st st-online"></i></span><span class="grow"><b>${esc(name)}</b><small>This computer${version}</small></span>`;
+  return `<span class="tav6" data-css="--c:var(--accent);width:30px;height:30px;font-size:11px">${esc(initials(name))}<i class="st st-online"></i></span><span class="grow"><b>${esc(name)}</b><small>${t("window.places.team.this-computer-version", { version })}</small></span>`;
 }
 
 function liveRow(r, i) {
@@ -43,10 +45,10 @@ function liveRow(r, i) {
   const session = E.sessions.find((s) => (s.sessionId ?? s.id) === r.sessionId);
   const who = trunk ? av(trunk, 30) : av({ kind: "main" }, 30);
   const name = trunk?.name ?? E.state?.identity?.name ?? "";
-  const pill = waiting ? `<span class="pill work"><i></i>Needs you</span>` : `<span class="pill ok"><i></i>Working</span>`;
+  const pill = waiting ? `<span class="pill work"><i></i>${t("dashboard.needs.title")}</span>` : `<span class="pill ok"><i></i>${t("window.shell.working")}</span>`;
   return `<div class="run6 ${waiting ? "wait6" : ""}"><div class="run-h">${person()}${pill}</div>
     <div class="run-b">${who}<span class="grow"><b>${esc(name)}</b><span>${esc(firstLine(session?.opening) || firstLine(r.prompt))}</span>${r.model ? `<small>${esc(r.model)}</small>` : ""}</span></div>
-    <div class="acts"><button class="btn sm" type="button" data-act="run-watch" data-i="${i}">${EYE}Watch</button><button class="btn ghost sm" type="button" data-act="toast">Ask to join</button></div></div>`;
+    <div class="acts"><button class="btn sm" type="button" data-act="run-watch" data-i="${i}">${EYE}${t("window.places.team.watch")}</button><button class="btn ghost sm" type="button" data-act="toast">${t("window.places.team.ask-to-join")}</button></div></div>`;
 }
 
 const liveRuns = () => E.state.runs?.filter((r) => r.status === "running" || r.status === "needs_input") || [];
@@ -65,16 +67,16 @@ const seg = (title, sub, opts, pressed, act) => `<div class="ctl"><b>${esc(title
 function waitingRows(waiting) {
   if (!waiting?.length) return "";
   const name = (id) => E.profiles?.profiles?.find((p) => p.id === id)?.name ?? "";
-  return `<div class="sec"><h2>Accounts linked by email</h2>${waiting.map((w) => `<div class="prow"><span class="grow"><b>${esc(w.email)}</b><small>Wants to link to ${esc(name(w.profileId))} · you confirm</small></span><button class="btn sm" type="button" data-act="si-link" data-provider="${esc(w.provider)}" data-profile="${esc(w.profileId)}" data-subject="${esc(w.subject)}">Confirm</button></div>`).join("")}</div>`;
+  return `<div class="sec"><h2>${t("window.places.team.accounts-linked-by-email")}</h2>${waiting.map((w) => `<div class="prow"><span class="grow"><b>${esc(w.email)}</b><small>${t("window.places.team.wants-to-link-to-name-you", { name: esc(name(w.profileId)) })}</small></span><button class="btn sm" type="button" data-act="si-link" data-provider="${esc(w.provider)}" data-profile="${esc(w.profileId)}" data-subject="${esc(w.subject)}">${t("safety.codes.finish")}</button></div>`).join("")}</div>`;
 }
 
 function signinTab() {
   const s = signin?.settings;
   if (!s) return "";
   const locks = true; // a profile always locks after five wrong PINs (src/profiles.ts maximumPinAttempts)
-  return `${seg("Let people sign in from their own device", "They open this Branch’s address on their phone or computer. Ships off.", [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]], (v) => s.mode === v, "si-mode")}
-    ${seg("How they prove it’s them", "Everyone passes this check.", PROVE, (v) => (s.chain ?? []).includes(v), "si-chain")}${seg("Stay signed in for", "Then they sign in again.", STAY, (v) => s.sessionMinutes === v, "si-stay")}
-    ${ctl("si-lock", "Lock a profile after five wrong PINs", "For five minutes.", locks)}${ctl("si-owner", "Ask for my PIN when switching back to me", "Off by default.", Boolean(E.profiles?.ownerPin))}
+  return `${seg(t("people.admin.mode"), t("window.places.team.they-open-this-branchs-address-on"), [["off", t("accounts.switch.off")], ["when-needed", t("accounts.switch.when-needed")], ["on", t("accounts.switch.on")]], (v) => s.mode === v, "si-mode")}
+    ${seg(t("window.places.team.how-they-prove-its-them"), t("window.places.team.everyone-passes-this-check"), PROVE.map(([v, l]) => [v, say(l)]), (v) => (s.chain ?? []).includes(v), "si-chain")}${seg(t("window.places.team.stay-signed-in-for"), t("window.places.team.then-they-sign-in-again"), STAY.map(([v, l]) => [v, say(l)]), (v) => s.sessionMinutes === v, "si-stay")}
+    ${ctl("si-lock", t("window.places.team.lock-a-profile-after-five-wrong"), t("window.places.team.for-five-minutes"), locks)}${ctl("si-owner", t("window.places.team.ask-for-my-pin-when-switching"), t("window.places.team.off-by-default"), Boolean(E.profiles?.ownerPin))}
     ${waitingRows(signin.waiting)}`;
 }
 
@@ -103,11 +105,11 @@ export function draw() {
   const tab = S.tabs.team || "live";
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
 
-  let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div><div class="scroll"><div class="place">
-    <div class="team-top"><h1>People</h1></div>
-    <p class="lede">Everyone who uses Branch, and what their Trunks are doing right now.</p>
-    <div class="ko-banner"><span class="ko-mark" aria-hidden="true"></span><span class="grow"><b>Your keepoak.com team is optional</b><small>People on this computer and on their own devices work without it.</small></span><button class="btn pri sm" type="button" data-act="ko-start">Connect</button></div>
-    ${tabBar(tabs.map(([id, label]) => [id, label, counts()[id] ?? 0]), "team", tab)}`;
+  let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>${t("window.places.automations.lockdown-is-on-trunks-can-read")}<button type="button" data-act="lock">${t("lockdown.turnOff")}</button></div><div class="scroll"><div class="place">
+    <div class="team-top"><h1>${t("people.admin.people")}</h1></div>
+    <p class="lede">${t("window.places.team.everyone-who-uses-branch-and-what")}</p>
+    <div class="ko-banner"><span class="ko-mark" aria-hidden="true"></span><span class="grow"><b>${t("window.places.team.your-keepoak-com-team-is-optional")}</b><small>${t("window.places.team.people-on-this-computer-and-on")}</small></span><button class="btn pri sm" type="button" data-act="ko-start">${t("action.connect")}</button></div>
+    ${tabBar(tabs.map(([id, label]) => [id, say(label), counts()[id] ?? 0]), "team", tab)}`;
 
   if (tab === "live") html += liveTab();
   else if (tab === "people") html += peopleBody();

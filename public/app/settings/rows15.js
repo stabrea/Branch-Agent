@@ -2,12 +2,13 @@
    A switch is checked only from a value the engine gave (on is computed by the caller); a button carries the action
    named by the caller, so one with no route stays greyed ("soon"). */
 import { esc } from "../core/dom.js";
+import { say } from "../core/words.js";
 
 /** The prototype's switch id: "f15-" and the title, lowercased, every run of other characters a dash, at most 40. */
 export const id15 = (title) => "f15-" + title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
 
 export const sw15 = (title, sub, on = false) =>
-  `<div class="ctl"><b>${esc(title)}</b><input class="sw" type="checkbox" id="${id15(title)}" ${on ? "checked" : ""} aria-label="${esc(title)}" data-sw="set"><small>${esc(sub)}</small></div>`;
+  `<div class="ctl"><b>${esc(say(title))}</b><input class="sw" type="checkbox" id="${id15(title)}" ${on ? "checked" : ""} aria-label="${esc(say(title))}" data-sw="set"><small>${esc(say(sub))}</small></div>`;
 
 export const btn15 = (title, sub, label, act = "soon") =>
   `<div class="ctl"><b>${esc(title)}</b><span class="right"><button class="btn sm" type="button" data-act="${esc(act)}">${esc(label)}</button></span><small>${esc(sub)}</small></div>`;
