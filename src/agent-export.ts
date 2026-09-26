@@ -168,8 +168,9 @@ function bringIn(store: Store, owner: string, section: AgentSection, parsed: unk
   }
   if (section === "skills") return bringInSkills(store, owner, rows);
   if (section === "memory") {
-    const result = store.importMemory(owner, { facts: rows }) as { added?: number } | undefined;
-    return { section, brought: Number(result?.added ?? rows.length), note: "added to what is already remembered" };
+    // p17: the facts go back in as the memory archive they came out of (src/memory.ts parseMemoryArchive).
+    const result = store.importMemory(owner, { format: "branch-agent-memory", version: 1, exportedAt: new Date().toISOString(), records: rows }) as { imported?: number } | undefined;
+    return { section, brought: Number(result?.imported ?? rows.length), note: "added to what is already remembered" };
   }
   // Q48: "When to check with me" is a Settings setting, so replacing it is written down like any change.
   recordedWrite(store, owner, origin, ["policy"], () => {

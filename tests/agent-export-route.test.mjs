@@ -12,7 +12,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer, offLimitsToShortLivedKeys, offLimitsToHousehold } from "../dist/server.js";
 import { householdRefusal } from "../dist/household-routes.js";
-import { openAgent } from "../dist/agent-export.js";
+import { openAgent, importAgent } from "../dist/agent-export.js";
 
 async function served(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-agent-export-"));
@@ -67,6 +67,16 @@ test("POST without memory leaves memory out; a part Branch does not have is refu
   assert.equal((await api("POST", "/api/agent-export", { sections: ["skills"], extra: 1 })).status, 400);
 });
 
+test("a file exported with memory is brought back in by another Branch, facts and all", async (t) => {
+  const { app, api, owner } = await served(t);
+  app.store.save("memory", owner, "fact-1", { text: "Likes green tea", source: "owner" });
+  const { body } = await api("POST", "/api/agent-export", { sections: ["memory", "skills"] });
+  const other = await served(t);
+  const reports = importAgent(other.app.store, other.owner, openAgent(Buffer.from(body.data, "base64")), ["memory"]);
+  assert.deepEqual(reports.find((r) => r.section === "memory")?.brought, 1);
+  assert.equal(other.app.store.exportMemory(other.owner).records.some((r) => r.data.text === "Likes green tea"), true);
+});
+
 test("a short-lived key and a household profile are refused the file", () => {
   assert.notEqual(offLimitsToShortLivedKeys("POST", "/api/agent-export"), null);
   assert.equal(offLimitsToHousehold("POST", "/api/agent-export"), householdRefusal);
@@ -76,4 +86,5 @@ test("a short-lived key and a household profile are refused the file", () => {
    exportAgent (src/agent-export.ts) makes the second and third tests fail (every section is written);
    dropping the `redact` option in the route makes the second fail (the address leaves unmasked); reading
    `exported.facts` alone again in sectionData (the archive keeps its facts under `records`) makes the first
-   two fail (memory counts and carries nothing). */
+   two fail (memory counts and carries nothing); handing importMemory `{ facts }` again in bringIn makes the
+   round-trip test fail (the archive is refused). */
