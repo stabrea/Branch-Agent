@@ -3537,3 +3537,9 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .app.rail9 .side .machine>svg{display:none}
 /* Focus mode steps the list aside entirely, its edge too */
 .app.focus .side>.resizer{visibility:hidden}
+
+/* area: setup-resume */
+/* While setup is due on a reload, the window is only its plain background until setup is drawn over it (flows/flows.js). */
+#app.ob-due>.body,#app.ob-due>.statusbar,#app.ob-due>.focus-exit,#app.ob-due>.welcome10,#app.ob-due #tbActions{visibility:hidden}
+/* With "Don't show again" the card is two rows: the words, then its buttons, so nothing is squeezed. */
+.welcome10:has(.wel-never){flex-wrap:wrap;row-gap:10px}.welcome10:has(.wel-never) .grow{flex-basis:calc(100% - 66px)}.welcome10 .wel-never{white-space:nowrap;margin-left:auto}
