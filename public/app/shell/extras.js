@@ -93,7 +93,7 @@ async function toDocuments(id) {
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || String(response.status));
   const name = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1];
   await api("documents", { ...(name ? { name } : {}), text: await response.text() });
-  toast("Saved as Markdown to Library › Documents.");
+  toast(t("window.shell.extras.saved-as-markdown-to-documents"));
 }
 
 /* The desktop app drops every download, so there the engine's own copy (GET /api/sessions/<id>/export) is also offered
