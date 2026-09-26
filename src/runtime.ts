@@ -293,13 +293,12 @@ function foldCoverage(lines: string[]): number {
   return count;
 }
 /**
- * How many whole messages from `start` (at most up to `until`) one summary request to a connection
- * with this window carries after `prior`, the summary so far, with room kept for the answer. The text
- * of a request grows by exactly each line's own encoded length, and two for the line break between.
+ * How many whole messages from `start` (at most up to `until`) one summary request carries after `prior`,
+ * the summary so far, when the request may hold `room` tokens with these `tools`. The text of a request
+ * grows by exactly each line's own encoded length, and two for the line break between.
  */
-function carriedFrom(prior: string, lines: string[], start: number, until: number, window: number): number {
-  const room = window - answerReserve;
-  let encoded = JSON.stringify({ messages: summaryAsk(prior, ""), tools: [] }).length, count = 0;
+function carriedFrom(prior: string, lines: string[], start: number, until: number, room: number, tools: ToolDescription[]): number {
+  let encoded = JSON.stringify({ messages: summaryAsk(prior, ""), tools }).length, count = 0;
   for (let at = start; at < until; at++) {
     encoded += JSON.stringify(lines[at]).length - 2 + (count ? 2 : 0);
     if (Math.ceil(encoded / 4) > room) break;
@@ -316,6 +315,12 @@ function foldEnd(messages: Message[], ids: (number | null)[], split: { from: num
   let end = Math.min(split.from + count, split.to);
   while (end > split.from && (ids[end] === null || messages[end]!.role !== "user")) end--;
   return end - split.from >= 2 ? end : split.from;
+}
+/** The fewest messages of `split` a fold must read before any of it can be kept (`foldEnd`). */
+function fewestKept(messages: Message[], ids: (number | null)[], split: { from: number; to: number }): number {
+  let count = 1;
+  while (count < split.to - split.from && foldEnd(messages, ids, split, count) === split.from) count++;
+  return count;
 }
 /**
  * What reading a fold's part came to: its summary, how far it got and who wrote it. `failedWriters` names
@@ -2360,7 +2365,8 @@ ${run.output.slice(0, 6000)}`;
     if (!split) return null;
     const previous = messages.slice(1, split.from).filter((m) => m.role === "system").map((m) => m.content).join("\n");
     const lines = messages.slice(split.from, split.to).map(foldLine);
-    const reading = await this.readForFold(run, context, route, failed, previous, lines, { estimatedBefore: before, threshold: budget.threshold });
+    const reading = await this.readForFold(run, context, route, failed, previous, lines, fewestKept(messages, ids, split),
+      { estimatedBefore: before, threshold: budget.threshold });
     const folded = { from: split.from, to: reading.all ? split.to : foldEnd(messages, ids, split, reading.read) };
     if (folded.to > folded.from) {
       const throughId = ids[folded.to - 1]!;
@@ -2389,23 +2395,36 @@ ${run.output.slice(0, 6000)}`;
    * of whole messages, each building on the summary so far, until it has read it all. When the
    * side-job connection does not answer, the connection this round goes to writes the rest; any other
    * failure ends the reading with what was written so far. A request is sent only while the task can
-   * still spend its whole reply, so no summary is cut short: one it can no longer afford ends the
-   * reading there, before it is sent, and the task runs out of tokens with what was written so far.
+   * still spend its whole reply, so no summary is cut short. One the task can't afford carries fewer
+   * whole messages, as many as it can; the reading ends before one that would carry none, and the task
+   * runs out of tokens with what was written so far. Until `least` messages are read, the fewest a fold
+   * can keep, each request is sent only while the task could still pay for the rest of them in one
+   * request: short of that, nothing read could be kept and the next task would ask the same, so the
+   * reading ends before it and the task says the conversation is too long to shorten within its budget.
    */
   private async readForFold(run: Run, context: ToolContext, route: ModelRoute, failed: ModelPreset | undefined, previous: string,
-    lines: string[], note: Record<string, number>): Promise<FoldReading> {
-    const cover = foldCoverage(lines), current = route.candidates[route.index]!;
+    lines: string[], least: number, note: Record<string, number>): Promise<FoldReading> {
+    const cover = foldCoverage(lines), current = route.candidates[route.index]!, keepable = Math.min(least, cover);
     let prior = previous, read = 0, requests = 0, reply = "", skip = failed, failure: FoldReading["failure"];
     const writers: string[] = [], failedWriters: string[] = [];
-    const asked: ToolContext = { ...context, permissions: new Set() };
+    const asked: ToolContext = { ...context, permissions: new Set() }, tools = this.toolsFor(asked);
     while (read < cover && !failure) {
-      const next = this.nextFoldRequest(run, route, skip, prior, lines, read, cover);
+      let next = this.nextFoldRequest(run, route, skip, prior, lines, read, cover);
       if (!next) break;
-      const ask = summaryAsk(prior, next.transcript);
-      if (context.budget.remaining() - estimateTokens({ messages: ask, tools: this.toolsFor(asked) }) < this.replyCeiling(run)) {
-        failure = { error: new BudgetError(`Token budget exhausted.${this.spentOnRun(run.id, next.preset.model)}`), writer: next.preset };
+      const room = context.budget.remaining() - this.replyCeiling(run), least = lines.slice(read, keepable);
+      if (least.length && estimateTokens({ messages: summaryAsk(prior, least.join("\n")), tools }) > room) {
+        failure = { error: new BudgetError(this.cannotShorten(run, context, prior, least, tools, next.preset)), writer: next.preset };
         break;
       }
+      if (estimateTokens({ messages: summaryAsk(prior, next.transcript), tools }) > room) {
+        const count = carriedFrom(prior, lines, read, Math.min(next.through, cover), room, tools);
+        if (!count) {
+          failure = { error: new BudgetError(`Token budget exhausted.${this.spentOnRun(run.id, next.preset.model)}`), writer: next.preset };
+          break;
+        }
+        next = { ...next, transcript: lines.slice(read, read + count).join("\n"), through: read + count };
+      }
+      const ask = summaryAsk(prior, next.transcript);
       if (!requests) this.store.event(run.id, "context.compacting", { ...note, writer: next.preset.id, ...next.note }); // R17-049
       requests++;
       try {
@@ -2423,6 +2442,18 @@ ${run.output.slice(0, 6000)}`;
     }
     const structured = parseSessionSummary(reply);
     return { summary: structured ? summaryText(structured) : reply, structured, read, all: read >= cover, requests, writers, failedWriters, ...(failure ? { failure } : {}) };
+  }
+  /**
+   * What a task says when its tokens can't pay for the fewest messages a fold could keep (`least`, sent
+   * after `prior`) in one request with the whole reply ceiling: its own budget and, when one request to
+   * `writer` can hold them, the least budget that would. Otherwise they take several requests, whose
+   * summaries are not written yet, so no figure is given.
+   */
+  private cannotShorten(run: Run, context: ToolContext, prior: string, least: string[], tools: ToolDescription[], writer: ModelPreset): string {
+    const ask = estimateTokens({ messages: summaryAsk(prior, least.join("\n")), tools });
+    const words = `This conversation is too long to shorten within this task's token budget of ${context.budget.limits.maxTokens.toLocaleString()} tokens`;
+    if (ask > this.contextWindow(writer) - answerReserve) return `${words}.`;
+    return `${words}: it needs about ${(context.budget.tokens + ask + this.replyCeiling(run)).toLocaleString()}.`;
   }
   /**
    * The next request of a fold: who writes it and what it carries. The side-job connection (R17-S11)
@@ -2444,7 +2475,7 @@ ${run.output.slice(0, 6000)}`;
       const window = this.contextWindow(preset);
       if (read === 0 && estimateTokens({ messages: summaryAsk(prior, whole), tools: [] }) <= window - answerReserve)
         return { preset, transcript: whole, through: lines.length, note };
-      const count = carriedFrom(prior, lines, read, cover, window);
+      const count = carriedFrom(prior, lines, read, cover, window - answerReserve, []);
       const transcript = lines.slice(read, read + count).join("\n");
       if (count > 0 && (preset === current || transcript.length >= prior.length)) return { preset, transcript, through: read + count, note };
       because = "the connection chosen for side jobs cannot hold enough of it";
