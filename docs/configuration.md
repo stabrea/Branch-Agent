@@ -2286,6 +2286,17 @@ JEV is not used for routing, learning promotion, approvals, or autonomous policy
 to any of those roles requires a fixed, labelled, held-out evaluation with accuracy, calibration,
 latency, cost, retries, provider and model recorded as described in `docs/experiments.md`.
 
+## Decision models
+
+Small, bounded judgements (yes or no, pick one, a score from 1 to 10, keep or drop each line of a list) can be asked
+of a model the owner chooses, with no tools and no conversation, on the connections Branch already has
+(`src/decision-models.ts`). `GET /api/decisions` gives the overview, `POST /api/decisions/settings { model,
+minConfidence, maxList }` changes the settings and `POST /api/decisions/decide` asks one question; all three are
+owner-only. `model` is the connection that decides, by preset id (empty means the task's own model); below
+`minConfidence` (0.5 to 0.99, default 0.75) the task's own model decides instead; `maxList` (10 to 2000, default 400)
+is the longest list filtered at once, and a longer list is split. Every answer is checked, never trusted: a pick must
+be one of the choices offered, a filter may keep only lines it was given, and a score must be 1 to 10.
+
 ## Teams, linked chats, registries and evaluation
 
 `POST /api/teams { name, purpose, members: [{ specialistId, role, brief }] }` creates a team with a room; `POST /api/teams/:id/run { prompt }` fans the task out to every member and appends answers to the room (`GET /api/teams/:id/room`). `POST /api/channels/link { channel, chatId, sessionId }` makes a chat continue an existing conversation. `POST /api/registry/browse { url }` and `POST /api/registry/install { url, skillId }` work with a `branch-skill-registry` JSON index; installed skills stay disabled until activated. `POST /api/evaluation` (empty body for the standard suite) or `branch eval` records accuracy, latency and cost; energy is reported unavailable.
