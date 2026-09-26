@@ -10,6 +10,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { startPairing, stopPairing } from "./pair.js";
 import { t } from "../../i18n.js";
+import { init as initComputers17 } from "./computers17.js"; // pass 17 part D §9
 
 const TABS = [["network", "window.flows.comp.network"], ["code", "window.flows.comp.code"], ["phone", "studio.tab.phone"]];
 /* The prototype's note under the tabs (addComputer): what pairing leads to. */
@@ -28,7 +29,7 @@ function addComputer(tab) {
   addDialog(tab, body);
 }
 
-const KINDS = [["sandbox", "shield", "window.flows.comp.sandbox", "window.flows.comp.sandbox-hint"], ["pair", "monitor", "window.flows.comp.pair", "window.flows.comp.pair-hint"], ["cloud", "globe", "window.flows.comp.cloud", "window.flows.comp.cloud-hint"], ["remote", "key", "window.flows.comp.remote", "window.flows.comp.remote-hint"]];
+const KINDS = [["sandbox", "shield", "window.flows.comp.sandbox", "window.flows.comp.sandbox-hint"], ["pair", "monitor", "window.flows.comp.pair", "window.flows.comp.pair-hint"], ["cloud", "cloud17d", "window.flows.comp.cloud", "window.flows.comp.cloud-hint"], ["remote", "key", "window.flows.comp.remote", "window.flows.comp.remote-hint"]];
 /* Only pairing is real here; the other kinds are drawn greyed, one by one. */
 const OFF = () => ` disabled aria-disabled="true" data-tip="${t("window.flows.coming-soon")}"`;
 
@@ -41,6 +42,7 @@ function addKind() {
 
 export function init() {
   markLive(["addcomp", "ac-tab", "comp-add", "comp-add-go"]);
+  initComputers17();
   on("addcomp", () => addComputer("network"));
   on("ac-tab", (el) => addComputer(el.dataset.v));
   on("comp-add", () => addKind());

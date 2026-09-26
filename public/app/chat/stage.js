@@ -22,6 +22,7 @@ import { on } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
 import { work, loadWork } from "./terminal.js";
 import { t } from "../../i18n.js";
+import { pickChip } from "../flows/computers17.js"; // pass 17 part D §9: the conversation's computer menu
 
 const G = { kind: null, pip: null, dock: true, sid: null, messages: [], plan: null, at: 0, desk: null };
 const SHOT = new Map(); // picture path → its bytes as a blob: address ("" while loading or after the engine refused it)
@@ -93,7 +94,7 @@ function top(kind, steps) {
   const ctl = yours ? `<button class="btn pri sm" type="button" data-act="handback">${t("window.chat.stage.hand-back-to", { name: esc(name()) })}</button>` : take + stop;
   const sw = [["computer", "monitor", t("strip.kind.computer")], ["browser", "globe", t("pane.browser")]].map(([v, i, l]) => `<button type="button" data-act="stage" data-v="${v}" aria-pressed="${kind === v}">${ic(i, "s")}${l}</button>`).join("");
   return `<div class="st7-top"><button class="st7-back" type="button" data-act="stage-close">${ic("back", "s")}${esc(name())}</button>
-    <span class="st7-title"><b>${title}</b></span>${pill}<span class="tb-grow"></span>${ctl}
+    <span class="st7-title"><b>${title}</b>${kind === "computer" ? pickChip(S.chat) : ""}</span>${pill}<span class="tb-grow"></span>${ctl}
     <span class="st7-sw" role="group" aria-label="${t("dashboard.filter.label")}">${sw}</span>
     <button class="icon-btn" type="button" aria-label="${t("window.chat.stage.shrink")}" data-tip="${t("window.chat.stage.pip")}" data-act="stage-pip">${ic("layers")}</button>
     <button class="icon-btn" type="button" aria-label="${G.dock ? t("window.chat.stage.hide-conversation") : t("window.chat.stage.show-conversation")}" data-tip="${G.dock ? t("window.chat.stage.full-screen") : t("window.chat.stage.show-conversation")}" data-act="stage-dock" aria-pressed="${G.dock}">${ic("panel")}</button></div>`;

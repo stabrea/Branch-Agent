@@ -16,6 +16,8 @@ import { face, TEMPLATES, TEMPLATE_WORDS } from "../flows/trunk.js";
 import { specLine, toolsSection, codingAgentsSection, initCustomize17 } from "./customize17.js";
 import { t } from "../../i18n.js";
 import { say } from "../core/words.js";
+import { LEARN_ID, learnItem, learnTile, learnDetail, initLearn17d } from "./learn17d.js"; // pass 17 part D §3
+import { offlineIn } from "../settings/pages/chatapps.js"; // pass 17 part D §8
 
 function tabBar(tabs, place, current) {
   return `<div class="tabs" role="tablist">${tabs.map(([id, label, count]) =>
@@ -44,7 +46,7 @@ const KINDS = [
 /* Each kind's items as {id, name, sub}; command-line tools have no engine list, so none are drawn. */
 function itemsOf(k) {
   if (k === "mcp") return mcpServers.map((s) => ({ id: s.id, name: s.id, sub: s.summary ?? "", error: s.lastError ?? "" }));
-  if (k === "skills") return (E.state?.skills ?? []).map((s) => ({ id: s.id, name: s.activeName || s.name, sub: s.description ?? "" }));
+  if (k === "skills") return [learnItem(), ...(E.state?.skills ?? []).map((s) => ({ id: s.id, name: s.activeName || s.name, sub: s.description ?? "" }))]; // pass 17 part D §3: learn-this first
   if (k === "plugins") return plugins.map((p) => ({ id: p.id ?? p.name, name: p.name ?? p.id, sub: p.description ?? "" }));
   if (k === "agents") return agents.map((a) => ({ id: a.name, name: a.name, sub: a.description ?? a.cardUrl ?? "" }));
   return [];
@@ -111,6 +113,7 @@ function detailActs(k, x) {
 /* Branch's own assistant, by its name (state.identity): it may use a server whose tools are in its list (state.tools). */
 const mainChip = (x) => `<button type="button" class="chip6" data-act="tool-who" data-k="mcp" data-id="${esc(x.id)}" data-v="main" aria-pressed="${(E.state?.tools ?? []).some((t) => t.name.startsWith(`mcp.${x.id}.`))}">${esc(E.state?.identity?.name ?? "")}</button>`;
 function detail(k, x) {
+  if (k === "skills" && x.id === LEARN_ID) return learnDetail(); // pass 17 part D §3
   const list = k === "mcp" ? "mcpServers" : k === "skills" ? "skills" : null;
   const who = list ? `<div class="sec"><h2>${t("window.places.customize.which-trunks-may-use-it")}</h2><div class="chips8">${E.trunks.map((t) => `<button type="button" class="chip6" data-act="tool-who" data-k="${k}" data-id="${esc(x.id)}" data-v="${esc(t.id)}" aria-pressed="${(t[list] ?? []).includes(k === "skills" ? x.name : x.id)}">${esc(t.name)}</button>`).join("")}${k === "mcp" ? mainChip(x) : ""}</div></div>` : "";
   const onOff = k === "mcp" ? `<input type="checkbox" class="sw" data-sw="tool9g" data-k="${k}" data-id="${esc(x.id)}" aria-label="${t("window.places.customize.name-on-or-off", { name: esc(x.name) })}">` : "";
@@ -122,9 +125,9 @@ function toolsTab() {
   const k = T9.k, items = itemsOf(k), sel = items.find((x) => x.id === T9.sel) ?? items[0];
   const nav = KINDS.map(([id, label, icon, desc]) => `<button type="button" data-act="t9-kind" data-v="${id}" aria-current="${k === id}">${ic(icon, 's')}<span><b>${esc(say(label))}</b><small>${esc(say(desc))}</small></span><em>${itemsOf(id).length}</em></button>`).join("");
   const [act, words] = ADD[k], label = say(words);
-  const rows = items.map((x) => `<button type="button" class="t9-item" data-act="t9-sel" data-v="${esc(x.id)}" aria-current="${sel?.id === x.id}"><span class="ico-tile t9i" data-css="width:32px;height:32px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span></button>`).join("");
+  const rows = items.map((x) => `<button type="button" class="t9-item" data-act="t9-sel" data-v="${esc(x.id)}" aria-current="${sel?.id === x.id}"><span class="ico-tile t9i" data-css="width:32px;height:32px">${ic(x.icon ?? KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span></button>`).join("");
   return `<div class="t9"><nav class="t9-nav" aria-label="${t("window.places.customize.kinds-of-tools")}">${nav}<button type="button" class="btn pri t9-addbtn" data-act="${act}" data-v="${k}">${ic('plus', 's')}${label}</button></nav>
-    <div class="t9-list">${learnedCard()}${rows}${suggested()}</div>${sel ? detail(k, sel) : ""}</div>${toolsSection(k, sel?.id)}`;
+    <div class="t9-list">${k === "skills" && sel?.id !== LEARN_ID ? learnTile() : ""}${learnedCard()}${rows}${suggested()}</div>${sel ? detail(k, sel) : ""}</div>${toolsSection(k, sel?.id)}`;
 }
 
 /* The engine keeps each specialist as {id, data: {definition: {name, instructions}}}. */
@@ -166,7 +169,7 @@ function channelGrid() {
   const q = CH.q.trim().toLowerCase();
   const on = new Set(connected.map((c) => c.id ?? c.kind));
   const list = channelSetup.filter((c) => (CH.fam === "all" || c.family === CH.fam) && (!q || [c.name, say(c.name)].some((n) => String(n).toLowerCase().includes(q))));
-  return list.map((c) => `<button type="button" class="ch12 ${on.has(c.id) ? "on12" : ""}" data-act="ch-open" data-v="${esc(c.id)}">${logo(c.id, c.name, 32)}<span><b>${esc(say(c.name))}</b><small>${on.has(c.id) ? t("window.places.customize.connected-reaches-branch") : say(FAM_WORDS[c.family]) ?? t("addons.switch.on")}</small></span>${on.has(c.id) ? '<i class="dot12"></i>' : ""}</button>`).join("");
+  return list.map((c) => `<button type="button" class="ch12 ${on.has(c.id) ? "on12" : ""}" data-act="ch-open" data-v="${esc(c.id)}">${logo(c.id, c.name, 32)}<span><b>${esc(say(c.name))}</b><small>${offlineIn(connected, c.id) ? t("window.p17d.offline-token-revoked") : on.has(c.id) ? t("window.places.customize.connected-reaches-branch") : say(FAM_WORDS[c.family]) ?? t("addons.switch.on")}</small></span>${on.has(c.id) ? `<i class="dot12${offlineIn(connected, c.id) ? " off17d" : ""}"></i>` : ""}</button>`).join("");
 }
 
 function channelsTab() {
@@ -296,6 +299,7 @@ export function init() {
   markLive(["sw:ch-q", "ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam", "rev", "sugg15", "pat15"]);
   on("pat15", (el) => choosePattern(el));
   initCustomize17();
+  initLearn17d(); // pass 17 part D §3
   on("rev", (el) => revise(el));
   on("sugg15", (el) => addSuggested(el));
   on("t9-kind", (el) => { T9.k = el.dataset.v; T9.sel = null; renderNow(); });

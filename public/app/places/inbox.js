@@ -27,6 +27,7 @@ import { prowOpen, inboxMarkAll } from "../chat/unread.js"; // pass 17: unread d
 import { adaptCards, laterTab, laterCount, receiptsSection, readInbox17, initInbox17 } from "./inbox17.js";
 import { initDemo17 } from "./demo17.js";
 import { t, language } from "../../i18n.js";
+import { revokedPrompts } from "../settings/pages/chatapps.js"; // pass 17 part D §8: a refused chat-app token
 
 let asks = [];
 let installs = [];
@@ -137,7 +138,7 @@ export function draw() {
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
 
   const count = waitingCount();
-  const body = cutCards() + (tab === "needs" ? adaptCards() + needsTab() : tab === "finished" ? finishedTab() : tab === "history" ? historyTab() + receiptsSection() : tab === "later" ? laterTab() : "");
+  const body = cutCards() + (tab === "needs" ? revokedPrompts() + adaptCards() + needsTab() : tab === "finished" ? finishedTab() : tab === "history" ? historyTab() + receiptsSection() : tab === "later" ? laterTab() : "");
   let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>${t("window.places.automations.lockdown-is-on-trunks-can-read")}<button type="button" data-act="lock">${t("lockdown.turnOff")}</button></div><div class="scroll"><div class="place">
     ${recBar()}
     <h1>${t("place.inbox")}</h1><p class="lede">${t("window.places.inbox.everything-a-trunk-is-waiting-on")}</p>
