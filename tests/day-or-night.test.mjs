@@ -11,8 +11,12 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openSettings } from "./places.mjs";
+import { openSettings } from "./places.mjs"; // the old window's helper, for the skipped bodies only
 
+/* Redesign: Settings › Appearance's "Light or dark" (settings/pages/appearance.js), 1:1 with prototype.html: a live
+   mirror of the window in light, one in dark, and "Match this computer" (data-act="themeset"). The old "Day or night"
+   row's words and signs are replaced by it; what it does is checked: the window switches, keeps the theme chosen, the
+   engine keeps the choice (preferences: daylight or forest, followSystem) and it is still chosen after a reload. */
 async function appearance(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-day-night-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
@@ -22,7 +26,7 @@ async function appearance(t) {
   await fetch(new URL("/api/onboarding", server.url), {
     method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }),
   });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce", serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
@@ -30,10 +34,52 @@ async function appearance(t) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
-  await openSettings(page, "appearance");
-  await page.locator("#lx-mode .segmented-option").first().waitFor();
-  return { page, errors };
+  await openAppearance(page);
+  const preferences = async () => (await (await fetch(new URL("/api/state", server.url), { headers: { authorization: `Bearer ${server.token}` } })).json()).preferences;
+  return { page, errors, app, preferences };
 }
+async function openAppearance(page) {
+  await page.locator('#side [data-act="view"][data-v="settings"]').click();
+  await page.locator('[data-act="setpage"][data-v="appearance"]').click();
+  await page.locator('.set-col [data-act="themeset"]').first().waitFor();
+}
+const choice = (page, v) => page.locator(`.set-col .mirrors [data-act="themeset"][data-v="${v}"]`);
+const pressedChoices = (page) => page.locator('.set-col .mirrors [data-act="themeset"][aria-pressed="true"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.v));
+
+test("DG-160: the three choices are the prototype's light mirror, dark mirror and Match this computer, one of them chosen", async (t) => {
+  const { page, errors } = await appearance(t);
+  assert.deepEqual(await page.locator('.set-col .mirrors [data-act="themeset"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.v)), ["light", "dark", "system"]);
+  assert.match(await choice(page, "light").innerText(), /^Light · live mirror of/);
+  assert.match(await choice(page, "dark").innerText(), /^Dark · live mirror of/);
+  assert.equal((await choice(page, "system").innerText()).trim(), "Match this computer");
+  assert.equal((await pressedChoices(page)).length, 1, "exactly one is chosen");
+  assert.deepEqual(errors, []);
+});
+
+test("DG-160: Light really switches the window, keeps the theme, and is still chosen after a reload", async (t) => {
+  const { page, errors, preferences } = await appearance(t);
+  const palette = await page.evaluate(() => document.documentElement.dataset.palette);
+  await choice(page, "light").click();
+  await page.waitForFunction(() => document.documentElement.dataset.theme === "light");
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.palette), palette, "switching keeps the theme you chose");
+  assert.deepEqual(await pressedChoices(page), ["light"]);
+  let saved = await preferences();
+  for (let i = 0; i < 20 && saved.appearance !== "daylight"; i++) { await page.waitForTimeout(150); saved = await preferences(); }
+  assert.deepEqual({ appearance: saved.appearance, followSystem: saved.followSystem }, { appearance: "daylight", followSystem: false }, "the engine keeps it");
+  await page.reload();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await openAppearance(page);
+  await page.waitForFunction(() => document.querySelector('.mirrors [data-act="themeset"][aria-pressed="true"]')?.dataset.v === "light");
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "light");
+  await choice(page, "system").click();
+  await page.waitForFunction(() => document.querySelector('.mirrors [data-act="themeset"][aria-pressed="true"]')?.dataset.v === "system");
+  saved = await preferences();
+  for (let i = 0; i < 20 && saved.followSystem !== true; i++) { await page.waitForTimeout(150); saved = await preferences(); }
+  assert.equal(saved.followSystem, true, "following is the real setting, not only a pressed button");
+  assert.deepEqual(errors, []);
+});
+
+/* The old window's row, for the skipped bodies below. */
 const control = (page) => page.evaluate(() => {
   const host = document.getElementById("lx-mode"), row = host.closest(".lx-look-row"), group = host.querySelector(".seg");
   return {
@@ -53,7 +99,9 @@ const control = (page) => page.evaluate(() => {
   };
 });
 
-test("DG-160: the choices read ☾ Moonlight and ☀ Daylight, named by their words, with the sample's label and note", async (t) => {
+// Redesign: replaced by the new window (prototype.html's "Light or dark" mirrors, not the "Day or night" row with
+// ☾ Moonlight and ☀ Daylight; the live tests above check what it does).
+test.skip("DG-160: the choices read ☾ Moonlight and ☀ Daylight, named by their words, with the sample's label and note", async (t) => {
   const { page, errors } = await appearance(t);
   assert.deepEqual(await control(page), {
     label: "Day or night", group: "Day or night",
@@ -68,7 +116,9 @@ test("DG-160: the choices read ☾ Moonlight and ☀ Daylight, named by their wo
   assert.deepEqual(errors, []);
 });
 
-test("DG-160: Daylight really switches the window, keeps the theme, and is still chosen after a reload", async (t) => {
+// Redesign: replaced by the new window (prototype.html's "Light or dark" mirrors, not the "Day or night" row with
+// ☾ Moonlight and ☀ Daylight; the live tests above check what it does).
+test.skip("DG-160: Daylight really switches the window, keeps the theme, and is still chosen after a reload", async (t) => {
   const { page, errors } = await appearance(t);
   const palette = await page.evaluate(() => document.documentElement.dataset.palette);
   await page.locator("#lx-mode").getByRole("button", { name: "Daylight", exact: true }).click();
@@ -87,7 +137,8 @@ test("DG-160: Daylight really switches the window, keeps the theme, and is still
   assert.deepEqual(errors, []);
 });
 
-test("DG-160: in French the words change and the signs stay", async (t) => {
+// Redesign: Coming soon (sw:lang), checked at e5b8a610.
+test.skip("DG-160: in French the words change and the signs stay", async (t) => {
   const { page, errors } = await appearance(t);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await page.waitForFunction(() => document.documentElement.lang === "fr");

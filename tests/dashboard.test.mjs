@@ -379,7 +379,25 @@ test("Stop ends a working task, Lockdown switches from the page, and when-needed
   await quiet.locator("#db-off:not([hidden])").waitFor();
 });
 
-test("the switch lives in Customize → Channels, and the dashboard's links open the right place in the window", async (t) => {
+test("the dashboard's links open the right place in the new window", async (t) => {
+  // Redesign: the dashboard page is kept (public/dashboard); its links come back to the window as /#open=<place:tab>
+  // (public/dashboard/card.js, sections.js). Settings › Data & usage is the new window's "usage" page.
+  const f = await fixture(t);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });
+  await page.goto(f.server.url + "/#open=settings:data");
+  await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  /* The link waited for the sign-in, then opened Settings → Data & usage and tidied the address. */
+  await page.locator('[data-act="setpage"][data-v="usage"][aria-current="true"]').waitFor({ timeout: 15000 });
+  assert.equal(new URL(page.url()).hash, "");
+});
+
+// Redesign: replaced by the new window (prototype.html has no "Dashboard in the browser" card in Customize ›
+// Channels; its Overview place holds the dashboard's areas).
+test.skip("the switch lives in Customize → Channels, and the dashboard's links open the right place in the window", async (t) => {
   const f = await fixture(t);
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());

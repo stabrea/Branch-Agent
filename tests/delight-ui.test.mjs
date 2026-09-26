@@ -1,6 +1,9 @@
-/* phase2/delight in the window: the acorn's corner, the pet, achievements and your own background.
-   Everything ships off; each is switched on here with a real click in Settings › Appearance. Headless
-   only, against 127.0.0.1. */
+/* phase2/delight in the window: the pet, achievements and your own background. Everything ships off.
+   Redesign: in the new window (public/app/**) these are shell/scene.js (the pet at the foot of the list and the painted
+   or own background behind the glass, shell/ownbg.js for the file), shell/celebrate.js (what the engine earned) and
+   Settings › Appearance / Achievements. The pet and your own background are switched on with a real click in
+   Appearance; achievements have no switch in prototype.html, so they are switched on through the engine's own route.
+   The acorn corner, its 3D models and .glb reading are not in the design. Headless only, against 127.0.0.1. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
@@ -8,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
-import { closeSettings, openSettingFor } from "./places.mjs";
+import { closeSettings, openSettingFor } from "./places.mjs"; // the old window's helpers, for the skipped bodies only
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -22,10 +25,11 @@ function slowModel() {
     return { content: "Done.", toolCalls: [] };
   } } };
 }
-async function fixture(t, { width = 1440, height = 950, reducedMotion = "no-preference", init } = {}) {
+async function fixture(t, { width = 1440, height = 950, reducedMotion = "no-preference", init, before } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-delight-ui-"));
   const model = slowModel();
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: model.provider });
+  before?.(app, app.runtime.owner);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { model.release(); await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
@@ -35,7 +39,7 @@ async function fixture(t, { width = 1440, height = 950, reducedMotion = "no-pref
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }).then((response) => response.json());
   await call("/api/onboarding", { done: true });
-  const page = await browser.newPage({ viewport: { width, height }, reducedMotion });
+  const page = await browser.newPage({ viewport: { width, height }, reducedMotion, serviceWorkers: "block" });
   if (init) await page.addInitScript(init);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -44,27 +48,69 @@ async function fixture(t, { width = 1440, height = 950, reducedMotion = "no-pref
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  await page.locator("body.lx-ready").waitFor({ state: "attached" });
   return { app, server, call, page, errors, model };
 }
-/** Turns a switch on the way a person does: Settings › Appearance, a real click, then back. */
+/** Turns a switch on the way a person does: Settings › Appearance, a real click, then back. (The old window's.) */
 async function switchOn(page, id) {
   await openSettingFor(page, `#${id}`);
   await page.locator(`#${id}`).check();
   await closeSettings(page);
 }
 
+/* ---------- the new window's ways in ---------- */
+async function openSettingsPage(page, id) {
+  if (await page.evaluate(() => innerWidth <= 760)) await page.locator('[data-act="side"]').filter({ visible: true }).first().click();
+  await page.locator('#side [data-act="view"][data-v="settings"]').click();
+  await page.locator(`[data-act="setpage"][data-v="${id}"]`).click();
+  await page.locator(`[data-act="setpage"][data-v="${id}"][aria-current="true"]`).waitFor();
+}
+const backToBranch = (page) => page.locator(".set-nav .set-back").click();
+/** Appearance › The pet › Squirrel, then back to the conversation. */
+async function petOn(page) {
+  await openSettingsPage(page, "appearance");
+  await page.locator('[data-act="petset"][data-v="squirrel"]').first().click();
+  await page.locator('[data-act="petset"][data-v="squirrel"][aria-pressed="true"]').first().waitFor();
+  await backToBranch(page);
+  if (await page.evaluate(() => innerWidth <= 760)) await page.locator('[data-act="side"]').filter({ visible: true }).first().click();
+  await page.locator("#side #pet-cv").waitFor();
+}
+/** Appearance › Background › Your own. */
+async function ownBackground(page) {
+  await openSettingsPage(page, "appearance");
+  const own = page.locator('[data-act="bgset"][data-v="own"]');
+  if (await own.getAttribute("aria-pressed") !== "true") await own.click();
+  await page.locator("#bg-file6").waitFor({ state: "attached" });
+}
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DAwMDAxMDAwMAAAAwGAQFm2g5eAAAAAElFTkSuQmCC", "base64");
+const stored = (page) => page.evaluate(async () => (await indexedDB.databases()).some((db) => db.name === "branch-delight"));
+const status = (page, words) => page.getByRole("status").filter({ hasText: words }).first().waitFor();
+
+/** The window looks for what the engine earned when it redraws (shell/celebrate.js check, on each draw, at most every
+    10 s). A person using the window redraws it all the time; here the list's show/hide switch is pressed twice now and
+    then, which redraws it and changes nothing, until the celebration shows. (That nothing is looked for without a redraw
+    is reported as a window bug with the port.) */
+async function celebrated(page, selector, text) {
+  const target = text ? page.locator(selector, { hasText: text }) : page.locator(selector);
+  for (let i = 0; i < 40; i++) {
+    if (await target.first().isVisible()) return;
+    await page.evaluate(() => { const b = document.querySelector('[data-act="side-toggle"]'); b?.click(); document.querySelector('[data-act="side-toggle"]')?.click(); });
+    await target.first().waitFor({ timeout: 1000 }).catch(() => undefined);
+  }
+  await target.first().waitFor({ timeout: 1000 });
+}
+
 /**
  * Notes every timer and animation frame asked for by a delight file, before the page's own scripts run,
- * and every request for the work (activity, achievements, noticed) a delight file makes: the window's own
- * panes ask for /api/activity too, every few seconds, so a request is delight's only when a delight file made it.
+ * and every request for the work (achievements, noticed) a delight file makes. In the new window the delight files
+ * are shell/scene.js, shell/celebrate.js and shell/ownbg.js.
  */
 function watchTimers() {
+  const mine = /\/app\/shell\/(scene|celebrate|ownbg)\.js|delight/;
   const asked = (globalThis.__delightTimers = []);
   const fetched = (globalThis.__delightFetches = []);
   const realFetch = globalThis.fetch;
   globalThis.fetch = function (input, ...rest) {
-    const from = (new Error().stack ?? "").split(/\r?\n/).slice(2).find((line) => /delight/.test(line));
+    const from = (new Error().stack ?? "").split(/\r?\n/).slice(2).find((line) => mine.test(line));
     const url = String(input?.url ?? input);
     // Its own switch (/api/delight) is read at start; what it must not ask for while off is the work.
     if (from && /\/api\/(activity|delight\/(achievements|noticed))/.test(url)) fetched.push(`${url} ${from.trim()}`);
@@ -73,34 +119,45 @@ function watchTimers() {
   for (const name of ["setInterval", "setTimeout", "requestAnimationFrame"]) {
     const real = globalThis[name];
     globalThis[name] = function (...args) {
-      const from = (new Error().stack ?? "").split(/\r?\n/).slice(2).find((line) => /delight/.test(line));
+      const from = (new Error().stack ?? "").split(/\r?\n/).slice(2).find((line) => mine.test(line));
       if (from) asked.push(`${name} ${from.trim()}`);
       return real.apply(this, args);
     };
   }
 }
-test("off by default: no pet, no own background, the acorn hidden, and the three cards waiting in Appearance", async (t) => {
+
+// The owner's rule (Q251, 2026-09-26, #327): the pet, achievements and your own background ship on; switched off,
+// nothing of delight is drawn, asked for or ticking, and their choices wait in Settings.
+test("they ship on, and switched off there is no pet, no own background, no achievements, and their choices wait in Settings", async (t) => {
   const f = await fixture(t, { init: watchTimers });
+  const shipped = (await f.call("/api/delight")).settings;
+  assert.deepEqual([shipped.pets.on, shipped.achievements.on, shipped.background.on], [true, true, true], "each ships on");
+  await f.call("/api/delight/settings", { pets: { on: false }, achievements: { on: false }, background: { on: false } });
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   const asked = [];
-  f.page.on("request", (request) => { if (/\/api\/delight\/(achievements|noticed)/.test(request.url())) asked.push(request.url()); });
+  f.page.on("request", (request) => { if (/\/api\/delight\/(achievements|noticed)/.test(request.url())) asked.push(new URL(request.url()).pathname); });
   await f.call("/api/run", { prompt: "one" });
   await f.page.waitForTimeout(2500);
-  assert.deepEqual(await f.page.evaluate(() => globalThis.__delightTimers), [], "switched off, nothing of delight's ticks");
-  assert.deepEqual(asked, [], "and nothing is asked of the server");
-  assert.deepEqual(await f.page.evaluate(() => globalThis.__delightFetches), [], "not even what the window asks for anyway (activity)");
-  assert.equal(await f.page.locator("#pet").count(), 0);
-  assert.equal(await f.page.locator("#delight-wall").count(), 0);
-  assert.equal(await f.page.locator("#delight-corner").isVisible(), false, "the corner is empty and takes no room");
-  await openSettingFor(f.page, "#delight-pet-on");
-  for (const id of ["delight-pet-on", "delight-ach-on", "delight-bg-on"]) {
-    assert.equal(await f.page.locator(`#${id}`).isVisible(), true, id);
-    assert.equal(await f.page.locator(`#${id}`).isChecked(), false, `${id} ships off`);
-  }
-  assert.equal(await f.page.locator("#delight-pet-more").isVisible(), false, "the pet's own choices wait until it is on");
+  assert.equal(await f.page.locator("#pet-cv").count(), 0);
+  assert.equal(await f.page.locator("#bgLayer .bg-media").count(), 0);
+  assert.equal(await f.page.locator(".ach-toast, .ach-big").count(), 0);
+  const settings = (await f.call("/api/delight")).settings;
+  assert.deepEqual([settings.pets.on, settings.achievements.on, settings.background.on], [false, false, false], "each is off once switched off");
+  await openSettingsPage(f.page, "appearance");
+  assert.equal(await f.page.locator('[data-act="petset"][data-v="none"]').first().getAttribute("aria-pressed"), "true", "the pet waits in Appearance");
+  assert.equal(await f.page.locator('[data-act="bgset"][data-v="own"]').getAttribute("aria-pressed"), "false", "your own background waits in Appearance");
+  assert.equal(await f.page.locator('[data-act="petwhere15"]').count(), 0, "the pet's own choices wait until it is on");
+  const timers = await f.page.evaluate(() => globalThis.__delightTimers), fetched = await f.page.evaluate(() => globalThis.__delightFetches);
+  assert.deepEqual(asked, [], "switched off, nothing is asked of the server");
+  assert.deepEqual(fetched, [], "not even by a delight file");
+  assert.deepEqual(timers, [], "switched off, nothing of delight's ticks");
   assert.deepEqual(f.errors, []);
 });
 
-test("the acorn sits in the rail's corner without a caption, and its pause is an icon with a name", async (t) => {
+// Redesign: replaced by the new window (prototype.html has no acorn corner or rotation pause; the pet walks at the
+// foot of the list).
+test.skip("the acorn sits in the rail's corner without a caption, and its pause is an icon with a name", async (t) => {
   const f = await fixture(t);
   await switchOn(f.page, "appearance-acorn");
   const corner = await f.page.locator("#delight-corner").boundingBox(), rail = await f.page.locator("#conversation-rail").boundingBox();
@@ -128,7 +185,27 @@ test("the acorn sits in the rail's corner without a caption, and its pause is an
   assert.deepEqual(f.errors, []);
 });
 
-test("the pet lives in the corner, works while a task works, and says one thing at a time, inside the rail", async (t) => {
+test("the pet walks at the foot of the list and says one thing at a time, inside the list", async (t) => {
+  const f = await fixture(t);
+  await petOn(f.page);
+  assert.match(await f.page.locator("#pet-cv").getAttribute("aria-label"), /Hazel the squirrel/);
+  await f.page.locator("#pet-cv").click();
+  await f.page.locator("#pet-say:not([hidden])").waitFor();
+  const seen = await f.page.evaluate(() => {
+    const bubble = document.getElementById("pet-say").getBoundingClientRect(), side = document.getElementById("side").getBoundingClientRect();
+    return { shown: document.querySelectorAll(".pet-say:not([hidden])").length, words: document.getElementById("pet-say").textContent,
+      inside: bubble.left >= side.left - 0.5 && bubble.right <= side.right + 0.5 };
+  });
+  assert.equal(seen.shown, 1, "never two bubbles");
+  assert.ok(seen.words.trim().length > 0, "it says something");
+  assert.equal(seen.inside, true, "the bubble is never cut off by the list's edge");
+  assert.equal((await f.call("/api/delight")).settings.pets.on, true, "the engine keeps the pet on");
+  assert.deepEqual(f.errors, []);
+});
+
+// Redesign: replaced by the new window (prototype.html's pet says a tip when clicked and speaks up by itself only when
+// a Trunk needs a yes; it has no "Working on it…" bubble while a task works).
+test.skip("the pet lives in the corner, works while a task works, and says one thing at a time, inside the rail", async (t) => {
   const f = await fixture(t);
   await switchOn(f.page, "delight-pet-on");
   await f.page.locator("#pet").waitFor();
@@ -171,97 +248,123 @@ test("the pet lives in the corner, works while a task works, and says one thing 
 });
 
 test("the pet's own menu opens on right-click, never the browser's, and can hide it", async (t) => {
+  // Redesign: right-click offers "Hide this" on any part marked data-hide while the engine's right-click-to-hide
+  // preference is on (shell/shell.js hideMenu); the pet is marked data-hide="pet".
   const f = await fixture(t);
-  await switchOn(f.page, "delight-pet-on");
-  await f.page.locator("#pet").click({ button: "right" });
-  await f.page.getByRole("menuitem", { name: "Hide the pet" }).click();
-  await f.page.locator("#pet").waitFor({ state: "detached" });
-  assert.equal((await f.call("/api/delight")).settings.pets.on, false);
+  const prefs = (await f.call("/api/state")).preferences;
+  await f.call("/api/preferences", { ...prefs, rightClickHide: true });
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await petOn(f.page);
+  const prevented = f.page.evaluate(() => new Promise((resolve) => document.addEventListener("contextmenu", (e) => setTimeout(() => resolve(e.defaultPrevented)), { once: true })));
+  await f.page.locator("#pet-cv").click({ button: "right" });
+  assert.equal(await prevented, true, "never the browser's menu");
+  await f.page.getByRole("menuitem", { name: "Hide this" }).click();
+  await f.page.locator("#pet-cv").waitFor({ state: "detached" });
+  assert.deepEqual((await f.call("/api/state")).preferences.hidden, ["pet"]);
   assert.deepEqual(f.errors, []);
 });
 
 test("achievements: what a real task earns arrives as a seven-second note, once; Gold and above get a card", async (t) => {
   const f = await fixture(t);
-  await switchOn(f.page, "delight-ach-on");
+  await f.call("/api/delight/settings", { achievements: { on: true } });
   await f.app.runtime.run({ prompt: "one" });
-  await f.page.evaluate(() => globalThis.branchAchievements.check());
-  await f.page.locator("#ach-note").waitFor({ timeout: 10000 });
-  /* Its words, not how they are drawn: DG-014 sets the tier eyebrow in capitals. */
-  assert.match(await f.page.locator("#ach-note").textContent(), /achievement/);
-  let fresh = ["waiting"];
-  for (let i = 0; i < 20 && fresh.length; i++) { fresh = (await f.call("/api/delight/achievements")).fresh; await f.page.waitForTimeout(100); }
-  assert.deepEqual(fresh, [], "once shown, it is not shown again");
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await celebrated(f.page, ".ach-toast");
+  const note = await f.page.locator(".ach-toast").textContent();
+  assert.match(note, /Achievement unlocked/);
+  // One at a time, the highest tier first (shell/celebrate.js); the one shown is told to the engine.
+  const shown = note.split(" · ")[1];
+  let fresh = [{ name: shown }];
+  for (let i = 0; i < 20 && fresh.some((a) => a.name === shown); i++) { fresh = (await f.call("/api/delight/achievements")).fresh; await f.page.waitForTimeout(100); }
+  assert.equal(fresh.some((a) => a.name === shown), false, "once shown, it is not shown again");
   const sprout = (await f.call("/api/delight/achievements")).list.find((a) => a.id === "tasks:1");
   assert.ok(sprout.got, "the finished task earned Sprout");
-  await f.page.evaluate(() => globalThis.branchAchievements.preview("Diamond"));
-  await f.page.locator(".ach-party .ach-card").waitFor();
-  assert.ok(await f.page.locator(".ach-party .bit").count() >= 32, "the party grows with the rank");
-  const card = await f.page.locator(".ach-card").boundingBox(), box = await f.page.locator("#prompt").boundingBox();
+  /* A Diamond the engine has earned gets the card with the bigger party; it never covers the message box. */
+  const progress = f.app.store.get("settings", f.app.runtime.owner, "delight-achievements");
+  const diamond = (await f.call("/api/delight/achievements")).list.find((a) => a.tier === "Diamond");
+  f.app.store.save("settings", f.app.runtime.owner, "delight-achievements", { ...progress, got: { ...progress.got, [diamond.id]: "2026-09-25" }, fresh: [diamond.id] });
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await celebrated(f.page, ".ach-big .card");
+  const card = await f.page.locator(".ach-big .card").boundingBox(), box = await f.page.locator("#prompt").boundingBox();
   assert.ok(card.y + card.height <= box.y || card.y >= box.y + box.height, "the card never covers the message box");
-  await f.page.getByRole("button", { name: "Lovely" }).click();
-  assert.equal(await f.page.locator(".ach-party").count(), 0);
+  await f.page.getByRole("button", { name: "Nice", exact: true }).click();
+  assert.equal(await f.page.locator(".ach-big").count(), 0);
   assert.deepEqual(f.errors, []);
 });
 
 test("Keep things still shows the card without falling leaves", async (t) => {
+  // Redesign: the "Keep things still" switch is Coming soon (sw:a-still, checked at e5b8a610); the computer's own
+  // reduced-motion setting, which the window follows too (shell/celebrate.js confetti), stands in for it here.
   const f = await fixture(t, { reducedMotion: "reduce" });
   await f.call("/api/delight/settings", { achievements: { on: true } });
-  await f.page.evaluate(() => globalThis.branchDelight.reload());
-  await f.page.evaluate(() => globalThis.branchAchievements.preview("Godly"));
-  await f.page.locator(".ach-party.still .ach-card").waitFor();
-  assert.equal(await f.page.locator(".ach-party .bit").count(), 0);
-  assert.equal(await f.page.locator(".ach-party .rays").count(), 0);
+  const high = (await f.call("/api/delight/achievements")).list.find((a) => a.tier === "Godly").id;
+  f.app.store.save("settings", f.app.runtime.owner, "delight-achievements", { got: { [high]: "2026-09-25" }, fresh: [high] });
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await celebrated(f.page, ".ach-big .card");
+  const ink = await f.page.locator(".ach-big canvas").evaluate((canvas) => canvas.width > 0 && canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data.some((value, i) => i % 4 === 3 && value > 0));
+  assert.equal(ink, false, "no confetti falls");
   assert.deepEqual(f.errors, []);
 });
 
-test("the achievements sheet lists all 505 and keeps the high ones secret", async (t) => {
+test("the achievements page lists all 505 and keeps the high ones secret", async (t) => {
+  // Redesign: Settings › Achievements (settings/pages/achievements.js) in place of the old sheet: the whole list at
+  // once, filtered by the engine's kinds; a locked Godly one has no name or words until it is earned.
   const f = await fixture(t);
   await f.call("/api/delight/settings", { achievements: { on: true } });
-  await f.page.evaluate(() => globalThis.branchDelight.reload());
-  await f.page.evaluate(() => globalThis.branchAchievements.openSheet());
-  await f.page.locator("#ach-sheet").waitFor();
-  assert.match(await f.page.locator("#ach-sheet-count").innerText(), /of 505/);
-  await f.page.getByRole("button", { name: "Godly", exact: true }).click();
-  assert.equal(await f.page.locator("#ach-sheet .ach").count(), 60, "the first sixty, then Show all");
-  assert.equal(await f.page.locator("#ach-sheet .ach.blank").count(), 60, "Godly ones are blank until earned");
-  await f.page.keyboard.press("Escape");
-  assert.equal(await f.page.locator("#ach-sheet").count(), 0);
+  await openSettingsPage(f.page, "achievements");
+  await f.page.locator(".set-col .achs").waitFor();
+  assert.match(await f.page.locator(".set-col .lede").innerText(), /of 505 unlocked/);
+  assert.equal(await f.page.locator(".set-col .achs .ach").count(), 505);
+  const godly = await f.page.locator('.set-col .achs .ach[title="Godly"]').evaluateAll((cards) => cards.map((card) => card.querySelector("b").textContent + card.querySelector("small").textContent));
+  assert.ok(godly.length >= 60, "there are Godly ones");
+  assert.deepEqual([...new Set(godly)], [""], "Godly ones are blank until earned");
   assert.deepEqual(f.errors, []);
 });
 
-test("your own background: kept in the window, behind a scrim, refused when too big, gone when off", async (t) => {
+test("your own background: kept in the window, behind a scrim, refused when too big or not a picture, gone when off", async (t) => {
   const f = await fixture(t);
-  await switchOn(f.page, "delight-bg-on");
-  await openSettingFor(f.page, "#delight-bg-file");
-  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DAwMDAxMDAwMAAAAwGAQFm2g5eAAAAAElFTkSuQmCC", "base64");
-  await f.page.locator("#delight-bg-file").setInputFiles({ name: "tiny.png", mimeType: "image/png", buffer: png });
-  await f.page.locator("#delight-wall img").waitFor({ state: "attached" });
-  assert.equal(await f.page.locator("#delight-wall .delight-scrim").evaluate((n) => getComputedStyle(n).opacity), "0.6");
-  assert.equal(await f.page.locator("#delight-bg-name").innerText(), "tiny.png");
-  const big = Buffer.alloc(9 * 1024 * 1024);
-  await f.page.locator("#delight-bg-file").setInputFiles({ name: "huge.png", mimeType: "image/png", buffer: big });
-  await f.page.getByText(/Keep it under 8 MB for a picture/).waitFor();
-  assert.equal(await f.page.locator("#delight-bg-name").innerText(), "tiny.png", "the big file was not kept");
-  await f.page.locator("#delight-bg-file").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hi") });
-  await f.page.getByText(/can't go behind the glass/).waitFor();
-  await f.page.locator("#delight-bg-on").uncheck();
-  await f.page.locator("#delight-wall").waitFor({ state: "detached" });
+  await ownBackground(f.page);
+  await f.page.locator("#bg-file6").setInputFiles({ name: "tiny.png", mimeType: "image/png", buffer: PNG });
+  await f.page.locator("#bgLayer .bg-media").waitFor({ state: "attached" });
+  assert.equal(await f.page.locator("#bgLayer .bg-scrim").count(), 1, "behind a scrim");
+  assert.equal((await f.call("/api/delight")).settings.background.scrim, 60);
+  await f.page.locator(".set-col .ctl b", { hasText: "tiny.png" }).waitFor();
+  await f.page.locator("#bg-file6").setInputFiles({ name: "huge.png", mimeType: "image/png", buffer: Buffer.alloc(9 * 1024 * 1024) });
+  await status(f.page, /Keep it under 8 MB for a picture/);
+  assert.equal(await f.page.locator(".set-col .ctl b", { hasText: "tiny.png" }).count(), 1, "the big file was not kept");
+  await f.page.locator("#bg-file6").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hi") });
+  await status(f.page, /can’t go behind the glass/);
+  // A 3D model from anywhere is never read in this window: it is refused like any other file that is not a picture.
+  await f.page.locator("#bg-file6").setInputFiles({ name: "model.glb", mimeType: "model/gltf-binary", buffer: Buffer.from("glTF\u0002\u0000\u0000\u0000garbage") });
+  await status(f.page, /can’t go behind the glass/);
+  assert.equal(await f.page.locator(".set-col .ctl b", { hasText: "tiny.png" }).count(), 1, "the picture is kept");
+  await f.page.locator('[data-act="bgset"][data-v="none"]').click();
+  await f.page.locator("#bgLayer .bg-media").waitFor({ state: "detached" });
+  assert.equal((await f.call("/api/delight")).settings.background.on, false);
   assert.deepEqual(f.errors, []);
 });
 
-test("at phone width the corner stays inside the folded rail and nothing scrolls sideways", async (t) => {
-  const f = await fixture(t, { width: 390, height: 844 });
+test("at phone width the pet stays inside the folded list and nothing scrolls sideways", async (t) => {
+  // Reduced motion: the list slides in, and measuring mid-slide under load put the pet outside a list still moving.
+  const f = await fixture(t, { width: 390, height: 844, reducedMotion: "reduce" });
   await f.call("/api/delight/settings", { pets: { on: true } });
-  await f.page.evaluate(() => globalThis.branchDelight.reload());
-  await f.page.locator("#rail-toggle").click();
-  await f.page.locator("#pet").waitFor();
-  const pet = await f.page.locator("#pet").boundingBox(), rail = await f.page.locator("#conversation-rail").boundingBox();
-  assert.ok(pet.x >= rail.x && pet.x + pet.width <= rail.x + rail.width + 0.5);
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator('[data-act="side"]').filter({ visible: true }).first().click();
+  await f.page.locator("#pet-cv").waitFor();
+  const pet = await f.page.locator("#pet-cv").boundingBox(), side = await f.page.locator("#side").boundingBox();
+  assert.ok(pet.x >= side.x && pet.x + pet.width <= side.x + side.width + 0.5);
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(f.errors, []);
 });
 
-test("tips get scarcer as the rank rises: Bronze every few minutes, Silver hourly, Gold and up never", async (t) => {
+// Redesign: replaced by the new window (prototype.html's pet has no rank-based tips; it speaks up by itself only when a
+// Trunk needs a yes, at most every five minutes, shell/scene.js).
+test.skip("tips get scarcer as the rank rises: Bronze every few minutes, Silver hourly, Gold and up never", async (t) => {
   const f = await fixture(t);
   const gaps = await f.page.evaluate(async () => {
     const { state } = await import("/delight-kit.js");
@@ -290,7 +393,9 @@ function tinyGlb() {
   return [...Buffer.concat([header, jsonHead, padded, binHead, bin])];
 }
 
-test("3D: the acorn and the pet turn in 3D when chosen, and a .glb of your own is read or refused in plain words", async (t) => {
+// Redesign: replaced by the new window (no 3D acorn or pets in prototype.html; "The oak in 3D" background is Coming
+// soon, bgset-oak3d; a .glb is refused, checked in "your own background" above).
+test.skip("3D: the acorn and the pet turn in 3D when chosen, and a .glb of your own is read or refused in plain words", async (t) => {
   const f = await fixture(t);
   await f.call("/api/delight/settings", { pets: { on: true }, look: { style: "3d" } });
   await f.page.evaluate(() => globalThis.branchDelight.reload());
@@ -326,7 +431,9 @@ test("3D: the acorn and the pet turn in 3D when chosen, and a .glb of your own i
 
 /* ---------- integration review: untrusted .glb files, storage, and what the window reports ---------- */
 
-test(".glb files from anywhere: truncated, garbage, huge counts, loops and too much detail fail cleanly and fast", async (t) => {
+// Redesign: replaced by the new window (it never reads a .glb: shell/ownbg.js refuses one before reading it, checked
+// in "your own background" above).
+test.skip(".glb files from anywhere: truncated, garbage, huge counts, loops and too much detail fail cleanly and fast", async (t) => {
   const f = await fixture(t);
   const result = await f.page.evaluate(async () => {
     const { readGlb, view3d, GlbError, GLB_LIMITS } = await import("/delight-3d.js");
@@ -414,56 +521,53 @@ test(".glb files from anywhere: truncated, garbage, huge counts, loops and too m
   assert.deepEqual(f.errors, []);
 });
 
-test("your own background: a full disk is said plainly; switching off keeps the file, Remove picture (after a yes) throws it away", async (t) => {
+test("your own background: a full disk keeps nothing half-kept; choosing None keeps the file, Remove (after a yes) throws it away", async (t) => {
   const f = await fixture(t);
-  await switchOn(f.page, "delight-bg-on");
-  await openSettingFor(f.page, "#delight-bg-file");
-  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DAwMDAxMDAwMAAAAwGAQFm2g5eAAAAAElFTkSuQmCC", "base64");
+  await ownBackground(f.page);
   await f.page.evaluate(() => {
     const real = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function () { throw new DOMException("The quota has been exceeded.", "QuotaExceededError"); };
     globalThis.__roomAgain = () => { IDBObjectStore.prototype.put = real; };
   });
-  await f.page.locator("#delight-bg-file").setInputFiles({ name: "tiny.png", mimeType: "image/png", buffer: png });
-  await f.page.getByText("There is no room left in this window's storage for that file. Choose a smaller one.").waitFor();
-  assert.equal(await f.page.locator("#delight-wall").count(), 0, "nothing half-kept is shown");
+  await f.page.locator("#bg-file6").setInputFiles({ name: "tiny.png", mimeType: "image/png", buffer: PNG });
+  // Redesign: the words are the browser's (the old window's own sentence is not in the design document).
+  await status(f.page, /quota/i);
+  assert.equal(await f.page.locator("#bgLayer .bg-media").count(), 0, "nothing half-kept is shown");
   await f.page.evaluate(() => globalThis.__roomAgain());
-  await f.page.locator("#delight-bg-file").setInputFiles({ name: "tiny.png", mimeType: "image/png", buffer: png });
-  await f.page.locator("#delight-wall img").waitFor({ state: "attached" });
-  const stored = () => f.page.evaluate(async () => (await indexedDB.databases()).some((db) => db.name === "branch-delight"));
-  assert.equal(await stored(), true);
+  await f.page.locator("#bg-file6").setInputFiles({ name: "tiny.png", mimeType: "image/png", buffer: PNG });
+  await f.page.locator("#bgLayer .bg-media").waitFor({ state: "attached" });
+  assert.equal(await stored(f.page), true);
   // mac7/residuals: switched off it is taken down but kept; switched on again it is back.
-  await f.page.locator("#delight-bg-on").uncheck();
-  await f.page.locator("#delight-wall").waitFor({ state: "detached" });
-  assert.equal(await stored(), true, "switching off keeps the file");
-  assert.equal(await f.page.locator("#delight-bg-name").innerText(), "tiny.png");
-  assert.equal(await f.page.locator("#delight-bg-remove").isVisible(), true, "Remove picture is there while switched off");
-  await f.page.locator("#delight-bg-on").check();
-  await f.page.locator("#delight-wall img").waitFor({ state: "attached" });
-  // Remove picture asks first; No keeps it, Yes throws it away.
-  f.page.once("dialog", (dialog) => void dialog.dismiss());
-  await f.page.getByRole("button", { name: "Remove picture" }).click();
-  await f.page.waitForTimeout(200);
-  assert.equal(await stored(), true, "No keeps the file");
-  f.page.once("dialog", (dialog) => { assert.match(dialog.message(), /cannot be brought back/); void dialog.accept(); });
-  await f.page.getByRole("button", { name: "Remove picture" }).click();
-  await f.page.locator("#delight-wall").waitFor({ state: "detached" });
+  await f.page.locator('[data-act="bgset"][data-v="none"]').click();
+  await f.page.locator("#bgLayer .bg-media").waitFor({ state: "detached" });
+  assert.equal(await stored(f.page), true, "switching off keeps the file");
+  await f.page.locator('[data-act="bgset"][data-v="own"]').click();
+  await f.page.locator("#bgLayer .bg-media").waitFor({ state: "attached" });
+  await f.page.locator(".set-col .ctl b", { hasText: "tiny.png" }).waitFor();
+  // Remove asks first; Keep it keeps it, Remove throws it away.
+  await f.page.getByRole("button", { name: "Remove", exact: true }).click();
+  const ask = f.page.getByRole("dialog", { name: "Remove your background?" });
+  await ask.getByRole("button", { name: "Keep it", exact: true }).click();
+  await ask.waitFor({ state: "detached" });
+  assert.equal(await stored(f.page), true, "Keep it keeps the file");
+  await f.page.getByRole("button", { name: "Remove", exact: true }).click();
+  await ask.getByRole("button", { name: "Remove", exact: true }).click();
+  await f.page.locator("#bgLayer .bg-media").waitFor({ state: "detached" });
   await f.page.waitForFunction(async () => !(await indexedDB.databases()).some((db) => db.name === "branch-delight"));
-  await f.page.getByText("No file chosen yet.").waitFor();
+  await status(f.page, "Removed. Nothing is kept.");
   assert.deepEqual(f.errors, []);
 });
 
 test("following the computer's light or dark is noticed, and a flag is told once", async (t) => {
   const f = await fixture(t);
   await f.call("/api/delight/settings", { achievements: { on: true } });
-  await f.page.evaluate(() => globalThis.branchDelight.reload());
   const told = [];
   f.page.on("request", (request) => { if (request.url().endsWith("/api/delight/noticed")) told.push(request.postData() ?? ""); });
-  await openSettingFor(f.page, "#lx-mode");
-  const mode = (name) => f.page.locator("#lx-mode").getByRole("button", { name, exact: true }).click();
-  await mode("Follow this computer");
-  await mode("Moonlight");
-  await mode("Follow this computer");
+  await openSettingsPage(f.page, "appearance");
+  const mode = (v) => f.page.locator(`.set-col .mirrors [data-act="themeset"][data-v="${v}"]`).click();
+  await mode("system");
+  await mode("dark");
+  await mode("system");
   await f.page.waitForTimeout(500);
   assert.equal(told.filter((body) => body.includes("follow-system")).length, 1);
   const view = await f.call("/api/delight/achievements");
