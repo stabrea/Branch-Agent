@@ -134,7 +134,7 @@ function wallTools(app, root) {
     } });
 }
 
-/* ------------------------------------------------------------------------------------------------ (a), (b) */
+/* ----------------------------------------------- questions raised without a fingerprint, and their answers */
 
 test("a question the wall raises without a fingerprint gets one, on the waiting list and on its event", posixWall, async (t) => {
   const { app, root, run, rules, waiting, asked } = await fixture(t);
@@ -222,7 +222,7 @@ test("the project's tests: Once is used once, the card's answer lands on its own
   assert.equal(app.store.events(declined.id).some((event) => event.kind === "code.check"), false, "and nothing ran");
 });
 
-/* ------------------------------------------------------------------------------------------------ (c) the chat */
+/* ---------------------------------------------------------------------------------------------------- the chat */
 
 test("a chat shown a question its raiser gave no fingerprint to gets buttons naming it, and can refuse and allow it", async (t) => {
   const { app, run, rules, waiting, decided } = await fixture(t);
@@ -277,7 +277,7 @@ test("a model's call is asked about under the fingerprint of its tool and the by
   assert.notEqual(raised("shop.example.com", 1).fingerprint, one.fingerprint, "and so is another step");
 });
 
-/* ------------------------------------------------------------------------------------------------ (d) XTOOL */
+/* ------------------------------------------------------------------------------- two tools, identical bytes */
 
 test("two tools asked with identical bytes are two questions, and a yes to one does not answer the other", async (t) => {
   const { app, run, rules, waiting } = await fixture(t);
@@ -294,7 +294,7 @@ test("two tools asked with identical bytes are two questions, and a yes to one d
   assert.throws(() => app.runtime.approve(first.sessionId, "allow", "session", read.fingerprint), /different request/);
 });
 
-/* ------------------------------------------------------------------------------------------------ (e) FORGE */
+/* -------------------------------------------------------------------- a digest of the bytes answers nothing */
 
 test("a fingerprint worked out from the request's bytes answers nothing", async (t) => {
   const { app, run, rules, waiting, decided } = await fixture(t);
@@ -313,7 +313,7 @@ test("a fingerprint worked out from the request's bytes answers nothing", async 
   assert.ok(waiting(sessionId).some((one) => one.target === "SECRET.md"), "the request it named still waits");
 });
 
-/* ------------------------------------------------------------------------------------------------ (f) per launch */
+/* -------------------------------------------------------------------------------------------- one key per launch */
 
 test("the key is made once per launch: the same request has another fingerprint in another launch", () => {
   const runtimeUrl = new URL("../dist/runtime.js", import.meta.url).href;
@@ -330,7 +330,7 @@ test("the key is made once per launch: the same request has another fingerprint 
   assert.notEqual(here, one);
 });
 
-/* ------------------------------------------------------------------------------------------------ (g) mcp.start */
+/* -------------------------------------------------------------------------------- switching on a command server */
 
 test("switching on a command server: the yes starts it, the stored yes is the launch's own, and a fresh start keeps it", async (t) => {
   const first = await fixture(t, { serve: true });
