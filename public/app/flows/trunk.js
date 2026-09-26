@@ -168,7 +168,8 @@ async function setModel(el) {
 }
 
 /* Drawn as the design has it and greyed, bar Which model: reading files, the browser and sending without asking each loosen
-   the Trunk (reviewed apart, not done from here); the engine has no spending for a Trunk to set; and its own notes are
+   the Trunk (reviewed apart, not done from here); the engine's Spend money category holds no tool in this build (GET
+   /api/state approvalCategories), so there is nothing a Trunk could be let spend or kept from; and its own notes are
    always kept apart (src/trunks/memory-scope.ts), which the engine has no switch for (sharedFacts is another thing). */
 function mayTab(tr) {
   return `<div>${ctl("tm-read", t("window.flows.trunk.read-files"), t("window.flows.trunk.read-hint"))}${ctl("tm-browse", t("window.flows.trunk.browser"), t("window.flows.trunk.browser-hint"))}${ctlSeg(t("window.flows.trunk.send"), t("window.flows.trunk.send-hint"), [t("mode.ask"), t("window.chat.tl.allowed")])}${ctlSeg(t("people.admin.kind.spend"), t("window.flows.trunk.spend-hint"), [t("window.flows.trunk.never")])}${modelSeg(tr)}${ctl("tm-notes", t("window.flows.trunk.notes"), t("window.flows.trunk.notes-hint"))}</div>`;

@@ -107,11 +107,14 @@ async function persists(browser, page, id, sid) {
   check("the pick survives a reload", (await page.getAttribute('.dlg .look-c12[data-v="kite"]', "aria-pressed")) === "true" && (await trunk(id)).character === "kite", "card chosen, GET character=kite");
   await page.locator('.dlg [data-act="dlg-close"]').first().click();
   await page.locator(`#side .row[data-id="${sid}"]`).click();
-  await page.waitForSelector(".ag-one12 .fig12", { timeout: 5000 }).catch(() => {});
+  await page.waitForSelector(".ag-one12 .fig12", { timeout: 8000 }).catch(() => {});
   /* It acts out what the Trunk is doing (chat/agent17.js agentState): that state's loop, else its idle loop. */
   const kite = (await api("trunks")).characters.find((c) => c.id === "kite");
   const fig = await page.$eval(".ag-one12", (el) => [el.dataset.st, el.querySelector(".fig12").tagName, el.querySelector(".fig12").getAttribute("src")]).catch(() => null);
   check("the agent beside the conversation plays the loop for its state", fig?.[1] === "VIDEO" && fig[2] === (kite.states[fig[0]] ?? kite.states.idle), JSON.stringify(fig));
+  await page.waitForSelector("#main .gut .av img", { timeout: 5000 }).catch(() => {});
+  const faces = await page.$$eval("#main .gut .av img", (imgs) => imgs.map((i) => i.getAttribute("src")));
+  check("its replies in the conversation wear the character", faces.length > 0 && faces.every((s) => s === "/art/agents/kite/still.webp"), JSON.stringify(faces));
   const calm = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   await signIn(calm);
   await calm.locator(`#side .row[data-id="${sid}"]`).click();
@@ -182,7 +185,7 @@ async function draftsSave(page, id, sid) {
 
 /* Every control of a tab: live ones are clicked for real; greyed ones must be on the list below, with the reason. */
 const GREYED = {
-  may: { "sw:tm-read": "loosens what the Trunk may do (security review)", "sw:tm-browse": "loosens what the Trunk may do (security review)", "seg:Ask first": "Send without asking loosens approvals (security review)", "seg:Allowed": "Send without asking loosens approvals (security review)", "seg:Never": "the engine has no spending for a Trunk", "sw:tm-notes": "a Trunk's notes are always its own; the engine has no switch for it" },
+  may: { "sw:tm-read": "loosens what the Trunk may do (security review)", "sw:tm-browse": "loosens what the Trunk may do (security review)", "seg:Ask first": "Send without asking loosens approvals (security review)", "seg:Allowed": "Send without asking loosens approvals (security review)", "seg:Never": "the engine's Spend money category holds no tool in this build (GET /api/state approvalCategories)", "sw:tm-notes": "a Trunk's notes are always its own; the engine has no switch for it" },
   its17d: { "itsmax17d:2": "the engine refuses more at once than computers allowed (src/trunks/computers.ts)", "itsmax17d:3": "same", "itsmax17d:4": "same", "cloudnew17d:": "no cloud computer provider in this build" },
 };
 async function tabControls(page, tab) {
@@ -196,6 +199,8 @@ async function tabControls(page, tab) {
 }
 async function otherTabs(page, id, preset) {
   await tabControls(page, "may");
+  const spend = (await api("state")).approvalCategories?.find((c) => c.id === "spend");
+  check("Spend money is greyed because the engine has no spending tool", spend && spend.tools.length === 0, `GET /api/state approvalCategories spend.tools=${JSON.stringify(spend?.tools)}`);
   if (preset) {
     await page.locator(`.dlg [data-act="tm-model"][data-v="${preset}"]`).click();
     await settle(page);
@@ -249,8 +254,11 @@ async function removal(page, id, sid, room) {
   check("the engine removed it", !all.trunks.some((t) => t.id === id), "GET /api/trunks");
   check("its room of two is removed, as the dialog said", !all.rooms.some((r) => r.id === room.id), "");
   check("the Trunks list updates without a reload", (await page.locator(`.prow [data-act="edit"][data-id="${id}"]`).count()) === 0, "Customize › Trunks row gone");
-  const sessions = (await api("sessions?limit=50")).sessions ?? [];
-  check("its conversation stays in the list, as the dialog said", sessions.some((s) => s.sessionId === sid), "GET /api/sessions");
+  const side = await page.evaluate(([r, s]) => [r, s].map((id) => document.querySelector(`#side .row[data-id="${id}"] .avw`)?.innerHTML ?? ""), [room.sessionId, sid]);
+  check("the sidebar updates without a reload", !side[0].includes("stack") && !/look12|emoji15|photo-tl/.test(side[1]),
+    "the room's conversation no longer draws the room's faces and the Trunk's no longer wears its face");
+  const kept = await call(`sessions/${sid}`);
+  check("its conversation stays, as the dialog said", kept.ok && kept.data.sessionId === sid, `GET /api/sessions/{id} ${kept.status}`);
   const memory = (await api("memory/export")).records ?? [];
   check("what it remembered stays, as the dialog said", memory.some((r) => r.data?.scope === `agent:trunk:${id}`), "GET /api/memory/export");
 }
