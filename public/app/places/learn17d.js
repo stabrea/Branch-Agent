@@ -42,7 +42,8 @@ async function loadBooks() {
 /* A workbook that was learning and now is not: say how it went, in the engine's words, and open a new one. */
 function settled(before) {
   for (const w of W.list) {
-    if (before.get(w.id) !== "learning" || w.status === "learning") continue;
+    // one this window started (it may have finished before the first look), or one seen learning before
+    if (w.status === "learning" || (!W.waiting.has(w.id) && before.get(w.id) !== "learning")) continue;
     const why = W.waiting.get(w.id);
     W.waiting.delete(w.id);
     if (w.status === "failed") { toast(w.error); continue; }
