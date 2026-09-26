@@ -13,6 +13,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { logo } from "../core/logos.js";
 import { face, TEMPLATES } from "../flows/trunk.js";
+import { specLine, toolsSection, codingAgentsSection, initCustomize17 } from "./customize17.js";
 
 function tabBar(tabs, place, current) {
   return `<div class="tabs" role="tablist">${tabs.map(([id, label, count]) =>
@@ -119,7 +120,7 @@ function toolsTab() {
   const [act, label] = ADD[k];
   const rows = items.map((x) => `<button type="button" class="t9-item" data-act="t9-sel" data-v="${esc(x.id)}" aria-current="${sel?.id === x.id}"><span class="ico-tile t9i" data-css="width:32px;height:32px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span></button>`).join("");
   return `<div class="t9"><nav class="t9-nav" aria-label="Kinds of tools">${nav}<button type="button" class="btn pri t9-addbtn" data-act="${act}" data-v="${k}">${ic('plus', 's')}${label}</button></nav>
-    <div class="t9-list">${learnedCard()}${rows}${suggested()}</div>${sel ? detail(k, sel) : ""}</div>`;
+    <div class="t9-list">${learnedCard()}${rows}${suggested()}</div>${sel ? detail(k, sel) : ""}</div>${toolsSection(k, sel?.id)}`;
 }
 
 /* The engine keeps each specialist as {id, data: {definition: {name, instructions}}}. */
@@ -148,12 +149,12 @@ function fleet(specs) {
 
 function specialistsTab() {
   const specs = E.state.specialists || [];
-  const rows = specs.map((s) => `<div class="prow"><span class="ico-tile">${ic('bolt', 's')}</span><span class="grow"><b>${esc(specName(s))}</b><small>${esc(specWhat(s))}</small></span><button class="btn sm" type="button" data-act="spec-edit" data-id="${esc(s.id ?? "")}">Edit</button></div>`).join('');
+  const rows = specs.map((s) => `<div class="prow"><span class="ico-tile">${ic('bolt', 's')}</span><span class="grow"><b>${esc(specName(s))}</b><small>${esc(specWhat(s))}</small>${specLine(s)}</span><button class="btn sm" type="button" data-act="specb17" data-id="${esc(s.id ?? "")}">Edit</button></div>`).join('');
   const chosen = E.state.orchestration?.pattern;
   const pats = PATTERNS.map((p) => `<button type="button" role="radio" class="pat15" aria-checked="${chosen === p[0]}" data-act="${p[0] === "teams" ? "pat15-teams" : "pat15"}" data-v="${p[0]}">${patSvg(p)}<b>${esc(p[1])}</b><small>${esc(p[2])}</small></button>`).join("");
   return `<div class="rows"><p class="hint" data-css="margin:4px 0 8px">Helpers a Trunk calls in for one job, then lets go.</p>${rows}</div>
     <div class="sec x15-sec">${fleet(specs)}<h2 data-css="margin-top:22px">How Trunks work together</h2><p class="hint" data-css="margin:0 0 10px">The pattern a room or a big task uses. Branch picks one; you can choose.</p>
-    <div class="pats15" role="radiogroup" aria-label="How Trunks work together">${pats}</div></div>`;
+    <div class="pats15" role="radiogroup" aria-label="How Trunks work together">${pats}</div></div>${codingAgentsSection()}`;
 }
 
 const FAM_WORDS = { core: "Two minutes to set up", chat: "Text through a webhook" };
@@ -290,6 +291,7 @@ function redrawGrid() {
 export function init() {
   markLive(["sw:ch-q", "ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam", "rev", "sugg15", "pat15"]);
   on("pat15", (el) => choosePattern(el));
+  initCustomize17();
   on("rev", (el) => revise(el));
   on("sugg15", (el) => addSuggested(el));
   on("t9-kind", (el) => { T9.k = el.dataset.v; T9.sel = null; renderNow(); });

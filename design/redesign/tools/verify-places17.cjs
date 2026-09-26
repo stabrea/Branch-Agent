@@ -137,7 +137,8 @@ async function setup() {
   const order = (await post("autonomy/orders", { name: "Receipts in by the 3rd", authority: "Chase missing receipts", start: { kind: "manual" }, escalation: ["A receipt over 200"] })).order;
   await post("commands/run", { surface: "window", line: "/loop every 10m check the build", sessionId: handed.sessionId });
   const lib = await librarySetup();
-  return { handed, stop, order, lib };
+  const custom = await customizeSetup();
+  return { handed, stop, order, lib, custom };
 }
 
 /* ---------- Inbox ---------- */
@@ -400,21 +401,105 @@ async function library(page, s) {
   await howItLearns(page, s);
 }
 
-const STEPS = [inbox, automations, library];
+/* ---------- Customize ---------- */
+async function customizeSetup() {
+  const spec = await post("action", { tool: "specialists.propose", args: { name: "Code reviewer", instructions: "Reviews code before it is kept.", style: "critic", permissions: ["files.read"], evaluation: { prompt: "EVALUATE-WRITE eval/ok.txt ok", checks: [{ path: "eval/ok.txt", expected: "ok" }] } } });
+  await post("action", { tool: "specialists.evaluate", args: { id: spec.id } });
+  await post("action", { tool: "specialists.promote", args: { id: spec.id } });
+  return { spec };
+}
+const specNow = async (id) => (await get("state")).specialists.find((s) => s.id === id).data;
+
+async function specialists(page, s) {
+  const id = s.custom.spec.id;
+  await act(page, "view", { v: "customize" });
+  await act(page, "ptab", { place: "customize", v: "specialists" });
+  await page.waitForSelector(`[data-act="specb17"][data-id="${id}"]`, { timeout: 8000 });
+  check("specialist row: its style and version from the engine (GET /api/state specialists)", (await page.locator(".spec-b17").first().textContent()) === "critic style · version 1");
+  await page.click(`[data-act="specb17"][data-id="${id}"]`);
+  await page.waitForSelector('.dlg [data-act="specstyleb17"]', { timeout: 8000 });
+  const styles = (await get("specialist-styles")).styles.map((x) => x.style);
+  check("specb17 (Edit): the card offers the engine's own styles (GET /api/specialist-styles)", JSON.stringify(await page.locator('.dlg [data-act="specstyleb17"]').allTextContents()) === JSON.stringify(styles));
+  await page.click('.dlg [data-act="specstyleb17"][data-v="researcher"]');
+  const drafted = await until("a new draft version", async () => { const d = await specNow(id); return d.version === 2 && d; });
+  check("specstyleb17: a new draft version in that style; the one in use is unchanged (specialists.propose, GET /api/state)", drafted.definition.style === "researcher" && drafted.activeVersion === 1);
+  await page.waitForSelector('.dlg [data-act="specevalb17"]', { timeout: 8000 });
+  await page.click('.dlg [data-act="specevalb17"]');
+  await until("the evaluation passed", async () => (await specNow(id)).evaluationPassed, 30000);
+  check("specevalb17 (Run test cases): the draft's evaluation passed (specialists.evaluate, GET /api/state)", true);
+  await page.waitForSelector('.dlg [data-act="specverb17"][data-v="promote"]', { timeout: 8000 });
+  await page.click('.dlg [data-act="specverb17"][data-v="promote"]');
+  const promoted = await until("version 2 in use", async () => { const d = await specNow(id); return d.activeVersion === 2 && d; });
+  check("specverb17 (Promote): version 2 is in use, version 1 kept for rollback (GET /api/state)", promoted.previousActive === 1);
+  await page.waitForSelector('.dlg [data-act="specverb17"][data-v="back"]', { timeout: 8000 });
+  await page.click('.dlg [data-act="specverb17"][data-v="back"]');
+  await until("rolled back", async () => (await specNow(id)).activeVersion === 1);
+  check("specverb17 (Roll back): version 1 is in use again (GET /api/state)", true);
+  await page.waitForSelector('.dlg [data-act="specverb17"][data-v="promote"]', { timeout: 8000 }); // the card drawn again from the engine
+  await act(page, "dlg-close");
+  await setLevel(page, "advanced");
+  await act(page, "ptab", { place: "customize", v: "specialists" });
+  check("Other coding agents stays greyed (no route lists them; handing over starts a program)", await greyed(page, '[data-k="handoffcli"]'));
+}
+
+async function tools(page) {
+  await act(page, "ptab", { place: "customize", v: "tools" });
+  await act(page, "t9-kind", { v: "skills" });
+  await page.waitForSelector('[data-k="curator"]', { timeout: 8000 });
+  check("lint and harness stay greyed (no route)", await greyed(page, '[data-k="lint"]') && await greyed(page, '[data-k="harness"]'));
+  await page.click('[data-act="demob17"][data-k="curator"]');
+  await page.waitForSelector(".dlg .demo-b17", { timeout: 8000, state: "attached" });
+  check("demob17 curator: one row per skill the engine counted (GET /api/learning-more/curator)", (await rowsShown(page)) === (await get("learning-more/curator")).skills.length);
+  await act(page, "dlg-close");
+  await act(page, "t9-kind", { v: "plugins" });
+  for (const [k, key] of [["valves", "filters"], ["examples", "bundled"]]) {
+    await page.click(`[data-act="demob17"][data-k="${k}"]`);
+    await page.waitForSelector(".dlg .demo-b17", { timeout: 8000, state: "attached" });
+    check(`demob17 ${k}: one row per engine item (GET /api/plugin-catalog/add-ons ${key})`, (await rowsShown(page)) === (await get("plugin-catalog/add-ons"))[key].length);
+    await act(page, "dlg-close");
+  }
+  await act(page, "t9-kind", { v: "mcp" });
+  await page.click('[data-act="demob17"][data-k="asmcp"]');
+  await page.waitForSelector('.dlg [data-act="demodob17"][data-k="asmcp"]', { timeout: 8000 });
+  check("demob17 asmcp: the tools Branch shares, and its address (GET /api/mcp/settings)", (await rowsShown(page)) === (await get("mcp/settings")).exposedTools.length + 1);
+  await page.click('.dlg [data-act="demodob17"][data-k="asmcp"]');
+  check("demodob17 asmcp (Copy the address): the address is on the clipboard", (await page.evaluate(() => navigator.clipboard.readText())) === `${BASE}/mcp`);
+  await act(page, "dlg-close");
+  await page.click('[data-act="demob17"][data-k="oaiapi"]');
+  await page.waitForSelector('.dlg [data-act="demodob17"][data-k="oaiapi"]', { timeout: 8000 });
+  const models = await (await fetch(`${BASE}/v1/models`, { headers: { authorization: `Bearer ${TOKEN}` } })).json();
+  check("demob17 oaiapi: the address and one row per model (GET /v1/models)", (await rowsShown(page)) === models.data.length + 1);
+  await page.click('.dlg [data-act="demodob17"][data-k="oaiapi"]');
+  check("demodob17 oaiapi (Copy the address): the address is on the clipboard", (await page.evaluate(() => navigator.clipboard.readText())) === `${BASE}/v1`);
+  await act(page, "dlg-close");
+  const off = await (await fetch(`${BASE}/.well-known/agent.json`, { headers: { authorization: `Bearer ${TOKEN}` } })).json();
+  await page.click('[data-act="demob17"][data-k="a2acard"]');
+  const shownRefusal = await until("the refusal", async () => (await toastText(page)) === off.error, 6000).catch(() => false);
+  check("demob17 a2acard, sharing off: the engine's refusal as it said it", shownRefusal, off.error);
+  await setLevel(page, "regular");
+}
+
+async function customize(page, s) {
+  await specialists(page, s);
+  await tools(page);
+}
+
+const STEPS = [inbox, automations, library, customize];
 
 async function run() {
   const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
   const model = await startModel();
   const s = await setup();
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+  const context = await browser.newContext({ viewport: { width: 1400, height: 950 }, permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   try {
     await signIn(page);
     for (const step of STEPS) {
       await page.keyboard.press("Escape").catch(() => null);
-      try { await step(page, s); } catch (error) { check(`step ${step.name} ran`, false, error.message.split("\n")[0]); }
+      try { await step(page, s); } catch (error) { check(`step ${step.name} ran`, false, error.message.split("\n").slice(0, 4).join(" ")); }
     }
   } finally {
     check("zero page errors", errors.length === 0, errors.join(" | "));
