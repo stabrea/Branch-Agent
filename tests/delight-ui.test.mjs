@@ -22,7 +22,7 @@ function slowModel() {
     return { content: "Done.", toolCalls: [] };
   } } };
 }
-async function fixture(t, { width = 1440, height = 950, reducedMotion = "no-preference", init } = {}) {
+async function fixture(t, { width = 1440, height = 950, reducedMotion = "no-preference", init, before } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-delight-ui-"));
   const model = slowModel();
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: model.provider });
@@ -35,6 +35,7 @@ async function fixture(t, { width = 1440, height = 950, reducedMotion = "no-pref
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }).then((response) => response.json());
   await call("/api/onboarding", { done: true });
+  if (before) await before(call);
   const page = await browser.newPage({ viewport: { width, height }, reducedMotion });
   if (init) await page.addInitScript(init);
   const errors = [];
@@ -79,8 +80,10 @@ function watchTimers() {
     };
   }
 }
-test("off by default: no pet, no own background, the acorn hidden, and the three cards waiting in Appearance", async (t) => {
-  const f = await fixture(t, { init: watchTimers });
+test("switched off: no pet, no own background, the acorn hidden, and the three cards waiting in Appearance", async (t) => {
+  // Q251: all three ship on; the owner has switched them off before the window opens.
+  const allOff = (call) => call("/api/delight/settings", { pets: { on: false }, achievements: { on: false }, background: { on: false } });
+  const f = await fixture(t, { init: watchTimers, before: allOff });
   const asked = [];
   f.page.on("request", (request) => { if (/\/api\/delight\/(achievements|noticed)/.test(request.url())) asked.push(request.url()); });
   await f.call("/api/run", { prompt: "one" });
@@ -94,7 +97,7 @@ test("off by default: no pet, no own background, the acorn hidden, and the three
   await openSettingFor(f.page, "#delight-pet-on");
   for (const id of ["delight-pet-on", "delight-ach-on", "delight-bg-on"]) {
     assert.equal(await f.page.locator(`#${id}`).isVisible(), true, id);
-    assert.equal(await f.page.locator(`#${id}`).isChecked(), false, `${id} ships off`);
+    assert.equal(await f.page.locator(`#${id}`).isChecked(), false, `${id} is off`);
   }
   assert.equal(await f.page.locator("#delight-pet-more").isVisible(), false, "the pet's own choices wait until it is on");
   assert.deepEqual(f.errors, []);
@@ -183,6 +186,8 @@ test("the pet's own menu opens on right-click, never the browser's, and can hide
 test("achievements: what a real task earns arrives as a seven-second note, once; Gold and above get a card", async (t) => {
   const f = await fixture(t);
   await switchOn(f.page, "delight-ach-on");
+  // Q251: the window's first look (about 1.5 s after it opens) finds the past quietly; what comes after it is celebrated.
+  await f.page.evaluate(() => globalThis.branchAchievements.check());
   await f.app.runtime.run({ prompt: "one" });
   await f.page.evaluate(() => globalThis.branchAchievements.check());
   await f.page.locator("#ach-note").waitFor({ timeout: 10000 });

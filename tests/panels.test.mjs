@@ -551,6 +551,8 @@ test("on a phone, hiding the title bar (where the side list opens) leaves the ge
 test("with achievements on, hiding everything earns \"It's lonely over here\" (phase2/delight)", async (t) => {
   const f = await windowFixture(t, { seeded: false });
   const lonely = async () => (await f.call("/api/delight/achievements")).list?.find((a) => a.id === "noticed:flag:lonely:1");
+  // Q251: achievements ship on; switched off there is no list, and switched on again the window starts asking.
+  await f.call("/api/delight/settings", { achievements: { on: false } });
   assert.equal(await lonely(), undefined, "achievements are off, so there is no list");
   await f.call("/api/delight/settings", { achievements: { on: true } });
   await f.page.reload(); // the window reads the switch when it starts

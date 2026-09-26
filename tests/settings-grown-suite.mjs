@@ -58,6 +58,9 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
   saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
   if (preferences) app.store.save("settings", app.runtime.owner, "preferences", preferences);
+  // Q251: achievements ship on. These tests measure Settings' layout, so they are earned quietly: a note that
+  // pops up over the page at 390 px would sit on the very links being clicked.
+  app.store.save("settings", app.runtime.owner, "delight", { achievements: { on: true, quiet: true } });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const call = (path, body) => fetch(new URL(path, server.url), {

@@ -4109,7 +4109,8 @@ foot, and stays there. It has no caption: *Drag to turn* is its tooltip, and a s
 shows when the pointer is over it or it has the keyboard. *Keep things still* stops it turning.
 
 Three playful extras sit beside it. Each has its own switch in Settings → Appearance, and **all
-three are off** until the owner turns them on. They are the owner's alone: a household profile, a
+three are on** as shipped (Q251: nothing here spends, sends, deletes or listens); a switch the owner
+turns off stays off. Your own background shows nothing until a picture is chosen. They are the owner's alone: a household profile, a
 short-lived key and a chat app never see them or change them.
 
 - **A pet** (`pets`) — a small forest creature drawn like the acorn, in the theme's own colours, in
@@ -4121,7 +4122,7 @@ short-lived key and a chat app never see them or change them.
   as the owner's rank rises (Bronze: at most one every few minutes; Silver: at most one an hour;
   Gold and above: none). Right-click it for its own menu (pat, no more tips, its settings, hide).
   Pressing it pats it; when something waits for your yes, pressing it opens Inbox.
-  Fields: `on` (default `false`), `kind` (`squirrel`, `owl`, `hedgehog`, `fox`, `robin`, `rabbit`,
+  Fields: `on` (default `true`), `kind` (`squirrel`, `owl`, `hedgehog`, `fox`, `robin`, `rabbit`,
   `snail`, `fawn`; default `squirrel`), `name` (1–20 characters, default `Hazel`), `talks` (default
   `true`), `tips` (default `true`).
 - **Achievements** (`achievements`) — 505: Bronze, Silver, Gold, Diamond and Godly, exactly 100 of
@@ -4134,7 +4135,7 @@ short-lived key and a chat app never see them or change them.
   language, and "It's lonely over here" when everything that can be hidden is hidden). Nothing is
   granted for time passing. The tiers come from how long an everyday owner would take. A streak is
   the best run of days in a row with a finished task, so it only ever pauses. Switching achievements
-  on finds the past without any pop-up; after that a Bronze or Silver one shows as a small note at
+  on, or the first look when they were on as shipped, finds the past without any pop-up; after that a Bronze or Silver one shows as a small note at
   the top for about seven seconds, and Gold and above as a card with falling leaves that grows with
   the rank (*Keep things still* shows the card without them). Locked ones give less away the higher
   they are: Gold hides its description, Diamond its name, Godly and SSS+ everything. They are kept in
@@ -4142,7 +4143,7 @@ short-lived key and a chat app never see them or change them.
   nothing the window sees is written down. The events Branch writes for every task are counted a
   batch at a time (25,000 per look, kept with the achievements as `scan`), so a long history never
   stops Branch while it is counted; what that past brings arrives quietly, and `GET
-  /api/delight/achievements` says `behind: true` until it is all counted. Fields: `on` (default `false`), `quiet` (default `false`:
+  /api/delight/achievements` says `behind: true` until it is all counted. Fields: `on` (default `true`), `quiet` (default `false`:
   earned without any pop-up).
 - **Your own background** (`background`) — a picture, a video, an animation (GIF, WebP or APNG) or
   a 3D object behind the glass instead of the oak. The 3D object is one of Branch's own (the acorn
@@ -4156,7 +4157,7 @@ short-lived key and a chat app never see them or change them.
   removes it from that storage for good. A full disk is said in plain words. Pictures and animations up to 8 MB, videos up
   to 25 MB, 3D models up to 5 MB; anything else is refused in plain words. A scrim in the theme's ground
   colour lies over it so text stays readable in every theme. A video pauses for *Keep things still*
-  and while the window is hidden. Fields: `on` (default `false`), `scrim` (20–90, how strongly the
+  and while the window is hidden. Fields: `on` (default `true`), `scrim` (20–90, how strongly the
   theme's colour covers it; default `60`), `fit` (`fill`, `fit` or `tile`; default `fill`).
 
 - **Pixel or 3D** (`look`) — `style`: `pixel` (default: the acorn and the pet as they have always
