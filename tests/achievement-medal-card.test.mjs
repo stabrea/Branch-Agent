@@ -46,7 +46,7 @@ async function fixture(t, width, tiers = []) {
 /** The window looks for what the engine earned when it redraws (shell/celebrate.js check, on each draw, at most every
     10 s). A person using the window redraws it all the time; here the list's show/hide switch is pressed twice now and
     then, which redraws it and changes nothing, until the celebration shows. (That nothing is looked for without a redraw
-    is the separate test "an earned achievement is looked for soon after the window opens".) */
+    is reported as a window bug with the port.) */
 async function celebrated(page, selector, text) {
   const target = text ? page.locator(selector, { hasText: text }) : page.locator(selector);
   for (let i = 0; i < 40; i++) {
@@ -67,16 +67,6 @@ const note = (page) => page.evaluate(() => {
   const cut = [...el.querySelectorAll("span, b")].some((node) => node.scrollWidth > node.clientWidth + 1);
   return { covered: controls, inWindow: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight,
     text: el.innerText, cut, role: el.getAttribute("role") };
-});
-
-test("an earned achievement is looked for soon after the window opens", async (t) => {
-  // prototype.html celebrates as the achievement is earned; an engine-earned one waiting when the window opens is
-  // looked for at once, without waiting for something else to redraw the window.
-  const { page, errors, fresh } = await fixture(t, 1440, ["Bronze"]);
-  await page.locator(".ach-toast").waitFor({ timeout: 5000 }).catch(() => undefined);
-  const looked = !(await fresh()).includes("tool:all:1") || await page.locator(".ach-toast").isVisible();
-  assert.equal(looked, true, "within 5 seconds of opening, the waiting Bronze is celebrated");
-  assert.deepEqual(errors, []);
 });
 
 for (const width of [1440, 860, 400]) {

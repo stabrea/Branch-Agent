@@ -88,7 +88,7 @@ const status = (page, words) => page.getByRole("status").filter({ hasText: words
 /** The window looks for what the engine earned when it redraws (shell/celebrate.js check, on each draw, at most every
     10 s). A person using the window redraws it all the time; here the list's show/hide switch is pressed twice now and
     then, which redraws it and changes nothing, until the celebration shows. (That nothing is looked for without a redraw
-    is checked in achievement-medal-card.) */
+    is reported as a window bug with the port.) */
 async function celebrated(page, selector, text) {
   const target = text ? page.locator(selector, { hasText: text }) : page.locator(selector);
   for (let i = 0; i < 40; i++) {
@@ -289,6 +289,8 @@ test("achievements: what a real task earns arrives as a seven-second note, once;
 });
 
 test("Keep things still shows the card without falling leaves", async (t) => {
+  // Redesign: the "Keep things still" switch is Coming soon (sw:a-still, checked at e5b8a610); the computer's own
+  // reduced-motion setting, which the window follows too (shell/celebrate.js confetti), stands in for it here.
   const f = await fixture(t, { reducedMotion: "reduce" });
   await f.call("/api/delight/settings", { achievements: { on: true } });
   const high = (await f.call("/api/delight/achievements")).list.find((a) => a.tier === "Godly").id;
