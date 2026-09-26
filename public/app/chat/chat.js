@@ -464,6 +464,14 @@ export function init() {
   on("side", () => document.getElementById("app").classList.toggle("side-open"));
   document.addEventListener("submit", (e) => { if (e.target.id === "composer") { e.preventDefault(); send(); } });
   document.addEventListener("keydown", (e) => { if (e.target.id === "prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+  /* Page Up and Page Down with nothing focused move through the conversation, which scrolls inside its own box. */
+  document.addEventListener("keydown", (e) => {
+    if (S.view !== "chat" || (e.key !== "PageUp" && e.key !== "PageDown") || e.target !== document.body) return;
+    const box = $("#scroll");
+    if (!box) return;
+    e.preventDefault();
+    box.scrollBy({ top: (e.key === "PageUp" ? -0.9 : 0.9) * box.clientHeight });
+  });
   document.addEventListener("input", (e) => {
     if (e.target.id !== "prompt") return;
     S.drafts[C.sessionId ?? "new"] = e.target.value;
