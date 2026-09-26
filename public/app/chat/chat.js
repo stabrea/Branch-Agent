@@ -74,8 +74,11 @@ function bot(m, first, who, info) {
   return `<div class="b${pinnedClass(m)}${outClass(m)}"${mid(m)}><div class="gut">${first ? av(who ?? { kind: "main" }, 28) : ""}</div><div>${from}<div class="txt">${text(replyWords(m, info))}</div></div>${msgActs(m)}</div>${outBadge(m)}`;
 }
 
-/* The approval card, 1:1 with the prototype's: the action's verb (allow once), "Always allow for …" (a standing rule,
-   greyed out until the engine can scope a rule to one Trunk), and "Don't …" (deny). The verb comes from the tool alone,
+/* The approval card, 1:1 with the prototype's: the action's verb (allow once), "Always allow" (a standing rule in the
+   owner's policy, POST /api/policy/approve { remember: "always" }; the engine keeps it for every Trunk, so the card does
+   not name one), and "Don't …" (deny). Always allow is drawn only where the engine could keep it: not in Ask first or
+   Plan (noStanding), not for a call that names nothing a rule could hold (noAlways), not for a once-only question, not
+   for work the owner did not start, and not on a household profile; the engine refuses each of those anyway. The verb comes from the tool alone,
    never from the label, which can carry a reviewer's or hook's words; the label is the card's body. Each button names
    its request by session and fingerprint, and only that exact request is answered. */
 const VERBS = { files: "window.chat.ask.change-it", shell: "playground.run", code: "playground.run", device: "trunks.room.allow", browser: "window.chat.ask.go-ahead", channels: "window.chat.ask.send-it", memory: "window.chat.ask.save-it" };
@@ -88,11 +91,11 @@ function askCard(q) {
   const verb = verbOf(q.tool);
   const off = answering.has(askKey(q.sessionId, q.fingerprint)) ? " disabled" : "";
   const id = `data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}"${off}`;
-  const trunk = q.trunk ? E.trunks.find((tr) => tr.id === q.trunk) : null;
-  const always = trunk ? t("window.chat.ask.always-for", { name: esc(trunk.name) }) : t("window.chat.ask.always");
+  const standing = !q.noStanding && !q.noAlways && !q.onceOnly && q.source === "owner" && !E.profiles?.active?.id;
+  const always = standing ? `<button class="btn" type="button" data-act="ask-always" ${id}>${t("window.chat.ask.always")}</button>` : "";
   return `<div class="b"><div class="gut"></div><div><div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.question || q.label)}</span><span class="pill work ml"><i></i>${t("dashboard.needs.title")}</span></div>
     ${(q.question && q.label) || q.bytes ? `<dl class="kv">${q.question && q.label ? `<dd class="mailbody">${esc(q.label)}</dd>` : ""}${q.bytes ? `<dd class="mailbody">${esc(q.bytes)}</dd>` : ""}</dl>` : ""}
-    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" ${id}>${esc(verb)}</button><button class="btn" type="button" data-act="ask-always" ${id} data-trunk="${esc(q.trunk || "")}">${always}</button><button class="btn ghost" type="button" data-act="ask" data-v="deny" ${id}>${t("window.chat.ask.dont-allow")}</button></div></div></div></div>`;
+    <div class="acts"><button class="btn pri" type="button" data-act="ask" data-v="allow" ${id}>${esc(verb)}</button>${always}<button class="btn ghost" type="button" data-act="ask" data-v="deny" ${id}>${t("window.chat.ask.dont-allow")}</button></div></div></div></div>`;
 }
 
 function thread() {
@@ -395,6 +398,7 @@ async function answer(el, decision, extra = {}) {
     return;
   }
   answering.delete(key);
+  if (said?.standingNote) toast(said.standingNote); // the engine kept the yes for this conversation only, and says why
   C.waiting = C.waiting.filter((w) => w !== q);
   if (said?.task === "carrying-on") await follow(q.sessionId);
   else await openConversation(q.sessionId);
@@ -465,13 +469,12 @@ export function init() {
   initSteer();
   initSwitched();
   onRender(drawPane);
-  markLive(["ask", "room-ask", "send", "side", "stop-run", "sw:prompt", "sugg"]);
+  markLive(["ask", "ask-always", "room-ask", "send", "side", "stop-run", "sw:prompt", "sugg"]);
   on("sugg", (el) => send(el.dataset.v));
   on("stop-run", () => stopRun());
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
   on("room-ask", (el) => answerInRoom(el, el.dataset.v === "deny" ? "deny" : "allow"));
-  /* Live once the engine scopes a standing yes to one Trunk (PR #285); until then features.js keeps it greyed. */
-  on("ask-always", (el) => { if (el.dataset.trunk) answer(el, "allow", { remember: "always", trunk: el.dataset.trunk }); });
+  on("ask-always", (el) => answer(el, "allow", { remember: "always" }));
   on("side", () => document.getElementById("app").classList.toggle("side-open"));
   document.addEventListener("submit", (e) => { if (e.target.id === "composer") { e.preventDefault(); send(); } });
   document.addEventListener("keydown", (e) => { if (e.target.id === "prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
