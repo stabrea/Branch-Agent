@@ -215,7 +215,7 @@ async function archive(page) {
   const after = (await get("memory/archive")).archived.some((a) => a.id === id);
   const back = (await get("state")).memory.some((m) => m.id === id);
   check("memarch15 (Restore): the fact is back in memory", !after && back);
-  check("memarch15: Purge all stays greyed", await page.locator('.dlg [data-act="toast"][aria-disabled="true"]').count() === 1);
+  check("memarch15: Purge all is live now (it landed on redesign/window; proved by its own verify script)", await page.locator('.dlg [data-act="memarch15"][data-v="purge"]:not([aria-disabled="true"])').count() === 1);
   await act(page, "dlg-close");
 }
 

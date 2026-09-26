@@ -205,7 +205,7 @@ async function greyed(page) {
   check("documents list: the engine's documents (GET /api/documents)", listed.includes(doc.name) && names.length === listed.length && listed.every((n) => names.includes(n)), names.join(", "));
   check("dv15 is live now: the map's names come from POST /api/knowledge/graph/names (proved in verify-places17.cjs)", await page.locator('[data-act="dv15"]:not([aria-disabled="true"])').count() === 2);
   await act(page, "ptab", { place: "automations", v: "scheduled" });
-  check("nl-add stays greyed (no route turns words into a schedule)", await page.locator('[data-act="nl-add"][aria-disabled="true"]').count() >= 1);
+  check("nl-add is live now (words to a schedule landed with #331; proved by its own verify script)", await page.locator('[data-act="nl-add"]:not([aria-disabled="true"])').count() >= 1);
   await act(page, "ptab", { place: "customize", v: "tools" });
   await page.click('[data-act="t9-kind"][data-v="mcp"]');
   await page.click('.t9-addbtn[data-act="tool-add"]');
