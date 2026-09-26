@@ -3306,3 +3306,16 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .lockscreen #unlock-b17{align-items:center}
 .lockscreen #unlock-b17 input{width:12ch;letter-spacing:.2em}
 .applock-b17{display:inline-flex;align-items:center;gap:8px}
+
+/* area: eng-connectors — flag a reply (prototype pass 17; --mute17c and .outb17c come from the 17c block above) */
+.flb17c{display:flex;align-items:center;gap:7px;margin-top:-8px;font-size:12px;color:var(--mute17c);flex-wrap:wrap;padding-left:40px}
+.flb17c svg{flex:none;color:var(--accent-ink)}
+.flb17c button{font-size:12px;color:var(--ink-2);text-decoration:underline;text-underline-offset:2px}
+.flb17c button:hover{color:var(--ink)}
+.msg-acts [data-act="flag"][aria-pressed="true"]{color:var(--accent-ink)}
+.flr17c{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.flsend17c{display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;border-radius:12px;background:var(--fill);flex-wrap:wrap}
+.flsend17c .grow{flex:1;display:grid;gap:2px;min-width:180px}
+.flsend17c b{font-size:13px;font-weight:500}
+.flsend17c small{font-size:12px;color:var(--mute17c)}
+.flsend17c.off17c b{color:var(--mute17c)}

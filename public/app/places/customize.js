@@ -1,5 +1,6 @@
 /* Customize: Trunks, Tools, Specialists, Channels, Everywhere. Every list is the engine's: the Trunks (E.trunks), the
-   tool servers (GET /api/mcp/connections), skills (E.state.skills), plugins (GET /api/plugins), other assistants
+   tool servers (your own from GET /api/mcp/servers, the launch file's from GET /api/mcp/connections), command-line tools
+   (GET /api/clis: the ones you allowed and the launch file's), skills (E.state.skills), plugins (GET /api/plugins), other assistants
    (GET /api/agents/remote), suggested skills (GET /api/skills/suggest), better versions of skills
    (GET /api/skill-revisions) and the chat apps (GET /api/channel-setup, connected ones from GET /api/channels).
    A better version is tried, kept or thrown away through POST /api/skill-revisions/try|accept|reject; a suggested skill
@@ -26,6 +27,8 @@ function tabBar(tabs, place, current) {
 let channelSetup = [];
 let connected = [];
 let mcpServers = [];
+let ownServers = [];
+let clis = { programs: [], launch: [] };
 let plugins = [];
 let agents = [];
 let suggestions = [];
@@ -41,16 +44,19 @@ const KINDS = [
   ["clis", "Command-line tools", "term", "Programs on this computer it may run"],
   ["agents", "Agents", "users", "Other assistants over A2A, and Trunks on other computers"],
 ];
-/* Each kind's items as {id, name, sub}; command-line tools have no engine list, so none are drawn. */
+/* Each kind's items as {id, name, sub}. Your own servers and tools carry `own`: they can be switched on or off (a
+   server) and removed; the launch file's cannot be from here. */
 function itemsOf(k) {
-  if (k === "mcp") return mcpServers.map((s) => ({ id: s.id, name: s.id, sub: s.summary ?? "", error: s.lastError ?? "" }));
+  if (k === "mcp") return [...ownServers.map((s) => ({ id: s.id, name: s.name, sub: s.how, error: s.error ?? "", own: s })),
+    ...mcpServers.filter((s) => !ownServers.some((o) => o.id === s.id)).map((s) => ({ id: s.id, name: s.id, sub: s.summary ?? "", error: s.lastError ?? "" }))];
+  if (k === "clis") return [...clis.programs.map((c) => ({ id: c.name, name: c.name, sub: c.path, own: c })), ...clis.launch.map((n) => ({ id: n, name: n, sub: "" }))];
   if (k === "skills") return (E.state?.skills ?? []).map((s) => ({ id: s.id, name: s.activeName || s.name, sub: s.description ?? "" }));
   if (k === "plugins") return plugins.map((p) => ({ id: p.id ?? p.name, name: p.name ?? p.id, sub: p.description ?? "" }));
   if (k === "agents") return agents.map((a) => ({ id: a.name, name: a.name, sub: a.description ?? a.cardUrl ?? "" }));
   return [];
 }
-/* The add button: a server, a skill or an agent opens its dialog; a plugin or a tool has no engine form to show yet. */
-const ADD = { mcp: ["tool-add", "Add a server"], skills: ["tool-add", "Add a skill"], plugins: ["plug-add", "Add a plugin"], clis: ["cli-add", "Add a tool"], agents: ["tool-add", "Connect another agent"] };
+/* The add button: a server, a skill, a command-line tool or an agent opens its dialog; a plugin has its own. */
+const ADD = { mcp: ["tool-add", "Add a server"], skills: ["tool-add", "Add a skill"], plugins: ["plug-add", "Add a plugin"], clis: ["tool-add", "Add a tool"], agents: ["tool-add", "Connect another agent"] };
 
 function trunksTab() {
   const rows = E.trunks.map((tr) => `<div class="prow">${av(face(tr), 36)}<span class="grow"><b>${esc(tr.name)}${tr.paused ? ` · ${t("autonomy.orders.paused")}` : ""}</b><small>${esc(tr.title ?? "")}</small></span>
@@ -98,11 +104,11 @@ function toolPerms(x) {
 }
 /* A server that would not start says why, in the engine's words; trying again and its log stay greyed. */
 const startProblem = (x) => (x.error ? `<div class="status"><span class="sdot bad"></span><div><b>${t("window.places.customize.it-didnt-start")}</b><p>${esc(String(x.error).replace(/\.$/, ""))}. <button class="link" type="button" data-act="tool-retry">${t("first-run-trouble.retry")}</button> · <button class="link" type="button" data-act="tool-log">${t("window.places.customize.see-its-log")}</button></p></div></div>` : "");
-/* Remove is live for skills only (tool-rm). A server lives in the launch file and a plugin or an agent here has no removal
-   this window checks, so theirs is drawn disabled. Test it would start the server's program, and no route checks a
-   server or a tool for updates, so both stay greyed under their own names. */
+/* Remove is live for skills, and for your own servers and command-line tools (tool-rm). A launch-file server, a plugin
+   or an agent here has no removal this window checks, so theirs is drawn disabled. Test it would start the server's
+   program without the approval gate, and no route checks a server or a tool for updates, so both stay greyed. */
 function detailActs(k, x) {
-  const rmOff = k === "skills" ? "" : ` disabled aria-disabled="true" data-tip="${t("window.places.automations.coming-soon")}"`;
+  const rmOff = k === "skills" || x.own ? "" : ` disabled aria-disabled="true" data-tip="${t("window.places.automations.coming-soon")}"`;
   const test = k === "mcp" ? `<button class="btn sm" type="button" data-act="tool-test">${t("window.places.customize.test-it")}</button>` : "";
   return `<div class="acts" data-css="margin-top:16px">${test}<button class="btn sm" type="button" data-act="tool-upd">${t("action.check-for-updates")}</button><span class="grow"></span><button class="btn ghost sm${rmOff ? " soon" : ""}" type="button" data-act="tool-rm" data-k="${k}" data-id="${esc(x.id)}"${rmOff}>${t("accounts.action.remove")}</button></div>`;
 }
@@ -113,7 +119,9 @@ const mainChip = (x) => `<button type="button" class="chip6" data-act="tool-who"
 function detail(k, x) {
   const list = k === "mcp" ? "mcpServers" : k === "skills" ? "skills" : null;
   const who = list ? `<div class="sec"><h2>${t("window.places.customize.which-trunks-may-use-it")}</h2><div class="chips8">${E.trunks.map((t) => `<button type="button" class="chip6" data-act="tool-who" data-k="${k}" data-id="${esc(x.id)}" data-v="${esc(t.id)}" aria-pressed="${(t[list] ?? []).includes(k === "skills" ? x.name : x.id)}">${esc(t.name)}</button>`).join("")}${k === "mcp" ? mainChip(x) : ""}</div></div>` : "";
-  const onOff = k === "mcp" ? `<input type="checkbox" class="sw" data-sw="tool9g" data-k="${k}" data-id="${esc(x.id)}" aria-label="${t("window.places.customize.name-on-or-off", { name: esc(x.name) })}">` : "";
+  /* Your own server's switch is live: on asks the engine to start it (a command waits for your yes in the Inbox), off stops
+     it. A launch-file server's stays greyed under its own name. */
+  const onOff = k === "mcp" ? `<input type="checkbox" class="sw" data-sw="${x.own ? "tool9g" : "tool9g-launch"}" data-k="${k}" data-id="${esc(x.id)}" ${x.own?.on ? "checked" : ""} aria-label="${t("window.places.customize.name-on-or-off", { name: esc(x.name) })}">` : "";
   return `<div class="t9-detail"><div class="t9-dh"><span class="ico-tile t9i" data-css="width:40px;height:40px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span>${onOff}</div>
     ${startProblem(x)}${who}${k === "mcp" ? toolPerms(x) : ""}${detailActs(k, x)}</div>`;
 }
@@ -214,29 +222,40 @@ const said = new Set();
 const read = (path) => api(path).catch((error) => { if (!said.has(path)) { said.add(path); toast(error.message); } return null; });
 
 async function readTools() {
-  const [mcp, plugs, ag, sug, rev, pol] = await Promise.all([read("mcp/connections"), read("plugins"), read("agents/remote"), read("skills/suggest"), read("skill-revisions"), read("policy")]);
-  return { mcpServers: listOf(mcp, "servers"), plugins: listOf(plugs, "plugins"), agents: listOf(ag, "agents"), suggestions: listOf(sug, "suggestions"), revisions: listOf(rev, "revisions"), policyRules: listOf(pol?.policy, "rules") };
+  const [mcp, own, cl, plugs, ag, sug, rev, pol] = await Promise.all([read("mcp/connections"), read("mcp/servers"), read("clis"), read("plugins"), read("agents/remote"), read("skills/suggest"), read("skill-revisions"), read("policy")]);
+  return { mcpServers: listOf(mcp, "servers"), ownServers: listOf(own, "servers"), clis: { programs: listOf(cl, "programs"), launch: listOf(cl, "launch") },
+    plugins: listOf(plugs, "plugins"), agents: listOf(ag, "agents"), suggestions: listOf(sug, "suggestions"), revisions: listOf(rev, "revisions"), policyRules: listOf(pol?.policy, "rules") };
+}
+/* Another area (an add dialog) reads the tool lists again after it added something. */
+export async function reloadTools() {
+  ({ mcpServers, ownServers, clis, plugins, agents, suggestions, revisions, policyRules } = await readTools());
 }
 
 export async function after() {
   const tab = S.tabs.customize || "trunks";
-  const before = JSON.stringify([mcpServers, plugins, agents, suggestions, revisions, policyRules, channelSetup, connected]);
-  if (tab === "tools") ({ mcpServers, plugins, agents, suggestions, revisions, policyRules } = await readTools());
+  const before = JSON.stringify([mcpServers, ownServers, clis, plugins, agents, suggestions, revisions, policyRules, channelSetup, connected]);
+  if (tab === "tools") await reloadTools();
   else if (tab === "channels") {
     const [setup, live] = await Promise.all([read("channel-setup"), read("channels")]);
     channelSetup = listOf(setup, "channels");
     connected = listOf(live, "channels");
   }
-  if (!same(before, JSON.stringify([mcpServers, plugins, agents, suggestions, revisions, policyRules, channelSetup, connected]))) renderNow();
+  if (!same(before, JSON.stringify([mcpServers, ownServers, clis, plugins, agents, suggestions, revisions, policyRules, channelSetup, connected]))) renderNow();
 }
 
-/* Removing a skill: POST /api/skills/{id}/remove, naming the revision it was shown at. */
+/* Removing a skill (POST /api/skills/{id}/remove, naming the revision it was shown at), one of your own servers
+   (POST /api/mcp/servers/{id}/remove, which stops it first) or command-line tools (POST /api/clis/remove). */
+const REMOVE = {
+  skills: (id) => api(`skills/${encodeURIComponent(id)}/remove`, { expectedRevision: (E.state?.skills ?? []).find((s) => s.id === id)?.revision }),
+  mcp: (id) => api(`mcp/servers/${encodeURIComponent(id)}/remove`, {}),
+  clis: (id) => api("clis/remove", { name: id }),
+};
 async function removeTool(el) {
   const { k, id } = el.dataset;
   try {
-    if (k !== "skills") return;
-    await api(`skills/${encodeURIComponent(id)}/remove`, { expectedRevision: (E.state?.skills ?? []).find((s) => s.id === id)?.revision });
+    if (!REMOVE[k]) return;
     const name = itemsOf(k).find((x) => x.id === id)?.name ?? "";
+    await REMOVE[k](id);
     T9.sel = null;
     await refresh();
     await after();
@@ -275,6 +294,17 @@ async function addSuggested(el) {
   renderNow();
 }
 
+/* Your own server on or off: POST /api/mcp/servers/{id}/start or /stop; the engine's words say what happened, and for a
+   command the question it now waits on in the Inbox. */
+async function switchServer(el) {
+  try {
+    const said = await api(`mcp/servers/${encodeURIComponent(el.dataset.id)}/${el.checked ? "start" : "stop"}`, {});
+    toast(said.said);
+  } catch (error) { toast(error.message); }
+  await reloadTools();
+  renderNow();
+}
+
 /* How Trunks work together: the owner's default, saved with the orchestration settings; the engine keeps the rest. */
 async function choosePattern(el) {
   const v = el.dataset.v, again = E.state.orchestration?.pattern === v;
@@ -293,7 +323,8 @@ function redrawGrid() {
 }
 
 export function init() {
-  markLive(["sw:ch-q", "ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam", "rev", "sugg15", "pat15"]);
+  markLive(["sw:ch-q", "ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam", "rev", "sugg15", "pat15", "sw:tool9g"]);
+  document.addEventListener("change", (e) => { if (e.target.dataset?.sw === "tool9g") switchServer(e.target); });
   on("pat15", (el) => choosePattern(el));
   initCustomize17();
   on("rev", (el) => revise(el));

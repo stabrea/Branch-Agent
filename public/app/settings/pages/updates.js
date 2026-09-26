@@ -49,9 +49,9 @@ function draw() {
   let html = `<h1>${esc(t("settings.page.about"))}</h1>`;
   if (version) html += "<p class=\"lede\">Branch Agent " + esc(version) + ".</p>";
 
-  /* Installing and undoing an update go through the desktop app's updater (IPC), not an engine route, and release notes
-     have no route, so these stay greyed. */
-  html += `<div class=\"acts\" data-css=\"margin-top:12px\"><button class=\"btn pri\" type=\"button\" data-act=\"install\">${t("window.settings.updates.install-when-nothing-is-running")}</button><button class=\"btn ghost\" type=\"button\" data-act=\"soon\">${t("window.settings.updates.whats-new")}</button></div>`;
+  /* Installing and undoing an update go through the desktop app's updater (IPC), not an engine route, so they stay greyed.
+     What's new opens the notes this build ships (GET /api/release-notes, flows/whatsnew.js), not a page in the browser. */
+  html += `<div class=\"acts\" data-css=\"margin-top:12px\"><button class=\"btn pri\" type=\"button\" data-act=\"install\">${t("window.settings.updates.install-when-nothing-is-running")}</button><button class=\"btn ghost\" type=\"button\" data-act=\"whatsnew13\">${t("window.settings.updates.whats-new")}</button></div>`;
   html += `<div class=\"sec\"><h2>${t("window.settings.updates.updating")}</h2>`;
   html += `<div class=\"ctl\"><b>${t("comfort.update.install")}</b><input class=\"sw\" type=\"checkbox\" id=\"u-auto\" ` + (autoUpdate ? "checked" : "") + ` aria-label=\"${t("comfort.update.install")}\" data-sw=\"set\"><small>${t("window.settings.updates.checks-every-day")}</small></div>`;
   html += `<div class=\"ctl\"><b>${t("window.settings.updates.undo-the-last-update")}</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">${t("strip.undo")}</button></span><small></small></div>`;
