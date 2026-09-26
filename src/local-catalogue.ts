@@ -15,7 +15,7 @@ import { localModelName } from "./local-models.js";
  *   (`registry.ollama.ai/v2/library/<name>/manifests/<tag>`), so a typed name is looked up
  *   there and its real download size shown before anything is downloaded.
  */
-const text = z.object({ en: z.string().min(1).max(200), fr: z.string().min(1).max(200), de: z.string().min(1).max(200) });
+const text = z.object({ en: z.string().min(1).max(200), fr: z.string().min(1).max(200), de: z.string().min(1).max(200), es: z.string().min(1).max(200) });
 const sha = z.string().regex(/^[a-f0-9]{64}$/);
 const VariantSchema = z.object({
   quant: z.string().regex(/^[A-Za-z0-9_]{2,16}$/),
