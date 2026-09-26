@@ -106,7 +106,9 @@ test("a household profile and a short-lived key can neither fix an update nor ch
   assert.equal(app.trunks.records.list().length, 0, "nothing was made");
 });
 
-test("in the app: Fix update opens the keeper's conversation with the record sent as your own message", async (t) => {
+// Redesign: replaced by the new window (the prototype has no failed-update card and no Fix update; the engine's side is
+// checked above).
+test.skip("in the app: Fix update opens the keeper's conversation with the record sent as your own message", async (t) => {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: true });
   const { server } = await failedUpdate(t, () => browser.close());
@@ -155,7 +157,9 @@ test("the update's own steps always reach the keeper, their end kept, however lo
   assert.match(text, /## What the last update did/);
 });
 
-test("in the app: Fix update waits while another task is working, and says so", async (t) => {
+// Redesign: replaced by the new window (the prototype has no failed-update card and no Fix update; the engine's side is
+// checked above).
+test.skip("in the app: Fix update waits while another task is working, and says so", async (t) => {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: true });
   let release;
