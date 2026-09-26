@@ -2,6 +2,10 @@
  * The owner's own MCP servers when the owner acts while one is still starting: switched off or removed, it ends with
  * nothing on, nothing running and no tools of it left; the same name added again asks the owner again; and on demand,
  * a connection still opening when its server is switched off is closed, so no program of it outlives Branch.
+ * One server's starts run in turn: a start overtaken by a newer one lets go of everything it could have put in place
+ * before the newer one goes on, so a server removed and added again as another program is only ever reached through
+ * the new program. Forgetting a server stops its retries and waits for a connection still opening; closing Branch
+ * overtakes a start under way.
  * The server is a small stand-in on this computer that is slow to answer (tests/fixtures/mcp-slow-server.mjs).
  */
 import test from "node:test";
@@ -14,6 +18,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { McpConnections } from "../dist/mcp-lifecycle.js";
+import { mcpToolName, openMcp } from "../dist/integrations/mcp.js";
 
 const slowServer = resolve("tests/fixtures/mcp-slow-server.mjs");
 /** How long the stand-in waits before it answers: long enough for the owner's click to land while it starts. */
@@ -69,8 +75,8 @@ async function switchOn(fx, id) {
   await api(fx, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint });
 }
 /** Adds a slow server, says yes to it, and waits until that many of its programs have started. */
-async function startSlowly(fx, name, pidfile, programs) {
-  const { server: { id } } = await api(fx, "/api/mcp/servers", slow(name, pidfile));
+async function startSlowly(fx, name, pidfile, programs, wait = delay) {
+  const { server: { id } } = await api(fx, "/api/mcp/servers", slow(name, pidfile, wait));
   await switchOn(fx, id);
   assert.ok(await until(async () => (await pidsIn(pidfile)).length >= programs), "its program started");
   return id;
@@ -80,6 +86,26 @@ async function assertEnded(pidfile, message) {
   await until(async () => (await stillRunning(pidfile)).length === 0, 5000);
   assert.deepEqual(await stillRunning(pidfile), [], message);
 }
+/**
+ * Holds a start at its last check before it puts anything in place: the malware check the MCP host makes as a server
+ * starts (and again as it is opened on demand). A stand-in for that check waits, once, on the launch that writes to
+ * this pidfile until `release` is called; every other check goes on as usual.
+ */
+function holdStartCheck(fx, pidfile) {
+  const host = fx.app.channelHost.mcp, usual = host.vetLaunch;
+  let release, entered, armed = true;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const reached = new Promise((resolve) => { entered = resolve; });
+  host.vetLaunch = async (command, args) => {
+    if (armed && args.includes(pidfile)) { armed = false; entered(); await gate; }
+    return usual(command, args);
+  };
+  return { reached, release };
+}
+/** How long a start that does not wait its turn is given to finish first. */
+const finishFirst = 5000;
+/** Answers each server's connection settings as if the owner had changed none of them. */
+const noSettings = { get: () => undefined };
 
 test("a server switched off while it is still starting stays off, with no tools and no program running", async (t) => {
   const fx = await fixture(t);
@@ -146,4 +172,160 @@ test("on demand, a connection still opening when its server is switched off is c
   await fx.close();
   await assertEnded(pidfile, "no program of it outlives Branch");
   assert.notEqual(outcome, "connected", "the connection that was opening is not handed to the task");
+});
+
+test("on demand, a server removed and added again as another program while its old start is held is reached only through the new program", async (t) => {
+  const fx = await fixture(t);
+  await api(fx, "/api/mcp/connections", { connect: "on-demand" });
+  const old = fx.pidfile("old"), replacement = fx.pidfile("replacement");
+  // Its first start connects once and notes its tools, so its next start lists them without starting its program.
+  const id = await startSlowly(fx, "Twin", old, 1, 0);
+  assert.ok(await until(async () => (await serverOf(fx, id)).running && toolsOf(fx.app, id).length === 2), "its first start finished");
+  await api(fx, `/api/mcp/servers/${id}/stop`, {});
+  const held = holdStartCheck(fx, old);
+  await switchOn(fx, id);
+  await held.reached;
+  // While that start is held: removed, added again under the same name as another program, switched on and said yes to.
+  await api(fx, `/api/mcp/servers/${id}/remove`, {});
+  const oldPrograms = (await pidsIn(old)).length;
+  const added = await api(fx, "/api/mcp/servers", slow("Twin", replacement, 0));
+  assert.equal(added.server.id, id, "the name is free again, so the same id is used");
+  await switchOn(fx, id);
+  await until(async () => (await serverOf(fx, id)).running, finishFirst);
+  held.release();
+  assert.ok(await until(async () => (await serverOf(fx, id)).running && toolsOf(fx.app, id).length === 2), "the new program's server goes on");
+  await sleep(500); // the held start has settled as well
+  const newPrograms = (await pidsIn(replacement)).length;
+  const echo = mcpToolName(id, "echo");
+  const answer = await fx.app.registry.execute(echo, {}, fx.app.runtime.context({ permissions: [echo] }));
+  assert.equal((await pidsIn(old)).length, oldPrograms, "the removed program is never started again");
+  assert.equal((await pidsIn(replacement)).length, newPrograms + 1, "calling its tool starts the new program");
+  assert.deepEqual(answer.content, [{ type: "text", text: "called echo" }], "which answers the call");
+  const after = await serverOf(fx, id);
+  assert.equal(after.on, true, "the server is on");
+  assert.equal(after.error, null, "with no problem kept for it");
+  assert.deepEqual(toolsOf(fx.app, id).sort(), [echo, mcpToolName(id, "ping")].sort(), "and its tools are listed");
+  await assertEnded(old, "no program of the removed server is left running");
+});
+
+test("in startup mode, a server removed and added again as another program while its old start is held ends on with its own tools", async (t) => {
+  const fx = await fixture(t);
+  const old = fx.pidfile("old"), replacement = fx.pidfile("replacement");
+  const held = holdStartCheck(fx, old);
+  const { server: { id } } = await api(fx, "/api/mcp/servers", slow("Twin", old, 0));
+  await switchOn(fx, id);
+  await held.reached;
+  await api(fx, `/api/mcp/servers/${id}/remove`, {});
+  await api(fx, "/api/mcp/servers", slow("Twin", replacement, 0));
+  await switchOn(fx, id);
+  await until(async () => (await serverOf(fx, id)).running, finishFirst);
+  held.release();
+  // The held start settles: whatever program of the removed server it started has ended again.
+  await until(async () => (await pidsIn(old)).length >= 2 && (await stillRunning(old)).length === 0, 10000);
+  assert.ok(await until(async () => (await serverOf(fx, id)).running && toolsOf(fx.app, id).length === 2), "the new program's server goes on");
+  await sleep(500);
+  const after = await serverOf(fx, id);
+  assert.equal(after.on, true, "it is on");
+  assert.equal(after.running, true, "and running");
+  assert.equal(after.error, null, "with no problem kept for it");
+  assert.equal(toolsOf(fx.app, id).length, 2, "and its tools are listed");
+  assert.equal((await stillRunning(replacement)).length, 1, "its own program runs");
+  await assertEnded(old, "no program of the removed server is left running");
+});
+
+test("on demand, a start that is overtaken and then fails after setting up how to reach its server leaves none of that behind", async (t) => {
+  const fx = await fixture(t);
+  await api(fx, "/api/mcp/connections", { connect: "on-demand" });
+  // Its program answers later than a starting server may take, so the held start fails once it goes on to connect.
+  fx.app.channelHost.mcp.startupTimeoutMs = () => 500;
+  const pidfile = fx.pidfile("overtaken");
+  const held = holdStartCheck(fx, pidfile);
+  const { server: { id } } = await api(fx, "/api/mcp/servers", slow("Overtaken", pidfile, delay));
+  await switchOn(fx, id);
+  await held.reached;
+  await api(fx, `/api/mcp/servers/${id}/remove`, {});
+  held.release();
+  assert.ok(await until(async () => (await pidsIn(pidfile)).length >= 2), "the held start went on and tried to connect");
+  await assertEnded(pidfile, "no program of it is left running");
+  await sleep(500);
+  assert.equal(fx.app.mcpConnections.known().includes(id), false, "nothing is left set up to reach the removed server");
+  assert.equal(fx.app.mcpConnections.health().some((server) => server.id === id), false, "nor listed with the connections");
+  assert.deepEqual(toolsOf(fx.app, id), [], "and no tool of it is registered");
+});
+
+test("on demand, a start that fails on its own leaves nothing set up to reach its server", async (t) => {
+  const fx = await fixture(t);
+  await api(fx, "/api/mcp/connections", { connect: "on-demand" });
+  fx.app.channelHost.mcp.startupTimeoutMs = () => 500;
+  const pidfile = fx.pidfile("failing");
+  const id = await startSlowly(fx, "Failing", pidfile, 2);
+  assert.ok(await until(async () => (await serverOf(fx, id)).error !== null), "its start failed");
+  await assertEnded(pidfile, "no program of it is left running");
+  const after = await serverOf(fx, id);
+  assert.equal(after.on, false, "it is off");
+  assert.deepEqual(toolsOf(fx.app, id), [], "with no tool of it registered");
+  assert.equal(fx.app.mcpConnections.known().includes(id), false, "and nothing is left set up to reach it");
+});
+
+test("a server forgotten while its connection is being retried is not tried again, not even through what is set up in its place", async () => {
+  const connections = new McpConnections(noSettings, () => "owner");
+  connections.backoffMs = () => 300;
+  let tries = 0, replacementTries = 0;
+  connections.register("flaky", async () => { tries += 1; throw new Error("not answering"); });
+  const outcome = connections.acquire("a-task", "flaky").then(() => "connected", (error) => error.message);
+  assert.ok(await until(() => tries === 1), "it was tried once and waits to try again");
+  const forgetting = connections.forget("flaky");
+  // Set up again under the same name at once, the way a server removed and added again is.
+  connections.register("flaky", async () => { replacementTries += 1; return { close: async () => undefined }; });
+  await forgetting;
+  assert.match(await outcome, /switched off before it finished connecting/);
+  await sleep(600);
+  assert.equal(tries, 1, "the forgotten server is not tried again");
+  assert.equal(replacementTries, 0, "and its retry never opens what was set up in its place");
+});
+
+test("a connection that arrives after its server is forgotten is closed and never handed to the task", async () => {
+  const connections = new McpConnections(noSettings, () => "owner");
+  let arrive, asked = false, closed = 0;
+  connections.register("late", () => { asked = true; return new Promise((resolve) => { arrive = resolve; }); });
+  const outcome = connections.acquire("a-task", "late").then(() => "connected", (error) => error.message);
+  assert.ok(await until(() => asked), "its connection is opening");
+  const forgetting = connections.forget("late");
+  arrive({ close: async () => { closed += 1; } });
+  await forgetting;
+  assert.match(await outcome, /switched off before it finished connecting/, "the task is not handed the connection");
+  assert.equal(closed, 1, "it is closed");
+  assert.equal(connections.openCount(), 0);
+});
+
+test("forgetting a server whose connection is still opening returns only once its program has ended", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-mcpforget-"));
+  const pidfile = join(root, "opening.pid");
+  t.after(async () => {
+    for (const pid of await pidsIn(pidfile)) { try { process.kill(pid, "SIGKILL"); } catch { /* ended already */ } }
+    await discardTemp(root);
+  });
+  const connections = new McpConnections(noSettings, () => "owner");
+  const server = { id: "opening", transport: "stdio", command: process.execPath,
+    args: [slowServer, "--delay", "2000", "--pidfile", pidfile], tools: ["echo", "ping"], expectedVersion: "1.0.0" };
+  connections.register("opening", () => openMcp(server, process.env));
+  const outcome = connections.acquire("a-task", "opening").then(() => "connected", (error) => error.message);
+  assert.ok(await until(async () => (await pidsIn(pidfile)).length === 1), "its program has started and has not answered yet");
+  await connections.forget("opening");
+  assert.deepEqual(await stillRunning(pidfile), [], "its program has ended by the time forgetting returns");
+  assert.match(await outcome, /switched off before it finished connecting/);
+});
+
+test("closing Branch's own servers while one is still starting leaves nothing of that start on, registered or running", async (t) => {
+  const fx = await fixture(t);
+  const pidfile = fx.pidfile("closing");
+  // Its first program, the one its tools are listed from, is still starting when Branch closes the owner's servers.
+  const id = await startSlowly(fx, "Slow close", pidfile, 1);
+  await fx.app.ownMcp.closeAll();
+  await sleep(wouldHaveFinished);
+  const after = await serverOf(fx, id);
+  assert.equal(after.on, false, "it is not marked on");
+  assert.equal(after.running, false, "and is not running");
+  assert.deepEqual(toolsOf(fx.app, id), [], "no tool of it is registered");
+  await assertEnded(pidfile, "no program of it is left running");
 });
