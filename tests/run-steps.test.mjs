@@ -11,6 +11,9 @@
  * - src/run-steps.ts runSteps: drop `...steerSteps(events)` and the "You" step is missing; drop the `.sort(...)` and the
  *   steps come out of order; make chainQueue return null and the tool step's hash is gone.
  * - src/run-steps.ts helpersOf: drop the parentRunId filter and an unrelated task is listed as a helper.
+ * - src/run-steps.ts: drop the `.sort(...)` and the tool test's order (model, tool, model) fails.
+ * - The "no" test pins the engine's existing settle for a refusal: in settleAsked, finish the task as "completed" for
+ *   a no too and it fails (the helper must read cancelled).
  * - src/runtime.ts: drop the `agent` mark on a helper's run.started and the helper has no name.
  */
 import test from "node:test";
@@ -122,6 +125,23 @@ test("helpers: the tasks a task started, named, with the question each waits on;
   assert.equal(app.store.run(child.id).status, "completed");
   const later = (await call(`runs/${parent.id}/steps`)).body.helpers[0];
   assert.deepEqual(later.waiting, [], "nothing waits any more");
+});
+
+test("a no to a helper's question stops the helper, and nothing is started in its conversation", async (t) => {
+  const { app, call } = await fixture(t);
+  savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
+  const owner = app.runtime.owner, parent = app.store.createRun(owner, "compare the invoice");
+  const context = app.runtime.context({ runId: parent.id });
+  const child = await app.runtime.delegate("write helper.txt", context, [...context.permissions], "", { agent: "mode:code" });
+  const [question] = (await call(`runs/${parent.id}/steps`)).body.helpers[0].waiting;
+  const answered = await call("policy/approve", { sessionId: question.sessionId, decision: "deny", remember: "never", fingerprint: question.fingerprint, carryOn: true });
+  assert.equal(answered.status, 200, JSON.stringify(answered.body));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(app.store.run(child.id).status, "cancelled");
+  assert.equal(app.store.runs(owner).filter((run) => run.sessionId === child.sessionId).length, 1);
+  const helper = (await call(`runs/${parent.id}/steps`)).body.helpers[0];
+  assert.equal(helper.status, "cancelled");
+  assert.deepEqual(helper.waiting, []);
 });
 
 test("somebody else's task, or none, is not found", async (t) => {

@@ -6,7 +6,7 @@
    conversation, or at the task behind a reply from "Look inside". Which step is shown and the replay are window state. */
 
 import { $, esc, applyCss } from "../core/dom.js";
-import { ic, toast, closePop, closeDlg } from "../core/ui.js";
+import { ic, mi, toast, closePop, closeDlg } from "../core/ui.js";
 import { ICONS } from "../core/icons.js";
 import { S, E, level } from "../core/state.js";
 import { api } from "../core/api.js";
@@ -59,10 +59,16 @@ export async function loadSteps(runId) {
   let body = kept?.body ?? null;
   try { body = await api(`runs/${encodeURIComponent(runId)}/steps`); } catch (error) { if (error.message !== kept?.said) toast(error.message); T.cache.set(runId, { at: Date.now(), body, said: error.message }); return body; }
   T.cache.set(runId, { at: Date.now(), body });
-  if (JSON.stringify(body) !== JSON.stringify(kept?.body)) T.changed();
+  // The thread is drawn again only when what it shows changed (the helpers chip, the steering lines); else the panel alone.
+  if (JSON.stringify(inThread(body)) !== JSON.stringify(inThread(kept?.body))) T.changed();
+  else if (JSON.stringify(body) !== JSON.stringify(kept?.body)) T.redraw();
   return body;
 }
 export function forgetSteps(runId) { T.cache.delete(runId); }
+const inThread = (body) => [(body?.helpers ?? []).map((h) => [h.runId, h.waiting?.length ?? 0]), (body?.steps ?? []).filter((s) => s.kind === "you").map((s) => s.title)];
+
+/* The More menu's row for a reply (chat/more.js registers it with addMoreItem): the task's every step. */
+export const everyStepItem = (runId) => (runId ? mi("tlopen17c", "tl17c", "Every step behind this reply", "", `data-run="${esc(runId)}"`) : "");
 
 const dur = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s` : `${s < 10 ? s.toFixed(1) : Math.round(s)} s`);
 const money = (n) => `$${n.toFixed(2)}`;
