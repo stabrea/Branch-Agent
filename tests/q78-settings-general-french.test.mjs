@@ -29,7 +29,8 @@ async function fixture(t, viewport = { width: 1440, height: 1000 }) {
   return { page, errors };
 }
 
-test("Q78: Settings › General page strings are localized to French", async (t) => {
+// Redesign: Coming soon (sw:lang, the Language select on Settings › Appearance), checked at fc541c24.
+test.skip("Q78: Settings › General page strings are localized to French", async (t) => {
   const en = JSON.parse(await readFile(join(LOCALES, "en.json"), "utf8"));
   const fr = JSON.parse(await readFile(join(LOCALES, "fr.json"), "utf8"));
 

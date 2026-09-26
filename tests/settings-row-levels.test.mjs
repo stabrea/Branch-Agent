@@ -14,11 +14,25 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { SETTINGS_INDEX } from "../public/settings-index.js";
-import { ROW_LEVELS } from "../public/settings-row-levels.js";
-import { BUCKETS } from "../public/settings-buckets.js";
+import { settingsWindow, openSettingsPage, setLevel, isSoon } from "./settings-window.mjs";
 
-test("DG-199 the row levels name real settings, with a level each", () => {
+/* The new window: Lockdown, the one switch that stops every Trunk, is within reach on Permissions at Regular, live. */
+test("DG-199 Lockdown stays within reach at Regular on Permissions, and is live", async (t) => {
+  const { page, errors } = await settingsWindow(t, { name: "row-levels" });
+  await openSettingsPage(page, "permissions");
+  await setLevel(page, "regular");
+  const lock = page.locator(".set-col .danger").getByRole("button", { name: "Turn Lockdown on", exact: true });
+  await lock.waitFor();
+  assert.equal(await lock.isVisible(), true);
+  assert.equal(await isSoon(lock).catch(() => false), false, "it is not greyed out");
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the prototype levels whole sections, not rows: no row levels, no "N more" counts,
+// no Under the hood; public/settings-index.js, settings-row-levels.js and settings-buckets.js are gone).
+test.skip("DG-199 the row levels name real settings, with a level each", async () => {
+  const { SETTINGS_INDEX } = await import("../public/settings-index.js");
+  const { ROW_LEVELS } = await import("../public/settings-row-levels.js");
   const known = new Set(SETTINGS_INDEX.map((row) => row[0]));
   const ids = Object.keys(ROW_LEVELS);
   assert.ok(ids.length >= 450, `the sample's rows are all there (${ids.length})`);
@@ -26,7 +40,10 @@ test("DG-199 the row levels name real settings, with a level each", () => {
   assert.deepEqual(ids.filter((id) => !["R", "A", "T"].includes(ROW_LEVELS[id])), []);
 });
 
-test("DG-199 Under the hood is Technical and last on every page that has it", () => {
+// Redesign: replaced by the new window (the prototype levels whole sections, not rows: no row levels, no "N more" counts,
+// no Under the hood; public/settings-index.js, settings-row-levels.js and settings-buckets.js are gone).
+test.skip("DG-199 Under the hood is Technical and last on every page that has it", async () => {
+  const { BUCKETS } = await import("../public/settings-buckets.js");
   for (const [page, buckets] of Object.entries(BUCKETS)) {
     const at = buckets.findIndex((bucket) => bucket[0] === "under");
     if (at < 0) continue;
@@ -66,7 +83,9 @@ const open = async (page, name) => {
   await page.waitForTimeout(400);
 };
 
-test("DG-199 each marked row holds one setting and its words, never a title or a neighbour", async (t) => {
+// Redesign: replaced by the new window (the prototype levels whole sections, not rows: no row levels, no "N more" counts,
+// no Under the hood; public/settings-index.js, settings-row-levels.js and settings-buckets.js are gone).
+test.skip("DG-199 each marked row holds one setting and its words, never a title or a neighbour", async (t) => {
   const { page, errors } = await settings(t);
   await level(page, "technical");
   for (const name of await pages(page)) await open(page, name);
@@ -112,7 +131,9 @@ const onPage = (page, name) => page.evaluate(async (name) => {
   return { rows: [...byId.values()], sections };
 }, name);
 
-test("DG-199 rows show at the sample's level, and each section counts what it keeps out of sight row by row", async (t) => {
+// Redesign: replaced by the new window (the prototype levels whole sections, not rows: no row levels, no "N more" counts,
+// no Under the hood; public/settings-index.js, settings-row-levels.js and settings-buckets.js are gone).
+test.skip("DG-199 rows show at the sample's level, and each section counts what it keeps out of sight row by row", async (t) => {
   const { page, errors } = await settings(t);
   const rank = { regular: 0, advanced: 1, technical: 2 };
   /* A row can be out of sight for its own reasons too (a switch above it is off): what shows at Technical is the baseline. */
@@ -140,7 +161,9 @@ test("DG-199 rows show at the sample's level, and each section counts what it ke
   assert.deepEqual(errors, []);
 });
 
-test("DG-199 a card shows at the lowest level of its rows", async (t) => {
+// Redesign: replaced by the new window (the prototype levels whole sections, not rows: no row levels, no "N more" counts,
+// no Under the hood; public/settings-index.js, settings-row-levels.js and settings-buckets.js are gone).
+test.skip("DG-199 a card shows at the lowest level of its rows", async (t) => {
   const { page, errors } = await settings(t);
   await level(page, "technical");
   for (const name of await pages(page)) await open(page, name);
@@ -167,7 +190,9 @@ test("DG-199 a card shows at the lowest level of its rows", async (t) => {
   assert.deepEqual(errors, []);
 });
 
-test("DG-199 Under the hood has no head and no line until something in it shows", async (t) => {
+// Redesign: replaced by the new window (the prototype levels whole sections, not rows: no row levels, no "N more" counts,
+// no Under the hood; public/settings-index.js, settings-row-levels.js and settings-buckets.js are gone).
+test.skip("DG-199 Under the hood has no head and no line until something in it shows", async (t) => {
   const { page, errors } = await settings(t);
   await open(page, "data");
   for (const [now, shown] of [["regular", false], ["advanced", false], ["technical", true]]) {
@@ -181,7 +206,9 @@ test("DG-199 Under the hood has no head and no line until something in it shows"
   assert.deepEqual(errors, []);
 });
 
-test("DG-199 search and a link to one setting show a row whatever the level", async (t) => {
+// Redesign: replaced by the new window (the prototype levels whole sections, not rows: no row levels, no "N more" counts,
+// no Under the hood; public/settings-index.js, settings-row-levels.js and settings-buckets.js are gone).
+test.skip("DG-199 search and a link to one setting show a row whatever the level", async (t) => {
   const { page, errors } = await settings(t);
   await level(page, "technical");
   for (const name of await pages(page)) await open(page, name);
@@ -204,7 +231,8 @@ test("DG-199 search and a link to one setting show a row whatever the level", as
   assert.deepEqual(errors, []);
 });
 
-test("DG-199 pressing the emergency stop stays within reach at Regular, though its setup is Technical in the sample", async (t) => {
+// Redesign: replaced by the new window (the emergency stop is the prototype's Lockdown on Permissions, re-pointed above).
+test.skip("DG-199 pressing the emergency stop stays within reach at Regular, though its setup is Technical in the sample", async (t) => {
   const { page, errors } = await settings(t);
   await level(page, "regular");
   await open(page, "permissions");

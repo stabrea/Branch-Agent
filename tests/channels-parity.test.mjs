@@ -119,6 +119,14 @@ test("the card's switches are saved, listed, and applied to a connected channel 
   assert.equal(inner.starts, 1, "switching on opened the connected channel without a restart");
   const refused = await call({ gotify: "sideways" });
   assert.equal(refused.status, 400);
+  // The old window's card script is checked on its own below (the new window has no More chat apps card).
+});
+
+// Redesign: replaced by the new window (public/channels-more.js is gone; every chat app is a tile in Customize › Channels).
+test.skip("the More chat apps card's script is served to the window", async (t) => {
+  const context = await fixture(t);
+  const server = await startServer(context.app, { dataDir: join(context.root, "data"), port: 0 });
+  t.after(() => server.close());
   const page = await fetch(`${server.url}/channels-more.js`);
   assert.equal(page.status, 200, "the card's script is served");
 });
@@ -307,7 +315,41 @@ test("Twitch chat: IRC inside a WebSocket, with the token sent as PASS and user 
   await assertNoSecret(context, [TWITCH_TOKEN]);
 });
 
-test("the More chat apps card lists every service and fits a 400-pixel-wide window", async (t) => {
+/* Redesign: the More chat apps card is replaced by the "More" tiles of Customize › Channels (public/app/places/
+   customize.js channelsTab, family "parity"), each opening the chat-app wizard. */
+test("Customize › Channels › More lists every service and fits a 400-pixel-wide window", async (t) => {
+  const { chromium } = await import("playwright");
+  const context = await fixture(t);
+  const server = await startServer(context.app, { dataDir: join(context.root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); });
+  const page = await browser.newPage({ viewport: { width: 400, height: 900 }, serviceWorkers: "block" });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "attached", timeout: 120000 });
+  await page.locator('[data-act="side"]').first().click();
+  await page.locator('#side [data-act="view"][data-v="customize"]').click();
+  await page.locator('#main [data-act="ptab"][data-place="customize"][data-v="channels"]').click();
+  await page.locator('[data-act="ch-fam"][data-v="parity"]').click();
+  await page.locator('[data-act="ch-open"]').first().waitFor();
+  const tiles = await page.locator('[data-act="ch-open"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.v));
+  for (const service of parityServices) assert.ok(tiles.includes(service.kind), `${service.kind} has a tile: ${tiles.join(", ")}`);
+  const widths = await page.evaluate(() => ({
+    page: document.documentElement.scrollWidth,
+    grid: document.querySelector(".ch-grid12").getBoundingClientRect().right,
+  }));
+  assert.ok(widths.page <= 400, `the page does not scroll sideways (${widths.page})`);
+  assert.ok(widths.grid <= 400, `the tiles stay inside the window (${widths.grid})`);
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the More tiles of Customize › Channels, checked above).
+test.skip("the More chat apps card lists every service and fits a 400-pixel-wide window", async (t) => {
   const { chromium } = await import("playwright");
   const { openPlace } = await import("./places.mjs");
   const context = await fixture(t);

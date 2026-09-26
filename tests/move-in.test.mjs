@@ -693,13 +693,22 @@ test("the move-in screens: list, preview, bring over, and what came, behind the 
   assert.equal(record.body.settings.model.value, "claude-opus-4");
   assert.equal((await api("POST", "/api/move-in/import", { source: "claude-code", items: [] })).status, 400);
   assert.equal((await api("GET", "/api/move-in/nothing")).status, 404);
+  // The old window's move-in script is checked on its own below (the new window has no move-in card).
+});
 
+// Redesign: replaced by the new window (public/move-in.js is gone; the prototype has no move-in card).
+test.skip("the move-in card's script is served to the window", async (t) => {
+  const made = await fixture(t);
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(made.app, { dataDir: join(made.root, "data"), port: 0, presence: "daemon" });
+  t.after(() => server.close());
   const script = await fetch(server.url + "/move-in.js");
   assert.equal(script.status, 200);
   assert.match(await script.text(), /action\.movein-bring/);
 });
 
-test("every word the move-in card shows is on file in English and in real French", async () => {
+// Redesign: replaced by the new window (public/move-in.js is gone; the prototype has no move-in card).
+test.skip("every word the move-in card shows is on file in English and in real French", async () => {
   const script = await readFile(new URL("../public/move-in.js", import.meta.url), "utf8");
   const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
   const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
@@ -716,7 +725,8 @@ test("every word the move-in card shows is on file in English and in real French
 /** Opens one place in the window, through the redesigned window's own controls (tests/places.mjs). */
 const openScreen = (page, place) => openPlace(page, place);
 
-test("the move-in card works at 400 pixels wide, with no sideways scroll and no page errors", async (t) => {
+// Redesign: replaced by the new window (the prototype has no move-in card or first-run offer to bring chats over).
+test.skip("the move-in card works at 400 pixels wide, with no sideways scroll and no page errors", async (t) => {
   const { chromium } = await import("playwright");
   const made = await fixture(t);
   await claudeHome(made.home);
@@ -724,6 +734,8 @@ test("the move-in card works at 400 pixels wide, with no sideways scroll and no 
   const server = await startServer(made.app, { dataDir: join(made.root, "data"), port: 0 });
   const previous = process.env.BRANCH_MOVE_IN_HOME;
   process.env.BRANCH_MOVE_IN_HOME = made.home;
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     if (previous === undefined) delete process.env.BRANCH_MOVE_IN_HOME; else process.env.BRANCH_MOVE_IN_HOME = previous;

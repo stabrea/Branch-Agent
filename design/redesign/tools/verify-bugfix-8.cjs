@@ -168,7 +168,7 @@ async function plusMenu(page) {
   }
 }
 
-/* Add a computer or phone: the prototype's note; pairing stays greyed. */
+/* Add a computer or phone: the prototype's note. unhold-pairing: pairing is live now (verify-unhold-pairing.cjs covers it). */
 async function pairing(page) {
   await page.locator('#side [data-act="machines"]').click();
   await page.locator('.pop [data-act="addcomp"]').click();
@@ -178,7 +178,7 @@ async function pairing(page) {
   check("Add a computer or phone shows What happens after pairing", note.includes("What happens after pairing") && note.includes("Unpair any time from Settings › Computer."));
   await dlg.locator('.tab[data-v="phone"]').click();
   await page.waitForFunction(() => document.querySelector('.dlg .tab[data-v="phone"]')?.getAttribute("aria-selected") === "true");
-  check("the note stays on every tab, and pairing stays greyed", (await dlg.locator(".status").count()) === 1 && await greyed(dlg.getByRole("button", { name: "Show the phone code" })));
+  check("the note stays on every tab, and the phone code opens pairing", (await dlg.locator(".status").count()) === 1 && !(await greyed(dlg.getByRole("button", { name: "Show the phone code" }))));
   await dlg.locator('.dlg-h [data-act="dlg-close"]').click();
   const devices = await api("devices");
   check("nothing was paired (GET /api/devices)", (devices.devices ?? []).length === 0);

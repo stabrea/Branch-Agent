@@ -11,6 +11,46 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { settingsWindow, openSettingsPage, setLevel } from "./settings-window.mjs";
+
+/* The new window: Settings › Permissions is the prototype's page. At Regular: its title, "Without asking, Trunks may…",
+   the folded Advanced part, Pinned settings, and the Lockdown row, in that order, wide and on a phone, and it fits. */
+for (const [width, height] of [[1440, 950], [860, 900], [400, 844]]) {
+  test(`DG-187 at ${width} px: the prototype's sections, in order, with Lockdown on the page`, async (t) => {
+    const { page, errors } = await settingsWindow(t, { name: "permissions", width, height });
+    await openSettingsPage(page, "permissions");
+    await setLevel(page, "regular");
+    const col = page.locator(".set-col");
+    const shown = await col.locator("h1, h2, summary, .danger b").evaluateAll((all) =>
+      all.filter((node) => node.getClientRects().length > 0).map((node) => node.textContent.replace(/\s+/g, " ").trim()));
+    assert.deepEqual(shown, ["Permissions", "Without asking, Trunks may…", "Advanced", "Lockdown", "Pinned settings"]);
+    await col.getByRole("button", { name: "Turn Lockdown on", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `${width} px fits`);
+    assert.deepEqual(errors, []);
+  });
+}
+
+/* Lockdown on the page is the window's one switch: turned on here, Branch is locked down and the whole window shows it;
+   turned off from the window's red banner, the page follows. */
+test("DG-049 Lockdown on the page is the window's switch: on here turns it on everywhere, and off from the banner", async (t) => {
+  const { page, call, errors } = await settingsWindow(t, { name: "permissions" });
+  await openSettingsPage(page, "permissions");
+  const col = page.locator(".set-col");
+  assert.equal((await call("/api/lockdown")).on, false);
+  await col.getByRole("button", { name: "Turn Lockdown on", exact: true }).click();
+  await col.getByRole("button", { name: "Turn Lockdown off", exact: true }).waitFor({ timeout: 10000 });
+  assert.equal((await call("/api/lockdown")).on, true, "Branch itself is locked down");
+  await page.locator("#app.locked").waitFor({ state: "attached", timeout: 15000 });
+  // Settings' back button is the prototype's `Back to ${name}`, the engine's own name (Branch Agent by default).
+  await page.getByRole("button", { name: /^Back to / }).first().click();
+  await page.locator('.side-nav [data-act="view"][data-v="inbox"]').click();
+  await page.locator(".lock-banner").getByRole("button", { name: "Turn it off", exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector("#app.locked"), undefined, { timeout: 15000 });
+  assert.equal((await call("/api/lockdown")).on, false);
+  await openSettingsPage(page, "permissions");
+  await col.getByRole("button", { name: "Turn Lockdown on", exact: true }).waitFor({ timeout: 10000 });
+  assert.deepEqual(errors, []);
+});
 
 /* The sample's page at its default level: its title, each section and "N more" line, in order (SAMPLE-AUDIT-2). */
 const SAMPLE = ["Permissions", "When to check with me", "Lockdown", "Settings you have pinned",
@@ -80,7 +120,9 @@ const withoutKnownGaps = (list) => list
 
 for (const [width, height] of [[1440, 950], [860, 900], [400, 844]]) {
   for (const showEverything of [false, true]) {
-    test(`DG-187 at ${width} px, Show everything ${showEverything ? "on" : "off"}: the sample's sections, order and counts`, async (t) => {
+    // Redesign: replaced by the new window (the prototype's Permissions sections, checked above; it has no "N more"
+    // lines and no Show everything).
+    test.skip(`DG-187 at ${width} px, Show everything ${showEverything ? "on" : "off"}: the sample's sections, order and counts`, async (t) => {
       const { page, errors } = await fixture(t, { width, height, preferences: { showEverything, settingsLevel: "regular" } });
       assert.deepEqual(withoutKnownGaps(await headings(page)), SAMPLE);
       assert.deepEqual(errors, []);
@@ -88,7 +130,8 @@ for (const [width, height] of [[1440, 950], [860, 900], [400, 844]]) {
   }
 }
 
-test("DG-187 the sections keep their order in French and in Daylight", async (t) => {
+// Redesign: Coming soon (sw:lang), checked at fc541c24.
+test.skip("DG-187 the sections keep their order in French and in Daylight", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(() => globalThis.branchLayout.go("settings:appearance"));
   await page.locator("#lx-mode").getByRole("button", { name: "Daylight", exact: true }).click();
@@ -102,7 +145,9 @@ test("DG-187 the sections keep their order in French and in Daylight", async (t)
   assert.deepEqual(errors, []);
 });
 
-test("DG-049 Lockdown on the page is the rail's switch: turning it on here turns it on everywhere, and back", async (t) => {
+// Redesign: replaced by the new window (the rail's Lockdown panel is gone; the page's button and the window's red
+// banner, re-pointed above).
+test.skip("DG-049 Lockdown on the page is the rail's switch: turning it on here turns it on everywhere, and back", async (t) => {
   const { page, call, errors } = await fixture(t);
   const box = page.locator("#lockdown-switch");
   assert.equal(await box.isChecked(), false);
@@ -117,7 +162,9 @@ test("DG-049 Lockdown on the page is the rail's switch: turning it on here turns
   assert.deepEqual(errors, []);
 });
 
-test("DG-025 the limits are saved as you go, with no Save button", async (t) => {
+// Redesign: replaced by the new window (the prototype's Permissions has no per-task or per-person limits card; its
+// "Messages per conversation per hour" is a different limit).
+test.skip("DG-025 the limits are saved as you go, with no Save button", async (t) => {
   const { page, call, errors } = await fixture(t, { preferences: { settingsLevel: "advanced" } });
   assert.equal(await page.locator("#limit-save, #policy-limits-save").count(), 0);
   await page.locator("#limit-requests").fill("12");
@@ -131,7 +178,8 @@ test("DG-025 the limits are saved as you go, with no Save button", async (t) => 
   assert.deepEqual(errors, []);
 });
 
-test("DG-025 a number typed while the saved limits are still loading is kept and saved, not written over", async (t) => {
+// Redesign: replaced by the new window (no limits card, as above).
+test.skip("DG-025 a number typed while the saved limits are still loading is kept and saved, not written over", async (t) => {
   const { page, call, errors } = await fixture(t, { preferences: { settingsLevel: "advanced" } });
   /* The card's saved values are asked for again, and that answer is held until the person has started typing. */
   let release;
@@ -156,7 +204,8 @@ test("DG-025 a number typed while the saved limits are still loading is kept and
   assert.deepEqual(errors, []);
 });
 
-test("DG-008 on Permissions only the page title is level two, and a one-card section does not repeat its title", async (t) => {
+// Redesign: replaced by the new window (the prototype's headings: the page title is h1 and each section h2, checked above).
+test.skip("DG-008 on Permissions only the page title is level two, and a one-card section does not repeat its title", async (t) => {
   const { page, errors } = await fixture(t, { preferences: { settingsLevel: "technical" } });
   const host = page.locator("#lx-page-permissions");
   assert.equal(await host.getByRole("heading", { level: 2 }).count(), 1, "only the page title is level two");
@@ -167,7 +216,8 @@ test("DG-008 on Permissions only the page title is level two, and a one-card sec
   assert.deepEqual(errors, []);
 });
 
-test("R17-S01/S04 on Permissions: each one-card section's card has its heading, then the sample's one sentence", async (t) => {
+// Redesign: replaced by the new window (the prototype's sections have no cards with headings of their own).
+test.skip("R17-S01/S04 on Permissions: each one-card section's card has its heading, then the sample's one sentence", async (t) => {
   /* Review of DG-187: the policy, Lockdown and pinned cards lost their headings to their sections' heads, so the
      Settings walk (tests/settings-descriptions.test.mjs) found no heading followed by what the card is for. */
   const en = JSON.parse(await readFile(join(import.meta.dirname, "..", "public", "locales", "en.json"), "utf8"));
@@ -201,7 +251,9 @@ async function settled(app, id) {
   throw new Error(`run ${id} did not settle`);
 }
 
-test("the four cards save the new-conversation default: Plan first sticks after a reload and a new conversation refuses a write", async (t) => {
+// Redesign: Coming soon (scope "Everywhere" in the message box's mode menu, where the new window saves what new
+// conversations start with), checked at fc541c24.
+test.skip("the four cards save the new-conversation default: Plan first sticks after a reload and a new conversation refuses a write", async (t) => {
   const { page, call, errors, app, token, open } = await fixture(t);
   const titles = await page.locator("#mode-new-conversation .choice-card b").allTextContents();
   assert.deepEqual(titles.map((words) => words.trim()), ["Auto", "Ask first (recommended)", "Plan first", "No approvals", "Follow my rules"]);
@@ -236,7 +288,8 @@ test("the four cards save the new-conversation default: Plan first sticks after 
   assert.deepEqual(errors, []);
 });
 
-test("the rules preset and the cards are separate: changing one leaves the other alone", async (t) => {
+// Redesign: Coming soon (scope "Everywhere", as above; the prototype has no rules-preset select), checked at fc541c24.
+test.skip("the rules preset and the cards are separate: changing one leaves the other alone", async (t) => {
   const { page, call, errors } = await fixture(t);
   await card(page, "Auto").check();
   for (let tries = 0; tries < 40 && (await savedDefault(call)) !== "auto"; tries++) await page.waitForTimeout(100);

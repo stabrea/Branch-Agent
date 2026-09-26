@@ -71,17 +71,57 @@ async function dictationRoutes(page, state) {
 }
 const microphoneAsked = (page) => page.evaluate(() => globalThis.__microphoneAsked);
 
+/* ---------- the new window (public/app/**, design/redesign/prototype.html) ---------- */
+/* Redesign: the composer's microphone (data-act="dict") dictates; while it listens the prototype shows "Listening… speak
+   naturally" with Done (data-act="dict-done"). Talk live (data-act="voice") is drawn Coming soon. */
+async function signedIn(t, { dictation = null } = {}) {
+  const root = await mkdtemp(join(tmpdir(), "branch-p2-voice-ui-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: model });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  // The first-run card (#323) opens under automation on purpose and would catch the Done click; this is about dictation.
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
+  const browser = await chromium.launch({ headless: true });
+  let page = null;
+  t.after(async () => {
+    await page?.unrouteAll({ behavior: "ignoreErrors" }).catch(() => undefined);
+    await browser.close(); await server.close(); await app.close(); await discardTemp(root);
+  });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+    .then((response) => response.json());
+  page = await (await browser.newContext({ viewport: { width: 1440, height: 950 }, serviceWorkers: "block" })).newPage();
+  await page.addInitScript(() => {
+    globalThis.__microphoneAsked = 0;
+    const devices = navigator.mediaDevices ?? {};
+    devices.getUserMedia = async () => { globalThis.__microphoneAsked += 1; throw new Error("No microphone in tests"); };
+    Object.defineProperty(navigator, "mediaDevices", { value: devices, configurable: true });
+  });
+  if (dictation) await dictationRoutes(page, dictation);
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  return { app, call, page, errors };
+}
+
+/* Redesign: Talk live is drawn Coming soon (data-act="voice"); pressed anyway, it opens nothing and asks for nothing. */
 test("Talk live in its own view ships off: the send button stays Send, and nothing asks for the microphone", async (t) => {
-  const f = await fixture(t, { liveAvailable: true });
+  const f = await signedIn(t);
   assert.equal((await f.call("/api/voice/plan")).settings.liveView, "off");
-  assert.equal(await f.page.locator("#send.voice-send").count(), 0);
-  await f.page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-live-state", { detail: { state: "listening-live" } })));
-  assert.equal(await f.page.locator("#voice-view").count(), 0, "off: Talk live stays the plain button");
+  const talk = f.page.locator('#composer [data-act="voice"]');
+  assert.equal(await talk.getAttribute("aria-disabled"), "true", "Talk live is greyed out");
+  assert.equal(await f.page.locator("#send").getAttribute("aria-label"), "Send");
+  await talk.evaluate((button) => button.click());
+  await f.page.waitForTimeout(500);
   assert.equal(await microphoneAsked(f.page), 0);
+  assert.equal(f.app.store.runs(f.app.runtime.owner).length, 0, "nothing was sent");
   assert.deepEqual(f.errors, []);
 });
 
-test("switched on: the empty box offers Talk live on the send button, and typing gives Send back", async (t) => {
+// Redesign: Coming soon (voice, Talk live with voice in the composer), checked at fc541c24.
+test.skip("switched on: the empty box offers Talk live on the send button, and typing gives Send back", async (t) => {
   const f = await fixture(t, { liveView: "on", liveAvailable: true });
   await f.page.waitForFunction(() => document.getElementById("send").classList.contains("voice-send"));
   assert.equal(await f.page.locator("#send").getAttribute("aria-label"), "Talk live");
@@ -100,7 +140,8 @@ test("switched on: the empty box offers Talk live on the send button, and typing
   assert.deepEqual(f.errors, []);
 });
 
-test("the view follows the live conversation: status, both sides as they are said, a question folds it away, End closes it", async (t) => {
+// Redesign: Coming soon (voice, Talk live with voice in the composer), checked at fc541c24.
+test.skip("the view follows the live conversation: status, both sides as they are said, a question folds it away, End closes it", async (t) => {
   const f = await fixture(t, { liveView: "on", liveAvailable: true });
   const fire = (kind, detail) => f.page.evaluate(([k, d]) => document.dispatchEvent(new CustomEvent(k, { detail: d })), [kind, detail]);
   await fire("branch-live-state", { state: "listening-live" });
@@ -123,7 +164,8 @@ test("the view follows the live conversation: status, both sides as they are sai
   assert.deepEqual(f.errors, []);
 });
 
-test("Talk live is not offered in a conversation a Trunk answers in", async (t) => {
+// Redesign: Coming soon (voice, Talk live with voice in the composer), checked at fc541c24.
+test.skip("Talk live is not offered in a conversation a Trunk answers in", async (t) => {
   const f = await fixture(t, { liveView: "on", liveAvailable: true });
   for (const part of ["trunks", "conversations"]) await f.call("/api/trunks/switch", { part, mode: "on" });
   const scout = (await f.call("/api/trunks", { name: "Scout" })).trunk;
@@ -136,7 +178,32 @@ test("Talk live is not offered in a conversation a Trunk answers in", async (t) 
   assert.deepEqual(f.errors, []);
 });
 
-test("dictation: a microphone in the box, a bar while it listens, and throwing the words away puts the box back", async (t) => {
+/* Redesign: the prototype's listening row has Done only (the words stay).
+   WINDOW BUG: public/app/chat/dictate.js records in the browser (getUserMedia + MediaRecorder, then POST
+   /api/voice/transcribe) instead of the engine's dictation (POST /api/voice/dictation/listen, FEATURE-AUDIT dict), and
+   draws no listening row. */
+test("dictation: the microphone in the box, the listening row, and Done keeps the words", async (t) => {
+  const state = { open: false, words: "compare the two quotes", presses: [] };
+  const f = await signedIn(t, { dictation: state });
+  const button = f.page.locator('#composer [data-act="dict"]');
+  await button.waitFor({ state: "visible" });
+  assert.equal(await button.getAttribute("aria-label"), "Dictate into the box");
+  assert.equal(await button.locator("svg").count(), 1, "a microphone, not a word");
+  await f.page.locator("#prompt").fill("Please");
+  await button.click();
+  const bar = f.page.locator(".dict");
+  await bar.filter({ hasText: "Listening" }).waitFor({ state: "visible", timeout: 10000 });
+  await f.page.waitForFunction(() => document.getElementById("prompt")?.value.includes("compare the two quotes"));
+  await f.page.locator('[data-act="dict-done"]').click();
+  await bar.waitFor({ state: "detached" });
+  assert.match(await f.page.locator("#prompt").inputValue(), /Please compare the two quotes/);
+  assert.deepEqual(state.presses, [true, false]);
+  assert.equal(await microphoneAsked(f.page), 0, "the window itself never touches a microphone for dictation");
+  assert.deepEqual(f.errors, []);
+});
+
+// Redesign: replaced by the new window (the prototype's listening row has Done only; checked in the test above).
+test.skip("dictation: a microphone in the box, a bar while it listens, and throwing the words away puts the box back", async (t) => {
   const state = { open: false, words: "compare the two quotes", presses: [] };
   const f = await fixture(t, { dictation: state });
   const button = f.page.locator("#voice-dictate");

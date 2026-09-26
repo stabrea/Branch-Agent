@@ -11,6 +11,66 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { discardTemp } from "./temp-dir.mjs";
 import { openPlace, openSettings } from "./places.mjs";
+import { settingsWindow, openSettingsPage } from "./settings-window.mjs";
+
+/* The new window: every setting that is on or off is the prototype's named switch, and a live one still saves. */
+test("binary settings are named switches, and More contrast still saves", async (t) => {
+  const { page, errors, call } = await settingsWindow(t, { name: "grown-controls" });
+  await openSettingsPage(page, "appearance");
+  const checks = page.locator(".settings input[type=checkbox]:visible");
+  assert.ok(await checks.count() >= 5, "the page has the prototype's switches");
+  assert.deepEqual(await checks.evaluateAll((nodes) => nodes.filter((node) => !node.classList.contains("sw") || !node.getAttribute("aria-label"))
+    .map((node) => node.id)), [], "there are no bare or unnamed checkboxes in Settings");
+  const contrast = page.getByRole("checkbox", { name: "More contrast", exact: true });
+  assert.equal(await contrast.isChecked(), false);
+  await contrast.check();
+  for (let tries = 0; tries < 50 && (await call("/api/look")).contrast !== "more"; tries++) await page.waitForTimeout(100);
+  assert.equal((await call("/api/look")).contrast, "more", "the change was saved");
+  await page.getByRole("checkbox", { name: "More contrast", exact: true, checked: true }).waitFor();
+  assert.deepEqual(errors, []);
+});
+
+/* The prototype's three-way setting: Off / When needed / On in its order, saved, drawn again with the choice pressed, and
+   nothing wider than a phone. (The prototype's redraw does not put the keyboard back on the choice; see the skipped
+   focus test below.) */
+test("a three-way setting keeps the prototype's order, saves and redraws with the choice pressed", async (t) => {
+  const { page, errors, call } = await settingsWindow(t, { name: "grown-controls" });
+  await openSettingsPage(page, "gateway");
+  const group = page.getByRole("group", { name: "Gateway", exact: true });
+  await group.waitFor();
+  assert.deepEqual((await group.getByRole("button").allInnerTexts()).map((words) => words.trim()), ["Off", "When needed", "On"]);
+  assert.equal((await call("/api/never-break")).mode, "off");
+  await group.getByRole("button", { name: "Off", exact: true, pressed: true }).waitFor();
+  await group.getByRole("button", { name: "When needed", exact: true }).click();
+  for (let tries = 0; tries < 50 && (await call("/api/never-break")).mode !== "when-needed"; tries++) await page.waitForTimeout(100);
+  assert.equal((await call("/api/never-break")).mode, "when-needed");
+  await group.getByRole("button", { name: "When needed", exact: true, pressed: true }).waitFor();
+  await page.setViewportSize({ width: 400, height: 900 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  assert.deepEqual(errors, []);
+});
+
+/* The destructive part of a page keeps its warning enclosure (Permissions › Lockdown in the prototype). */
+test("the danger zone keeps its warning enclosure", async (t) => {
+  const { page, errors } = await settingsWindow(t, { name: "grown-controls" });
+  await openSettingsPage(page, "permissions");
+  const appearance = await page.locator(".set-col .danger").evaluate((node) => {
+    const style = getComputedStyle(node);
+    const probe = document.createElement("span");
+    probe.dataset.probe = "bad";
+    node.append(probe);
+    probe.style.color = "var(--bad)";
+    const bad = getComputedStyle(probe).color;
+    probe.remove();
+    return { borderStyle: style.borderTopStyle, borderColor: style.borderTopColor, bad, radius: style.borderTopLeftRadius };
+  });
+  assert.equal(appearance.borderStyle, "solid");
+  // Pass 17 draws the enclosure in the warning colour, softened: the same red, at any opacity.
+  const rgb = (css) => { const n = css.match(/[\d.]+/g).map(Number); return css.startsWith("color(") ? n.slice(0, 3).map((v) => Math.round(v * 255)) : n.slice(0, 3); };
+  assert.deepEqual(rgb(appearance.borderColor), rgb(appearance.bad));
+  assert.notEqual(appearance.radius, "0px");
+  assert.deepEqual(errors, []);
+});
 
 async function fixture(t, viewport = { width: 1440, height: 950 }) {
   const root = await mkdtemp(join(tmpdir(), "branch-grown-controls-"));
@@ -29,7 +89,8 @@ async function fixture(t, viewport = { width: 1440, height: 950 }) {
   return { app, page, errors };
 }
 
-test("binary settings use the sample's 40 by 24 switch and still save", async (t) => {
+// Redesign: replaced by the new window (the prototype's switch is 38 by 22 and is not dressed by a script; re-pointed above).
+test.skip("binary settings use the sample's 40 by 24 switch and still save", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "appearance");
   const control = f.page.locator("#appearance-motion");
@@ -88,7 +149,8 @@ test("binary settings use the sample's 40 by 24 switch and still save", async (t
   assert.deepEqual(f.errors, []);
 });
 
-test("three-way settings keep a real select, save, redraw, and retain the sample order", async (t) => {
+// Redesign: replaced by the new window (the prototype's three-way settings are plain segments with no native select behind them; re-pointed above on Gateway).
+test.skip("three-way settings keep a real select, save, redraw, and retain the sample order", async (t) => {
   const f = await fixture(t, { width: 400, height: 900 });
   await openPlace(f.page, "customize:skills");
   const source = f.page.locator("#asks-switch-intent-pipeline");
@@ -117,7 +179,9 @@ test("three-way settings keep a real select, save, redraw, and retain the sample
   assert.deepEqual(f.errors, []);
 });
 
-test("externally wired segmented redraws restore focus to the replacement", async (t) => {
+// Redesign: replaced by the new window (no native segmented source, and the prototype's redraw drops the keyboard to the
+// page after a choice: checked at fc541c24, document.activeElement is <body> after choosing Gateway › When needed).
+test.skip("externally wired segmented redraws restore focus to the replacement", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {
     const mount = document.createElement("div");
@@ -138,7 +202,8 @@ test("externally wired segmented redraws restore focus to the replacement", asyn
   assert.deepEqual(f.errors, []);
 });
 
-test("a segmented control reuses its own changing field note", async (t) => {
+// Redesign: replaced by the new window (the prototype's segments have no field note of their own).
+test.skip("a segmented control reuses its own changing field note", async (t) => {
   const f = await fixture(t);
   await openPlace(f.page, "automations:procedures");
   const source = f.page.locator("#prompts-mode");
@@ -152,7 +217,8 @@ test("a segmented control reuses its own changing field note", async (t) => {
   assert.deepEqual(f.errors, []);
 });
 
-test("long choices remain labeled selects and open the shared glass list", async (t) => {
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("long choices remain labeled selects and open the shared glass list", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "general");
   const select = f.page.locator("#kit-reset-what");
@@ -175,7 +241,8 @@ test("long choices remain labeled selects and open the shared glass list", async
   assert.equal(await select.getAttribute("aria-expanded"), "false");
   assert.deepEqual(f.errors, []);
 });
-test("Settings uses the sample reading column instead of stacked glass cards", async (t) => {
+// Redesign: replaced by the new window (the prototype's Settings frame: .settings, .set-nav and .set-col).
+test.skip("Settings uses the sample reading column instead of stacked glass cards", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "general");
   const geometry = await f.page.evaluate(() => {
@@ -220,7 +287,8 @@ test("Settings uses the sample reading column instead of stacked glass cards", a
   assert.deepEqual(f.errors, []);
 });
 
-test("the destructive danger zone keeps its warning enclosure", async (t) => {
+// Redesign: replaced by the new window (#danger-zone is gone; the prototype's .danger enclosure is re-pointed above).
+test.skip("the destructive danger zone keeps its warning enclosure", async (t) => {
   const f = await fixture(t);
   await openSettings(f.page, "about");
   const appearance = await f.page.locator("#danger-zone").evaluate((node) => {
@@ -238,12 +306,15 @@ test("the destructive danger zone keeps its warning enclosure", async (t) => {
     };
   });
   assert.equal(appearance.borderStyle, "solid");
-  assert.equal(appearance.borderColor, appearance.bad);
+  // Pass 17 draws the enclosure in the warning colour, softened: the same red, at any opacity.
+  const rgb = (css) => { const n = css.match(/[\d.]+/g).map(Number); return css.startsWith("color(") ? n.slice(0, 3).map((v) => Math.round(v * 255)) : n.slice(0, 3); };
+  assert.deepEqual(rgb(appearance.borderColor), rgb(appearance.bad));
   assert.notEqual(appearance.radius, "0px");
   assert.deepEqual(f.errors, []);
 });
 
-test("a glass dropdown starts from its requested value and later keeps the current choice", async (t) => {
+// Redesign: replaced by the new window (branchControlMakers is gone with the old window).
+test.skip("a glass dropdown starts from its requested value and later keeps the current choice", async (t) => {
   const f = await fixture(t);
   const values = await f.page.evaluate(() => {
     const control = globalThis.branchControlMakers.dropdown({
@@ -261,7 +332,8 @@ test("a glass dropdown starts from its requested value and later keeps the curre
   assert.deepEqual(f.errors, []);
 });
 
-test("a user-provided dropdown label is never mistaken for a locale key", async (t) => {
+// Redesign: replaced by the new window (branchControlMakers is gone with the old window).
+test.skip("a user-provided dropdown label is never mistaken for a locale key", async (t) => {
   const f = await fixture(t);
   const label = await f.page.evaluate(async () => {
     const control = globalThis.branchControlMakers.dropdown({ options: [["saved", "", "action.save"]], value: "saved" });
@@ -273,7 +345,8 @@ test("a user-provided dropdown label is never mistaken for a locale key", async 
   assert.deepEqual(f.errors, []);
 });
 
-test("the knowledge fallback keeps its literal label when the language changes", async (t) => {
+// Redesign: replaced by the new window (the old window's /knowledge.js is gone).
+test.skip("the knowledge fallback keeps its literal label when the language changes", async (t) => {
   const f = await fixture(t);
   f.app.knowledgeBases.create("local", { name: "Guide", sources: [] });
   await f.page.evaluate(async () => (await import("/knowledge.js")).loadKnowledge());

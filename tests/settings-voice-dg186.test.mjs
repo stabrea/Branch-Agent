@@ -11,11 +11,52 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { BUCKETS } from "../public/settings-buckets.js";
+import { settingsWindow, openSettingsPage, setLevel } from "./settings-window.mjs";
 
 const CARDS = ["voice-settings-form", "dictation-form", "wake-word-form", "comfort-voice-card", "system-voice-card", "personal-voice-card", "speech-engines-card"];
 
-test("DG-186 Voice's sections are the sample's, in its order, and no card lost its place", () => {
+/* The new window: Settings › Voice is the prototype's page: "Talking" and "Speaking back" at Regular, "Live
+   conversations" from Advanced, at 1440 and 400 px, fitting the window; a choice is kept as it is pressed. */
+for (const width of [1440, 400]) {
+  test(`DG-186 at ${width} px the Voice page shows the prototype's headings at each level, and fits`, async (t) => {
+    const { page, errors } = await settingsWindow(t, { name: "voice-dg186", width, height: 950 });
+    await openSettingsPage(page, "voice");
+    const heads = () => page.locator(".set-col").locator("h1, h2, h3, h4").evaluateAll((all) =>
+      all.filter((node) => node.checkVisibility()).map((node) => node.textContent.trim()));
+    await setLevel(page, "regular");
+    assert.deepEqual(await heads(), ["Voice", "Talking", "Speaking back"]);
+    await setLevel(page, "advanced");
+    // The prototype's Advanced adds "Listening, more" (FINE15 voice, level 1) and then "Talking, more" (whereB17('voice', 1));
+    // it has no "Live conversations" (the lead, 2026-09-26).
+    assert.deepEqual(await heads(), ["Voice", "Talking", "Speaking back", "Listening, more", "Talking, more"]);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "the page fits the window");
+    assert.deepEqual(errors, []);
+  });
+}
+
+/* The prototype's "Answer aloud" (Never / When I talk / Always, in "Listening, more" at Advanced) is the engine's
+   read-aloud setting (the lead, 2026-09-26): Always reads every reply aloud, Never none; kept as it is pressed. */
+test("DG-025 Answer aloud is kept as it is pressed, with no Save button", async (t) => {
+  const { page, errors, call } = await settingsWindow(t, { name: "voice-dg186" });
+  await openSettingsPage(page, "voice");
+  await setLevel(page, "advanced");
+  const col = page.locator(".set-col");
+  assert.equal(await col.getByRole("button", { name: /^Save/ }).count(), 0, "no Save button");
+  const group = col.getByRole("group", { name: "Answer aloud", exact: true });
+  await group.getByRole("button", { name: "Never", exact: true, pressed: true }).waitFor();
+  await group.getByRole("button", { name: "Always", exact: true }).click();
+  for (let tries = 0; tries < 50 && (await call("/api/voice/settings")).autoReadAloud !== true; tries++) await page.waitForTimeout(100);
+  assert.equal((await call("/api/voice/settings")).autoReadAloud, true);
+  await group.getByRole("button", { name: "Always", exact: true, pressed: true }).waitFor();
+  await group.getByRole("button", { name: "Never", exact: true }).click();
+  for (let tries = 0; tries < 50 && (await call("/api/voice/settings")).autoReadAloud !== false; tries++) await page.waitForTimeout(100);
+  assert.equal((await call("/api/voice/settings")).autoReadAloud, false);
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (public/settings-buckets.js is gone; the prototype's sections are checked above).
+test.skip("DG-186 Voice's sections are the sample's, in its order, and no card lost its place", async () => {
+  const { BUCKETS } = await import("../public/settings-buckets.js");
   const voice = BUCKETS.voice;
   assert.deepEqual(voice.map((bucket) => bucket[2]), ["Listening right now", "Talking and listening", "The voices it speaks with"]);
   assert.deepEqual(voice[1][4].map(([id]) => id), ["voice-settings-form", "dictation-form", "comfort-voice-card", "wake-word-form"]);
@@ -68,7 +109,8 @@ const outline = (page) => page.evaluate(() => {
 });
 
 for (const width of [1440, 400]) {
-  test(`DG-186 at ${width} px the Voice page shows the sample's headings and counts, with Show everything off and on`, async (t) => {
+  // Redesign: replaced by the new window (the prototype's headings, re-pointed above; no "N more" lines, no Show everything).
+  test.skip(`DG-186 at ${width} px the Voice page shows the sample's headings and counts, with Show everything off and on`, async (t) => {
     const { page, errors } = await settings(t, width);
     await level(page, "regular");
     await page.evaluate(() => globalThis.branchLayout.go("settings:voice"));
@@ -87,7 +129,9 @@ for (const width of [1440, 400]) {
   });
 }
 
-test("DG-047 Listening right now says what the listeners report, never what a switch says", async (t) => {
+// Redesign: replaced by the new window (the prototype's Voice page has no "Listening right now" line; /voice-listening.js is
+// gone with the old window).
+test.skip("DG-047 Listening right now says what the listeners report, never what a switch says", async (t) => {
   const { page, errors } = await settings(t, 1440);
   await page.evaluate(() => globalThis.branchLayout.go("settings:voice"));
   await page.locator("#voice-listening-now").waitFor({ state: "visible" });
@@ -115,7 +159,9 @@ test("DG-047 Listening right now says what the listeners report, never what a sw
   assert.deepEqual(errors, []);
 });
 
-test("DG-025 the word that starts a turn and dictation are kept as you go, with no Save button", async (t) => {
+// Redesign: replaced by the new window (the prototype's Voice page has no wake word or dictation settings; kept-as-pressed
+// is re-pointed above on Read replies aloud).
+test.skip("DG-025 the word that starts a turn and dictation are kept as you go, with no Save button", async (t) => {
   const { page, errors, server } = await settings(t, 1440);
   await level(page, "technical");
   await page.evaluate(() => globalThis.branchLayout.go("settings:voice"));

@@ -827,7 +827,10 @@ test("R10 a command run through the shell tool really goes behind the wall", { s
 
 /* ------------------------------------------------------------------ the card */
 
-test("W20 the card lives in Settings, Computer, speaks French, fits 400 px and saves", async (t) => {
+// Redesign: Coming soon (seg "System sandbox for commands" and sw:f15-add-sign-ins-from-outside-the-sandbox on
+// Settings › Permissions at Technical), checked at fc541c24; French also waits on sw:lang. That it ships off and refuses
+// a short-lived key is checked through the engine above.
+test.skip("W20 the card lives in Settings, Computer, speaks French, fits 400 px and saves", async (t) => {
   const { chromium } = await import("playwright");
   const { openSettings } = await import("./places.mjs");
   const root = await mkdtemp(join(tmpdir(), "branch-wall-ui-"));

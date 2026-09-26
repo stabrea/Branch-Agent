@@ -1,45 +1,168 @@
-/* Phone pairing: QR code and instructions for pairing a phone with Branch. */
+/* Pairing a phone or another computer with this one, through the engine's Devices (src/devices/), 1:1 with the
+   prototype's "Pair a phone" and "Pair another computer" dialogs and the "With a code" tab of "Add a computer or phone".
+   POST /api/devices/invite makes the invitation: a six-digit number and a link, shown on this computer only, good once
+   and for five minutes (the countdown is the engine's expiresAt). A device that answers it with the right number is
+   not let in: it waits in GET /api/devices, and this dialog shows the request with the check code the device shows
+   while it waits. "Let it in" stays disabled until the owner ticks that the codes match, and sends that tick as the
+   engine's codeMatches, which refuses a yes without it; "Refuse" sends no. Only requests that arrive after this
+   invitation are offered. Closing the dialog cancels the invitation (POST /api/devices/invite/cancel) while it is
+   still the one on offer. Devices ships off: the engine's refusal is shown, with "Switch it on" (POST
+   /api/devices/mode when-needed) unless Lockdown is on. The engine keeps the guards: the owner alone (a household
+   person and a short-lived key are refused), five tries per invitation, the check-code confirmation.
+   Words the prototype lacks (the request, the check code, Let it in, Refuse) are the product's own locale words. */
 
-import { esc, applyCss } from "../core/dom.js";
-import { openDlg, closeDlg } from "../core/ui.js";
-import { S } from "../core/state.js";
+import { $, esc } from "../core/dom.js";
+import { openDlg, closeDlg, dialog, toast, ic } from "../core/ui.js";
+import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { qr } from "../core/qr.js";
+import { t } from "../../i18n.js";
 
-/* Phone pairing is the phone app's (design doc A.15); there is no computer-side pairing screen yet, so "pair" stays
-   greyed out rather than drawing a code that pairs nothing. */
-export function init() {}
+const P = { kind: null, frame: null, dlg: null, invite: null, request: null, seen: new Set(), error: null, canSwitch: false, triedOn: false, timer: null, stopping: null };
+/* Told after a device is let in or refused, so a page listing devices reads them again. */
+export const onPaired = new Set();
 
-function pairPhone() {
-  const html = `<div data-css="text-align:center;padding:16px">
-    <canvas class="qr" width="148" height="148" data-css="border:1px solid var(--line);display:block;margin:0 auto 16px;background:white;border-radius:8px" aria-label="QR code for pairing"></canvas>
-    <ol data-css="text-align:left;margin:16px 0;padding:0 16px;list-style-position:inside">
-      <li>Open the Branch app on your phone.</li>
-      <li>Tap <b>Pair with a computer</b>.</li>
-      <li>Point the camera at this code.</li>
-      <li>Check that both screens show the same code.</li>
-    </ol>
-    <p data-css="color:var(--ink-3);font-size:13px;margin-top:16px">The code works once and expires in 5 minutes.</p>
-  </div>`;
+const PHONES = ["ios", "android"];
+const spaced = (code) => `${code.slice(0, 3)} ${code.slice(3)}`;
+const loopback = (link) => /^(localhost|127\.|\[::1\])/.test(new URL(link).hostname);
+function left() {
+  const s = Math.max(0, Math.round((Date.parse(P.invite?.expiresAt ?? "") - Date.now()) / 1000));
+  return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} left` : "Expired. Make a new code.";
+}
+const clock = () => `<p class="hint" data-css="margin:0">Works once and expires in 5 minutes. <span class="count12">${left()}</span></p>`;
+const here = () => (loopback(P.invite.link) ? `<p class="hint" data-css="margin:0">${esc(t("pair.onlyHere"))}</p>` : "");
 
-  openDlg({
-    title: "Pair a phone",
-    body: html,
-    foot: '<button class="btn pri" data-act="dlg-close">Close</button>'
-  });
-
-  const canvas = document.querySelector(".qr");
-  if (canvas) drawQRPlaceholder(canvas);
+function phoneBody() {
+  const code = spaced(P.invite.code);
+  return `<div class="qr-wrap">${qr(P.invite.qr, 176)}<ol class="steps-list"><li>Open the Branch app on your phone.</li><li>Tap <b>Pair with a computer</b>.</li><li>Point the camera at this code.</li></ol></div>
+    <div class="alt12"><b>No camera?</b> Type this on the phone instead: <code>${esc(P.invite.link)}</code> and the code <code>${esc(code)}</code></div>${clock()}${here()}<p class="hint pair-wait" role="status" data-css="margin:0"></p>`;
+}
+function computerBody(waiting) {
+  const command = `branch node pair "${P.invite.link}" ${P.invite.code}`;
+  return `<p data-css="margin:0">${esc(t("devices.invite.computer"))}</p><code class="ko-code">${esc(spaced(P.invite.code))}</code><code class="pair-cmd15">${esc(command)}</code>${clock()}${here()}
+    ${waiting ? `<p class="hint">${ic("spin", "s spin")} Waiting for that computer. This updates by itself.</p>` : ""}`;
+}
+function askBody() {
+  const r = P.request;
+  const kind = t(`devices.platform.${r.platform}`);
+  return `<p data-css="margin:0"><b>${esc(t("pair.asks", { name: r.name, kind }))}</b></p><p class="hint" data-css="margin:0">${esc(t("pair.asks.note"))}</p>
+    <p data-css="margin:0">${esc(t("pair.check", { check: r.check }))}</p><label class="pair-match15"><input type="checkbox" id="pair-match"><span>${esc(t("pair.check.matches"))}</span></label>`;
+}
+function errorBody() {
+  const turnOn = P.canSwitch ? `<p class="hint" data-css="margin:0">${esc(t("pair.off.note"))}</p><div class="acts"><button class="btn pri sm" type="button" data-act="pair-on">${esc(t("pair.off.on"))}</button></div>` : "";
+  return `<p data-css="margin:0" role="alert">${esc(P.error)}</p>${turnOn}`;
 }
 
-function drawQRPlaceholder(canvas) {
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, 148, 148);
-  ctx.fillStyle = "black";
-  for (let i = 0; i < 1000; i++) {
-    const x = Math.floor(Math.random() * 148);
-    const y = Math.floor(Math.random() * 148);
-    ctx.fillRect(x, y, 1, 1);
+const CANCEL = '<button class="btn ghost" type="button" data-act="pair-cancel">Cancel</button>';
+function foot() {
+  if (P.request) return `<button class="btn ghost" type="button" data-act="pair-refuse">${esc(t("devices.request.refuse"))}</button><button class="btn pri" type="button" data-act="pair-letin" disabled>${esc(t("devices.request.allow"))}</button>`;
+  if (P.kind === "phone" && P.invite) return `${CANCEL}<button class="btn pri" type="button" data-act="ph-paired-dlg">The phone says it’s paired</button>`;
+  return CANCEL;
+}
+function body() {
+  if (P.request) return askBody();
+  if (!P.invite) return P.error ? errorBody() : "";
+  return P.kind === "phone" ? phoneBody() : computerBody(P.kind === "computer");
+}
+const TITLES = { phone: "Pair a phone", computer: "Pair another computer" };
+function draw() {
+  P.dlg = P.frame ? P.frame({ body: body(), foot: foot() }) : openDlg({ title: TITLES[P.kind], body: body(), foot: foot() });
+}
+
+/* Stops watching. With cancel, the invitation stops working too, but only while it is still the one on offer: the
+   engine's cancel takes no id, and a newer invitation must not be cancelled by an older dialog. */
+function stop(cancel) {
+  clearInterval(P.timer);
+  P.timer = null;
+  const mine = P.invite?.id;
+  P.invite = null;
+  P.request = null;
+  if (!cancel || !mine) return;
+  P.stopping = api("devices").then((view) => (view.invitation?.id === mine ? api("devices/invite/cancel", {}) : null))
+    .catch((error) => toast(error.message)).finally(() => { P.stopping = null; });
+}
+
+/* A waiting request that arrived after this invitation was made. */
+async function look(now = false) {
+  if (dialog() !== P.dlg) { stop(true); return; }
+  const tick = P.dlg?.querySelector(".count12");
+  if (tick) tick.textContent = left();
+  P.ticks = (P.ticks ?? 0) + 1;
+  if (P.request || !P.invite || (!now && P.ticks % 2)) return;
+  let view;
+  try { view = await api("devices"); } catch (error) { toast(error.message); return; }
+  const request = (view.requests ?? []).find((r) => r.status === "waiting" && !P.seen.has(r.id));
+  if (!request || dialog() !== P.dlg) return;
+  P.request = request;
+  draw();
+}
+
+async function begin() {
+  if (P.stopping) await P.stopping;
+  P.error = null;
+  let view;
+  try {
+    view = await api("devices");
+    P.seen = new Set((view.requests ?? []).map((r) => r.id));
+    P.invite = await api("devices/invite", {});
+  } catch (error) {
+    P.error = error.message;
+    const lockdown = await api("lockdown").then((l) => l.on === true, (e) => { toast(e.message); return true; });
+    P.canSwitch = view?.mode === "off" && !P.triedOn && !lockdown;
   }
+  draw();
+  if (P.invite) P.timer = setInterval(look, 1000);
+}
+
+/* Starts pairing: kind is "phone", "computer" or "code" (the tab); frame draws the body into another dialog. */
+export function startPairing(kind, frame = null) {
+  stop(false);
+  Object.assign(P, { kind, frame, triedOn: false });
+  return begin();
+}
+/* Leaving the "With a code" tab for another tab: the invitation stops working. */
+export function stopPairing() { stop(true); }
+
+async function decide(approve) {
+  const r = P.request;
+  if (!r) return;
+  const matches = $("#pair-match")?.checked === true;
+  try {
+    await api(`devices/requests/${encodeURIComponent(r.id)}`, approve ? { approve, codeMatches: matches } : { approve });
+  } catch (error) { toast(error.message); return; }
+  stop(false);
+  closeDlg();
+  for (const listener of onPaired) listener();
+  if (!approve) toast(t("pair.refused"));
+  else if (PHONES.includes(r.platform)) toast("Paired. The phone is on this computer’s list of devices.");
+  else toast(t("pair.paired", { name: r.name }));
+}
+
+async function switchOn() {
+  P.triedOn = true;
+  try { await api("devices/mode", { mode: "when-needed" }); } catch (error) { toast(error.message); }
+  await begin();
+}
+
+async function phoneSaysPaired() {
+  await look(true);
+  const wait = P.dlg?.querySelector(".pair-wait");
+  if (!P.request && wait) wait.textContent = t("pair.waiting.phone");
+}
+
+export function init() {
+  markLive(["pair", "pair-cancel", "pair-letin", "pair-refuse", "pair-on", "ph-paired-dlg", "sw:pair-match"]);
+  on("pair", () => startPairing("phone"));
+  on("pair-cancel", () => { stop(true); closeDlg(); });
+  on("pair-letin", () => decide(true));
+  on("pair-refuse", () => decide(false));
+  on("pair-on", () => switchOn());
+  on("ph-paired-dlg", () => phoneSaysPaired());
+  // "Let it in" waits for the owner's tick that the check codes match.
+  document.addEventListener("change", (e) => {
+    if (e.target?.id !== "pair-match") return;
+    const allow = P.dlg?.querySelector('[data-act="pair-letin"]');
+    if (allow) allow.disabled = !e.target.checked;
+  });
 }

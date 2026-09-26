@@ -140,7 +140,9 @@ async function connect(page, server) {
   await openSettingFor(page, "#updates-card");
 }
 
-test("after a hand-over that put the version before back, the Updates card says so and hands over the file", async (t) => {
+// Redesign: replaced by the new window (the prototype has no failed-update card, file or Check button; the engine's side
+// is checked above).
+test.skip("after a hand-over that put the version before back, the Updates card says so and hands over the file", async (t) => {
   const { page, server, dataDir, errors } = await openApp(t, { desktop: false });
   stageAndFail(dataDir);
   await connect(page, server);
@@ -158,7 +160,9 @@ test("after a hand-over that put the version before back, the Updates card says 
   assert.deepEqual(errors, []);
 });
 
-test("an install that stops here says it in plain words at once, in the language chosen", async (t) => {
+// Redesign: Coming soon (install, in the status bar's update menu), checked at fc541c24; the prototype has no failed-update
+// card to say it in, and French waits on sw:lang.
+test.skip("an install that stops here says it in plain words at once, in the language chosen", async (t) => {
   const { page, server, errors } = await openApp(t, { desktop: true });
   await connect(page, server);
   assert.equal(await page.locator("#updates-failed").isHidden(), true, "nothing to say before anything failed");
@@ -213,7 +217,9 @@ test("only the end of a long update log is read: at most 400 lines, each cut sho
   assert.match(kept.at(-1), /^\[step 599\]/, "the newest step is there");
 });
 
-test("a look at the record that was already on its way never hides a failure shown since", async (t) => {
+// Redesign: replaced by the new window (the prototype has no failed-update card, file or Check button; the engine's side
+// is checked above).
+test.skip("a look at the record that was already on its way never hides a failure shown since", async (t) => {
   const { page, server, errors } = await openApp(t, { desktop: true });
   let release;
   const held = new Promise((resolve) => { release = resolve; });

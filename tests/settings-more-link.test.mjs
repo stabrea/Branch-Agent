@@ -76,7 +76,9 @@ const links = (page) => page.evaluate(() => {
   });
 });
 
-test("DG-073 each section's \"N more\" link ends the section, in the sample's link style", async (t) => {
+// Redesign: replaced by the new window (the prototype has no "N more with Advanced" links; a higher level simply shows
+// more sections).
+test.skip("DG-073 each section's \"N more\" link ends the section, in the sample's link style", async (t) => {
   const { page, errors } = await settings(t);
   const seen = await links(page);
   const ending = seen.filter((link) => !link.inHead);
@@ -97,7 +99,9 @@ test("DG-073 each section's \"N more\" link ends the section, in the sample's li
   assert.deepEqual(errors, []);
 });
 
-test("DG-073 a section with nothing on show keeps its link in its head, and Under the hood has none", async (t) => {
+// Redesign: replaced by the new window (the prototype has no "N more with Advanced" links; a higher level simply shows
+// more sections).
+test.skip("DG-073 a section with nothing on show keeps its link in its head, and Under the hood has none", async (t) => {
   const { page, errors } = await settings(t, "data");
   /* The sample's rule (DG-199): a section whose rows all wait keeps "Show N" in its head; Under the hood has no head,
      and no line, until something in it shows. Every page is looked at, so the rule holds wherever a thin section is. */
@@ -121,7 +125,9 @@ test("DG-073 a section with nothing on show keeps its link in its head, and Unde
   assert.deepEqual(errors, []);
 });
 
-test("DG-073 search never finds a card by the link's words, and the link steps aside while searching", async (t) => {
+// Redesign: replaced by the new window (the prototype has no "N more with Advanced" links; a higher level simply shows
+// more sections).
+test.skip("DG-073 search never finds a card by the link's words, and the link steps aside while searching", async (t) => {
   const { page, errors } = await settings(t);
   await page.locator("#lx-settings-search").fill("more with advanced");
   await page.waitForFunction(() => document.body.classList.contains("lx-settings-searching"));
@@ -150,7 +156,9 @@ test("DG-073 search never finds a card by the link's words, and the link steps a
   assert.deepEqual(errors, []);
 });
 
-test("DG-073 the link and a card's \"Saved as\" line keep one order: the link last", async (t) => {
+// Redesign: replaced by the new window (the prototype has no "N more with Advanced" links; a higher level simply shows
+// more sections).
+test.skip("DG-073 the link and a card's \"Saved as\" line keep one order: the link last", async (t) => {
   const { page, errors } = await settings(t);
   const order = await page.evaluate(() => [...document.querySelectorAll(".sg-more-line")]
     .filter((line) => line.previousElementSibling?.matches(".sg-keys") || line.parentElement.querySelector(":scope > .sg-keys"))
