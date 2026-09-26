@@ -19,6 +19,7 @@ import { teachBar, teachAdopt, initTeach } from "./teach.js";
 import { findBar, applyFind, initFind } from "./find.js";
 import { initToolsHub } from "./toolshub.js";
 import { initDictate, loadDictation, dictating, micButton, dictRow } from "./dictate.js";
+import { replyMark, readNewReply } from "./aloud.js";
 import { dockRow, initBg } from "./bg.js";
 import { mediaRows, initMedia } from "./media.js";
 import { besideWrap, rosterButton, initBeside } from "./beside.js";
@@ -109,7 +110,7 @@ function composer() {
   const draft = S.drafts[C.sessionId ?? "new"] ?? "";
   return `<div class="dock"><div id="attached">${attached()}</div>${queueRow()}${dockRow()}${steerChip()}<form class="composer" id="composer" data-form="composer">
     <button class="c-btn" type="button" aria-label="Attach, mention a Trunk, skills, Temporary" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="Tools: connectors, skills, plugins and command-line tools" data-tip="Tools" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
-    ${dictating() ? dictRow() : `<textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch">${esc(draft)}</textarea>`}
+    ${dictating() ? dictRow() : ""}<textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch"${dictating() ? " hidden" : ""}>${esc(draft)}</textarea>
     ${chips()}
     ${dictating() ? "" : `${micButton()}<button class="c-btn" type="button" aria-label="Talk live with voice" data-act="voice">${ic("wave")}</button>`}
     ${!draft.trim() && (C.sending || liveRun()) ? `<button class="c-btn send stop" id="send" type="button" aria-label="Stop" data-act="stop-run">${ic("stop")}</button>`
@@ -279,6 +280,7 @@ const HOOKS = {
 };
 
 async function sendPlain(prompt) {
+  const before = replyMark(C.messages);
   C.messages.push({ role: "user", content: prompt });
   C.atBottom = true;
   C.prompt = prompt;
@@ -292,6 +294,7 @@ async function sendPlain(prompt) {
     S.chat = run.sessionId;
     teachAdopt(run.sessionId);
     C.messages = (await api("sessions/" + run.sessionId)).messages ?? C.messages;
+    readNewReply(before, C.messages);
     await loadWaiting();
   } catch (error) {
     C.messages.push({ role: "assistant", content: error.message });
@@ -385,6 +388,8 @@ const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 
 /* A task carried on after a yes: show it working, re-read the conversation each second until it has finished. */
 async function follow(id) {
+  /* Answer aloud reads the reply this task ends with, when the person was already watching this conversation. */
+  const before = C.sessionId === id ? replyMark(C.messages) : null;
   C.sessionId = id;
   C.sending = true;
   watchThinking(true);
@@ -400,6 +405,7 @@ async function follow(id) {
   C.sending = false;
   watchThinking(false);
   renderNow();
+  if (before !== null && C.sessionId === id) readNewReply(before, C.messages);
 }
 
 export function init() {
