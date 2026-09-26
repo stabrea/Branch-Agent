@@ -104,7 +104,7 @@ function composer() {
     ${chips()}
     ${dictating() ? "" : `${micButton()}<button class="c-btn" type="button" aria-label="Talk live with voice" data-act="voice">${ic("wave")}</button>`}
     ${!draft.trim() && (C.sending || liveRun()) ? `<button class="c-btn send stop" id="send" type="button" aria-label="Stop" data-act="stop-run">${ic("stop")}</button>`
-      : `<button class="c-btn send" id="send" type="submit" aria-label="Send">${ic("up")}</button>`}</form></div>`;
+      : `<button class="c-btn send${draft.trim() ? " ready" : ""}" id="send" type="submit" aria-label="Send">${ic("up")}</button>`}</form></div>`;
 }
 
 /* The words of the message being sent, so the side panel can follow a new conversation's first task before its id is known. */
@@ -419,6 +419,7 @@ export function init() {
     // Stop holds Send's place only while the box is empty: typing gives Send back, clearing the box brings Stop again.
     const stopNow = !e.target.value.trim() && (C.sending || !!liveRun());
     if (stopNow !== ($("#send")?.dataset.act === "stop-run")) renderNow();
+    $("#send")?.classList.toggle("ready", !!e.target.value.trim()); // pass 17: Send turns copper once there is something to send
   });
   setInterval(async () => {
     if (S.view !== "chat" || !C.sessionId || C.sending) return;
