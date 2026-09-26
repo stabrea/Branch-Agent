@@ -47,7 +47,8 @@ async function fixture(t) {
 }
 const homes = [["learning-look-back", "library:memory"], ["learning-new-skills", "customize:skills"]];
 
-test("each card is on the screen that owns its subject, and both switches start off", async (t) => {
+test.skip("each card is on the screen that owns its subject, and both switches start off", async (t) => {
+  // Redesign: replaced by the new window (prototype.html has no "Looking back over conversations" or "Skills your assistant wrote" card; what a task suggests remembering is a "Remember this?" card in its conversation, chat/remember.js, and a skill waiting to be switched on is under "Suggested for you" in Customize › Tools › Skills).
   const { page, errors } = await fixture(t);
   for (const [id, home] of homes) {
     const card = page.locator("#" + id);
@@ -62,7 +63,8 @@ test("each card is on the screen that owns its subject, and both switches start 
   assert.deepEqual(errors, []);
 });
 
-test("looking back: save the switch, look now, and accept the batch from the card", async (t) => {
+test.skip("looking back: save the switch, look now, and accept the batch from the card", async (t) => {
+  // Redesign: replaced by the new window (prototype.html has no "Looking back over conversations" or "Skills your assistant wrote" card; what a task suggests remembering is a "Remember this?" card in its conversation, chat/remember.js, and a skill waiting to be switched on is under "Suggested for you" in Customize › Tools › Skills).
   const { page, errors, app } = await fixture(t);
   await app.runtime.run({ prompt: "remind me that I water the plants on Sundays" });
   await openPlace(page, "library:memory");
@@ -83,7 +85,8 @@ test("looking back: save the switch, look now, and accept the batch from the car
   assert.deepEqual(errors, []);
 });
 
-test("new skills: draft one from a conversation, see it tried, and keep it", async (t) => {
+test.skip("new skills: draft one from a conversation, see it tried, and keep it", async (t) => {
+  // Redesign: replaced by the new window (prototype.html has no "Looking back over conversations" or "Skills your assistant wrote" card; what a task suggests remembering is a "Remember this?" card in its conversation, chat/remember.js, and a skill waiting to be switched on is under "Suggested for you" in Customize › Tools › Skills).
   const { page, errors, app } = await fixture(t);
   await app.runtime.run({ prompt: "water the plants in the kitchen" });
   await openPlace(page, "customize:skills");
@@ -117,7 +120,8 @@ test("new skills: draft one from a conversation, see it tried, and keep it", asy
   assert.deepEqual(errors, []);
 });
 
-test("at 400 px nothing scrolls sideways, and every fixed word has a key with real French", async (t) => {
+test.skip("at 400 px nothing scrolls sideways, and every fixed word has a key with real French", async (t) => {
+  // Redesign: replaced by the new window (prototype.html has no "Looking back over conversations" or "Skills your assistant wrote" card; what a task suggests remembering is a "Remember this?" card in its conversation, chat/remember.js, and a skill waiting to be switched on is under "Suggested for you" in Customize › Tools › Skills).
   const { page, errors } = await fixture(t);
   await page.setViewportSize({ width: 400, height: 900 });
   for (const [id, home] of homes) {
