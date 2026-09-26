@@ -11,7 +11,7 @@ import { markLive } from "../../core/features.js";
 import { ic, toast, openDlg, dialog } from "../../core/ui.js";
 import { logo } from "../../core/logos.js";
 import { ctl } from "../parts.js";
-import { A, loadAccounts } from "../../flows/account.js";
+import { A, loadAccounts, ownerOnly } from "../../flows/account.js";
 import { L, loadLocal, gb, DOWNLOAD_ICON } from "./local.js";
 
 const TABS = [["connections", "Connections"], ["defaults", "Defaults"], ["local", "On this computer"], ["second", "Second opinion"], ["media", "Media"]];
@@ -23,13 +23,13 @@ function group(p) {
   const n = p.accounts.length;
   const rows = p.accounts.map((a) => `<div class="acct-r"><span class="grow"><b>${esc(a.label)}</b><small>${esc(p.name ?? p.pool)}</small></span>${p.defaultAccount === a.id ? '<span class="pill ok"><i></i>Answers first</span>' : '<span class="pill idle"><i></i>Next in line</span>'}<button class="icon-btn" type="button" aria-label="More for ${esc(a.label)}" data-act="acct-menu" data-pool="${esc(p.pool)}" data-id="${esc(a.id)}">${ic("more", "s")}</button></div>`).join("");
   return `<div class="acct-g"><div class="acct-gh">${logo(p.pool, p.name, 30)}<b>${esc(p.name ?? p.pool)}</b><span class="n6">${n ? `${n} ${n === 1 ? "account" : "accounts"}` : "Not set up"}</span></div>${rows}
-    <button class="add-row" type="button" data-act="addacct" data-v="${esc(p.pool)}">${ic("plus", "s")}${n ? `Add another ${esc(p.name ?? p.pool)} account` : `Sign in to ${esc(p.name ?? p.pool)}`}</button></div>`;
+    <button class="add-row" type="button" data-act="addacct" data-v="${esc(p.pool)}" ${ownerOnly()}>${ic("plus", "s")}${n ? `Add another ${esc(p.name ?? p.pool)} account` : `Sign in to ${esc(p.name ?? p.pool)}`}</button></div>`;
 }
 
 function connections() {
   return `<p class="hint" data-css="margin:2px 0 12px">You can sign in to the same service more than once. When one account runs low, Branch moves to the next. The order is in <button class="link" type="button" data-act="setpage" data-v="accounts">Settings › Accounts</button>.</p>
     <div class="acct-gs">${(A.view?.pools ?? []).map(group).join("")}</div>
-    <div class="acts" data-css="margin-top:14px"><button class="btn pri" type="button" data-act="addacct">${ic("plus", "s")}Add an account</button></div>`;
+    <div class="acts" data-css="margin-top:14px"><button class="btn pri" type="button" data-act="addacct" ${ownerOnly()}>${ic("plus", "s")}Add an account</button></div>`;
 }
 
 function defaults() {

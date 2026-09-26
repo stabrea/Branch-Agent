@@ -136,6 +136,17 @@ async function household(page) {
     let grey = (await add.count()) > 0;
     for (let i = 0; i < (await add.count()); i++) grey = grey && (await isGreyed(add.nth(i)));
     check("2 household: every 'Add an account' button is greyed", grey, `${await add.count()} buttons`);
+    const menu = page.locator('[data-act="acct-menu"]').first();
+    if (await menu.count()) {
+      await menu.click();
+      check("2 household: the account menu's Answer first and Sign out are greyed", (await isGreyed(page.locator('.pop [data-act="acct-first"]'))) && (await isGreyed(page.locator('.pop [data-act="acct-out"]'))));
+      await page.keyboard.press("Escape");
+    } else console.log("NOTE  2 household: no account is shared with this person (only an API key can be), so the account menu is not drawn");
+    await openSettings(page, "models");
+    const madd = page.locator('[data-act="addacct"]');
+    let mgrey = (await madd.count()) > 0;
+    for (let i = 0; i < (await madd.count()); i++) mgrey = mgrey && (await isGreyed(madd.nth(i)));
+    check("2 household: Models › Connections' add buttons are greyed too", mgrey, `${await madd.count()} buttons`);
     let refused = "";
     try { await api("accounts/add", { pool: "cli-claude-code", label: "Should be refused" }); } catch (e) { refused = e.message; }
     check("2 household: the engine refuses the add (so greying is right)", refused.includes("belongs to the owner") || refused.includes("owner"), refused);
