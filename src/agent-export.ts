@@ -6,18 +6,20 @@ import { zipRead, zipWrite, type ZipLimits } from "./skill-package.js";
 import { recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
 import type { ChangeOrigin } from "./settings-kit/history.js";
 import { scrubSecrets } from "./locker.js";
-import { redactLeaks } from "./leak-guard.js";
+import { findLeaks, hiddenMarker } from "./leak-guard.js";
 
 /**
  * Handing the assistant itself to someone else, or to another computer. One file holds the
  * specialists, the saved procedures, the installed skills, which model does what, the approval
  * rules, and — only if it is asked for — what the assistant remembers.
  *
- * Nothing that is a secret ever goes in. Before a part is written it is checked against every
- * value the owner keeps in the locker, in every project, whether or not Branch has used it since it
- * started, so a fact that happens to quote a key comes out with the key replaced by its name. Then
+ * Nothing that is a secret ever goes in. Before a part is written every string in it is checked
+ * against every value the owner keeps in the locker, in every project, whether or not Branch has used
+ * it since it started, and in every form a value takes inside a string (escaped, encoded into an
+ * address, or in base64), so a fact that happens to quote a key comes out with the key replaced by its name. Then
  * key-shaped text the locker never held (a key pasted into a fact, say) is hidden the way the leak
- * guard hides it everywhere else. The check needs the locker open, so a locked Branch writes no file.
+ * guard hides it everywhere else. Only strings change, so every part still reads as JSON. The check
+ * needs the locker open, so a locked Branch writes no file.
  */
 export const agentSections = ["specialists", "procedures", "skills", "routing", "permissions", "memory"] as const;
 export type AgentSection = (typeof agentSections)[number];
@@ -97,27 +99,84 @@ export function agentSummary(store: Store, owner: string): { name: AgentSection;
 export const unlockFirst = "Unlock Branch first, so it can check the file for your saved keys.";
 
 /**
- * Every value the owner keeps in the locker, each also the way JSON writes it inside the file (a
- * quote or a backslash comes out escaped there), longest first so a value holding another is taken
- * out whole. A value under four characters is left alone, as everywhere else: it would match words.
+ * A value's base64 when it starts `shift` bytes (0, 1 or 2) into a group of three, as it does behind
+ * `user:` in a Basic sign-in header: only the characters that come from the value alone, so it is found
+ * whatever stands before or after it. Under eight characters it is left out: it would match ordinary text.
  */
-async function lockerValues(store: Store, owner: string): Promise<[value: string, name: string][]> {
-  const secrets = store.secrets;
-  try { secrets.gate(); } catch { throw new Error(unlockFirst); }
-  const byValue = new Map<string, string>();
-  for (const { name, value } of await secrets.valuesToHide(owner)) {
-    if (value.length < 4) continue;
-    byValue.set(value, name);
-    byValue.set(JSON.stringify(value).slice(1, -1), name);
-  }
-  return [...byValue].sort(([a], [b]) => b.length - a.length);
+function base64Core(value: string, shift: number): string | undefined {
+  const encoded = Buffer.concat([Buffer.alloc(shift), Buffer.from(value, "utf8")]).toString("base64");
+  const core = encoded.slice(Math.ceil((8 * shift) / 6), Math.floor((8 * (shift + Buffer.byteLength(value, "utf8"))) / 6));
+  return core.length >= 8 ? core : undefined;
 }
 
-/** One part's text with every locker value replaced by its name, then every key-shaped value hidden. */
-function cleaned(store: Store, text: string, values: [value: string, name: string][]): string {
+/**
+ * The ways a saved value is written inside one string: as it is; escaped the way JSON writes it, once
+ * (a string that holds JSON text) and twice (JSON text inside that, such as a tool call's arguments);
+ * URL-encoded; form-encoded, where a space becomes "+", both by hand and the way a browser form or
+ * URLSearchParams writes it; and in base64, from each of the three places a value can start. A value
+ * read from the locker is whole UTF-8 text, so `encodeURIComponent` always takes it.
+ */
+function writtenForms(value: string): string[] {
+  const once = JSON.stringify(value).slice(1, -1), encoded = encodeURIComponent(value);
+  const base64 = [0, 1, 2].map((shift) => base64Core(value, shift)).filter((core) => core !== undefined);
+  return [value, once, JSON.stringify(once).slice(1, -1), encoded, encoded.replace(/%20/g, "+"),
+    new URLSearchParams([["", value]]).toString().slice(1), ...base64];
+}
+
+/**
+ * Every value the owner keeps in the locker, in each of its written forms, longest first so a value
+ * holding another is taken out whole. A value under four characters is left alone, as everywhere
+ * else: it would match words.
+ */
+async function lockerValues(store: Store, owner: string): Promise<[form: string, name: string][]> {
+  const secrets = store.secrets;
+  try { secrets.gate(); } catch { throw new Error(unlockFirst); }
+  const byForm = new Map<string, string>();
+  for (const { name, value } of await secrets.valuesToHide(owner)) {
+    if (value.length < 4) continue;
+    for (const form of writtenForms(value)) byForm.set(form, name);
+  }
+  return [...byForm].sort(([a], [b]) => b.length - a.length);
+}
+
+/**
+ * Key-shaped text in one string hidden the way the leak guard hides it, at its default settings. The
+ * string is read with the name it sits under in front of it, as the part's text had it, so a value
+ * known only by that name (`"password": "…"`) is still found. The front is at least sixteen
+ * characters, the shortest text the guard looks at, so a short value is looked at too.
+ */
+function hideKeyShapes(text: string, name = ""): string {
+  const front = (name ? `${name}: ` : "").padStart(16);
+  let result = "", at = 0;
+  for (const hit of findLeaks(front + text)) {
+    const end = hit.end - front.length;
+    if (end <= 0) continue; // wholly inside the name, which is never changed
+    result += text.slice(at, Math.max(hit.start - front.length, 0)) + hiddenMarker(hit.kind);
+    at = end;
+  }
+  return result + text.slice(at);
+}
+
+/** One string: every locker value, in any written form, becomes its name; then this launch's scrubber and the key shapes. */
+function cleanedString(store: Store, text: string, values: [form: string, name: string][], name?: string): string {
   let result = text;
-  for (const [value, name] of values) result = scrubSecrets(result, { [name]: value });
-  return redactLeaks(store.secrets.scrubber.text(result)).text;
+  for (const [form, secret] of values) result = scrubSecrets(result, { [secret]: form });
+  return hideKeyShapes(store.secrets.scrubber.text(result), name);
+}
+
+/**
+ * One part's text, cleaned value by value: the part is read back, each string in it is cleaned on its
+ * own (see `cleanedString`), and it is written out the way it was written before. Names, numbers,
+ * true, false and null are never changed, so the part still reads as JSON whatever the locker holds.
+ */
+function cleaned(store: Store, text: string, values: [form: string, name: string][]): string {
+  const walk = (data: unknown, name?: string): unknown => {
+    if (typeof data === "string") return cleanedString(store, data, values, name);
+    if (Array.isArray(data)) return data.map((entry) => walk(entry));
+    if (data === null || typeof data !== "object") return data;
+    return Object.fromEntries(Object.entries(data).map(([key, entry]) => [key, walk(entry, key)]));
+  };
+  return JSON.stringify(walk(JSON.parse(text)));
 }
 
 /**
