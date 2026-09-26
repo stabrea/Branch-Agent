@@ -26,8 +26,9 @@ for (const width of [1440, 400]) {
     await setLevel(page, "regular");
     assert.deepEqual(await heads(), ["Voice", "Talking", "Speaking back"]);
     await setLevel(page, "advanced");
-    // The prototype's Advanced adds "Listening, more" (FINE15 voice, level 1); it has no "Live conversations" (the lead, 2026-09-26).
-    assert.deepEqual(await heads(), ["Voice", "Talking", "Speaking back", "Listening, more"]);
+    // The prototype's Advanced adds "Listening, more" (FINE15 voice, level 1) and then "Talking, more" (whereB17('voice', 1));
+    // it has no "Live conversations" (the lead, 2026-09-26).
+    assert.deepEqual(await heads(), ["Voice", "Talking", "Speaking back", "Listening, more", "Talking, more"]);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "the page fits the window");
     assert.deepEqual(errors, []);
   });

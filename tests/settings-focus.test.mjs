@@ -57,7 +57,8 @@ const focusAndDisplace = (page) => page.evaluate(async () => {
 });
 
 /* The new window: a control a person reaches the moment Settings › General opens keeps the keyboard while the page
-   draws what it loaded, and the next Tab moves on inside Settings. */
+   draws what it loaded, and the next Tab moves on to a real control. Settings is not a dialog, so it does not keep
+   the Tab inside (the prototype traps Tab only in dialogs and setup; "Show all" is General's last control). */
 test("a control focused the moment Settings opens keeps the keyboard while the page settles (new window)", async (t) => {
   const { settingsWindow, openSettingsPage } = await import("./settings-window.mjs");
   const { page, errors } = await settingsWindow(t, { name: "settings-focus" });
@@ -68,8 +69,8 @@ test("a control focused the moment Settings opens keeps the keyboard while the p
   assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim() ?? null), "Show all",
     `the keyboard stays on Show all (it went to ${await page.evaluate(() => document.activeElement?.tagName)})`);
   await page.keyboard.press("Tab");
-  assert.equal(await page.evaluate(() => document.activeElement?.closest(".settings") !== null), true,
-    "and the next Tab moves on inside Settings, not back to the top of the window");
+  assert.equal(await page.evaluate(() => document.activeElement !== null && document.activeElement !== document.body), true,
+    "and the next Tab moves on to a control, not nowhere");
   assert.deepEqual(errors, []);
 });
 

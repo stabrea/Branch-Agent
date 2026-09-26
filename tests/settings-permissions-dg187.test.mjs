@@ -41,7 +41,8 @@ test("DG-049 Lockdown on the page is the window's switch: on here turns it on ev
   await col.getByRole("button", { name: "Turn Lockdown off", exact: true }).waitFor({ timeout: 10000 });
   assert.equal((await call("/api/lockdown")).on, true, "Branch itself is locked down");
   await page.locator("#app.locked").waitFor({ state: "attached", timeout: 15000 });
-  await page.getByRole("button", { name: "Back to Branch", exact: true }).click();
+  // Settings' back button is the prototype's `Back to ${name}`, the engine's own name (Branch Agent by default).
+  await page.getByRole("button", { name: /^Back to / }).first().click();
   await page.locator('.side-nav [data-act="view"][data-v="inbox"]').click();
   await page.locator(".lock-banner").getByRole("button", { name: "Turn it off", exact: true }).click();
   await page.waitForFunction(() => !document.querySelector("#app.locked"), undefined, { timeout: 15000 });
