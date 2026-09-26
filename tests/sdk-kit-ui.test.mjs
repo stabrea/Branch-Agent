@@ -34,7 +34,8 @@ async function fixture(t, width) {
 
 const fitsWidth = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
-test("Building on Branch sits in Settings → Advanced, starts off, and saves its switch", async (t) => {
+// Redesign: replaced by the new window (the prototype has no Building on Branch card).
+test.skip("Building on Branch sits in Settings → Advanced, starts off, and saves its switch", async (t) => {
   const { page, errors, app } = await fixture(t, 1280);
   await openSettings(page, "advanced");
   const card = page.locator("#sdk-kit-card");
@@ -53,7 +54,8 @@ test("Building on Branch sits in Settings → Advanced, starts off, and saves it
   assert.deepEqual(errors, []);
 });
 
-test("Flows as files sits in Procedures, refuses while off, then writes a flow out and reads it back, at 400 px", async (t) => {
+// Redesign: replaced by the new window (the prototype's Automations has no Flows as files card).
+test.skip("Flows as files sits in Procedures, refuses while off, then writes a flow out and reads it back, at 400 px", async (t) => {
   const { page, errors, app } = await fixture(t, 400);
   app.flows.save({ name: "Morning tidy", steps: [{ name: "Say hello", kind: "prompt", prompt: "Say hello" }] });
   await openPlace(page, "automations:procedures");
@@ -80,7 +82,8 @@ test("Flows as files sits in Procedures, refuses while off, then writes a flow o
   assert.deepEqual(errors, []);
 });
 
-test("integration review: a click outside the navigation draws nothing again, and a language change draws once", async (t) => {
+// Redesign: replaced by the new window (the Building on Branch card is gone).
+test.skip("integration review: a click outside the navigation draws nothing again, and a language change draws once", async (t) => {
   const { page, errors } = await fixture(t, 1280);
   await openSettings(page, "advanced");
   await page.locator("#sdk-kit-clients li").first().waitFor();

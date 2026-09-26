@@ -38,7 +38,8 @@ async function openApp(t) {
   return { app, page };
 }
 
-test("automatic problem reports show the exact preview and save only a linked owner destination", async (t) => {
+// Redesign: Coming soon (sw:ad-crash, "Send crash reports" in Settings › Advanced), checked at fc541c24; the card's preview and destination are replaced by that one switch.
+test.skip("automatic problem reports show the exact preview and save only a linked owner destination", async (t) => {
   const { app, page } = await openApp(t);
   const mode = page.locator("#automatic-problem-mode");
   await mode.waitFor({ state: "visible" });
@@ -75,7 +76,8 @@ test("automatic problem reports show the exact preview and save only a linked ow
   assert.deepEqual(saved.items, ["about", "updates"]);
 });
 
-test("automatic problem reports are translated and fit a 400 px window", async (t) => {
+// Redesign: Coming soon (sw:ad-crash and sw:lang), checked at fc541c24; the card is replaced by that one switch.
+test.skip("automatic problem reports are translated and fit a 400 px window", async (t) => {
   const { page } = await openApp(t);
   await page.setViewportSize({ width: 400, height: 900 });
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));

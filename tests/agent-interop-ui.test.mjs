@@ -10,7 +10,8 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
 /* mac4/bucket-20: the two cards, opened the way a person opens them, at 400 px wide. */
-test("the switches live in Customize → Connections, modes in Specialists, and both fit 400 px", async (t) => {
+// Redesign: replaced by the new window (the prototype has no interop switches card or mode editor; custom modes are the file .branch/modes.json in Settings › Advanced, and other agents are Customize › Tools › Agents).
+test.skip("the switches live in Customize → Connections, modes in Specialists, and both fit 400 px", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-interop-ui-"));
   const app = await createBranch({
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
