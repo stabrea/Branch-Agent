@@ -233,8 +233,10 @@ test("A6 a household person with nothing shared sees no owner accounts and no co
   await page.locator(".set-col h1", { hasText: "Accounts" }).waitFor();
   await page.waitForTimeout(3500); // past one of the window's refreshes, which redraws the list
   assert.equal(await page.locator(".set-col .prow").count(), 0, "nothing is shared with Sam");
-  // /api/profiles is the window noticing a profile switch every 2 s (#326), not the owner's data.
-  assert.deepEqual(asked.filter((path) => path.startsWith("/api/") && !/^\/api\/(accounts|state|activity|events|profiles)/.test(path)), [],
+  // /api/profiles is the window noticing a profile switch every 2 s (#326), not the owner's data. GET /api/lock is the
+  // App lock watcher (shell/applock.js watchLock) asking every 2 s whether this computer's window is locked: the
+  // device's lock state, not the owner's records. Only that exact path is let through, never /api/lockdown or /api/lock/*.
+  assert.deepEqual(asked.filter((path) => path.startsWith("/api/") && path !== "/api/lock" && !/^\/api\/(accounts|state|activity|events|profiles)/.test(path)), [],
     "opening the page asks for nothing but the accounts (no Trunks)");
   assert.equal(await page.locator('.set-col [data-act="addacct"]:not([aria-disabled="true"])').count(), 0,
     "adding an account is the owner's: the engine refuses it for Sam");
