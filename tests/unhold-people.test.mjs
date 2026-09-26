@@ -97,8 +97,9 @@ async function snapshot(app) {
     roles: app.runtime.roles.all(p.list().map((x) => x.id)).map((r) => [r.profileId, r.grant.role]) });
 }
 
-/* Mutation: src/household-routes.ts listing own("/api/settings-kit/pins") (or own("/api/profiles/owner-pin") with
-   setOwnerPin's requireOwner removed) → red. */
+/* Every one of these routes has two locks: the household table (src/household-routes.ts) and the route's own requireOwner.
+   Mutation: list own("/api/profiles/owner-pin") in householdOwnRoutes AND drop setOwnerPin's requireOwner → red.
+   (Either lock alone keeps this green; listing own("/api/settings-kit/pins") alone is caught by settings-kit's own check.) */
 test("a household person at the window can't invite, change roles, set anybody's PIN or pin a setting", async (t) => {
   const { app, call, sam, kid, active } = await served(t);
   const kitBefore = JSON.stringify((await call("GET", "/api/settings-kit")).body.pins);
@@ -150,8 +151,9 @@ async function everyFile(dir) {
   return found;
 }
 
-/* Mutation: src/collab-server.ts writing the PIN into the "added" audit subject (`${made.name} ${person.pin}`) → red. */
-test("a PIN never appears in any response, the audit record, the engine's output or the data folder", async (t) => {
+/* Mutations: src/collab-server.ts writing the PIN into the "added" audit subject (`${made.name} ${person.pin}`) → red;
+   the role route without its audit() call → red. */
+test("adding somebody and changing a role are recorded, and a PIN never appears in any response, the audit record, the engine's output or the data folder", async (t) => {
   const written = [];
   const out = process.stdout.write.bind(process.stdout), err = process.stderr.write.bind(process.stderr);
   process.stdout.write = (chunk, ...rest) => { written.push(String(chunk)); return out(chunk, ...rest); };
