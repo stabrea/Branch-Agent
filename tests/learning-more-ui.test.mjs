@@ -34,6 +34,7 @@ test("the rows sit in their homes, open the engine's own lists once switched on,
   const { page, errors, call } = await newWindow(t, { width: 400, height: 900, seed: (branch) => {
     for (const part of ["journey", "curator"]) branch.learningMore.setMode(part, { mode: "on" });
     branch.store.save("memory", branch.runtime.owner, "oak", { text: "The owner keeps an oak by the gate", source: "owner" });
+    branch.store.skills.install(branch.runtime.owner, { document: "---\nname: tidy-notes\ndescription: Tidies notes.\n---\nTidy the notes.\n" });
   } });
   const wide = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   const dialogOf = (title) => page.locator(".dlg").filter({ hasText: title }).first();
@@ -50,7 +51,7 @@ test("the rows sit in their homes, open the engine's own lists once switched on,
   const { entries } = await call("/api/learning-more/journey?limit=50");
   assert.ok(entries.length >= 1, "the engine has the fact on its timeline");
   await page.waitForFunction((n) => document.querySelectorAll(".dlg .demo-b17 .prow").length === n, entries.length, { timeout: 20000 });
-  assert.match(await timeline.locator(".demo-b17 .prow").first().innerText(), /The owner keeps an oak by the gate/);
+  assert.equal(await timeline.locator(".demo-b17 .prow", { hasText: "The owner keeps an oak by the gate" }).count(), 1, "the fact, in the engine's words");
   assert.equal(await wide(), false, "no sideways scrolling with the timeline open");
   await timeline.locator('[data-act="dlg-close"]').last().click();
 
@@ -62,7 +63,9 @@ test("the rows sit in their homes, open the engine's own lists once switched on,
   await curator.waitFor({ timeout: 20000 });
   const view = await call("/api/learning-more/curator");
   if (view.note) assert.ok((await curator.innerText()).includes(view.note), "the engine's own note leads the dialog");
-  assert.equal(await curator.locator(".demo-b17 .prow").count(), (view.skills ?? []).length, "one row for each skill it looked at");
+  assert.ok(view.skills.some((s) => s.name === "tidy-notes"), "the engine looked at the skill");
+  assert.equal(await curator.locator(".demo-b17 .prow").count(), view.skills.length, "one row for each skill it looked at");
+  assert.match(await curator.locator(".demo-b17 .prow", { hasText: "tidy-notes" }).innerText(), /tidy-notes/);
   assert.equal(await wide(), false, "no sideways scrolling in Customize");
   assert.deepEqual(errors, []);
 });
