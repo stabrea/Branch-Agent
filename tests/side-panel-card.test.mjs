@@ -49,11 +49,12 @@ async function openCard(page) {
   await page.waitForFunction(() => document.getElementById("pane")?.hidden === false);
 }
 
-test("DG-114 the side panel is closed until asked for, holds its six tabs, and its close button shuts it", async (t) => {
+test("DG-114 the side panel is closed until asked for, holds its tabs, and its close button shuts it", async (t) => {
   const { page, errors } = await fixture(t);
   assert.equal(await shown(page), false, "closed until asked for");
   await openCard(page);
-  assert.deepEqual(await page.locator("#pane .ptabs .ptab").allInnerTexts(), ["Activity", "Plan", "Files", "Memory", "Browser", "Terminal"], "its six tabs are inside it");
+  // Pass 17 (patch17c): Timeline follows Activity, and Branches follows Timeline once the conversation has 2+ paths.
+  assert.deepEqual(await page.locator("#pane .ptabs .ptab").allInnerTexts(), ["Activity", "Timeline", "Plan", "Files", "Memory", "Browser", "Terminal"], "its tabs are inside it");
   const box = await page.evaluate(() => { const r = document.getElementById("pane").getBoundingClientRect(); return { right: r.right, left: r.left, width: r.width }; });
   assert.ok(box.width > 200 && box.right <= 1440 + 0.5, "inside the window");
   /* Choosing a tab selects it. */
@@ -81,11 +82,17 @@ test("DG-114 nothing in the panel is clipped at 1440, 1280, 1180, 860 and 400 wi
     const fit = await page.evaluate(() => {
       const panel = document.getElementById("pane"), card = panel.getBoundingClientRect(), slack = 0.5;
       const inside = (el) => { const r = el.getBoundingClientRect(); return r.left >= card.left - slack && r.right <= card.right + slack; };
-      const parts = [...panel.querySelectorAll(".pane-h .ptab, .pane-h .icon-btn")];
+      // The tab row scrolls sideways (.ptabs, overflow-x auto, as in the prototype): a tab past the edge is held by it,
+      // not clipped. The row itself and the close button must sit inside the card.
+      const row = panel.querySelector(".pane-h .ptabs"), scrolls = row && row.scrollWidth > row.clientWidth + 1;
+      const tabs = [...panel.querySelectorAll(".pane-h .ptab")], buttons = [...panel.querySelectorAll(".pane-h .icon-btn")];
+      const parts = [...tabs, ...buttons];
       const body = panel.querySelector(".pane-b"), style = getComputedStyle(body);
       return {
         inWindow: card.left >= 0 && card.right <= innerWidth + slack && card.top >= 0 && card.bottom <= innerHeight + slack,
-        clipped: parts.filter((el) => el.getClientRects().length && !inside(el)).map((el) => el.textContent || el.getAttribute("aria-label")),
+        clipped: [...(row && !inside(row) ? [row] : []), ...buttons.filter((el) => el.getClientRects().length && !inside(el)),
+          ...(scrolls ? [] : tabs.filter((el) => el.getClientRects().length && !inside(el)))]
+          .map((el) => el.textContent || el.getAttribute("aria-label") || el.className),
         cut: parts.filter((el) => el.getClientRects().length && el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent),
         reachable: body.scrollHeight <= body.clientHeight + 1 || /auto|scroll/.test(style.overflowY),
       };
