@@ -53,8 +53,13 @@ async function fixture(t, { onboarded = true } = {}) {
   /* Opening the window again: the session token is asked for each time the page is loaded. */
   const open = async () => {
     await page.goto(server.url);
-    await page.getByLabel("Session token", { exact: true }).fill(server.token);
-    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    // Opened again in the same tab, the window already holds the key and skips the key field; the locale loads first (#345).
+    const key = page.getByLabel("Session token", { exact: true });
+    await Promise.race([key.waitFor({ timeout: 60000 }), page.locator("#app #side").waitFor({ state: "visible", timeout: 60000 })]).catch(() => {});
+    if (await key.isVisible()) {
+      await key.fill(server.token);
+      await page.getByRole("button", { name: "Connect", exact: true }).click();
+    }
     await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   };
   return { app, server, call, page, errors, open };
@@ -100,6 +105,9 @@ test("first run comes first and the bar is its last question; Not now lasts unti
   for (let step = 0; step < 15 && !(await f.page.locator('[data-act="ob-done"]').isVisible()); step++) await f.page.locator('[data-act="ob-next"]').click();
   await f.page.locator('[data-act="ob-done"]').click();
   await setup.waitFor({ state: "detached" });
+  // Finishing setup starts the prototype's tour of the window; a person can end it at once.
+  const endTour = f.page.locator('.tour-layer [data-act="tour-end"]');
+  if (await endTour.waitFor({ timeout: 5000 }).then(() => true, () => false)) await endTour.click();
   // WINDOW BUG: public/app/chat/rec.js recBar() asks the engine for its bar once, when the window is let in (before the first
   // run is done, when the engine offers nothing), and never again, so the bar does not follow the first run.
   await bar.waitFor({ state: "visible", timeout: 15000 });
