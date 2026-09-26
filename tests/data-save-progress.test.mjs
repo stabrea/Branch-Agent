@@ -113,7 +113,7 @@ test("DG-055 the switch still saves the question at 95%, and it comes back after
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at fc541c24.
+// Redesign: Coming soon (sw:lang, the Language select in Settings › Appearance), checked at fc541c24.
 test.skip("DG-055 the section's heading is French in French", async (t) => {
   const { page, errors } = await dataPage(t, 1440);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));

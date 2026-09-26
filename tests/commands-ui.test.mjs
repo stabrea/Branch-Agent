@@ -125,7 +125,7 @@ test.skip("the commands card is in Settings › General, saves the switch, and f
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), and the card itself is replaced; checked at fc541c24.
+// Redesign: Coming soon (sw:lang, the Language select in Settings › Appearance), checked at fc541c24; the card itself is replaced by the new window.
 test.skip("the commands card is written in French when French is chosen", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });

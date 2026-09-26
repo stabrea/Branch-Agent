@@ -181,7 +181,7 @@ test.skip("the Set up card sits in Settings › Chat apps & devices, ships off, 
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (the Language select, sw:lang in Settings › Appearance), checked at fc541c24.
+// Redesign: Coming soon (sw:lang, the Language select in Settings › Appearance), checked at fc541c24.
 test.skip("each More chat apps row and the Telegram card open the same panel, and it reads in French at 400 px", async (t) => {
   const { page, errors } = await signedIn(t);
   await openPlace(page, "settings:channels");
