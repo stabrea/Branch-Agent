@@ -19,6 +19,7 @@ import { openConversation } from "../chat/chat.js";
 import { recBar } from "../chat/rec.js";
 
 let asks = [];
+let installs = [];
 let changeRequests = [];
 let chain = null;
 const trunkName = (id) => (Array.isArray(E.trunks) ? E.trunks : []).find((t) => t.id === id || t.name === id)?.name ?? id ?? "";
@@ -28,6 +29,11 @@ const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: "short", 
 
 function askRow(q) {
   return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(q.question || q.label || "")}</b><small>${esc([trunkName(q.trunk), q.question ? q.label : q.target].filter(Boolean).join(" · "))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(q.sessionId)}">Open</button><button class="btn pri sm" type="button" data-act="ask" data-v="allow" data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}">Allow</button></div>`;
+}
+/* A request for a package or a tool server (GET /api/flows-boards/installs, status waiting). Answering it only writes the
+   answer down: a yes comes back with the exact next step, and nothing is installed. */
+function installRow(r) {
+  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(r.ask?.why ?? "")}</b><small>${esc(r.from)} wants “${esc(r.ask?.name ?? "")}”. Nothing is installed until you allow it.</small></span><button class="btn ghost sm" type="button" data-act="xdo" data-id="${esc(r.id)}" data-v="denied">Don’t</button><button class="btn pri sm" type="button" data-act="xdo" data-id="${esc(r.id)}" data-v="allowed">Allow</button></div>`;
 }
 function messageRow(m) {
   return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(m.message)}</b><small>${esc(trunkName(m.from))} → ${esc(trunkName(m.to))}</small></span><button class="btn ghost sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="decline">Don’t</button><button class="btn pri sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="answer">Allow</button></div>`;
@@ -46,11 +52,13 @@ function selfCard(r) {
 }
 const waitingChanges = () => changeRequests.filter((r) => r.status === "waiting");
 
+const waitingCount = () => asks.length + E.state.trunkWaiting.length + installs.length;
 function needsTab() {
-  const count = asks.length + E.state.trunkWaiting.length;
+  const count = waitingCount();
   let html = `<div class="rows">`;
   if (count > 1) html += `<div class="acts" data-css="margin:4px 0 6px"><button class="btn" type="button" data-act="allowall">Allow all ${count}…</button></div>`;
   html += asks.map(askRow).join("");
+  html += installs.map(installRow).join("");
   html += E.state.trunkWaiting.map(messageRow).join("");
   html += `</div>`;
   return html + waitingChanges().map(selfCard).join("");
@@ -68,9 +76,33 @@ function duration(r) {
 }
 /* The newest finished task, offered to watch again; the tile is not drawn when nothing has finished. */
 function replayTile() {
-  const last = (E.state.runs ?? []).find((r) => r.status === "completed");
+  const done = (E.state.runs ?? []).filter((r) => r.status === "completed"), last = done[0];
   if (!last) return "";
-  return `<div class="tile" data-css="margin:10px 0 12px"><div class="th"><b>Watch a task again</b></div><p>Step through what a task did, see the path it took, and keep it as a page or a workflow that repeats it.</p><div class="acts"><button class="btn sm" type="button" data-act="replay" data-id="${esc(last.id)}">${ic("play", "s")}Watch “${esc(firstLine(last.prompt))}”</button></div></div>`;
+  const before = done.find((r) => r !== last && r.prompt === last.prompt);
+  const day = before ? dayWord(before.createdAt) : "";
+  const compare = before ? `<button class="btn ghost sm" type="button" data-act="compare" data-id="${esc(last.id)}" data-v="${esc(before.id)}">Compare it with ${esc(day.charAt(0).toLowerCase() + day.slice(1))}’s</button>` : "";
+  return `<div class="tile" data-css="margin:10px 0 12px"><div class="th"><b>Watch a task again</b></div><p>Step through what a task did, see the path it took, and keep it as a page or a workflow that repeats it.</p><div class="acts"><button class="btn sm" type="button" data-act="replay" data-id="${esc(last.id)}">${ic("play", "s")}Watch “${esc(firstLine(last.prompt))}”</button>${compare}</div></div>`;
+}
+
+/* A task's day as the prototype names it: Today, Last <weekday> within the week, else the date. */
+function dayWord(iso) {
+  const d = new Date(iso), now = new Date();
+  if (d.toDateString() === now.toDateString()) return "Today";
+  if (now.getTime() - d.getTime() < 7 * 86400000) return `Last ${d.toLocaleDateString([], { weekday: "long" })}`;
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+/* Two tasks side by side, both read from GET /api/runs/<id>/inspect (the record the inspector reads): the cost, the time,
+   the rounds and the tools used, then how the answers differ line by line. */
+async function openCompare(el) {
+  let older, newer;
+  try { [older, newer] = await Promise.all([api(`runs/${encodeURIComponent(el.dataset.v)}/inspect`), api(`runs/${encodeURIComponent(el.dataset.id)}/inspect`)]); } catch (error) { toast(error.message); return; }
+  const secs = (s) => { const n = Math.round(Number(s) || 0); return n >= 60 ? `${Math.floor(n / 60)}m ${n % 60}s` : `${n}s`; };
+  const rows = [["Cost", older.cost?.display ?? "", newer.cost?.display ?? ""], ["Time", secs(older.seconds), secs(newer.seconds)], ["Rounds", older.rounds?.length ?? 0, newer.rounds?.length ?? 0], ["Tools used", older.calls?.length ?? 0, newer.calls?.length ?? 0]];
+  const table = `<table class="cmp6"><thead><tr><th></th><th>${esc(dayWord(older.run.createdAt))}</th><th>${esc(dayWord(newer.run.createdAt))}</th></tr></thead><tbody>${rows.map(([n, a, b]) => `<tr><th>${n}</th><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join("")}</tbody></table>`;
+  const was = String(older.run.output ?? "").split("\n"), now = String(newer.run.output ?? "").split("\n");
+  const diff = [...was.filter((l) => !now.includes(l)).map((l) => `<span class="d-del">- ${esc(l)}</span>`), ...now.map((l) => (was.includes(l) ? `<span>  ${esc(l)}</span>` : `<span class="d-add">+ ${esc(l)}</span>`))].join("");
+  openDlg({ title: "Two tasks side by side", wide: true, body: `${table}<pre class="diff6">${diff}</pre><p class="hint">Read from the same “Look inside” record the inspector uses; nothing new is worked out.</p>`, foot: '<button class="btn pri" type="button" data-act="dlg-close">Done</button>' });
 }
 
 function historyTab() {
@@ -86,7 +118,7 @@ export function draw() {
   const tab = S.tabs.inbox || "needs";
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
 
-  const count = asks.length + E.state.trunkWaiting.length;
+  const count = waitingCount();
   let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div><div class="scroll"><div class="place">
     ${recBar()}
     <h1>Inbox</h1><p class="lede">Everything a Trunk is waiting on you for, what finished, and a record of what ran.</p>
@@ -108,6 +140,25 @@ function sayOnce(error) {
   return {};
 }
 
+/* The waiting requests for packages and tool servers; with that part switched off (GET /api/flows-boards) there are none. */
+async function readInstalls() {
+  const modes = (await api("flows-boards").catch(sayOnce)).modes ?? {};
+  if (!modes["install-requests"] || modes["install-requests"] === "off") return [];
+  return ((await api("flows-boards/installs").catch(sayOnce)).requests ?? []).filter((r) => r.status === "waiting");
+}
+
+/* Don’t declines, Allow approves (POST /api/flows-boards/installs/<id>/decline|approve); a yes shows the engine's next step. */
+async function answerInstall(el) {
+  const yes = el.dataset.v === "allowed";
+  el.disabled = true;
+  try {
+    const { request } = await api(`flows-boards/installs/${encodeURIComponent(el.dataset.id)}/${yes ? "approve" : "decline"}`, {});
+    if (yes && request?.nextStep) toast(request.nextStep);
+  } catch (error) { toast(error.message); }
+  installs = await readInstalls();
+  renderNow();
+}
+
 /* After a draw: re-read what the tab shows from the engine, and draw again only if it changed. */
 export async function after() {
   const tab = S.tabs.inbox || "needs";
@@ -118,6 +169,8 @@ export async function after() {
   if (tab === "needs") {
     const requests = (await api("self-development/requests").catch(sayOnce)).requests ?? [];
     if (JSON.stringify(requests) !== JSON.stringify(changeRequests)) { changeRequests = requests; changed = true; }
+    const waiting = await readInstalls();
+    if (JSON.stringify(waiting) !== JSON.stringify(installs)) { installs = waiting; changed = true; }
   }
   if (tab === "history" && !chain) {
     try { chain = (await api("safety-extras/activity/verify", {})).check; changed = true; } catch (error) { toast(error.message); chain = { ok: false }; }
@@ -182,8 +235,10 @@ function reviewChange(id) {
 }
 
 export function init() {
-  markLive(["ptab", "chat", "tmsg", "cutgo15", "cutno15", "verify15", "selfrev15", "replay", "rp"]);
+  markLive(["ptab", "chat", "tmsg", "cutgo15", "cutno15", "verify15", "selfrev15", "replay", "rp", "compare", "xdo"]);
   on("replay", (el) => openReplay(el.dataset.id));
+  on("compare", (el) => openCompare(el));
+  on("xdo", (el) => answerInstall(el));
   on("rp", (el) => stepReplay(el));
   on("tmsg", async (el) => {
     try { await api(`trunks/messages/${encodeURIComponent(el.dataset.id)}/${el.dataset.v === "answer" ? "answer" : "decline"}`, {}); } catch (error) { toast(error.message); }
