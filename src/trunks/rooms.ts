@@ -351,7 +351,9 @@ export class TrunkRooms {
     if (!sessionId || !room.members.includes(value.memberId)) throw new Error("That Trunk is not in this room");
     // Integration review: what the safety check advised against is allowed this once only (the
     // owner's one-time overrule carries to the turn taken again), never kept for the room.
-    const asked = this.deps.runtime.waitingApprovals(sessionId).find((q) => !value.fingerprint || q.fingerprint === value.fingerprint);
+    // PR #289: with no fingerprint, only the one question waiting is answered; with several, the engine refuses.
+    const waitingNow = this.deps.runtime.waitingApprovals(sessionId);
+    const asked = value.fingerprint ? waitingNow.find((q) => q.fingerprint === value.fingerprint) : waitingNow.length === 1 ? waitingNow[0] : undefined;
     const remember: PolicyRemember = asked?.onceOnly ? "never" : value.remember;
     // PR #289 second review: answer the question found above, so a member's answer still lands while another waits.
     const answered = this.deps.runtime.approve(sessionId, value.decision, remember, asked?.fingerprint ?? value.fingerprint);

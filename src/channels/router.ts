@@ -172,6 +172,8 @@ export function readApprovalAnswer(value: string): { decision: "allow" | "deny";
  * not refuse in words — it fell through and sent the assistant the letter "a".
  */
 export const approvalFallbackNote = "Reply y for yes, or n for no.";
+/** PR #289: a typed answer that cannot be matched to the question this chat was shown, while several wait. */
+export const severalWaitingInChat = "More than one request is waiting in this conversation. Answer them with their own buttons, or in the app.";
 /**
  * A pressed button, as opposed to a typed letter: it carries the fingerprint of the exact request.
  * Pressing the same button again must not become a new task saying "y:8f3a…", so a payload of this
@@ -248,6 +250,8 @@ function fitName(prefix: string, name: string): string {
 
 export class ChannelRouter {
   private readonly adapters = new Map<string, { adapter: ChannelAdapter; policy: ChannelPolicy }>();
+  /** PR #289: the question each chat was last shown (by fingerprint), so a typed "y" answers that one and no other. */
+  private readonly shownInChat = new Map<string, string>();
   readonly deliveries: Deliveries;
   private pump: ReturnType<typeof setInterval> | undefined;
   private flushing: Promise<void> = Promise.resolve();
@@ -493,7 +497,12 @@ export class ChannelRouter {
     // mac7/chat-allowlist (integration review): a yes from the chat only answers a question about
     // what every chat may already do. Anything one of the owner's lines granted is approved in the
     // window, unless that same line is one the owner switched on for this person (mac7/chat-approvals).
-    const asked = read.fingerprint ? waiting.find((one) => one.fingerprint === read.fingerprint) : waiting[0];
+    // PR #289: a "y" with no code answers the question this chat was shown (askInChat puts the newest), or the only one
+    // waiting; with several and none of them the one shown, it is refused in words rather than guessed.
+    const shown = this.shownInChat.get(`${channel}\u0000${chatId}`);
+    const named = read.fingerprint || shown;
+    const asked = (named ? waiting.find((one) => one.fingerprint === named) : undefined) ?? (waiting.length === 1 ? waiting[0] : undefined);
+    if (!asked) return { decision: "in-window", tool: "", refusal: severalWaitingInChat };
     // mac7/chat-approvals (integration review): "a" is a standing yes and never comes from a chat,
     // whatever the owner's lines say. It is answered here, in a sentence, rather than left to throw
     // inside Runtime.approve where the caller's catch turned it back into "not an answer" and the
@@ -504,8 +513,7 @@ export class ChannelRouter {
     if (read.decision === "allow" && asked && !mayApprove)
       return { decision: "in-window", tool: asked.tool, refusal: approveInWindow(asked.label || asked.tool) };
     // PR #289 second review: the yes lands on exactly the question vetted above, so it still answers while another waits.
-    const result = this.runtime.approve(sessionId, read.decision, read.remember,
-      asked?.fingerprint ?? (read.fingerprint || undefined), channel);
+    const result = this.runtime.approve(sessionId, read.decision, read.remember, asked.fingerprint ?? (read.fingerprint || undefined), channel);
     return { decision: result.decision, tool: result.tool };
   }
   /**
@@ -531,6 +539,7 @@ export class ChannelRouter {
     const adapter = this.adapters.get(message.channel)?.adapter;
     if (!adapter) return;
     const waiting = this.runtime.waitingApprovals(sessionId).at(-1);
+    if (waiting?.fingerprint) this.shownInChat.set(`${message.channel}\u0000${message.chatId}`, waiting.fingerprint);
     const checked = await this.outboundGuard(question);
     if (checked.blocked) return;
     // In a group anybody paired may press the button, so a standing yes is only offered one to one.
