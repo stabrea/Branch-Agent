@@ -113,11 +113,29 @@ export function conversationModeSettings(store: Pick<Store, "get">, owner: strin
   const saved = ConversationModeSettingsSchema.safeParse(store.get("settings", owner, settingsKey)?.data ?? {});
   return saved.success ? saved.data : ConversationModeSettingsSchema.parse({});
 }
+/** What saving `input` would leave, without saving it: a field left out keeps its value (Q65). */
+export function nextConversationModeSettings(store: Pick<Store, "get">, owner: string, input: unknown): ConversationModeSettings {
+  return ConversationModeSettingsSchema.parse({ ...conversationModeSettings(store, owner), ...optionalFields(ConversationModeSettingsSchema).parse(input ?? {}) });
+}
 export function saveConversationModeSettings(store: Pick<Store, "get" | "save">, owner: string, input: unknown): ConversationModeSettings {
-  const next = ConversationModeSettingsSchema.parse({ ...conversationModeSettings(store, owner), ...optionalFields(ConversationModeSettingsSchema).parse(input ?? {}) }); // Q65: a field left out keeps its value
+  const next = nextConversationModeSettings(store, owner, input);
   store.save("settings", owner, settingsKey, next);
   return next;
 }
+
+/**
+ * How loose a new conversation's start is. "follow" is as loose as the owner's preset; their own rules
+ * ("custom") can hold a broad yes that every mode but "follow" drops, so that counts as the loosest.
+ */
+type NewConversationChoice = (typeof newConversationChoices)[number];
+const startRank = (choice: NewConversationChoice, preset: PolicyPresetName): number =>
+  choice !== "follow" ? modeRank[choice] : preset === "custom" ? modeRank.full : presetRank[preset];
+/** True when starting new conversations on `after` instead of `before` lets them do more. */
+export const newConversationLooser = (before: NewConversationChoice, after: NewConversationChoice, preset: PolicyPresetName): boolean =>
+  startRank(after, preset) > startRank(before, preset);
+const startNames: Record<NewConversationChoice, string> = { ask: "Ask first", plan: "Plan", auto: "Auto", full: "No approvals", follow: "the owner's own setting" };
+/** The start named in the words the mode picker uses. */
+export const newConversationName = (choice: NewConversationChoice): string => startNames[choice];
 
 /* ---------- what each conversation picked ---------- */
 
