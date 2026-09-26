@@ -79,6 +79,17 @@ test("with the owner's PIN set, going back to the owner needs it, and five wrong
   assert.equal(await active(), sam.id);
 });
 
+/* Review 2 (#353): the lockout guards a person's PIN too, not only the owner's. Mutation: src/profiles.ts
+   checkNotLockedOut() never locks → red. */
+test("five wrong tries at a person's PIN lock switching to them, even with the right PIN", async (t) => {
+  const { call, sam, active } = await served(t);
+  for (let i = 0; i < 5; i++) await call("POST", "/api/profiles/switch", { profileId: sam.id, pin: "0000" });
+  const locked = await call("POST", "/api/profiles/switch", { profileId: sam.id, pin: SAM_PIN });
+  assert.equal(locked.status, 400);
+  assert.match(locked.body.error, /Too many wrong PINs/, "the right PIN waits out the lockout too");
+  assert.equal(await active(), null, "the window stayed the owner's");
+});
+
 /* What the household person and the short-lived key both try: every owner-only person control the window has. */
 function attempts(sam, kid, waiting) {
   return [
