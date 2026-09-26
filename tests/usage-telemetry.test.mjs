@@ -272,7 +272,9 @@ test("U6: the builders' guide says how to log, and the settings page explains th
 
 // ------------------------------------------------------------ U7-U8: the two cards
 
-test("U7: every word the two cards show is on file in English and in real French", async () => {
+// Redesign: replaced by the new window (/usage-report.js and its keys are gone with the old window; the prototype's words
+// are its own), and French waits on sw:lang, Coming soon, checked at fc541c24.
+test.skip("U7: every word the two cards show is on file in English and in real French", async () => {
   const script = await readFile(new URL("../public/usage-report.js", import.meta.url), "utf8");
   const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
   const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
@@ -289,7 +291,26 @@ test("U7: every word the two cards show is on file in English and in real French
   assert.ok(!/#[0-9a-f]{3,6}\b|rgba?\(/i.test(script), "no colour is written down");
 });
 
-test("U8: the report card lives in Data and the counters card in Advanced, at 400 pixels with no page errors", async (t) => {
+/* The new window: Settings › Data & usage's report is the prototype's; with the usage report switched off (as it ships),
+   "Open the report" shows the engine's one-sentence refusal and no report, at 400 pixels, with no page errors. */
+test("U8: the report lives in Data & usage and, switched off as it ships, Open the report says so, at 400 pixels", async (t) => {
+  const { settingsWindow, openSettingsPage } = await import("./settings-window.mjs");
+  const { app, page, errors } = await settingsWindow(t, { name: "ui14", width: 400, height: 800, provider: scripted([say("done")]),
+    before: (one) => one.runtime.run({ prompt: "one task" }) });
+  assert.equal(usageReportSettings(app.store, app.runtime.owner).mode, "off", "ships off");
+  await openSettingsPage(page, "usage");
+  const open = page.locator(".set-col").getByRole("button", { name: "Open the report", exact: true });
+  await open.waitFor();
+  await open.click();
+  await page.locator(".toast", { hasText: "switched off" }).waitFor({ timeout: 10000 });
+  assert.equal(await page.locator(".dlg").count(), 0, "no report is shown");
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, "the page does not scroll sideways");
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the prototype's Data & usage has no usage report switch or Save as notes, and no
+// counters card; the report is re-pointed above).
+test.skip("U8: the report card lives in Data and the counters card in Advanced, at 400 pixels with no page errors", async (t) => {
   const { openPlace } = await import("./places.mjs");
   const root = await mkdtemp(join(tmpdir(), "branch-ui14-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted([say("done")]) });

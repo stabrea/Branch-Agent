@@ -12,6 +12,74 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { settingsWindow } from "./settings-window.mjs";
+
+/* The new window, on a phone: Settings opens with its shortcut (Ctrl+,) and its pages are the prototype's strip, one row
+   of page buttons without group names, scrolling sideways, never a dropdown; the page itself never scrolls sideways. */
+async function phoneSettings(t, width) {
+  const opened = await settingsWindow(t, { name: "phone-tabs", width, height: 844 });
+  await opened.page.keyboard.press("ControlOrMeta+Comma");
+  await opened.page.locator(".settings .set-nav").waitFor();
+  return opened;
+}
+const newStrip = (page) => page.evaluate(() => {
+  const nav = document.querySelector(".settings .set-nav");
+  const tabs = [...nav.querySelectorAll('[data-act="setpage"]')].filter((tab) => tab.checkVisibility());
+  return {
+    selects: nav.querySelectorAll("select").length,
+    scrolls: nav.scrollWidth > nav.clientWidth + 1, pageScrolls: document.documentElement.scrollWidth > innerWidth + 1,
+    oneRow: tabs.length > 5 && tabs.every((tab) => Math.abs(tab.getBoundingClientRect().top - tabs[0].getBoundingClientRect().top) < 1),
+    groups: [...nav.querySelectorAll(".grp")].filter((group) => group.checkVisibility()).length,
+    back: [...nav.querySelectorAll(".set-back")].some((back) => back.checkVisibility()),
+  };
+});
+for (const width of [390, 700]) {
+  test(`DG-013 at ${width} px the pages are the prototype's strip of tabs, not a dropdown`, async (t) => {
+    const { page, errors } = await phoneSettings(t, width);
+    await page.locator('[data-act="setpage"][data-v="general"]').click();
+    assert.deepEqual(await newStrip(page), { selects: 0, scrolls: true, pageScrolls: false, oneRow: true, groups: 0, back: true });
+    assert.deepEqual(errors, []);
+  });
+}
+
+test("DG-013 on a phone a page tab is a real button: focused and pressed with Enter, it opens its page", async (t) => {
+  const { page, errors } = await phoneSettings(t, 390);
+  await page.waitForTimeout(1000); // the page has drawn what it loaded, as a person sees it before reaching for a tab
+  await page.locator('[data-act="setpage"][data-v="gateway"]').focus();
+  // A person takes a moment before pressing Enter; a redraw in that moment must not take the keyboard away.
+  await page.waitForTimeout(1000);
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset?.v ?? document.activeElement?.tagName), "gateway",
+    "the keyboard is still on the Gateway tab");
+  await page.keyboard.press("Enter");
+  await page.locator('[data-act="setpage"][data-v="gateway"][aria-current="true"]').waitFor();
+  await page.locator(".set-col").getByRole("heading", { name: "Gateway", exact: true, level: 1 }).waitFor();
+  assert.deepEqual(errors, []);
+});
+
+test("DG-013 wide, the pages stay the list, in a column with their group names", async (t) => {
+  const { page, errors } = await phoneSettings(t, 390);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const wide = await page.evaluate(() => {
+    const tabs = [...document.querySelectorAll('.settings .set-nav [data-act="setpage"]')].filter((tab) => tab.checkVisibility());
+    return { column: tabs.every((tab, index) => index === 0 || tab.getBoundingClientRect().top > tabs[index - 1].getBoundingClientRect().top),
+      groups: [...document.querySelectorAll(".settings .set-nav .grp")].filter((group) => group.checkVisibility()).length >= 3 };
+  });
+  assert.deepEqual(wide, { column: true, groups: true });
+  assert.deepEqual(errors, []);
+});
+
+/* On a phone the list of places slides over the window; choosing Settings from it puts Settings in front (the prototype
+   closes the list on every view change, design/redesign/prototype.html's ACTS.view), so the page can be used. */
+test("on a phone, choosing Settings from the slid-in list closes the list and the page can be used", async (t) => {
+  const { page, errors } = await settingsWindow(t, { name: "phone-tabs", width: 390, height: 844 });
+  await page.locator('[data-act="side"]').click();
+  await page.locator('[aria-label="Settings"][data-act="view"]').click();
+  await page.locator(".settings .set-nav").waitFor();
+  await page.waitForFunction(() => !document.getElementById("app").classList.contains("side-open"), undefined, { timeout: 5000 });
+  await page.locator('[data-act="setpage"][data-v="gateway"]').click({ timeout: 5000 });
+  await page.locator('[data-act="setpage"][data-v="gateway"][aria-current="true"]').waitFor();
+  assert.deepEqual(errors, []);
+});
 
 async function settings(t, width) {
   const root = await mkdtemp(join(tmpdir(), "branch-phone-tabs-"));
@@ -63,7 +131,9 @@ const inSight = (page, name) => page.evaluate((one) => {
 }, name);
 
 for (const width of [390, 700]) {
-  test(`DG-013 at ${width} px the pages are the sample's strip of tabs, not a dropdown`, async (t) => {
+  // Redesign: replaced by the new window (the prototype's .set-nav strip, re-pointed above; its spacing and radii are the
+  // prototype's own).
+  test.skip(`DG-013 at ${width} px the pages are the sample's strip of tabs, not a dropdown`, async (t) => {
     const { page, errors } = await settings(t, width);
     await page.locator('.lx-settings-link[data-page="general"]').click();
     assert.deepEqual(await strip(page), {
@@ -75,7 +145,9 @@ for (const width of [390, 700]) {
   });
 }
 
-test("DG-013 the page on show stays in sight in the strip, however it was reached, and a tab opens from the keyboard", async (t) => {
+// Redesign: replaced by the new window (the prototype does not scroll the strip to the page on show; a tab opening from the
+// keyboard is re-pointed above).
+test.skip("DG-013 the page on show stays in sight in the strip, however it was reached, and a tab opens from the keyboard", async (t) => {
   const { page, errors } = await settings(t, 390);
   /* Reached without touching the strip, the way a link to a setting reaches it: the last page scrolls into sight. */
   await page.evaluate(() => globalThis.branchLayout.go("settings:automations"));
@@ -94,7 +166,8 @@ test("DG-013 the page on show stays in sight in the strip, however it was reache
   assert.deepEqual(errors, []);
 });
 
-test("DG-013 the tabs speak French, and wide the pages stay the list with their icons and groups", async (t) => {
+// Redesign: Coming soon (sw:lang), checked at fc541c24. The wide half is re-pointed above.
+test.skip("DG-013 the tabs speak French, and wide the pages stay the list with their icons and groups", async (t) => {
   const { page, errors } = await settings(t, 390);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await page.waitForFunction(() => document.querySelector('.lx-settings-link[data-page="general"]')?.textContent.trim() === "Général");
