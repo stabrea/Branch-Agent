@@ -34,6 +34,9 @@ export const codingKey = (part: CodingPart): string => `coding-${part}`;
 
 /** What each part is while nothing has been saved for it. A saved record that is damaged still reads as off. */
 const codingShipsOn: Partial<Record<CodingPart, CodingMode>> = {
+  // The owner's rule (Q250, 2026-09-26): reading a file before changing it is a stricter guard, so it is on until the
+  // owner turns it off.
+  "read-first": "on",
   // The owner's rule (ships on, 2026-09-26): runs only the formatter programs the owner names, behind the wall; none of (a)–(f).
   "format-on-edit": "when-needed",
   // The owner's rule (ships on, 2026-09-26): the login shell is read once when the owner takes a snapshot, keys dropped; none of (a)–(f).

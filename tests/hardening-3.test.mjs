@@ -378,6 +378,7 @@ test("Integration: putting back a kept version is judged against the file that v
   let versionId = "";
   const provider = scripted([() => ({ content: "", toolCalls: [{ id: "r1", name: "files.restore", arguments: JSON.stringify({ versionId }) }] }), say("done")]);
   const { app, workspace } = await fixture(t, { provider });
+  app.coding.setMode("read-first", "off"); // read-first ships on (Q250); this test is about the folder rule, not reading first
   await mkdir(join(workspace, "finance"), { recursive: true });
   await writeFile(join(workspace, "finance", "q1.txt"), "10\n");
   await app.runtime.executeTool("files.write", { path: "finance/q1.txt", content: "NOW" });
