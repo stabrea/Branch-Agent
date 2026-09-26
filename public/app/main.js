@@ -36,7 +36,12 @@ function drawMain() {
   const main = $("#main");
   const draw = VIEWS[S.view] ?? VIEWS.chat;
   const html = draw(), key = `${S.view}\n${wide()}\n${html}`;
-  if (key === drawn.key && main.firstElementChild && main.firstElementChild === drawn.first) return;
+  if (key === drawn.key && main.firstElementChild && main.firstElementChild === drawn.first) {
+    /* A place's after() is how it reads its own data again (the Inbox's questions, a library tab, Overview's health);
+       it touches no markup and draws only when something came back different, so it still runs on an unchanged view. */
+    if (PLACE_VIEWS.includes(S.view)) VIEWS.after?.[S.view]?.(main);
+    return;
+  }
   paint(main, html);
   unnest(main);
   /* A place's header on a narrow window, after any Lockdown banner and above the place (the prototype's placeHead). */
