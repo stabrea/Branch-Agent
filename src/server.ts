@@ -1777,6 +1777,8 @@ async function api(
   const stepsMatch = /^\/api\/runs\/([a-f0-9-]{36})\/steps$/.exec(path);
   if (request.method === "GET" && stepsMatch) {
     const run = app.store.run(stepsMatch[1]!);
+    // Household profiles are refused this route (src/household-routes.ts). If one is ever let in, this check must
+    // follow who is at the window (profiles.scope(), as the activity list does since #324), not runtime.owner.
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
     // Tool inputs are read back off the conversation, and helpers' words and questions too: nothing leaves with a secret.
     return app.runtime.hideSecrets(await stepsOf(app, run.id));
