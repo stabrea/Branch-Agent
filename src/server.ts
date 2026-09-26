@@ -155,7 +155,7 @@ import { handlesWikiPath, wikiApi } from "./wiki.js";
 import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
 import { PolicyRememberSchema, nextPolicy, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { policyChangeRefusal, withoutConfirm } from "./policy-change-guard.js"; // Q257
-import { mayAnswerHere, nothingWaitingRefusal, unnamedAnswerRefusal } from "./household-approvals.js"; // Q257
+import { mayAnswerHere, nothingWaitingRefusal, personConversation, unnamedAnswerRefusal } from "./household-approvals.js"; // Q257, Q259
 import { householdStateParts, ownerStateParts } from "./household-state.js"; // Q258
 import { archiveBodyLimit } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
@@ -267,7 +267,7 @@ import { readOnlyTerminalCommands, runTerminalCommand } from "./terminal-cli.js"
 import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { DelightError, delightRoute, handlesDelightPath } from "./delight.js"; // phase2/delight
 import { savingsRefusal } from "./short-lived-keys.js";
-import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
+import { householdMaySend, householdRefusalFor, householdRefusedRead } from "./household-routes.js"; // profile-audit, Q259
 import { appAskSettings, saveAppAskSettings } from "./desktop-app-ask.js"; // unhold-control
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
 import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
@@ -700,6 +700,9 @@ async function localProviders(): Promise<unknown> {
 
   return { local: found };
 }
+
+/** Q259: which conversations are the household person's at the window own, for narrowing the owner's usage to them. */
+const ownConversationOf = (app: Branch) => (sessionId: string): boolean => personConversation(app.store, app.runtime.owner, sessionId);
 
 /** The preset that actually served a run: the last recorded selection or fallback, if any. */
 function modelUsed(app: Branch, runId: string) {
@@ -1818,6 +1821,9 @@ async function api(
     const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
     const by = (url.searchParams.get("by") ?? "day") as "day" | "model" | "conversation" | "source";
     const { overrides } = pricingSettings(app.store, app.runtime.owner);
+    // Q259: the owner's spending is theirs; a household person is sent their own conversations' usage and nothing else.
+    if (!app.store.profiles.isOwner())
+      return { data: app.store.usageStore().aggregateUsage(range, by, overrides, ownConversationOf(app)), stats: null, statistics: null, pricing: null };
     const data = app.store.usageStore().aggregateUsage(range, by, overrides);
     const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data as { maxMonthlyTokens?: number } | undefined;
     const stats = app.store.usageStore().getMonthlyStats(budget?.maxMonthlyTokens, overrides);
@@ -4286,7 +4292,8 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     const url = new URL(request.url ?? "/", "http://local");
     const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
     const { overrides } = pricingSettings(app.store, app.runtime.owner);
-    const data = app.store.usageStore().aggregateUsage(range, "day", overrides);
+    // Q259: as GET /api/usage: a household person's file holds their own conversations' days only.
+    const data = app.store.usageStore().aggregateUsage(range, "day", overrides, app.store.profiles.isOwner() ? undefined : ownConversationOf(app));
     // estimatedCostUsd covers only the tasks with a price; runsWithoutPrice says how many had none.
     // Wave 7: the money columns a spreadsheet needs — what the day cost, what one task cost on
     // average, and the model that cost the most — with an empty cell wherever nobody knows.
@@ -4639,6 +4646,7 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
  * zone — except their own things and the ways out listed in src/household-routes.ts.
  */
 export function offLimitsToHousehold(method: string | undefined, path: string): string | null {
+  if (householdRefusedRead(method, path)) return householdRefusalFor(path); // Q259
   if (householdMaySend(method, path)) return null;
   return offLimitsToShortLivedKeys(method, path) === null ? null : householdRefusalFor(path);
 }

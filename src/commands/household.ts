@@ -1,8 +1,7 @@
 import type { Run } from "../contracts.js";
 import type { Store } from "../store.js";
-import { startedForHere } from "../household-approvals.js";
+import { personConversation, startedForHere } from "../household-approvals.js";
 import { householdRefusal } from "../household-routes.js";
-import { lentOwner } from "../people/lending.js";
 import type { Surface } from "./catalog.js";
 
 /**
@@ -52,15 +51,6 @@ export function householdCommandRefusal(store: Store, surface: Surface, name: st
   const given = argument.trim();
   if (allowed === "any" || (allowed === "bare" && (!given || (name === "help" && given === "all")))) return null;
   return householdRefusal;
-}
-
-/**
- * A household person's own conversation: filed under their profile, or lent to the owner for as long as one of
- * their tasks works in it (src/collab-server.ts runForCurrentPerson writes `lentTo` on that task).
- */
-export function personConversation(store: Store, owner: string, sessionId: string): boolean {
-  const scope = store.profiles.scope();
-  return store.ownsSession(scope, sessionId) || (store.ownsSession(owner, sessionId) && lentOwner(store, sessionId) === scope);
 }
 
 /** Whether the person typing may use this conversation: the owner their own, a household person theirs. */

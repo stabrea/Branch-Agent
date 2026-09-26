@@ -1,5 +1,5 @@
 import type { createBranch } from "./index.js";
-import { auditActions, auditLabel } from "./audit.js";
+import { auditActions, auditLabel, type AuditEntry, type AuditQuery } from "./audit.js";
 import { assistantIdentity } from "./identity.js";
 import { mayAnswerHere } from "./household-approvals.js";
 import { orchestrationSettings } from "./orchestration.js";
@@ -57,7 +57,7 @@ export function ownerStateParts(app: Branch) {
 export type OwnerStateParts = ReturnType<typeof ownerStateParts>;
 
 /** The ids of the tasks that are the household person's own: in their conversations, and started for them. */
-function ownRunIds(app: Branch): Set<string> {
+export function ownRunIds(app: Branch): Set<string> {
   const store = app.store;
   return new Set(store.runs(store.profiles.scope())
     .filter((run) => mayAnswerHere(store, { runId: run.id, sessionId: run.sessionId })).map((run) => run.id));
@@ -68,6 +68,17 @@ function ownAllowed(app: Branch, own: Set<string>): OwnerStateParts["allowed"] {
   const mine = app.store.audit.list(app.runtime.owner, { limit: 1000 }).filter((entry) => entry.runId !== null && own.has(entry.runId));
   const counts = auditActions.map((action) => ({ action, label: auditLabel(action), count: mine.filter((entry) => entry.action === action).length }));
   return { counts, recent: mine.slice(0, 20) };
+}
+
+/**
+ * Q259: GET /api/audit and its spreadsheet for a household person: the owner's record, filtered as asked, narrowed to
+ * the person's own tasks, then cut to the length asked for; the counts are counted from what they may see.
+ */
+export function ownAudit(app: Branch, query: AuditQuery): { entries: AuditEntry[]; counts: OwnerStateParts["allowed"]["counts"] } {
+  const own = ownRunIds(app);
+  const mine = app.store.audit.list(app.runtime.owner, { ...query, limit: 1000 }).filter((entry) => entry.runId !== null && own.has(entry.runId));
+  const counts = auditActions.map((action) => ({ action, label: auditLabel(action), count: mine.filter((entry) => entry.action === action).length }));
+  return { entries: mine.slice(0, query.limit), counts };
 }
 
 /** The same keys for a household person at the window: their own, or empty. */
