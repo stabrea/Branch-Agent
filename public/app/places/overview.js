@@ -1,7 +1,7 @@
 /* Overview: status dashboard and controls. */
 
 import { esc } from "../core/dom.js";
-import { S, E, activeId } from "../core/state.js";
+import { S, E, activeId, ownerHere } from "../core/state.js";
 import { ic, av } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
@@ -99,7 +99,7 @@ function controlsTile() {
 function usersTile() {
   const everyone = [[null, E.profiles?.roleLabels?.owner?.label || ""], ...(E.profiles?.profiles ?? []).map((p) => [p.id, p.name])];
   const rows = everyone.map(([id, name]) => `<div data-css="display:flex;align-items:center;gap:10px;font-size:13px"><span class="me" data-css="width:26px;height:26px;font-size:11px">${esc(String(name ?? "").charAt(0))}</span><span data-css="flex:1">${esc(name)}</span>${activeId() === id ? `<span data-css="color:var(--ink-3)">${t("window.places.overview.here-now")}</span>` : ""}</div>`).join("");
-  return `<div class="tile"><h2>${t("strip.who")}</h2>${rows}<div class="acts"><button class="btn sm" type="button" data-act="invite">${t("household.invite")}</button></div></div>`;
+  return `<div class="tile"><h2>${t("strip.who")}</h2>${rows}${ownerHere() ? `<div class="acts"><button class="btn sm" type="button" data-act="invite">${t("household.invite")}</button></div>` : ""}</div>`;
 }
 
 function milestonesTile() {
