@@ -63,19 +63,19 @@ async function trunkRow(page, id) {
       await page.evaluate(() => document.querySelector('#side .row[data-id]')?.click());
       await wait(700);
     }
-    // The wordmark's other home, drawn only here for comparison: small and quiet at the list's foot, beside the owner.
+    // The wordmark's other home, drawn only here for comparison (never shipped): small and quiet at the list's foot,
+    // above the owner, in a new conversation as option A's shot is.
     if (PREFIX === "after" && scale === 1 && !mac && width !== 390) {
+      await page.evaluate(() => document.querySelector('#side [data-act="newmenu"]').click());
+      await page.click('.pop [data-act="newconv"]');
+      await wait(600);
       await page.evaluate(() => {
         document.querySelector(".wm17")?.remove();
-        const row = document.querySelector("#side .owner-row");
         const mark = Object.assign(document.createElement("p"), { className: "wm17", innerHTML: "Branch <span>Agent</span>" });
         Object.assign(mark.style, { margin: "0 0 6px 22px", textAlign: "left" });
-        row?.before(mark);
+        document.querySelector("#side .owner-wrap")?.before(mark);
       });
       await page.screenshot({ path: `${OUT}${PREFIX}-option-b-side-${width}-${theme}.png` });
-      await page.reload();
-      await page.waitForSelector("#side .machine");
-      await wait(900);
     }
     if (trunk.chatSessionId && await trunkRow(page, trunk.chatSessionId)) {
       await page.screenshot({ path: `${OUT}${PREFIX}-trunk-${name}.png`, clip });
@@ -92,12 +92,26 @@ async function trunkRow(page, id) {
     const row = page.locator("#app > .pop .row-in").last();
     await row.screenshot({ path: `${OUT}${PREFIX}-lockrow-${scale}x.png` });
     await page.keyboard.press("Escape");
+    await wait(200);
+    // The plus menu's two switch rows: Temporary conversation, Ask me questions first.
+    await page.click('[data-act="plusmenu"]');
+    await wait(500);
+    const rows = page.locator("#app > .pop .row-in");
+    for (let i = 0; i < Math.min(2, await rows.count()); i++) await rows.nth(i).screenshot({ path: `${OUT}${PREFIX}-plusrow${i + 1}-${scale}x.png` });
+    await page.keyboard.press("Escape");
     await api("lockdown", { on: true });
     await page.reload();
     await wait(1500);
     const chip = page.locator('[data-act="modemenu2"]').first();
     await chip.screenshot({ path: `${OUT}${PREFIX}-lockchip-${scale}x.png` });
     await page.locator(".statusbar").screenshot({ path: `${OUT}${PREFIX}-statusbar-${scale}x.png` });
+    if (scale === 1) {
+      // Lockdown's banners with the floating row: a conversation and a place.
+      await page.screenshot({ path: `${OUT}${PREFIX}-locked-chat-1440.png` });
+      await page.click('#side [data-act="view"][data-v="library"]');
+      await wait(700);
+      await page.screenshot({ path: `${OUT}${PREFIX}-locked-place-1440.png` });
+    }
     await api("lockdown", { on: false });
     await ctx.close();
   }

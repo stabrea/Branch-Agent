@@ -105,11 +105,26 @@ async function sidePanel(page, label) {
   await inRow(page, "pane").click();
   await wait(400);
   check(`${label}: side panel opens`, await visible(page, "#pane .ptabs"));
-  const tabs = await page.locator("#pane .ptab").count();
-  if (tabs) {
-    await page.locator('#pane .ptab[data-p="files"]').click();
-    await wait(300);
-    check(`${label}: side panel Files tab draws`, await visible(page, "#pane .pane-b, #pane .empty, #pane .memrow"));
+  // Every tab draws something (its own words when it has nothing yet); Browser opens the full-size browser view.
+  for (const p of await page.$$eval("#pane .ptab", (els) => els.map((e) => e.dataset.p))) {
+    if (p === "browser" && label.endsWith("new")) {
+      // Before the first message there is no conversation whose browser to show: greyed, with the reason as its tip.
+      const tip = await page.getAttribute('#pane .ptab[data-p="browser"]', "data-tip");
+      check(`${label}: side panel Browser greyed with its reason`, tip === "After the first message" && (await page.getAttribute('#pane .ptab[data-p="browser"]', "aria-disabled")) === "true", tip ?? "");
+      continue;
+    }
+    await page.locator(`#pane .ptab[data-p="${p}"]`).click();
+    await wait(350);
+    if (p === "browser") {
+      check(`${label}: side panel Browser opens the browser view`, await visible(page, ".stage7"));
+      await page.locator('[data-act="stage-close"]').first().click();
+      await wait(300);
+      if (!(await visible(page, "#pane .ptabs"))) await inRow(page, "pane").click();
+      await wait(300);
+      continue;
+    }
+    const drawn = await page.evaluate(() => { const b = document.querySelector("#pane .pane-b") ?? document.querySelector("#pane"); return b.innerText.replace(/\s+/g, " ").trim().length; });
+    check(`${label}: side panel ${p} tab draws`, drawn > 0 && await visible(page, `#pane .ptab[data-p="${p}"][aria-selected="true"]`), `${drawn} chars`);
   }
   await page.locator('#pane [data-act="pane"][data-p="close"]').click();
   await wait(300);
