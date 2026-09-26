@@ -37,9 +37,21 @@ export async function settingsWindow(t, { provider, width = 1440, height = 950, 
 export async function openSettingsPage(page, id) {
   if (!(await page.locator(".settings").count())) {
     const gear = page.getByRole("button", { name: "Settings", exact: true }).first();
-    // A narrow window folds the list away; the button that shows the conversations slides it back in first.
-    const inView = await gear.evaluate((node) => { const box = node.getBoundingClientRect(); return box.x >= 0 && box.right <= innerWidth; });
-    if (!inView) await page.locator('[data-act="side"]').click();
+    // A narrow window folds the list away (it slides out after the first draw); the button that shows the
+    // conversations slides it back in first.
+    const fold = page.locator('[data-act="side"]');
+    if (await fold.isVisible()) {
+      const at = () => gear.evaluate((node) => node.getBoundingClientRect().x);
+      for (let last = NaN, now = await at(), tries = 0; now !== last && tries < 40; tries++) {
+        await page.waitForTimeout(100);
+        [last, now] = [now, await at()];
+      }
+      if ((await at()) < 0) await fold.click();
+      await page.waitForFunction(() => {
+        const box = document.querySelector('[aria-label="Settings"][data-act="view"]')?.getBoundingClientRect();
+        return box && box.x >= 0 && box.right <= innerWidth;
+      });
+    }
     await gear.click();
     await page.locator(".settings").waitFor();
   }
