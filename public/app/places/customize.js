@@ -142,7 +142,7 @@ const patSvg = ([, , , d, dots]) => `<svg viewBox="0 0 60 60" aria-hidden="true"
 function fleet(specs) {
   const n = E.trunks.length, working = (E.state.runs ?? []).filter((r) => r.status === "running").length;
   const dots = [...E.trunks.map((t) => av(face(t), 22)), av({ kind: "main" }, 22)].join("");
-  return `<div class="fleet15"><span class="fl-dots15">${dots}</span><span><b>${n} ${n === 1 ? "Trunk" : "Trunks"}</b><small>${working} working now · ${specs.length} specialists on call</small></span></div>`;
+  return `<div class="fleet15"><span class="fl-dots15">${dots}</span><span><b>${n} ${n === 1 ? "Trunk" : "Trunks"}</b><small>${working} working now · ${specs.length} ${specs.length === 1 ? "specialist" : "specialists"} on call</small></span></div>`;
 }
 
 function specialistsTab() {

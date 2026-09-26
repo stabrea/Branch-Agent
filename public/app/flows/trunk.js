@@ -215,7 +215,9 @@ async function fromTemplate(i) {
 async function newTrunk() {
   closePop();
   try {
-    const { trunk } = await api("trunks", { name: `Trunk ${E.trunks.length + 1}` });
+    let n = E.trunks.length + 1;
+    while (E.trunks.some((t) => t.name === `Trunk ${n}`)) n += 1;
+    const { trunk } = await api("trunks", { name: `Trunk ${n}` });
     await refresh();
     openChat(trunk.chatSessionId);
   } catch (error) { toast(error.message); }
