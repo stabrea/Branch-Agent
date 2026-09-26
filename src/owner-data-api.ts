@@ -9,7 +9,10 @@ type Branch = Awaited<ReturnType<typeof createBranch>>;
 export async function projectsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   app.store.profiles.requireOwner("Projects");
   const owner = app.runtime.owner, projects = app.store.projects;
-  if (request.method === "GET" && path === "/api/projects") return { active: projects.active(owner), all: projects.list(owner) };
+  // `conversations`: how many conversations each project has, by id, beside the projects (never inside one: a
+  // project is saved back whole, and its schema takes nothing else).
+  if (request.method === "GET" && path === "/api/projects")
+    return { active: projects.active(owner), all: projects.list(owner), conversations: app.store.projectSessionCounts(owner) };
   if (request.method === "POST" && path === "/api/projects") {
     const body = await readJsonBody(request) as { modelPreset?: unknown };
     if (typeof body?.modelPreset === "string" && !app.runtime.models.presets.has(body.modelPreset))
@@ -17,6 +20,12 @@ export async function projectsApi(app: Branch, request: IncomingMessage, path: s
     return projects.save(owner, body);
   }
   if (request.method === "POST" && path === "/api/projects/active") return projects.setActive(owner, await readJsonBody(request));
+  // A project's conversations, newest first: the ones whose latest task ran under it (src/session-library.ts projectOf).
+  const inside = /^\/api\/projects\/([a-z0-9-]{1,40})\/conversations$/.exec(path);
+  if (inside && request.method === "GET") {
+    knownProject(app, owner, inside[1]!);
+    return { project: inside[1], ...app.store.projectSessions(owner, inside[1]!) };
+  }
   const match = /^\/api\/projects\/([a-z0-9-]{1,40})\/remove$/.exec(path);
   if (match && request.method === "POST") {
     z.object({}).strict().parse(await readJsonBody(request));
