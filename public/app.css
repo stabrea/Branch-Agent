@@ -3268,3 +3268,18 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .res-line-b17 small{font-size:12px;color:var(--ink-3)}
 .fw-b17{margin:0;padding-left:20px;display:grid;gap:8px;font-size:13.5px;line-height:1.5}
 @media (max-width:640px){.s3-b17{grid-template-columns:minmax(0,1fr)}.test-b17{flex-wrap:wrap}.test-b17 .btn{flex:1}}
+
+/* area: p17-art */
+/* the prototype's pass 17e rules (feature pictures, the New mark), and the placeholders the window fills (core/art17.js) */
+.m17{display:contents}
+.petbox .pet17{display:block;cursor:pointer}
+.art17e{display:block;width:100%;height:100%}
+.art17e img,.art17e video{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}
+.slot17e{display:block;width:120px;height:120px;margin:8px auto}
+.arts17e{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px}
+.art-c17e{margin:0;display:grid;justify-items:center;align-content:start;gap:6px;padding:12px 8px 10px;border-radius:14px;border:1px solid var(--line);background:var(--raise)}
+.art-c17e .slot17e{width:88px;height:88px;margin:0}
+.art-c17e figcaption{font-size:12px;color:var(--ink-2);text-align:center;line-height:1.3}
+.new17e{position:relative}
+.new17e::after{content:"New";position:absolute;top:6px;right:6px;font-size:10px;font-weight:600;line-height:1.5;padding:0 6px;border-radius:999px;background:var(--accent-tint);color:var(--accent-ink);pointer-events:none}
+@media (max-width:480px){.slot17e{width:96px;height:96px}}

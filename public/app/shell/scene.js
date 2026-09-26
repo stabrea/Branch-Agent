@@ -11,6 +11,7 @@ import { api } from "../core/api.js";
 import { toast } from "../core/ui.js";
 import { effMode } from "./look.js";
 import { OWN, loadOwn } from "./ownbg.js";
+import { pet17, media17 } from "../core/art17.js";
 
 const KEY = "branch-scene";
 export const W = { bg: "painted", scene: "auto", season: "auto", petWhere: "side" };
@@ -21,7 +22,9 @@ export const SCENES = [["auto", "By the season", ""], ["spring", "Spring grove",
   ["winter", "Winter grove", "/art/grove-winter.webp"], ["night", "Firefly night", "/art/grove-night.webp"], ["summer", "Summer Meadow", "/art/bg/grove-summer.webp"],
   ["rain", "Rainy Forest", "/art/bg/grove-rain.webp"], ["lake", "Mountain Lake", "/art/bg/grove-lake.webp"], ["blossom", "Blossoming Grove", "/art/bg/grove-blossom.webp"],
   ["canyon", "Desert Canyon", "/art/bg/grove-canyon.webp"], ["snownight", "Snowy Night", "/art/bg/grove-snownight.webp"], ["bamboo", "Bamboo Grove", "/art/bg/grove-bamboo.webp"],
-  ["hills", "Sunflower Hills", "/art/bg/grove-hills.webp"]];
+  ["hills", "Sunflower Hills", "/art/bg/grove-hills.webp"], ["night17-lake", "Still lake at night", "/art/bg/lake-night.webp"], ["night17-highland", "Moonlit highland", "/art/bg/highland-moon.webp"],
+  ["day17-sea", "Morning sea", "/art/bg/sea-morning.webp"], ["day17-meadow", "Meadow afternoon", "/art/bg/meadow-afternoon.webp"],
+  ["glow17-amber", "Amber glass", "/art/bg/glow-amber.webp"], ["season17-snow", "First snow", "/art/bg/first-snow.webp"]];
 const PAINT = { spring: "spring", summer: "spring", autumn: "autumn", winter: "winter" };
 const seasonNow = () => (W.season !== "auto" ? W.season : ["winter", "winter", "spring", "spring", "spring", "summer", "summer", "summer", "autumn", "autumn", "autumn", "winter"][new Date().getMonth()]);
 function paintFile() {
@@ -118,13 +121,18 @@ const PETS = {
 };
 const P = { x: 0, dir: 1, frame: 0, say: "", until: 0, cool: 0 };
 const hidden = (part) => (E.state?.preferences?.hidden ?? []).includes(part);
-export function petShown() { const p = D.settings?.pets; return !!(p?.on && PETS[p.kind] && !hidden("pet")); }
+/* Pass 17: a picture pet (core/art17.js) walks the same way, as its walk loop, or its still when motion is reduced. */
+const petName = (kind) => (PETS[kind] ?? pet17(kind))?.name ?? "";
+export function petShown() { const p = D.settings?.pets; return !!(p?.on && (PETS[p.kind] || pet17(p.kind)) && !hidden("pet")); }
 
 /* The pet's markup, drawn inside the list's foot or the status bar by whichever region W.petWhere names. */
 export function petHTML(where) {
   if (!petShown() || W.petWhere !== where) return "";
-  const p = D.settings.pets, speaking = P.say && Date.now() < P.until;
-  const box = `<div class="petbox ${P.dir < 0 ? "flip" : ""}" data-hide="pet" ${where === "side" ? `data-css="left:${8 + P.x}px"` : ""}><span class="pet-say" id="pet-say" ${speaking ? "" : "hidden"}>${esc(P.say)}</span><canvas id="pet-cv" width="24" height="20" role="button" tabindex="0" aria-label="${esc(p.name)} the ${esc(PETS[p.kind].name.toLowerCase())}. Click for a tip." data-act="pat"></canvas></div>`;
+  const p = D.settings.pets, speaking = P.say && Date.now() < P.until, pic = pet17(p.kind);
+  const label = `${esc(p.name)} the ${esc(petName(p.kind).toLowerCase())}. Click for a tip.`;
+  const body = pic ? `<span class="pet17" role="button" tabindex="0" aria-label="${label}" data-act="pat">${media17(pic.still, pic.walk, "pet-vid11 pet12")}</span>`
+    : `<canvas id="pet-cv" width="24" height="20" role="button" tabindex="0" aria-label="${label}" data-act="pat"></canvas>`;
+  const box = `<div class="petbox ${P.dir < 0 ? "flip" : ""}" data-hide="pet" ${where === "side" ? `data-css="left:${8 + P.x}px"` : ""}><span class="pet-say" id="pet-say" ${speaking ? "" : "hidden"}>${esc(P.say)}</span>${body}</div>`;
   return where === "side" ? `<div class="keeper">${box}</div>` : box;
 }
 export function drawPet() {

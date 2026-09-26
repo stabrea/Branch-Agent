@@ -8,6 +8,8 @@ import { api } from "../core/api.js";
 import { renderNow } from "../core/dom.js";
 import { recBar } from "../chat/rec.js";
 import { allPaused } from "../flows/pause.js";
+import { look17, figure17 } from "../core/art17.js";
+import { agentState } from "../chat/agent17.js";
 
 let lastHealthCheck = 0;
 let cachedHealth = null;
@@ -19,12 +21,20 @@ function formatSpend(amount) {
   return "$" + (amount ?? 0).toFixed(2);
 }
 
+/* Pass 17: a running task in a Trunk's own conversation shows the character it wears, at work (chat/agent17.js). */
+function liveFace(run) {
+  const trunk = E.trunks.find((t) => t.chatSessionId === run.sessionId), look = look17(trunk?.character);
+  if (!look) return av({}, 34);
+  const st = agentState(trunk) === "idle" ? "work" : agentState(trunk);
+  return `<span class="live-fig12">${figure17(look, st)}</span>`;
+}
+
 function nowTile() {
   const running = E.state.runs?.filter(r => r.status === "running" || r.status === "needs_input") || [];
   const waiting = (E.state.trunkWaiting?.length || 0) + (E.state.attention ?? []).filter((w) => !w.parentRunId).length + approvals;
   let html = `<div class="tile"><h2>Now</h2>`;
   if (!running.length) html += `<p>Nothing is running right now.</p>`;
-  else running.slice(0, 3).forEach(r => html += `<div class="row" data-act="chat" data-id="${esc(r.sessionId || "")}"><span class="avw">${av({}, 34)}</span><div class="inf"><b>${esc(r.prompt?.split("\n")[0]?.slice(0, 40) ?? "")}</b></div></div>`);
+  else running.slice(0, 3).forEach(r => html += `<div class="row" data-act="chat" data-id="${esc(r.sessionId || "")}"><span class="avw">${liveFace(r)}</span><div class="inf"><b>${esc(r.prompt?.split("\n")[0]?.slice(0, 40) ?? "")}</b></div></div>`);
   html += `<div class="acts">${waiting ? `<button class="btn pri sm" type="button" data-act="view" data-v="inbox">Answer ${waiting} waiting</button>` : `<span class="pill done"><i></i>Nothing waiting</span>`}</div></div>`;
   return html;
 }
