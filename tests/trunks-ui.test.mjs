@@ -210,14 +210,16 @@ test("the card, the three-field create, Edit Trunk, a room, the roster and @ in 
   await group.locator('[data-act="grp-pick"]').filter({ hasText: "Ada" }).click();
   await group.locator('[data-act="grp-pick"]').filter({ hasText: "Bo" }).click();
   assert.equal(await group.locator("#grp-name").inputValue(), "Trip", "the name is kept while picking");
-  const who = page.waitForResponse((response) => /\/api\/trunks\/conversations\/[^/?]+$/.test(new URL(response.url()).pathname));
   await group.getByRole("button", { name: "Start the group chat" }).click();
   await group.waitFor({ state: "detached" });
   await until(async () => app.trunks.rooms.list().length === 1);
   const room = app.trunks.rooms.list()[0];
   assert.deepEqual([...room.members].sort(), [ada.id, bo.id].sort());
   await page.waitForFunction((id) => document.querySelector(`#side .row[data-id="${id}"]`)?.getAttribute("aria-current") === "true", room.sessionId);
-  await who;
+  // A message goes to the room once the window knows this conversation is one (GET /api/trunks/conversations/<id>).
+  const roomKnown = () => page.evaluate(async () => (await import("/app/chat/plus.js")).whoHere()?.kind === "room");
+  await until(roomKnown);
+  assert.equal(await roomKnown(), true, "the window knows it is a room");
   await page.locator("#prompt").fill("Where shall we go?");
   await page.locator("#prompt").press("Enter");
   await until(async () => app.store.messages(room.sessionId).some((m) => m.content === "Where shall we go?"));
