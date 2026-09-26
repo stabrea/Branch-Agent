@@ -55,9 +55,8 @@ test("DG-041 at 400 px the Models tabs stay one row that scrolls sideways, and t
   assert.equal(await page.locator('.set-col [role="tablist"]').evaluate((row) => getComputedStyle(row).overflowX), "auto", "the row scrolls to its last tab");
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   assert.ok(wide <= 1, `the page is no wider than the window (${wide}px over)`);
-  const last = page.locator('.set-col [role="tab"]').last();
-  await last.scrollIntoViewIfNeeded();
-  await last.click();
+  // The click scrolls the row to the tab itself, and finds the tab again if the page has just been drawn afresh.
+  await page.locator('.set-col [role="tab"]').last().click();
   await page.locator('.set-col [role="tab"][aria-selected="true"]', { hasText: "Media" }).waitFor();
   assert.deepEqual(errors, []);
 });
