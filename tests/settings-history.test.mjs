@@ -251,7 +251,7 @@ test("an assistant file and --save-preset are recorded; a --preset for one task 
   const once = usePreset(app.store, owner, "off", false);
   once.restore();
   assert.equal((await why("policy.preset")).record.id, imported.record.id, "a preset for one task was recorded as a change");
-  usePreset(app.store, owner, "ask-before-changes", true);
+  usePreset(app.store, owner, "ask-before-changes", true, { confirm: true, tools: app.registry }); // Q259: from read-only this loosens, so --confirm
   const kept = await why("policy.preset");
   assert.equal(kept.kind, "recorded", kept.words);
   assert.deepEqual([kept.record.writer, kept.record.source, kept.record.detail], ["owner-by-command", "command", "--save-preset ask-before-changes"]);

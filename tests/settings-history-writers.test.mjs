@@ -243,7 +243,7 @@ test("every writer of a Settings setting leaves a change record for each value i
   const file = openAgent(exportAgent(app.store, owner, "test").bytes);
   await check("/preset workspace again", "policy.preset", () => choosePreset(app.runtime, "workspace confirm")); // Q258: workspace loosens, so the typed yes
   await check("an assistant file's approval rules", "policy.preset", () => importAgent(app.store, owner, file, ["permissions"]));
-  await check("--save-preset", "policy.preset", () => usePreset(app.store, owner, "read-only", true));
+  await check("--save-preset", "policy.preset", () => usePreset(app.store, owner, "read-only", true, { tools: app.registry })); // Q259: weighed on the tools, as branch run does
   await check("--preset for one task, put back after", null, () => usePreset(app.store, owner, "off", false).restore());
   await check("a remembered answer", null, () => addPolicyRule(app.store, owner, { tool: "file.read", match: "*", decision: "allow" }));
   await check("/switch vim", "comfort-keys.vim", () => switchComfort(app.store, owner, "vim", "", { t: (_key, english) => english }));
