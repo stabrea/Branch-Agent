@@ -313,8 +313,8 @@ export class Store {
   }
   /** phase2/delight: counts of the owner's own finished work, for achievements (src/achievement-tallies.ts).
    *  `scan` carries the events already counted and is moved on by at most one batch. */
-  achievementTallies(owner: string, scan: EventScan): { tallies: AchievementTallies; caughtUp: boolean } {
-    return achievementTallies(this.db, owner, scan);
+  achievementTallies(owner: string, scan: EventScan, aside: readonly string[] = []): { tallies: AchievementTallies; caughtUp: boolean } {
+    return achievementTallies(this.db, owner, scan, aside);
   }
   /** Workspace file history and snapshots for the given workspace. */
   openWorkspaceHistory(files: WorkspaceFiles, owner: string): WorkspaceHistory {
