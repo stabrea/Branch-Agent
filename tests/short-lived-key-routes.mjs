@@ -68,6 +68,16 @@ export const ROUTES = {
   // P17-D §4: decision models. Reading names the connections (as /api/models does); changing them and deciding,
   // which asks a model, are the owner's.
   "/api/decisions": "look",
+  // P17-D §3: behaviour workbooks. Reading them is looking; starting a learning task, running it again, making a
+  // skill and the switch are the owner's.
+  "/api/workbooks": "look",
+  "/api/workbooks/": "prefix",
+  "/api/workbooks/settings": "owner POST",
+  "/api/workbooks/learn": "owner POST",
+  "/api/workbooks/:id": "look",
+  "/api/workbooks/:id/rerun": "owner POST",
+  "/api/workbooks/:id/skill": "owner POST",
+  "/api/workbooks/:id/markdown": "look",
   "/api/decisions/settings": "owner POST",
   "/api/decisions/decide": "owner POST",
   "/api/approvals/categories": "owner POST",

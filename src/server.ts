@@ -290,6 +290,7 @@ import { audit, csvCell } from "./audit.js";
 import { AppLockRefusal } from "./session-lock.js";
 import { unifiedSearch } from "./unified-search.js";
 import { proposeSchedule } from "./schedule-words.js";
+import { workbooksRoute } from "./workbooks.js"; // P17-D §3
 import type { AnswerShape, ShapedAnswer } from "./answer-shape.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -1074,6 +1075,14 @@ async function api(
     if (request.method !== "POST") throw new HttpError(405, "Use POST here.");
     const body = await readBody(request, 256 * 1024);
     return path === "/api/decisions/settings" ? { settings: app.decisionModels.configure(body) } : app.decisionModels.decide(body);
+  }
+  // P17-D §3: behaviour workbooks. Starting one, running it again and making a skill are the owner's.
+  if (path === "/api/workbooks" || path.startsWith("/api/workbooks/")) {
+    app.store.profiles.requireOwner("Learn this app or workflow");
+    return workbooksRoute(app.workbooks, request.method ?? "GET", path, () => readBody(request, 16 * 1024)).catch((error: unknown) => {
+      const status = (error as { status?: unknown }).status;
+      throw typeof status === "number" && error instanceof Error ? new HttpError(status, error.message) : error;
+    });
   }
   // Optional JEV decisions are the owner's: even reading this card names a local program and provider.
   if (path === "/api/jev") {

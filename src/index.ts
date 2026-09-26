@@ -96,6 +96,7 @@ import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
 import { JevDecisions, registerJevDecisions, type JevRunner } from "./jev-decisions.js";
 import { DecisionModels } from "./decision-models.js"; // P17-D §4
+import { Workbooks, registerWorkbookTools } from "./workbooks.js"; // P17-D §3
 import type { ShapedAnswer } from "./answer-shape.js"; // P17-D §4
 // Wave mac5 (local models): one-click models on this computer, restored and resumed at start.
 import { localKitFor, startLocalModels } from "./local-kit.js";
@@ -527,6 +528,9 @@ export async function createBranch(options: {
   );
   const decisions = new JevDecisions(store, runtime.owner, options.jev?.runner);
   registerJevDecisions(registry, decisions);
+  // P17-D §3: learn an app or workflow and prove it, as a narrowed task that saves a workbook (src/workbooks.ts).
+  const workbooks = new Workbooks({ store, owner: runtime.owner, registry, run: (options) => runtime.run(options) });
+  registerWorkbookTools(registry, workbooks);
   // P17-D §4: small decisions on the owner's own connections, asked with no tools (src/decision-models.ts).
   const decisionModels = new DecisionModels(store, runtime.owner, runtime.models, async (text, shape, preset) => {
     const run = store.createRun(runtime.owner, "Making a small decision", undefined, false, "owner");
@@ -1392,6 +1396,8 @@ export async function createBranch(options: {
     decisions,
     /** P17-D §4: small decisions on the owner's own connections (src/decision-models.ts). */
     decisionModels,
+    /** P17-D §3: behaviour workbooks, "Learn this app or workflow" (src/workbooks.ts). */
+    workbooks,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
