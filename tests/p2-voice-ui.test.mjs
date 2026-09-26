@@ -78,6 +78,8 @@ async function signedIn(t, { dictation = null } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-p2-voice-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: model });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  // The first-run card (#323) opens under automation on purpose and would catch the Done click; this is about dictation.
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
   const browser = await chromium.launch({ headless: true });
   let page = null;
   t.after(async () => {
