@@ -2026,7 +2026,14 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return { suggested: staged.length, proposals: staged, review };
   }
   if (request.method === "POST" && path === "/api/memory/hygiene") return app.store.memoryHygiene(owner, await readBody(request));
-  if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner) };
+  if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner), total: app.store.archivedMemoryCount(owner) };
+  // Purge all: every archived fact removed for good, the owner's alone. The confirm step is the word and how
+  // many archived facts the owner was shown; a count that no longer matches removes nothing.
+  if (request.method === "POST" && path === "/api/memory/archive/purge") {
+    app.store.profiles.requireOwner("Purging archived facts");
+    const { count } = z.object({ confirm: z.literal("purge"), count: z.number().int().min(1).max(1_000_000) }).strict().parse(await readBody(request));
+    return app.store.purgeArchivedMemory(owner, count);
+  }
   if (request.method === "POST" && path === "/api/memory/consolidate") return app.store.review.consolidate(app.runtime, owner);
   if (request.method === "GET" && path === "/api/memory/settings") return app.store.review.settings(owner);
   if (request.method === "POST" && path === "/api/memory/settings") return app.store.review.configure(owner, await readBody(request));

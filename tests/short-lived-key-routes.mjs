@@ -678,6 +678,7 @@ export const ROUTES = {
   "/api/memory": "prefix",
   "/api/memory/": "prefix",
   "/api/memory/archive": "look",
+  "/api/memory/archive/purge": "owner POST", // Purge all removes archived facts for good: the owner's alone
   "/api/memory/archive/sample/restore": "other POST",
   "/api/memory/capacity": "owner POST",
   "/api/memory/checkpoints": "other POST",
