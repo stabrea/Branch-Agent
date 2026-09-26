@@ -126,6 +126,10 @@ export const ROUTES = {
   "/api/chatgpt/login": "owner POST",
   "/api/chatgpt/logout": "owner POST",
   "/api/chatgpt/status": "look",
+  // eng-connectors: command-line tools found on this computer are read by anyone; allowing or removing one is the owner's.
+  "/api/clis": "owner POST",
+  "/api/clis/": "prefix",
+  "/api/clis/remove": "owner POST",
   "/api/code-check": "owner POST",
   "/api/code-run": "owner POST",
   "/api/collab": "look",
@@ -673,9 +677,16 @@ export const ROUTES = {
   "/api/mcp/": "prefix",
   "/api/mcp/app": "task POST",
   "/api/mcp/apps": "look",
+  // eng-connectors: the catalogue and the owner's own servers are read by anyone; adding, starting (which asks through
+  // the approval gate for a command), stopping and removing one is the owner's.
+  "/api/mcp/catalogue": "look",
   "/api/mcp/connection": "look",
   "/api/mcp/connections": "owner POST",
   "/api/mcp/preflight": "look",
+  "/api/mcp/servers": "owner POST",
+  "/api/mcp/servers/sample/remove": "owner POST",
+  "/api/mcp/servers/sample/start": "owner POST",
+  "/api/mcp/servers/sample/stop": "owner POST",
   "/api/mcp/settings": "owner POST",
   "/api/mcp/signin": "owner POST",
   "/api/mcp/snapshots": "look",
@@ -885,6 +896,13 @@ export const ROUTES = {
   "/api/registry/rollback": "owner POST",
   "/api/registry/update": "owner POST",
   "/api/registry/updates": "look",
+  // eng-connectors: What's new for the installed version.
+  "/api/release-notes": "look",
+  // eng-connectors: flagged replies; keeping, removing and exporting (a POST, so a key never reads it out) are the owner's.
+  "/api/reply-flags": "owner POST",
+  "/api/reply-flags/": "prefix",
+  "/api/reply-flags/:id/remove": "owner POST",
+  "/api/reply-flags/export": "owner POST",
   "/api/remotes": "owner POST",
   "/api/remotes/remove": "owner POST",
   // FQ-execution.host-bridge: the owner's own button for running a program on another computer.
