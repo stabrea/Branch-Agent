@@ -206,7 +206,8 @@ async function proposals(browser) {
     if (last?.role === "user" && /^Make me a Trunk: /.test(last.content) && !offered) return { content: "I cannot propose a Trunk here.", toolCalls: [] };
     if (last?.role === "user" && /^Make me a Trunk: /.test(last.content)) {
       const which = /another/.test(last.content) ? PROPOSE.wren : /garden/.test(last.content) ? PROPOSE.moss : PROPOSE.quill;
-      return { content: "", toolCalls: [{ id: `p-${which.name}`, name: "trunk.propose", arguments: JSON.stringify(which) }] };
+      // The same call id every turn, as a connection that numbers calls afresh each turn (Ollama) gives.
+      return { content: "", toolCalls: [{ id: "c1", name: "trunk.propose", arguments: JSON.stringify(which) }] };
     }
     if (last?.role === "tool") return { content: "Here is the Trunk I would make.", toolCalls: [] };
     return { content: "Hello.", toolCalls: [] };

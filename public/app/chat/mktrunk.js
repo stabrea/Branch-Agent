@@ -19,13 +19,14 @@ import { t } from "../../i18n.js";
 /* Proposals drawn so far by their call id, the calls being made now, and the ones put away. */
 const MK = { seen: new Map(), busy: new Set(), no: new Set() };
 
-/* The trunk.propose calls in one reply, each with its arguments; a call whose arguments are not JSON proposed nothing. */
+/* The trunk.propose calls in one reply, each with its arguments; a call whose arguments are not JSON proposed nothing.
+   A proposal is known by its reply and its call id together: some connections number calls afresh each turn (Ollama). */
 function proposals(m) {
   return (m.toolCalls ?? []).filter((call) => call.name === "trunk.propose").map((call) => {
     let args;
     try { args = JSON.parse(call.arguments || "{}"); } catch { return null; } // not JSON: nothing was proposed
     const name = typeof args?.name === "string" ? args.name.trim() : "";
-    return name ? { id: call.id, name, title: String(args.title ?? ""), description: String(args.description ?? "") } : null;
+    return name ? { id: `${m.messageId ?? ""}:${call.id}`, name, title: String(args.title ?? ""), description: String(args.description ?? "") } : null;
   }).filter(Boolean);
 }
 
