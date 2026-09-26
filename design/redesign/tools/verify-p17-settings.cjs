@@ -210,14 +210,15 @@ async function auditRecord(page) {
   await closeDlg(page);
 }
 
-/* Held back for review: the app lock, the password manager and the emergency stop, pressed and let go. The stop's row
+/* Held back for review: the password manager and the emergency stop, pressed and let go. The app lock is live now
+   (design/redesign/tools/verify-app-lock.cjs presses it); here it is only no longer greyed. The stop's row
    still follows the engine: pressed through the API, it offers "Let them resume", which stays greyed too. */
 async function heldBack(page) {
   await openPage(page, "secrets");
   check("password manager stays greyed", await greyed(page.locator('[data-act="vaultb17"]')));
   check("a row with no readout yet stays greyed", await greyed(page.locator('[data-act="demob17-soon"][data-k="keys"]')));
   await openPage(page, "permissions");
-  check("app lock stays greyed", await greyed(page.locator('[data-act="applockb17"]')));
+  check("app lock is live, not greyed", !(await greyed(page.locator('[data-act="applockb17"]'))));
   check("emergency stop: pressing it stays greyed", await greyed(page.locator('[data-act="estopb17"]')));
   await api("safety-extras/stop", { everything: true });
   await openPage(page, "general");
