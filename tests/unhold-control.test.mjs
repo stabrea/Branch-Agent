@@ -160,7 +160,7 @@ test("a key bound to conversation A cannot run a command into conversation B thr
   const { app } = f;
   const owner = app.runtime.owner;
   // The owner allows commands outright, so the key's command is not stopped by "a key cannot confirm a question" first.
-  assert.equal((await f.call("POST", "/api/policy", undefined, { rules: [{ tool: "shell.execute", decision: "allow" }] })).status, 200);
+  assert.equal((await f.call("POST", "/api/policy", undefined, { rules: [{ tool: "shell.execute", decision: "allow" }], confirmLoosening: true })).status, 200); // Q257: loosens
   const a = app.store.createSession(owner), b = app.store.createSession(owner);
   const bound = app.sessionTokens.create(owner, { name: "bound", scope: "run", minutes: 5, sessionId: a }).token;
   const runsIn = (sessionId) => byHandRuns(app).filter((r) => r.sessionId === sessionId);

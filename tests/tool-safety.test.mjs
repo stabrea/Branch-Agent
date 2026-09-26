@@ -15,6 +15,8 @@ import {
   readPolicy, savePolicy, resourceOf, PolicyRuleSchema,
 } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+/** Q257: the fingerprint of the question the window shows for a conversation; a bare answer is refused. */
+const shownFingerprint = (app, sessionId) => app.runtime.approvals.questionFor(sessionId)?.fingerprint;
 
 const say = (content) => () => ({ content, toolCalls: [] });
 const calls = (...toolCalls) => () => ({ content: "", toolCalls });
@@ -132,7 +134,7 @@ test("'Yes, always' to git status allows git status --short and still asks about
   const ran = fakeShell(app);
   const paused = (await api("POST", "/api/run", { prompt: "check the repo" })).body;
   assert.equal(paused.status, "needs_input", "a command nobody ruled on is asked about");
-  const answered = await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "always" });
+  const answered = await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, fingerprint: shownFingerprint(app, paused.sessionId), decision: "allow", remember: "always" });
   assert.equal(answered.status, 200, JSON.stringify(answered.body));
   const policy = readPolicy(app.store, app.runtime.owner);
   assert.deepEqual(policy.rules[0].resource, { kind: "command", pattern: "git status" });
@@ -234,7 +236,7 @@ test("when needed: a tool that only reads goes past a rule for changes, never pa
   assert.equal(reviewer.calls, 1, "a refusal is not looked at again");
 
   // A rule the owner wrote for everything still stands.
-  await api("POST", "/api/policy", { rules: [{ tool: "notes.*", applies: "any", decision: "ask" }] });
+  await api("POST", "/api/policy", { rules: [{ tool: "notes.*", applies: "any", decision: "ask" }], confirmLoosening: true }); // Q257: from read-only this loosens
   worker.reset();
   assert.equal((await api("POST", "/api/run", { prompt: "and again" })).body.status, "needs_input");
   await api("POST", "/api/policy", { rules: [{ tool: "notes.*", applies: "any", decision: "deny" }] });

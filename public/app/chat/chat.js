@@ -44,6 +44,8 @@ import { t } from "../../i18n.js";
 import { media17 } from "../core/art17.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
+/* Q257: a question the engine bound to the exact request shown (its fingerprint); only such a question is answered here. */
+const exactAsk = (q) => /^[a-f0-9]{32}$/.test(String(q.fingerprint ?? ""));
 const WIDE = matchMedia("(min-width: 761px)");
 
 const current = () => E.sessions.find((s) => (s.sessionId ?? s.id) === C.sessionId);
@@ -391,8 +393,9 @@ async function answer(el, decision, extra = {}) {
   try {
     await loadWaiting();
     q = C.waiting.find((w) => w.sessionId === el.dataset.sid && (w.fingerprint || "") === el.dataset.fp);
-    if (!q) { holdButtons(el, key, false); renderNow(); return; }
-    said = await api("policy/approve", { sessionId: q.sessionId, decision, remember: "never", ...extra, ...(q.fingerprint ? { fingerprint: q.fingerprint } : {}), carryOn: true });
+    // Q257: a question with no fingerprint is not answered from here: a yes without one is not bound to what was shown.
+    if (!q || !exactAsk(q)) { holdButtons(el, key, false); renderNow(); return; }
+    said = await api("policy/approve", { sessionId: q.sessionId, decision, remember: "never", ...extra, fingerprint: q.fingerprint, carryOn: true });
   } catch (error) {
     toast(error.message);
     holdButtons(el, key, false);

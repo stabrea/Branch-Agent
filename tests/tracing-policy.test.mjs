@@ -36,6 +36,8 @@ import {
   TraceExporter,
 } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+/** Q257: the fingerprint of the question the window shows for a conversation; a bare answer is refused. */
+const shownFingerprint = (app, sessionId) => app.runtime.approvals.questionFor(sessionId)?.fingerprint;
 
 const say = (content) => () => ({ content, toolCalls: [] });
 const calls = (...toolCalls) => () => ({ content: "", toolCalls });
@@ -620,7 +622,7 @@ test("P2: a yes for this conversation has an end, is listed, and goes when Branc
   await api("POST", "/api/policy", { preset: "ask-before-changes" });
   const paused = (await api("POST", "/api/run", { prompt: "write notes" })).body;
   assert.equal(paused.status, "needs_input");
-  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "session" });
+  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, fingerprint: shownFingerprint(app, paused.sessionId), decision: "allow", remember: "session" });
   const allowed = (await api("GET", `/api/rules/allowed?session=${paused.sessionId}`)).body;
   assert.equal(allowed.grants.length, 1, "the conversation can say what it is allowed to do right now");
   assert.equal(allowed.grants[0].tool, "files.write");
@@ -695,7 +697,7 @@ test("P3: same tool, same target, different bytes — the old yes does not cover
   assert.equal(paused.status, "needs_input");
   const asked = (await api("GET", "/api/policy")).body.waiting[0];
   assert.equal(asked.target, "notes.txt");
-  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "session" });
+  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, fingerprint: shownFingerprint(app, paused.sessionId), decision: "allow", remember: "session" });
   at = 0;
   const repeat = (await api("POST", "/api/run", { prompt: "write notes", sessionId: paused.sessionId })).body;
   assert.equal(repeat.status, "completed", "the identical write is not asked about again");

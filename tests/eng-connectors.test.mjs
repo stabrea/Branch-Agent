@@ -109,11 +109,13 @@ test("a yes from a household profile does not start it, and Lockdown refuses the
   await api(url, token, `/api/mcp/servers/${id}/start`, {});
   const question = (await api(url, token, "/api/policy")).waiting.find((q) => q.tool === "mcp.start");
   app.store.profiles.isOwner = () => false; // the window switched to a household person's profile
-  await api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint });
-  await until(async () => (await api(url, token, "/api/mcp/servers")).servers[0].waiting === null);
+  // Q257: the owner's question is not a household person's to answer; the answer is refused before it lands.
+  await assert.rejects(api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint }),
+    /Nothing in this conversation is waiting for your answer/);
   await new Promise((r) => setTimeout(r, 3000));
   assert.equal(toolsOf(app, id).length, 0, "only the owner's yes starts a program");
   delete app.store.profiles.isOwner;
+  assert.ok((await api(url, token, "/api/policy")).waiting.some((q) => q.fingerprint === question.fingerprint), "the owner's question still waits");
   app.store.save("settings", app.runtime.owner, "lockdown", { on: true, since: new Date().toISOString(), before: {} });
   await assert.rejects(api(url, token, `/api/mcp/servers/${id}/start`, {}), /Lockdown is on/);
 });
@@ -230,9 +232,10 @@ test("a household yes followed by a switch back to the owner before the answer i
   await api(url, token, `/api/mcp/servers/${id}/start`, {});
   const question = (await api(url, token, "/api/policy")).waiting.find((q) => q.tool === "mcp.start");
   app.store.profiles.isOwner = () => false;
-  await api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint });
+  // Q257: refused at the route now, before it can land; the check below still shows nothing started after the switch back.
+  await assert.rejects(api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint }),
+    /Nothing in this conversation is waiting for your answer/);
   delete app.store.profiles.isOwner; // back to the owner before the look
-  await until(async () => (await api(url, token, "/api/mcp/servers")).servers[0].waiting === null);
   await new Promise((r) => setTimeout(r, 3000));
   assert.equal(toolsOf(app, id).length, 0, "the household person's yes stays a no");
 });

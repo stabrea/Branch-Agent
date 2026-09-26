@@ -67,7 +67,8 @@ export const apiRoutes: readonly ApiRoute[] = [
   { method: "get", path: "/api/sdk-kit", summary: "The switch for building on Branch, the clients for each language, and the tools to share.", tag: "developer" },
   { method: "post", path: "/api/sdk-kit", summary: "Change that switch (the owner only).", tag: "developer", bodyNote: "{ mode: \"off\" | \"on\" | \"when-needed\" }" },
   { method: "get", path: "/api/policy", summary: "The approval settings.", tag: "settings" },
-  { method: "post", path: "/api/policy", summary: "Change the approval settings.", tag: "settings", body: PolicyInputSchema },
+  { method: "post", path: "/api/policy", summary: "Change the approval settings.", tag: "settings",
+    body: PolicyInputSchema.extend({ confirmLoosening: z.boolean().optional() }) },
   { method: "get", path: "/api/lockdown", summary: "Whether Lockdown is on.", tag: "settings" },
   { method: "post", path: "/api/lockdown", summary: "Turn Lockdown on or off.", tag: "settings", bodyNote: "{ on: true } or { on: false }." },
   // Wave mac3 (commands, integration review): the one table of typed commands, and the dashboard.

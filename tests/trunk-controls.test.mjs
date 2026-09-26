@@ -17,6 +17,8 @@ import { startServer } from "../dist/server.js";
 import { nextRoomTurn } from "../dist/trunks/room-plan.js";
 import { patternQuestion, patternNote } from "../dist/team-pattern.js";
 import { fixture, on, call } from "./trunks-helpers.mjs";
+/** Q257: the fingerprint of the question the window shows for a conversation; a bare answer is refused. */
+const shownFingerprint = (app, sessionId) => app.runtime.approvals.questionFor(sessionId)?.fingerprint;
 
 const hour = 3600000;
 const inMinutes = (minutes) => new Date(Date.now() + minutes * 60000);
@@ -219,7 +221,7 @@ test("how Trunks work together: Branch picks until the owner chooses, a room may
   // Only the owner's answer counts. A no, even "just this once", keeps the tool refused in this conversation.
   const eventsIn = (sessionId) => app.store.runs(app.runtime.owner).filter((one) => one.sessionId === sessionId).flatMap((one) => app.store.events(one.id));
   const swarmed = (sessionId) => eventsIn(sessionId).some((event) => event.kind === "swarm.finished");
-  assert.equal((await ask("/api/policy/approve", { sessionId: run.sessionId, decision: "deny", remember: "never", carryOn: true })).status, 200);
+  assert.equal((await ask("/api/policy/approve", { sessionId: run.sessionId, fingerprint: shownFingerprint(app, run.sessionId), decision: "deny", remember: "never", carryOn: true })).status, 200);
   const again = await app.runtime.run({ prompt: "PATTERN7403", sessionId: run.sessionId });
   assert.notEqual(again.status, "needs_input", "it is not asked again");
   assert.equal(swarmed(run.sessionId), false, "the swarm never ran after the no");
@@ -227,7 +229,7 @@ test("how Trunks work together: Branch picks until the owner chooses, a room may
   // A yes, in another conversation, lets it go ahead.
   const other = await app.runtime.run({ prompt: "PATTERN7403" });
   assert.equal(other.status, "needs_input");
-  assert.equal((await ask("/api/policy/approve", { sessionId: other.sessionId, decision: "allow", remember: "never" })).status, 200);
+  assert.equal((await ask("/api/policy/approve", { sessionId: other.sessionId, fingerprint: shownFingerprint(app, other.sessionId), decision: "allow", remember: "never" })).status, 200);
   const next = await app.runtime.run({ prompt: "PATTERN7403", sessionId: other.sessionId });
   assert.notEqual(next.status, "needs_input", "the yes holds: it is not asked again");
   const ran = swarmed(other.sessionId);
