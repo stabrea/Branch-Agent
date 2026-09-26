@@ -278,6 +278,14 @@ const foldTranscriptChars = 60000;
  * the round goes to, not the side-job one; what they did not carry stays for a later fold.
  */
 const foldRequestCap = 5;
+/**
+ * How many more folds one task makes when a fold stops at its cap and the conversation is still past the
+ * window: three folds and fifteen requests at most for that fit, where one fold that read it all could take
+ * thirty-six.
+ */
+const refoldCap = 2;
+/** What a task says when it has no folds left while folding more could still make the conversation fit. */
+const foldedPart = "Part of this long conversation was folded into a summary to make room, and more is left to fold. Your next message carries on from there.";
 /** The request that asks for a fold's summary. */
 const summaryAsk = (previous: string, transcript: string): Message[] => [
   { role: "system", content: compactionInstructions },
@@ -424,6 +432,8 @@ export class Runtime {
    * deadline fix, half of Branch's failed tasks ended this way with qwen3:14b.
    */
   private readonly replyCeilings = new Map<string, number>();
+  /** Per task: the folds made again after one stopped at its cap with the conversation past the window (`refoldCap`). */
+  private readonly refolds = new Map<string, number>();
   private readonly children = new Map<string, number>();
   /** R17-050: keeps a Claude connection's prompt cache warm during a pause, when the owner asked. */
   private warmCache?: KeepAlive;
@@ -1382,6 +1392,7 @@ ${run.output.slice(0, 6000)}`;
       this.controllers.delete(run.id);
       this.activeSessions.delete(run.sessionId);
       this.steers.delete(run.id);
+      this.refolds.delete(run.id);
       this.recordToolWork(run, context, status);
       // What this conversation is carrying is written down at the end of every task, so closing the
       // app between one task and the next changes nothing about what the next one starts with. Only
@@ -1595,7 +1606,7 @@ ${run.output.slice(0, 6000)}`;
       await this.ceiling(context);
       await this.pace(context, "round", this.policy().limits.modelRoundsPerMinute);
       // Its own connection failing while it writes the fold ends the task here, as it always has.
-      const unwritten = await this.fitContext(run, messages, ids, context, route);
+      const unwritten = await this.fitStart(run, messages, ids, context, route, plan.choice.source === "cooldown");
       if (unwritten) throw unwritten.error;
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
       this.journal.turn(run.id, run.sessionId, round + 1); // mac3/never-break
@@ -2265,24 +2276,57 @@ ${run.output.slice(0, 6000)}`;
   }
   /**
    * Keeps a request to its working size: compaction first, then shrinking older tool results. Only a
-   * request past the connection's window is refused. `failed` is set when the conversation is fitted
-   * to the connection a task moved to after `failed` stopped answering. When the connection being
-   * fitted fails while it writes the fold's summary, what it wrote before is kept and its error is
-   * returned, for the caller to handle as that connection's failure.
+   * request past the connection's window is refused. A fold that stopped at its cap with the request
+   * still past the window folds again, while what folding keeps fits by itself and the task has folds
+   * left (`refoldCap`). `failed` is set when the conversation is fitted to the connection a task moved
+   * to after `failed` stopped answering. When the connection being fitted fails while it writes the
+   * fold's summary, what it wrote before is kept and its error is returned, for the caller to handle as
+   * that connection's failure.
    */
   private async fitContext(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, failed?: ModelPreset): Promise<{ error: unknown } | null> {
     // After a fall-back to another connection, rounds are fitted to that one's window.
     const preset = route.candidates[route.index]!;
     const before = this.budgetOf(messages, context, preset);
     this.store.event(run.id, "context.budget", { ...before });
-    const unwritten = await this.maybeCompact(run, messages, ids, context, route, before, failed);
-    if (unwritten) return unwritten;
-    if (!pastWorking(this.budgetOf(messages, context, preset))) return null;
-    const shrunk = shrinkToolResults(messages, 4);
-    const after = this.budgetOf(messages, context, preset);
-    this.store.event(run.id, "context.shrunk", { shrunkResults: shrunk, estimatedBefore: before.messages, estimatedAfter: after.messages });
-    if (after.headroom < 0) throw new TooLongError(failed ? notAnswering(failed, preset) : tooLong);
-    return null;
+    for (let budget = before; ; budget = this.budgetOf(messages, context, preset)) {
+      const fold = await this.maybeCompact(run, messages, ids, context, route, budget, failed);
+      if ("error" in fold) return fold;
+      if (!pastWorking(this.budgetOf(messages, context, preset))) return null;
+      const shrunk = shrinkToolResults(messages, 4);
+      const after = this.budgetOf(messages, context, preset);
+      this.store.event(run.id, "context.shrunk", { shrunkResults: shrunk, estimatedBefore: before.messages, estimatedAfter: after.messages });
+      if (after.headroom >= 0) return null;
+      const more = fold.short && !this.keptPastWindow(run, messages, ids, context, preset);
+      if (more && this.foldAgain(run.id)) continue;
+      throw new TooLongError(more ? foldedPart : failed ? notAnswering(failed, preset) : tooLong);
+    }
+  }
+  /** Whether what folding keeps (the summary, pinned messages and the newest ones) is past the window by itself. */
+  private keptPastWindow(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, preset: ModelPreset): boolean {
+    const split = compactionSplit(messages, ids, knobs.keepRecent(this.store, this.owner));
+    if (!split) return true;
+    const kept = this.keepAfterCompaction(run.sessionId, messages, ids, split).messages;
+    return this.budgetOf([...messages.slice(0, split.from), ...kept], context, preset).headroom < 0;
+  }
+  /** Counts one more fold for this task, when it has one left. */
+  private foldAgain(runId: string): boolean {
+    const made = this.refolds.get(runId) ?? 0;
+    if (made >= refoldCap) return false;
+    this.refolds.set(runId, made + 1);
+    return true;
+  }
+  /**
+   * Fits the conversation at a round's start. A task that started on a fallback, because the chosen
+   * connection is cooling down, passes over one that can't hold the conversation, as a refit does.
+   */
+  private async fitStart(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, onFallback: boolean): Promise<{ error: unknown } | null> {
+    for (;;) {
+      try {
+        return await this.fitContext(run, messages, ids, context, route);
+      } catch (error) {
+        if (!(onFallback && error instanceof TooLongError && this.passOver(run, route))) throw error;
+      }
+    }
   }
   /**
    * Fits the conversation to the connection a task moved to after `failed` stopped answering. One that
@@ -2330,18 +2374,19 @@ ${run.output.slice(0, 6000)}`;
    * When the working context grows past the threshold, older stored turns are summarised by the
    * model into a handoff note and replaced in place; recent turns and anything from this run stay.
    * A fold that could not read all it reads (`readForFold`) replaces only the turns it read, so what
-   * was written before a request failed is kept. The connection being fitted failing is returned as
-   * that connection's failure; any other failure ends the task as it always has.
+   * was written before a request failed is kept; one that stopped at its cap with more left to read,
+   * having folded some, is `short`. The connection being fitted failing is returned as that
+   * connection's failure; any other failure ends the task as it always has.
    */
-  private async maybeCompact(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, budget: ContextBudget, failed?: ModelPreset): Promise<{ error: unknown } | null> {
+  private async maybeCompact(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, budget: ContextBudget, failed?: ModelPreset): Promise<{ error: unknown } | { short: boolean }> {
     const before = budget.messages;
     // R17-S08: the owner may switch folding off, or fold at a share of the room of their own choosing.
     const threshold = knobs.compactionThresholdFor(this.store, this.owner, budget);
-    if (threshold === null) return null;
+    if (threshold === null) return { short: false };
     budget = { ...budget, threshold: Math.min(threshold, this.spendableThreshold(budget, context)) };
-    if (before <= budget.threshold && !pastWorking(budget)) return null;
+    if (before <= budget.threshold && !pastWorking(budget)) return { short: false };
     const split = compactionSplit(messages, ids, knobs.keepRecent(this.store, this.owner));
-    if (!split) return null;
+    if (!split) return { short: false };
     const previous = messages.slice(1, split.from).filter((m) => m.role === "system").map((m) => m.content).join("\n");
     const lines = messages.slice(split.from, split.to).map(foldLine);
     const reading = await this.readForFold(run, context, route, failed, previous, lines, { estimatedBefore: before, threshold: budget.threshold });
@@ -2362,7 +2407,7 @@ ${run.output.slice(0, 6000)}`;
       });
     }
     const failure = reading.failure;
-    if (!failure) return null;
+    if (!failure) return { short: reading.requests === foldRequestCap && !reading.all && folded.to > folded.from };
     if (failure.writer.id !== route.candidates[route.index]!.id || failure.error instanceof BudgetError || context.signal.aborted) throw failure.error;
     return { error: failure.error };
   }

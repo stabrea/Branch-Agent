@@ -5,10 +5,12 @@
  * about keeps 20,000. The window is only the ceiling: folding and shrinking still keep a request to
  * the built-in 20,000 (or a smaller window), unless the owner set a figure of their own. A connection
  * moved to after a failure is fitted to its own window before it is asked; one that fails while it is
- * fitted, or can't hold the conversation, is passed over for the next. A fold reads what it drops
- * even when the connection writing its summary is small, in five requests at most (the last written by
- * the conversation's own connection), and keeps what was written before a request failed. Scripted
- * models only: nothing leaves this computer.
+ * fitted, or can't hold the conversation, is passed over for the next, and so is one a task starts on
+ * while the chosen connection rests. A fold reads what it drops even when the connection writing its
+ * summary is small, in five requests at most (the last written by the conversation's own connection),
+ * and keeps what was written before a request failed. A fold that stops at five with the conversation
+ * still past the window folds again, three folds at most in a task; the task is refused as too long only
+ * when folding cannot make it fit. Scripted models only: nothing leaves this computer.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -455,6 +457,46 @@ test("a fallback that can't hold the conversation is passed over for a later one
   assert.equal(app.runtime.models.coolingDown(localId), false);
 });
 
+test("a task that starts on a fallback while the chosen connection rests passes over one that can't hold the conversation", async (t) => {
+  const plan = scripted("chatgpt", () => { throw new ProviderHttpError(503); });
+  const local = scripted("ollama-like"), backup = scripted("scripted");
+  const app = await fixture(t, [planSol(plan), unknown(backup, "backup")], noRetries);
+  const localId = localConnection(app, local, 8192, { active: false });
+  app.runtime.models.configure(app.runtime.owner, { activePreset: "chatgpt-gpt-5.6-sol", fallbackOrder: [localId, "backup"] });
+  const sessionId = app.store.createSession(app.runtime.owner);
+  // The newest turns, which a fold keeps, hold about 15,000 tokens: past 8,192 however much is folded, inside 20,000.
+  earlierTurns(app, sessionId, 40, (n) => (n > 32 ? 2500 : 1000));
+  const run = await app.runtime.run({ prompt: "and now?", sessionId, ...tools });
+  assert.equal(run.status, "completed", run.output);
+  assert.ok(app.runtime.models.coolingDown("chatgpt-gpt-5.6-sol"), "the chosen connection rests after its failure");
+  // Straight after, the next task starts on the first fallback in the order, which can't hold the conversation either.
+  const next = await app.runtime.run({ prompt: "and again?", sessionId, ...tools });
+  assert.equal(next.status, "completed", next.output);
+  const [selected] = events(app, next, "model.selected");
+  assert.deepEqual([selected.presetId, selected.source], [localId, "cooldown"], "it started on the model on this computer");
+  assert.equal(plan.main.length, 1, "the resting connection was not asked again");
+  assert.equal(local.main.length, 0, "the model on this computer was never sent a request larger than its window");
+  assert.equal(backup.main.length, 2, "the backup, later in the order, answered both");
+  const moves = events(app, next, "model.fallback");
+  assert.deepEqual(moves.map((move) => `${move.from} > ${move.to}`), [`${localId} > backup`]);
+  assert.match(moves[0].reason, /can't hold this conversation/);
+  assert.equal(app.runtime.models.health.get(localId).consecutiveFailures, 0, "being passed over is not a failure");
+  assert.equal(app.runtime.models.coolingDown(localId), false);
+});
+
+test("the connection chosen for a task is never passed over for a fallback because the conversation is too long for it", async (t) => {
+  const local = scripted("ollama-like"), backup = scripted("scripted");
+  const app = await fixture(t, [unknown(backup, "backup")]);
+  const localId = localConnection(app, local, 8192);
+  app.runtime.models.configure(app.runtime.owner, { activePreset: localId, fallbackOrder: ["backup"] });
+  // About 10,000 tokens in one message: past what the chosen model on this computer holds, and nothing to fold.
+  const run = await app.runtime.run({ prompt: "What did I send?", sessionId: oneLongMessage(app, 10000), ...tools });
+  assert.equal(run.status, "budget_exceeded");
+  assert.match(run.output, tooLong);
+  assert.deepEqual(events(app, run, "model.fallback"), [], "the conversation was not sent to another connection");
+  assert.equal(backup.main.length, 0);
+});
+
 test("a fold's last summary request is the conversation's own connection's, so a small side-job connection's fold ends in five", async (t) => {
   const { app, main, small, localId, run, sessionId } = await smallSideJobs(t, 4096);
   assert.equal(run.status, "completed", run.output);
@@ -468,22 +510,76 @@ test("a fold's last summary request is the conversation's own connection's, so a
   assert.equal(folded.readMessages, undefined, "the fold read all a fold reads");
 });
 
-test("a fold with no larger connection to turn to stops at five requests, and what they did not carry stays for a later fold", async (t) => {
-  const own = writer("ollama-like", () => "the summary goes on and on about the photo library ".repeat(200));
+/** 400 short turns, about 45 tokens each: far more than one request to a model loaded with 4,096 carries. */
+function tinyTurns(app, sessionId, size = () => 3) {
+  for (let n = 1; n <= 400; n++) app.store.message(sessionId, { role: n % 2 ? "user" : "assistant",
+    content: `Turn ${n}: ` + "earlier findings about the photo library and its folders ".repeat(size(n)) });
+}
+const foldedPart = /Part of this long conversation was folded into a summary to make room, and more is left to fold\. Your next message carries on from there\./;
+const longSummary = () => "the summary goes on and on about the photo library ".repeat(200);
+
+test("a fold with no larger connection to turn to stops at five requests and folds again, three times at most in a task, and the next message carries on", async (t) => {
+  const own = writer("ollama-like", longSummary);
   const app = await fixture(t, [unknown(scripted("unused"))]);
   localConnection(app, own, 4096);
   const first = await app.runtime.run({ prompt: "start", ...tools });
   // Many short turns and long summaries: after its first request, the only connection there is carries a few
   // turns at a time while it reads back a summary of 6,000 characters.
-  for (let n = 1; n <= 400; n++) app.store.message(first.sessionId, { role: n % 2 ? "user" : "assistant",
-    content: `Turn ${n}: ` + "earlier findings about the photo library and its folders ".repeat(3) });
+  tinyTurns(app, first.sessionId);
   const run = await app.runtime.run({ prompt: "short question", sessionId: first.sessionId, ...tools });
+  assert.equal(run.status, "budget_exceeded");
+  assert.match(run.output, foldedPart);
+  assert.doesNotMatch(run.output, /grown too long|start a new conversation/i, "the owner is not told to leave a conversation that carries on");
   const asked = own.side.filter(isSummary);
-  assert.equal(asked.length, 5, "five requests, where carrying all a fold reads would take thirty-six");
-  const [folded] = events(app, run, "context.compacted");
-  assert.equal(folded.summaryRequests, 5);
-  assert.ok(folded.readMessages < folded.ofMessages, "the fold ended before the end of what it reads");
+  assert.equal(asked.length, 15, "three folds of five requests, where carrying all a fold reads in one would take thirty-six");
+  const folds = events(app, run, "context.compacted");
+  assert.deepEqual(folds.map((fold) => fold.summaryRequests), [5, 5, 5]);
+  assert.ok(folds.every((fold) => fold.readMessages < fold.ofMessages), "each fold ended before the end of what it reads");
   assert.deepEqual(lostTurns(app, first.sessionId, asked, 400), [], "nothing no request carried was dropped");
+  // The words are true: the next message folds on from there, and the one after is answered.
+  const next = await app.runtime.run({ prompt: "and now?", sessionId: first.sessionId, ...tools });
+  assert.equal(next.status, "budget_exceeded");
+  assert.match(next.output, foldedPart);
+  assert.equal(events(app, next, "context.compacted").length, 3);
+  const last = await app.runtime.run({ prompt: "and now?", sessionId: first.sessionId, ...tools });
+  assert.equal(last.status, "completed", last.output);
+  assert.deepEqual(lostTurns(app, first.sessionId, own.side.filter(isSummary), 400), []);
+});
+
+test("a fold that stops at five requests with the conversation still past the window folds again in the same task, and the task is answered", async (t) => {
+  const own = writer("ollama-like", (_n, request) => summaryOf(request));
+  const app = await fixture(t, [unknown(scripted("unused"))]);
+  localConnection(app, own, 4096);
+  const first = await app.runtime.run({ prompt: "start", ...tools });
+  // Short summaries: each request carries about forty turns, so one fold of five reads about half of them.
+  tinyTurns(app, first.sessionId);
+  const answered = own.main.length;
+  const run = await app.runtime.run({ prompt: "short question", sessionId: first.sessionId, ...tools });
+  assert.equal(run.status, "completed", run.output);
+  assert.equal(own.main.length - answered, 1, "the question was answered");
+  const folds = events(app, run, "context.compacted");
+  assert.ok(folds.length > 1 && folds.length <= 3, `folded again in the same task (${folds.length} folds)`);
+  assert.equal(folds[0].summaryRequests, 5);
+  assert.ok(folds[0].readMessages < folds[0].ofMessages, "the first fold stopped at its cap");
+  assert.ok(folds.every((fold) => fold.summaryRequests <= 5), "each fold kept to five requests");
+  const asked = own.side.filter(isSummary);
+  assert.ok(asked.length <= 15, `${asked.length} summary requests`);
+  assert.deepEqual(lostTurns(app, first.sessionId, asked, 400), [], "nothing no request carried was dropped");
+});
+
+test("when what folding keeps is past the window by itself, a fold that stops at five does not fold again, and the task is refused as too long", async (t) => {
+  const own = writer("ollama-like", longSummary);
+  const app = await fixture(t, [unknown(scripted("unused"))]);
+  localConnection(app, own, 4096);
+  const first = await app.runtime.run({ prompt: "start", ...tools });
+  // The newest turns, which a fold keeps, hold about 3,600 tokens: with the summary, past 4,096 however much is folded.
+  tinyTurns(app, first.sessionId, (n) => (n > 394 ? 40 : 3));
+  const run = await app.runtime.run({ prompt: "short question", sessionId: first.sessionId, ...tools });
+  assert.equal(run.status, "budget_exceeded");
+  assert.match(run.output, tooLong);
+  assert.doesNotMatch(run.output, foldedPart);
+  assert.equal(own.side.filter(isSummary).length, 5, "one fold, with no second one that could not help");
+  assert.equal(events(app, run, "context.compacted").length, 1);
 });
 
 test("a summary request that fails keeps what the earlier ones wrote, and the conversation's own connection writes the rest", async (t) => {
