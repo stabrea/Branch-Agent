@@ -63,6 +63,8 @@ async function windowFixture(t, { width = 1440, height = 950 } = {}) {
 async function newWindow(t) {
   const { app, root } = await world(t);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  // The first-run card (#323) takes every click; these tests are about the conversation beside.
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); });
   return { app, server, browser };
