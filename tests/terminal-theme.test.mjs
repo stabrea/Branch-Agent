@@ -130,6 +130,23 @@ test("the terminal and the window share one theme record, and each change says w
   assert.equal((await lookApi(store, owner, "GET", async () => ({}))).contrast, "more");
 });
 
+test("the shared look takes every language the window lists, Spanish included, and refuses one it does not have", async (t) => {
+  const app = await workspace(t);
+  const { store } = app, owner = app.runtime.owner;
+  const { LANGUAGES } = await import("../public/i18n.js");
+  for (const { id } of LANGUAGES) {
+    const saved = await lookApi(store, owner, "POST", async () => ({ language: id }));
+    assert.equal(saved.language, id, `/api/look keeps ${id}`);
+    assert.equal((await lookApi(store, owner, "GET", async () => ({}))).language, id);
+  }
+  assert.ok(LANGUAGES.some((l) => l.id === "es" && l.label === "Español"), "Spanish is listed as Español");
+  await assert.rejects(lookApi(store, owner, "POST", async () => ({ language: "xx" })));
+  assert.equal(readLook(store, owner).language, LANGUAGES.at(-1).id, "a refused language changes nothing");
+  assert.equal(lookLanguage({ language: "es" }, {}), "es");
+  assert.equal(lookLanguage({ language: "auto" }, { LANG: "es_MX.UTF-8" }), "es");
+  assert.equal(lookLanguage({ language: "auto" }, { LC_ALL: "es_ES.UTF-8", LANG: "en_US.UTF-8" }), "es");
+});
+
 test("light or dark is the window's own record, and following the computer reads the terminal", async (t) => {
   const app = await workspace(t);
   const { store } = app, owner = app.runtime.owner;

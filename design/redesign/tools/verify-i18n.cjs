@@ -10,7 +10,7 @@
    rw4-language: the locale files are cached (an ETag, 304 when unchanged, no-cache so a new build comes fresh), and
    Settings › Appearance › Language is live: picking Français saves it to the engine (GET /api/look says fr) and to this
    browser, and the window redraws in French; after a reload, and in a new browser with nothing saved, it is still
-   French and the select shows Français; only English and Français are offered (Español cannot be picked); English again says "English." (the prototype's toast).
+   French and the select shows Français; only the languages with words on file are offered (a code with none, "xx", cannot be picked); English again says "English." (the prototype's toast).
    rw4-i18n-chat: the conversation and the flows (public/app/chat, public/app/flows) speak through t(). With a conversation
    the engine's demo model answered (POST /api/run), each pass opens it, the + menu, the model and mode menus, Find, the
    side panel, the Add an account wizard and the tour, and checks 20 of those words (visible text, aria-label, placeholder,
@@ -187,15 +187,15 @@ async function languageSelect(browser, W, E) {
   await page.locator("#paste6").waitFor({ state: "detached", timeout: 5000 }).catch(() => null);
 
   let refused = false;
-  try { await page.locator("#lang").selectOption("es", { timeout: 2000 }); } catch { refused = true; }
+  try { await page.locator("#lang").selectOption("xx", { timeout: 2000 }); } catch { refused = true; }
   now = await shown(page);
-  check("Español: not offered, so it cannot be picked", refused && now.value === "fr", `refused=${refused}, value=${now.value}`);
-  check("Español: the engine still says fr", (await api("look")).language === "fr");
+  check("a language with no words on file (xx): not offered, so it cannot be picked", refused && now.value === "fr", `refused=${refused}, value=${now.value}`);
+  check("xx: the engine still says fr", (await api("look")).language === "fr");
   // A script can still set a value that is not offered; the window's own guard refuses it and draws the choice in force again.
-  await page.locator("#lang").evaluate((s) => { s.value = "es"; s.dispatchEvent(new Event("change", { bubbles: true })); });
+  await page.locator("#lang").evaluate((s) => { s.value = "xx"; s.dispatchEvent(new Event("change", { bubbles: true })); });
   await page.waitForFunction(() => document.getElementById("lang")?.value === "fr", null, { timeout: 5000 }).catch(() => null);
   now = await shown(page);
-  check("Español set by script: refused, the engine still says fr and the select shows Français", (await api("look")).language === "fr" && now.value === "fr" && now.text === "Français", JSON.stringify(now));
+  check("xx set by script: refused, the engine still says fr and the select shows Français", (await api("look")).language === "fr" && now.value === "fr" && now.text === "Français", JSON.stringify(now));
 
   await page.reload();
   await page.waitForFunction(() => document.documentElement.lang === "fr", null, { timeout: 30000 });
