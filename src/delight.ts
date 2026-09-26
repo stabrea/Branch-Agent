@@ -79,6 +79,11 @@ const ProgressSchema = z.object({
   scan: ScanSchema.prefault({}),
   /** Still counting a long past (switched on after a busy year): what it brings is found quietly. */
   counting: z.boolean().default(false),
+  /**
+   * Q251: whether achievements have been worked out for this owner before. They ship on, so an install
+   * updated with a long past never sees the switch move: its first look finds that past quietly too.
+   */
+  looked: z.boolean().default(false),
 });
 type Progress = z.infer<typeof ProgressSchema>;
 const settingsKey = "delight", progressKey = "delight-achievements";
@@ -140,12 +145,13 @@ function shown(a: Achievement, saved: Progress, facts: AchievementFacts): Record
 export function achievementsView(store: DelightStore, owner: string, language: AchievementLanguage = "en"): Record<string, unknown> {
   const settings = delightSettings(store, owner);
   if (!settings.achievements.on) return { on: false };
-  const saved = progress(store, owner), through = saved.scan.through, counting = saved.counting;
+  const saved = progress(store, owner), through = saved.scan.through, counting = saved.counting, looked = saved.looked;
   const { newly, facts, caughtUp } = evaluate(store, owner, saved);
-  // What a long past brings while it is still being counted is found quietly, like switching on.
-  if (newly.length && !counting && caughtUp && !settings.achievements.quiet) saved.fresh = [...saved.fresh, ...newly].slice(-50);
+  // What a long past brings while it is still being counted, or at the first look, is found quietly, like switching on.
+  if (newly.length && looked && !counting && caughtUp && !settings.achievements.quiet) saved.fresh = [...saved.fresh, ...newly].slice(-50);
   saved.counting = !caughtUp;
-  if (newly.length || saved.scan.through !== through || saved.counting !== counting) store.save("settings", owner, progressKey, saved);
+  saved.looked = true;
+  if (newly.length || !looked || saved.scan.through !== through || saved.counting !== counting) store.save("settings", owner, progressKey, saved);
   const catalogue = achievementCatalogue().map((a) => worded(a, language));
   const byId = new Map(catalogue.map((a) => [a.id, a]));
   const fresh = saved.fresh.map((id) => byId.get(id)).filter((a): a is Achievement => Boolean(a))
@@ -188,9 +194,10 @@ function settingsNoticed(store: DelightStore, owner: string, before: DelightSett
   if (next.achievements.quiet) add(seen.flags, "quiet");
   if (next.look.style === "3d") add(seen.flags, "style-3d");
   const { newly, caughtUp } = evaluate(store, owner, saved);
-  const quietly = !before.achievements.on || next.achievements.quiet || saved.counting || !caughtUp;
+  const quietly = !before.achievements.on || !saved.looked || next.achievements.quiet || saved.counting || !caughtUp;
   if (newly.length && !quietly) saved.fresh = [...saved.fresh, ...newly].slice(-50);
   saved.counting = !caughtUp;
+  saved.looked = true;
   store.save("settings", owner, progressKey, saved);
 }
 
