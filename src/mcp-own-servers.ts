@@ -105,6 +105,8 @@ export class OwnMcpServers {
    * and added again under the same name keeps counting from where it was.
    */
   private readonly generations = new Map<string, number>();
+  /** Each server's latest start, as a promise that settles once that start, letting go included, is over. */
+  private readonly starting = new Map<string, Promise<void>>();
   private launchIds: string[] = [];
   constructor(private readonly deps: OwnServersDeps) {
     deps.approvals.onResolved((taken) => this.answered(taken));
@@ -269,13 +271,29 @@ export class OwnMcpServers {
 
   /**
    * Starts a server the way the launch file's are started, and marks it on. A failure is kept as its problem.
-   * After every wait it checks the start is still wanted: one the owner overtook (switched off, removed or started
-   * again) lets go of whatever it started and records nothing, since the owner's newer action says what the server is.
+   * One server's starts run in turn. A newer start overtakes the one under way at once (a new generation), then waits
+   * until that one has settled, letting go included, before it puts anything in place itself. Switching off, removing
+   * and closing Branch do not wait: they overtake a start under way at once (shut, closeAll).
    */
   private async open(entry: OwnServer, list: boolean, approved: string | null = entry.approved): Promise<void> {
     const generation = this.nextGeneration(entry.id);
+    const earlier = this.starting.get(entry.id);
+    const turn = (async () => { await earlier; await this.openInTurn(entry, list, approved, generation); })();
+    const settled: Promise<void> = turn.catch(() => undefined);
+    this.starting.set(entry.id, settled);
+    void settled.then(() => { if (this.starting.get(entry.id) === settled) this.starting.delete(entry.id); });
+    return turn;
+  }
+
+  /**
+   * One start, once every earlier start of the server has settled. After every wait it checks the start is still
+   * wanted: one the owner overtook (switched off, removed or started again) lets go of whatever it could have put in
+   * place and records nothing, since the owner's newer action says what the server is.
+   */
+  private async openInTurn(entry: OwnServer, list: boolean, approved: string | null, generation: number): Promise<void> {
     const overtaken = `${entry.name} did not finish starting: it was switched off, removed or started again first.`;
     let started: Started | undefined;
+    let names: string[] = [];
     try {
       if (entry.server.transport === "stdio") { this.guard(entry.server); await this.deps.vet(entry.server.command, entry.server.args); }
       if (!this.stillWanted(entry, generation)) throw new Error(overtaken);
@@ -284,33 +302,37 @@ export class OwnMcpServers {
       if (!found.tools.length) throw new Error("Your approval settings refuse every tool this server offers, so it was not started.");
       if (!found.version) throw new Error("That server did not say which version it is.");
       const config = { id: entry.id, tools: found.tools, expectedVersion: found.version, ...entry.server };
+      names = found.tools.map((tool) => mcpToolName(entry.id, tool));
       const stop = await startMcp(this.deps.registry, config, this.env, this.deps.policy(), this.deps.host());
-      started = { close: stop ?? (async () => undefined), names: found.tools.map((tool) => mcpToolName(entry.id, tool)) };
+      started = { close: stop ?? (async () => undefined), names };
       if (!this.stillWanted(entry, generation)) throw new Error(overtaken);
       this.live.set(entry.id, started);
       this.problems.delete(entry.id);
       this.update(entry.id, { on: true, approved, tools: found.tools, hidden: found.hidden, version: found.version });
       this.record("Tool server started:", `${entry.name}: ${found.tools.length} tools`, "started");
     } catch (error) {
-      if (!this.stillWanted(entry, generation)) { await this.letGo(entry.id, started); throw new Error(overtaken); }
+      if (!this.stillWanted(entry, generation)) { await this.letGo(entry.id, names, started); throw new Error(overtaken); }
       const reason = (error instanceof Error ? error.message : "It did not answer").slice(0, 300);
       this.problems.set(entry.id, reason);
       if (this.saved().some((item) => item.id === entry.id)) this.update(entry.id, { on: false });
       this.record("Tool server started:", `${entry.name}: ${reason}`, "failed");
+      // How to reach it on demand, if this start set that up before it failed, goes too, unless an earlier start of
+      // the same launch is on and is reached through it.
+      if (!this.live.has(entry.id)) await this.deps.host()?.connections.forget?.(entry.id);
       throw new Error(reason);
     }
   }
 
   /**
-   * Lets go of what an overtaken start had started: its tools first, in the same step as the check that found it
-   * overtaken, so a newer start's tools of the same names are never touched; then its on-demand entry, then its
-   * connection, which ends its program.
+   * Lets go of whatever an overtaken start could have put in place, also when it threw part way: the tool names it
+   * would have registered, then how to reach its server on demand and any connection made that way, then its own
+   * connection last, which ends its program. Nothing of a newer start of the server is in place yet: that start waits
+   * until this one has settled (open).
    */
-  private async letGo(id: string, started: Started | undefined): Promise<void> {
-    if (!started) return;
-    for (const name of started.names) this.deps.registry.unregister(name);
+  private async letGo(id: string, names: readonly string[], started: Started | undefined): Promise<void> {
+    for (const name of names) this.deps.registry.unregister(name);
     await this.deps.host()?.connections.forget?.(id);
-    await started.close().catch(() => undefined);
+    await started?.close().catch(() => undefined);
   }
 
   private async shut(id: string): Promise<void> {
