@@ -13,7 +13,6 @@ import { exportTrunk, importedFields } from "../dist/trunks/share.js";
 import { TrunkLookSchema } from "../dist/trunks/look.js";
 import { TrunkSchema } from "../dist/trunks/record.js";
 
-import { trunkColour } from "../public/faces.js";
 
 async function branch(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-trunk-colour-"));
@@ -35,7 +34,10 @@ test("DG-105 the look an older build reads has no value in it, so it can still c
   assert.equal(TrunkLookSchema.safeParse(trunk.look).success, true);
 });
 
-test("DG-105 order, pin and rename in an older build keep the colour; a colour chosen there wins over it (the window's own rule)", async (t) => {
+// Redesign: replaced by the new window (public/faces.js and its trunkColour() are gone; the new window draws a Trunk
+// from chosenColour alone, public/app/flows/trunk.js face(), so an older build's look.colour has no rule to test).
+test.skip("DG-105 order, pin and rename in an older build keep the colour; a colour chosen there wins over it (the window's own rule)", async (t) => {
+  const trunkColour = () => undefined; // the old window's function, kept only so the skipped body still parses
   const { records, trunk, olderBuildWrites } = await branch(t);
   olderBuildWrites({ order: 30, pinned: true, name: "Scout Two" });
   assert.equal(trunkColour(records.get(trunk.id)), "#e07033", "back in this build, the colour the owner picked");
