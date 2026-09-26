@@ -265,7 +265,7 @@ test.skip("Q34 a tracked menu that is hidden, not removed, on close is put back 
 
 /* The message box sits in the scrolling conversation but is placed against `main`, so scrolling never moves it:
    its menus are lifted too (Codex's review of a789ac29 found them still under the card). */
-test("Q34 at 1440 px the message box's menus open over the side panel, and nothing covers them", async (t) => {
+test("Q34 at 1440 px the message box's menus open (the mode menu over the side panel), and nothing covers them", async (t) => {
   const { page, errors } = await fixture(t, 1440);
   await openCard(page);
   for (const act of ["modemenu2", "plusmenu"]) {
@@ -274,6 +274,7 @@ test("Q34 at 1440 px the message box's menus open over the side panel, and nothi
     await page.locator(".pop").waitFor({ state: "visible" });
     const seen = await reach(page, ".pop");
     assert.ok(seen.points > 20, `${act}'s menu was measured`);
+    if (act === "modemenu2") assert.equal(seen.overPane, true, "the mode menu is drawn where the side panel is");
     assert.equal(seen.covered, 0, `nothing covers ${act}'s menu (${seen.covered} of ${seen.points} points hit ${seen.under.join(", ")})`);
     await page.keyboard.press("Escape");
     await page.locator(".pop").waitFor({ state: "detached" });
