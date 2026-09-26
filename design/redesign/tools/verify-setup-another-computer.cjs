@@ -9,6 +9,7 @@
 // The Tailscale button is checked as offered, not pressed: pressing it opens a real door on this computer's tailnet.
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
 const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
+const { generateKeyPairSync } = require("node:crypto");
 const { tmpdir } = require("node:os");
 const { join, resolve } = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -140,6 +141,32 @@ async function dialIn(page, client, identity, stamp) {
   return stop;
 }
 
+/* A phone let in later from "Reach it anywhere" (the same pairing code, the phone's dialog) must not become the computer
+   picked on "Where Branch runs". The phone stand-in answers with the link and number read off the dialog. */
+async function phoneLater(page, computer, stamp) {
+  await page.locator('.ob9 .ob-rail [data-act="ob-go"][data-v="5"]').click();
+  await page.locator('.ob9[data-step="5"]').waitFor();
+  await page.locator('.ob9 [data-act="pair"]').click();
+  await page.locator(".dlg .alt12").waitFor();
+  const link = await page.locator(".dlg .alt12 code:nth-of-type(1)").innerText();
+  const code = (await page.locator(".dlg .alt12 code:nth-of-type(2)").innerText()).replace(/\D/g, "");
+  const publicKey = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).toString("base64");
+  const name = `Phone ${stamp}`;
+  const res = await fetch(`${BASE}/api/devices/pair`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ offer: /offer=([a-f0-9]{32})/.exec(link)?.[1], code, name, platform: "ios", publicKey }) });
+  if (res.status !== 200) throw new Error(`the phone stand-in could not answer: ${res.status}`);
+  await page.locator('.dlg [data-act="ph-paired-dlg"]').click();
+  await page.locator('.dlg [data-act="pair-letin"]').waitFor({ timeout: 6000 });
+  await page.locator("#pair-match").check();
+  await page.locator('.dlg [data-act="pair-letin"]').click();
+  const phone = await until(async () => (await api("devices")).devices.find((d) => d.name === name));
+  await page.locator('.ob9 .ob-rail [data-act="ob-go"][data-v="1"]').click();
+  await page.locator('.ob9[data-step="1"]').waitFor();
+  const picked = await page.locator(REMOTE).evaluate((el) => ({ pressed: el.getAttribute("aria-pressed"), small: el.querySelector("small").textContent }));
+  check("a phone paired later is not the computer", phone?.platform === "ios" && picked.pressed === "true" && picked.small === computer && (await page.locator(".ob9 .ob-remote").innerText()).includes(computer),
+    `GET /api/devices lists ${name}; Where Branch runs still has ${computer} picked`);
+}
+
 (async () => {
   const stamp = Date.now().toString(36);
   const node = await import(pathToFileURL(resolve("dist/devices/node/client.js")).href);
@@ -156,8 +183,9 @@ async function dialIn(page, client, identity, stamp) {
     await looks(page);
     await firstOpen(page);
     await leaveWithout(page);
-    const { done } = await connect(page, client, dir, stamp);
+    const { name, done } = await connect(page, client, dir, stamp);
     stop = await dialIn(page, client, done, stamp);
+    await phoneLater(page, name, stamp);
   } catch (error) {
     check("script", false, error.message.split("\n")[0]);
     await page.screenshot({ path: join(tmpdir(), "verify-setup-another-computer-failure.png") }).catch(() => {});

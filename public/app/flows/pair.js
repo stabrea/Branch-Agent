@@ -12,7 +12,8 @@
    While the invitation's link only answers on this computer, the dialog says so and, unless Lockdown is on, offers to
    open Branch to Tailscale (POST /api/deployment/remote { enabled: true }): the engine's own words say what is missing
    when it cannot (Tailscale not installed, not signed in), and once it opens a new invitation carries the Tailscale
-   address. Listeners of onPaired hear { approve, request } with the engine's answer (its deviceId once let in).
+   address. Listeners of onPaired hear { approve, kind, request }: the dialog that asked ("phone", "computer" or "code")
+   and the engine's answer (its deviceId once let in).
    Words the prototype lacks (the request, the check code, Let it in, Refuse) are the product's own locale words. */
 
 import { $, esc } from "../core/dom.js";
@@ -24,7 +25,7 @@ import { qr } from "../core/qr.js";
 import { t } from "../../i18n.js";
 
 const P = { kind: null, frame: null, dlg: null, invite: null, request: null, seen: new Set(), error: null, canSwitch: false, triedOn: false, timer: null, stopping: null, canOpen: false, doorError: null };
-/* Told after a device is let in or refused ({ approve, request }), so a page listing devices reads them again. */
+/* Told after a device is let in or refused ({ approve, kind, request }), so a page listing devices reads them again. */
 export const onPaired = new Set();
 
 const PHONES = ["ios", "android"];
@@ -145,7 +146,7 @@ async function openDoor() {
 export function stopPairing() { stop(true); }
 
 async function decide(approve) {
-  const r = P.request;
+  const r = P.request, kind = P.kind;
   if (!r) return;
   const matches = $("#pair-match")?.checked === true;
   let answer;
@@ -154,7 +155,7 @@ async function decide(approve) {
   } catch (error) { toast(error.message); return; }
   stop(false);
   closeDlg();
-  for (const listener of onPaired) listener({ approve, request: answer?.request ?? r });
+  for (const listener of onPaired) listener({ approve, kind, request: answer?.request ?? r });
   if (!approve) toast(t("pair.refused"));
   else if (PHONES.includes(r.platform)) toast(t("window.flows.pair.phone-paired"));
   else toast(t("pair.paired", { name: r.name }));

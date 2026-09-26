@@ -318,11 +318,12 @@ function pickRemote() {
   startPairing("computer");
 }
 
-/* After the owner's yes: that computer is the one picked, and GET /api/devices is read until it says it is connected
-   (the other computer dials in once it runs). Stops when setup closes, another computer is let in, or it connects. */
-async function remoteLetIn({ approve, request } = {}) {
+/* After the owner's yes to this card's dialog: that computer is the one picked, and GET /api/devices is read until it
+   says it is connected (the other computer dials in once it runs). A phone let in from "Reach it anywhere" changes
+   nothing here. Stops when setup closes, another computer is let in, or it connects. */
+async function remoteLetIn({ approve, kind, request } = {}) {
   const o = S.ob;
-  if (!o || !approve || !request?.deviceId) return;
+  if (!o || !approve || kind !== "computer" || !request?.deviceId || ["ios", "android"].includes(request.platform)) return;
   const r = o.remote = { id: request.deviceId, name: request.name, connected: false };
   o.where = "remote";
   draw();
