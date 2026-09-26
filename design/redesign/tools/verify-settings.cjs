@@ -112,6 +112,7 @@ async function setup() {
 
 async function run(page) {
   const { trunk, pool } = await setup();
+  await api("onboarding", { done: true }); // a fresh engine opens on setup until onboarding is done, so it is marked done through the engine first
   await page.goto(BASE + "/");
   await page.getByLabel("Session token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect" }).click();

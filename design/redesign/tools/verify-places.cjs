@@ -118,6 +118,7 @@ async function seedLive() {
 }
 
 async function signIn(page) {
+  await call("POST", "onboarding", { done: true }); // a fresh engine opens on setup until onboarding is done, so it is marked done through the engine first
   await page.goto(BASE + "/");
   await page.getByLabel("Session token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect" }).click();
@@ -344,7 +345,8 @@ async function team(page) {
   check("team live: the person here and This computer · Branch <version>", liveText.includes(person) && liveText.includes(`This computer · Branch ${st.version}`));
   check("team live: the task's own words, no raw id and no made-up label", liveText.includes("A task that stops to ask you") && !/[0-9a-f]{8}-[0-9a-f]{4}-/.test(liveText) && !liveText.includes("Task"));
   await act(page, "ptab", { place: "team", v: "people" });
-  check("team-invite stays greyed", await page.locator('[data-act="team-invite"][aria-disabled="true"]').count() === 1);
+  // Team › People is the prototype's peopleTab (pass 10c), whose invite is p-invite, the same list as Settings › People.
+  check("p-invite (Team › People) stays greyed", await page.locator('#main .place [data-act="p-invite"][aria-disabled="true"]').count() === 1);
   await act(page, "view", { v: "overview" });
   await sleep(800);
   check("invite stays greyed", await page.locator('#main [data-act="invite"][aria-disabled="true"]').count() === 1);

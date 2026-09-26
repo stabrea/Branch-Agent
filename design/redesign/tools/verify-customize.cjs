@@ -185,6 +185,7 @@ async function computers(page) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   try {
+    await api("onboarding", { done: true }); // a fresh engine opens on setup until onboarding is done, so it is marked done through the engine first
     await page.goto(base);
     await page.getByLabel("Session token", { exact: true }).fill(TOKEN);
     await page.getByRole("button", { name: "Connect", exact: true }).click();

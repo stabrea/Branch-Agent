@@ -32,6 +32,7 @@ const check = (what, ok, detail = "") => { results.push([ok ? "PASS" : "FAIL", w
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   page.on("response", (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${new URL(r.url()).pathname}`); });
   page.on("request", (r) => { const u = new URL(r.url()); if (u.pathname === "/api/artifacts/file") pictures.push(u.searchParams.get("path")); });
+  await fetch(BASE + "/api/onboarding", { method: "POST", headers: { authorization: "Bearer " + TOKEN, "content-type": "application/json" }, body: JSON.stringify({ done: true }) }); // a fresh engine opens on setup until onboarding is done, so it is marked done through the engine first
   await page.goto(BASE + "/");
   await page.getByLabel("Session token").fill(TOKEN);
   await page.getByRole("button", { name: "Connect" }).click();

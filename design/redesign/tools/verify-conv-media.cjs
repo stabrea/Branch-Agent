@@ -170,6 +170,7 @@ async function besideAndRoster(page, otherSid) {
   page.on("pageerror", (e) => errors.push(e.message));
   if (process.env.DEBUG) page.on("response", (r) => { if (r.request().method() === "POST") console.log("  POST", r.url().replace(BASE, ""), r.status()); });
   try {
+    await api("onboarding", { done: true }); // a fresh engine opens on setup until onboarding is done, so it is marked done through the engine first
     await page.goto(BASE + "/");
     await page.getByLabel("Session token").fill(TOKEN);
     await page.getByRole("button", { name: "Connect" }).click();
