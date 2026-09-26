@@ -8,13 +8,39 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openSettings } from "./places.mjs";
+import { settingsWindow, openSettingsPage } from "./settings-window.mjs";
+
+/*
+ * The new window's Settings › Permissions draws the prototype's "Without asking, Trunks may…" switches, one per kind
+ * of thing a Trunk does, in place of the old per-kind dropdowns. A screen reader must still tell them apart: each is
+ * named by its kind, and each name is different.
+ */
+test("every Without-asking switch is named by the kind of thing it lets through, and no two share a name", async (t) => {
+  const { page, errors } = await settingsWindow(t, { name: "kinds" });
+  await openSettingsPage(page, "permissions");
+  const section = page.locator(".sec", { has: page.getByRole("heading", { name: "Without asking, Trunks may…", exact: true }) });
+  const switches = section.locator("input.sw");
+  await switches.first().waitFor({ state: "visible", timeout: 30000 });
+  const kinds = await switches.evaluateAll((all) => all.map((input) => input.getAttribute("aria-label") ?? ""));
+  assert.ok(kinds.length >= 3, `only ${kinds.length} kinds were drawn; the list moved or did not load`);
+  assert.equal(kinds.filter(Boolean).length, kinds.length, "every switch has a name");
+  assert.equal(new Set(kinds).size, kinds.length, "the kinds have different names");
+  for (const kind of kinds) {
+    assert.equal(await page.getByRole("checkbox", { name: kind, exact: true }).count(), 1, `no single switch is named "${kind}"`);
+    const said = await section.locator(".ctl", { has: page.getByRole("checkbox", { name: kind, exact: true }) }).locator("small").textContent();
+    assert.ok(said.trim().length > 0, `"${kind}" lost the sentence that says what it does`);
+  }
+  assert.deepEqual(errors, []);
+});
 
 /*
  * Settings › Permissions, "a kind of thing at a time" (public/misc.js): one dropdown per kind of tool.
  * They had no name, so a screen reader announced the same "combo box, Leave as it is" six times
  * with nothing to tell them apart. Each is now named by its kind, and still says what the choice does.
  */
-test("every kind-of-tool dropdown is named by its kind, and still says what the choice does", async (t) => {
+// Redesign: replaced by the new window (the "Without asking, Trunks may…" switches, re-pointed above, took the per-kind
+// dropdowns' place; the French half also waits on the Language select, Coming soon (sw:lang), checked at fc541c24).
+test.skip("every kind-of-tool dropdown is named by its kind, and still says what the choice does", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-kinds-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
@@ -63,7 +89,8 @@ test("every kind-of-tool dropdown is named by its kind, and still says what the 
  * the middle of deciding a permission. restoreCategoryFocus in public/misc.js cannot do this on its
  * own: it holds the old node, and the redraw detaches it.
  */
-test("the keyboard stays on the same kind of tool when the language changes", async (t) => {
+// Redesign: Coming soon (sw:lang), checked at fc541c24.
+test.skip("the keyboard stays on the same kind of tool when the language changes", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-kind-focus-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
