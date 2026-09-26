@@ -88,17 +88,33 @@ async function exportFile(f) {
 }
 
 /* Redesign: a conversation is exported from its own More menu (data-act="chatmenu" › "Export conversation",
-   data-act="export-conv", live at ef021c57), which saves the engine's JSON archive of it. */
-test("saved conversations export as a JSON file (the new window)", async (t) => {
+   data-act="export-conv"). As the prototype's, it saves the engine's Markdown copy to Library › Documents
+   (GET /api/sessions/<id>/export?format=markdown, then POST /api/documents), and downloads nothing. In the desktop app the
+   engine's JSON archive also goes to the Save dialog through the guarded IPC (window.branchDesktop.exportConversation,
+   branch:export-conversation, #362), stood in for here. */
+test("Export conversation saves Markdown to Library › Documents, and hands the desktop app the JSON archive (the new window)", async (t) => {
   const f = await fixture(t);
-  await openConversation(f.page, f.sourceId);
-  await f.page.locator('[data-act="chatmenu"]').first().click();
-  const download = f.page.waitForEvent("download");
-  await f.page.locator('#app > .pop [data-act="export-conv"]').click();
-  const file = await download, path = join(f.root, 'conversation.json');
-  await file.saveAs(path);
-  assert.match(file.suggestedFilename(), /\.json$/);
-  const archive = JSON.parse(await readFile(path, 'utf8'));
+  const documents = () => f.page.evaluate(async () => (await (await fetch('/api/documents', {
+    headers: { authorization: 'Bearer ' + sessionStorage.getItem('branch-token') } })).json()).documents ?? []);
+  const exportIt = async () => {
+    await openConversation(f.page, f.sourceId);
+    await f.page.locator('[data-act="chatmenu"]').first().click();
+    await f.page.locator('#app > .pop [data-act="export-conv"]').click();
+    await f.page.locator('.toast').filter({ hasText: 'Saved as Markdown to Library › Documents.' }).waitFor({ timeout: 30000 });
+  };
+  let downloads = 0; f.page.on('download', () => downloads++);
+  const before = (await documents()).length;
+  await exportIt();
+  const docs = await documents();
+  assert.equal(docs.length, before + 1, 'one document is added');
+  assert.ok(docs.some((d) => d.name === `conversation-${f.sourceId.slice(0, 8)}.md`), 'the Markdown copy is in Library › Documents');
+  assert.equal(downloads, 0, 'the browser downloads nothing');
+  /* The desktop app's preload, stood in for: it records what the window hands the guarded export. */
+  await f.page.addInitScript(() => { window.__handed = []; window.branchDesktop = Object.freeze({ exportConversation: async (text) => { window.__handed.push(text); return { saved: true }; } }); });
+  await f.page.reload(); await f.page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
+  await exportIt();
+  await f.page.waitForFunction(() => window.__handed.length === 1, null, { timeout: 15000 });
+  const archive = JSON.parse(await f.page.evaluate(() => window.__handed[0]));
   assert.equal(archive.format, 'branch-agent-conversation');
   assert.deepEqual(archive.messages, f.app.store.messages(f.sourceId));
   assert.equal(JSON.stringify(f.app.store.sessionView('local', f.sourceId)), f.original, 'exporting changes nothing');
@@ -198,8 +214,14 @@ test('pending send blocks saved conversation switching, duplicate, and file impo
   /* Redesign: the design lets a person move between conversations while one works (rows show "Working"), and has no
      import (replaced by the new window). Carrying the source on while its answer is pending is still refused: read now,
      asserted last. */
+  /* While searching, the results stand in the list's place (as the prototype's do), so no row says which conversation is
+     open: the engine's refusal is waited for, the dialog closed and the search cleared before the open row is read. */
   const carry = await pastSession(f.page, 'Juniper', f.sourceId).then(async (button) => {
-    await button.evaluate(b => b.click()); return currentId(f.page);
+    await button.evaluate(b => b.click());
+    await f.page.locator('.toast').filter({ hasText: "Wait for this conversation's active task" }).waitFor({ timeout: 10000 });
+    await f.page.getByRole('button', { name: 'Close', exact: true }).first().click();
+    await f.page.locator('#side [data-act="sq-clear"]').click();
+    return currentId(f.page);
   }).catch(error => error.message);
   release.resolve(); await ready(f.page);
   await f.page.locator('#conversation').getByText('finished', { exact: true }).waitFor({ timeout: 30000 });

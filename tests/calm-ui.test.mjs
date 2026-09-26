@@ -811,6 +811,37 @@ test("every menu and popover closes on its own button, on Escape and on a click 
   assert.deepEqual(f.errors, []);
 });
 
+/* bugfix-10: the window redraws a region by replacing its markup, so a redraw can land while a popover is open and replace
+   its button. The button drawn in its place says the popover is open, and pressing it closes the popover (the prototype's
+   popovers close on their own button). The redraw is forced here the way the window's own draws do it. */
+test("a popover whose button a redraw replaced closes when that button is pressed (the new window)", async (t) => {
+  const f = await fixture(t, { onboarded: true });
+  await f.page.locator("#prompt").fill("hello");
+  await f.page.locator("#send").click();
+  await f.page.locator("#conversation .b").first().waitFor({ timeout: 30000 });
+  await f.page.waitForFunction(() => !document.getElementById("send").disabled);
+  for (const [label, trigger] of [["the + in the message box", '#composer [data-act="plusmenu"]'], ["New", '#side [data-act="newmenu"]'], ["the model chip", '#composer [data-act="modelmenu2"]']]) {
+    const button = f.page.locator(trigger);
+    await button.click();
+    await f.page.locator("#app > .pop").waitFor({ state: "visible", timeout: 5000 });
+    const replaced = await f.page.evaluate(async (sel) => {
+      const before = document.querySelector(sel);
+      const main = document.querySelector("#main");
+      main.replaceChild(main.firstElementChild.cloneNode(true), main.firstElementChild);
+      const { renderNow } = await import("/app/core/dom.js");
+      renderNow();
+      return before !== document.querySelector(sel);
+    }, trigger);
+    assert.equal(replaced, true, `${label}: the redraw replaced its button`);
+    assert.equal(await button.getAttribute("aria-expanded"), "true", `${label}: the button drawn in its place says it is open`);
+    await button.click();
+    await f.page.waitForTimeout(300);
+    assert.equal(await f.page.locator("#app > .pop").count(), 0, `${label}: pressing that button again closes the popover`);
+    assert.notEqual(await button.getAttribute("aria-expanded"), "true", `${label}: and it no longer says it is open`);
+  }
+  assert.deepEqual(f.errors, []);
+});
+
 // Redesign: replaced by the new window (More, the Ctrl+K box and the full window's menus); the + menu and the side panel are
 // checked in the new window's version above.
 test.skip("every menu and popover closes on its own button, on Escape and on a click elsewhere, and one at a time", async (t) => {

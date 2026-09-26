@@ -58,18 +58,12 @@ async function branchButton(page, text) {
 }
 async function branchFrom(page, text) {
   await (await branchButton(page, text)).click({ timeout: 10000 });
-  // Redesign: "Branch from here" now opens pass 17's dialog. After it opens, press the "Start the new path" button.
+  /* Redesign: "Branch from here" opens pass 17's dialog; "Start the new path" (data-act="brmake17c") makes it. The dialog
+     closes once the engine made the path; when the engine refuses, its reason is a toast and the dialog stays open. */
   const dlg = page.locator(".dlg");
   await dlg.waitFor({ timeout: 10000 });
-  // Click the button that creates the branch (data-act="brmake17c")
   await dlg.locator('[data-act="brmake17c"]').click();
-  // Wait for the dialog to close. This happens either when the branch is created successfully
-  // or when an error occurs (the error is shown as a toast). Give it up to 15 seconds.
-  const closed = await dlg.waitFor({ state: "hidden", timeout: 15000 }).then(() => true).catch(() => false);
-  if (!closed) {
-    // If dialog didn't close, close it manually by clicking the X button
-    await dlg.getByRole("button", { name: /close/i }).click().catch(() => {});
-  }
+  await page.waitForFunction(() => !document.querySelector(".dlg") || document.querySelector(".toast"), null, { timeout: 15000 });
 }
 async function readyConversation(page) {
   await page.waitForFunction(() => !document.getElementById('send').disabled);
@@ -209,6 +203,8 @@ test('a rejected historical tool-request branch leaves the current conversation 
   await openConversation(f.page, run.sessionId, 'Unsafe checkpoint');
   await branchFrom(f.page, 'Unsafe checkpoint');
   await f.page.locator('.toast').filter({ hasText: 'without tool requests' }).waitFor();
+  assert.equal(await f.page.locator('.dlg').isVisible(), true, 'the refused dialog stays open with its reason');
+  await f.page.locator('.dlg [data-act="dlg-close"]').first().click();
   await readyConversation(f.page);
   assert.equal(await currentId(f.page), run.sessionId, 'the conversation shown is unchanged');
   assert.match(await f.page.locator('#conversation').innerText(), /Unsafe checkpoint/);

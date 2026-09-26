@@ -472,9 +472,13 @@ test("D1 comparing two tasks shows both sets of figures and the difference betwe
   // The compare table has Cost, Time, Rounds, and Tools used
   for (const wanted of ["Cost", "Time", "Rounds", "Tools used"])
     assert.ok(labels.includes(wanted), `${wanted} is compared (${labels.join(", ")})`);
-  /* Both answers differ on one line and agree on the other. The diff shows removed lines with "- " and added with "+ ". */
-  const diffText = await dlg.locator("pre.diff6").textContent();
-  assert.ok(diffText.includes("- ") || diffText.includes("+ "), "the diff shows differences between the answers");
+  /* Both answers differ on one line and agree on the other: the older line is marked gone, the newer one added, and the
+     line both share is marked neither. */
+  const gone = await dlg.locator("pre.diff6 .d-del").allTextContents();
+  const added = await dlg.locator("pre.diff6 .d-add").allTextContents();
+  assert.deepEqual(gone, ["- The first answer for apples."], "the first answer's own line is marked gone");
+  assert.deepEqual(added, ["+ The second answer for apples."], "the second answer's own line is marked added");
+  assert.ok((await dlg.locator("pre.diff6").textContent()).includes("  Same line in both."), "the shared line is shown unmarked");
   await dlg.getByRole("button", { name: /Done/ }).click();
   await dlg.waitFor({ state: "hidden", timeout: 5000 });
   assert.deepEqual(errors, []);

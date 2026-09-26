@@ -161,8 +161,9 @@ test("the model chip opens a real model picker without leaving the conversation"
   assert.equal(await menu.getByRole("menuitem", { name: /Accounts and order/ }).isVisible(), true);
   await menu.locator('[data-act="pick-model"]').first().click();
   await page.keyboard.press("Escape");
-  // Redesign: check #scroll instead of #conversation, because the empty screen has no thread now.
-  assert.equal(await page.locator("#scroll").isVisible(), true, "the conversation is still what is shown");
+  /* Before the first message no conversation is open (the new window shows its empty screen); the picker opens none. */
+  assert.equal(await page.locator(".empty-chat").isVisible(), true, "the new conversation's screen is still what is shown");
+  assert.equal(await page.locator('#side [data-act="chat"][aria-current="true"]').count(), 0, "no conversation was opened");
   said.push((await chip.locator(".lbl").innerText()).trim());
   await page.locator("#prompt").fill("Start a conversation");
   await page.locator("#send").click();
@@ -180,6 +181,8 @@ test("the model chip opens a real model picker without leaving the conversation"
   await page.keyboard.press("Escape");
   await page.waitForTimeout(4_000);
   assert.equal(await model(), "alternate", "refresh keeps this conversation's model");
+  assert.equal(await page.locator('#side [data-act="chat"][aria-current="true"]').getAttribute("data-id"), sessionId, "the picker left this conversation open");
+  assert.equal(await page.locator("#conversation").isVisible(), true, "the conversation is still what is shown");
   said.push((await chip.locator(".lbl").innerText()).trim());
   await chip.click();
   await menu.locator('[data-act="pick-model"]').first().click();
