@@ -64,6 +64,7 @@ async function alwaysAllow(page, ctx) {
   await locked.waitFor({ state: "visible", timeout: 30000 });
   check("Always allow under Lockdown: not offered", (await locked.getByRole("button", { name: "Always allow", exact: true }).count()) === 0);
   await locked.getByRole("button", { name: "Don’t allow", exact: true }).click();
+  await until("the refusal", async () => !(await api("policy")).waiting.some((q) => q.target === "locked.txt"));
   await api("lockdown", { on: false });
   await page.reload();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 30000 });
