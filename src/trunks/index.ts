@@ -253,7 +253,7 @@ export class Trunks {
     return trunk;
   }
   private introduce(trunk: Trunk): void {
-    const work = this.deps.runtime.run({ prompt: introPrompt, sessionId: trunk.chatSessionId, onTextDelta: () => undefined })
+    const work = this.deps.runtime.run({ prompt: introPrompt, system: "trunk-intro", sessionId: trunk.chatSessionId, onTextDelta: () => undefined })
       .then((run) => {
         if (run.status !== "completed")
           this.store.message(trunk.chatSessionId, { role: "assistant", content: `Hello, I am ${trunk.name}${trunk.title ? `, ${trunk.title}` : ""}.` });
