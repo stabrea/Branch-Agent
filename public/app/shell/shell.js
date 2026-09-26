@@ -197,7 +197,7 @@ export function initShell() {
   on("chat", (el) => { closePop(); if (el.dataset.id === "new") return run("new-trunk", el); if (el.dataset.id) openConversation(el.dataset.id); else { S.view = "chat"; renderNow(); } });
   on("newconv", () => { closePop(); startConversation(); });
   // New room and New group chat both open the room dialog, which makes the room (flows/trunk.js grp-new, POST /api/trunks/rooms).
-  on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", binding("newConversation") ? `<kbd>${esc(spoken(binding("newConversation")))}</kbd>` : "") + mi("new-trunk", "plus", "New Trunk") + mi("grp-new", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"') + mi("grp-new", "users", "New group chat", "people, Trunks, agents") + quickItem()));
+  on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", binding("newConversation") ? `<kbd>${esc(spoken(binding("newConversation")))}</kbd>` : "") + mi("new-trunk", "plus", "New Trunk") + mi("grp-new", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"') + mi("ptab", "star", "A Trunk from a job…", "", 'data-place="customize" data-v="trunks"') + mi("grp-new", "users", "New group chat", "people, Trunks, agents") + mi("mk-new", "spark", "Have Branch make a Trunk") + quickItem()));
   on("places14", () => { S.placesShut = !S.placesShut; save(); renderNow(); });
   on("themeset", (el) => setTheme(el.dataset.v === "system" ? null : el.dataset.v));
   on("theme-flip", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));

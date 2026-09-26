@@ -15,6 +15,7 @@ import { recBar, initRec } from "./rec.js";
 import { binding } from "../shell/keys.js";
 import { checkpointRows, initCheckpoints } from "./checkpoints.js";
 import { selfCard, loadSelfChange, initSelfChange } from "./selfchange.js";
+import { mkCard, initMkTrunk } from "./mktrunk.js";
 import { teachBar, teachAdopt, initTeach } from "./teach.js";
 import { findBar, applyFind, initFind } from "./find.js";
 import { initToolsHub } from "./toolshub.js";
@@ -103,7 +104,7 @@ function thread() {
   const rows = C.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.from !== "branch" && !enginePrompt(m)).map((m) => {
     const who = m.role === "assistant" ? authorOf(m, index.get(m), info) : null;
     const first = lastRole !== "assistant" || (who?.id ?? null) !== (lastWho?.id ?? null);
-    const html = m.role === "user" ? droppedNote(m, C.messages) + user(m) : bot(m, first, who, info) + checkpointRows(m, C.messages) + selfCard(m, C.messages);
+    const html = m.role === "user" ? droppedNote(m, C.messages) + user(m) : bot(m, first, who, info) + checkpointRows(m, C.messages) + selfCard(m, C.messages) + mkCard(m);
     lastRole = m.role;
     lastWho = who;
     return marks.before(m) + html + marks.after(m);
@@ -457,6 +458,7 @@ export function init() {
   initRec();
   initCheckpoints();
   initSelfChange();
+  initMkTrunk();
   initTeach({ start: startConversation });
   initSteer();
   initSwitched();

@@ -2,9 +2,9 @@
 
 Each of the 453 actions in BRANCH-DESIGN-INTENT.md Appendix A, checked against the engine at `redesign/window` (engine code as on trunk ecc91c16).
 
-- **engine** (194): the engine does it; wire it to the route given.
-- **window** (185): window-only; no engine needed.
-- **soon** (22): the engine can't do it yet; drawn greyed out ("Coming soon").
+- **engine** (196): the engine does it; wire it to the route given.
+- **window** (187): window-only; no engine needed.
+- **soon** (18): the engine can't do it yet; drawn greyed out ("Coming soon").
 - **proto** (10): prototype scaffolding; not built into the real window.
 - **offscope** (42): the phone app or keepoak.com; not in this window.
 
@@ -206,10 +206,10 @@ The "why" column says when a control is only partly backed (a variant the engine
 | `grp-new` | A.7 | window |  |  | Opens the new group chat dialog; window-only. |
 | `grp-pick` | A.7 | window |  |  | Picks members in the dialog; sent on grp-make. The 'Agents on other computers' chips have no engine form (RoomCreateSchema takes Trunk and person ids only) and should be drawn as Coming soon. |
 | `grp-rule` | A.7 | engine | POST /api/trunks/rooms {rule}; POST /api/trunks/rooms/{id} {rule} | eng-trunk-controls: src/trunks/rooms.ts RoomCreateSchema/RoomEditSchema rule; src/trunks/room-plan.ts firstResponders | mention (the default, as before: @mentioned members answer, nobody mentioned means everyone), lead (the first Trunk seated that is not paused answers and brings others in by @name; members the owner names still answer), all (everyone, every time). Also set from the room menu's Room rules. |
-| `mk-create` | A.7 | soon |  | @0cc2b299 src/trunks/index.ts:220 | Makes the Trunk Branch proposed. No proposal ever exists: no tool lets the assistant propose or create a Trunk (the only caller of trunks.create outside the owner's route is the update keeper in src/update-fix.ts). The Appendix row's 'leaf-burst animation' undersells it; the prototype makes the Trunk. |
-| `mk-go` | A.7 | soon |  | @0cc2b299 src/trunks/index.ts:220 | 'Have Branch make a Trunk' needs Branch to answer with a structured proposal (name, face, tools, computer, schedule). No such tool or route; sending the words as a chat message would get prose, not a proposal. |
-| `mk-new` | A.7 | soon |  | @0cc2b299 src/trunks/index.ts:220 | Opens a dialog whose only action (mk-go) the engine cannot do, so the + menu entry is drawn as Coming soon. The owner's own 'New Trunk' (POST /api/trunks) and templates (tmpl) stay live. |
-| `mk-no` | A.7 | soon |  | @0cc2b299 src/trunks/index.ts:220 | Declines a Trunk proposal, which the engine never makes (see mk-go). |
+| `mk-create` | A.7 | engine | POST /api/trunks {name, title, description} | bugfix-9: src/trunks/propose.ts trunk.propose; public/app/chat/mktrunk.js | Makes the Trunk Branch proposed with the trunk.propose tool, with exactly the fields the proposal holds, as the owner's own create. "Change it first" (mk-change) makes it the same way and opens its editor. |
+| `mk-go` | A.7 | engine | POST /api/run {prompt: "Make me a Trunk: …"} | bugfix-9: src/trunks/propose.ts | Starts a real task in a new conversation; Branch answers with the trunk.propose tool (name, title, description, why), which makes nothing. A proposal holds no tools, computer or schedule, so the card draws Name and Job only and the dialog's hint keeps only "Nothing is made until you say so." |
+| `mk-new` | A.7 | window |  |  | Opens the prototype's dialog; its action (mk-go) starts the real task. |
+| `mk-no` | A.7 | window |  |  | Puts the proposal card away; nothing was made, so nothing is undone. |
 | `pat15` | A.7 | engine | POST /api/orchestration {pattern}; GET /api/state orchestration.pattern; per room POST /api/trunks/rooms/{id} {pattern} | eng-trunk-controls: src/orchestration.ts OrchestrationSettingsSchema.pattern; src/team-pattern.ts; src/runtime.ts patternAside | auto (default) leaves it to Branch, so no card is checked; one, super, swarm, router, parallel are followed, and a multi-worker tool of another way waits for the owner's own yes (an approval card). Teams has no engine form and stays greyed. A room may override (null follows the owner). |
 | `st-anim` | A.7 | engine | POST /api/trunks/{id} | @0cc2b299 src/trunks/api.ts:124; public/settings-trunks.js:84; src/trunks/look.ts:17 | Saved as look.motion. Engine motions are none, breathe, sway, shimmer, pulse, dots: 'bob' is not one; map it to sway or offer the engine's list. |
 | `st-colour` | A.7 | engine | POST /api/trunks/{id} | @0cc2b299 src/trunks/api.ts:124; public/settings-trunks.js:84; src/trunks/record.ts:42 | A swatch hex is saved as chosenColour (lower-case #rrggbb); a series colour as look.colour. |
