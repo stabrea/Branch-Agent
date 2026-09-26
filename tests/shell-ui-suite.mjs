@@ -206,7 +206,8 @@ test("an ordinary conversation assigned to a Trunk updates the shell target", as
   const row = f.page.locator(`#side .list [data-act="chat"][data-id="${trunk.chatSessionId}"]`);
   await row.waitFor({ timeout: 30000 });
   await row.click();
-  await f.page.locator(".head .who > b").filter({ hasText: "Ada" }).first().waitFor();
+  // Redesign: the header's name is its accessible heading now (the owner took the visible name out of the title-bar row).
+  await f.page.locator('.titlebar .head .who[role="heading"] > b').filter({ hasText: "Ada" }).first().waitFor({ state: "attached" });
   assert.deepEqual(f.errors, []);
 });
 
