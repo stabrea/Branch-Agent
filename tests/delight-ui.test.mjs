@@ -126,8 +126,15 @@ function watchTimers() {
   }
 }
 
-test("off by default: no pet, no own background, no achievements, and their choices waiting in Settings", async (t) => {
+// The owner's rule (Q251, 2026-09-26, #327): the pet, achievements and your own background ship on; switched off,
+// nothing of delight is drawn, asked for or ticking, and their choices wait in Settings.
+test("they ship on, and switched off there is no pet, no own background, no achievements, and their choices wait in Settings", async (t) => {
   const f = await fixture(t, { init: watchTimers });
+  const shipped = (await f.call("/api/delight")).settings;
+  assert.deepEqual([shipped.pets.on, shipped.achievements.on, shipped.background.on], [true, true, true], "each ships on");
+  await f.call("/api/delight/settings", { pets: { on: false }, achievements: { on: false }, background: { on: false } });
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   const asked = [];
   f.page.on("request", (request) => { if (/\/api\/delight\/(achievements|noticed)/.test(request.url())) asked.push(new URL(request.url()).pathname); });
   await f.call("/api/run", { prompt: "one" });
@@ -136,7 +143,7 @@ test("off by default: no pet, no own background, no achievements, and their choi
   assert.equal(await f.page.locator("#bgLayer .bg-media").count(), 0);
   assert.equal(await f.page.locator(".ach-toast, .ach-big").count(), 0);
   const settings = (await f.call("/api/delight")).settings;
-  assert.deepEqual([settings.pets.on, settings.achievements.on, settings.background.on], [false, false, false], "each ships off");
+  assert.deepEqual([settings.pets.on, settings.achievements.on, settings.background.on], [false, false, false], "each is off once switched off");
   await openSettingsPage(f.page, "appearance");
   assert.equal(await f.page.locator('[data-act="petset"][data-v="none"]').first().getAttribute("aria-pressed"), "true", "the pet waits in Appearance");
   assert.equal(await f.page.locator('[data-act="bgset"][data-v="own"]').getAttribute("aria-pressed"), "false", "your own background waits in Appearance");
