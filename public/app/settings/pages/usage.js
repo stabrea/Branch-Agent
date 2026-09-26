@@ -10,6 +10,8 @@ import { api } from "../../core/api.js";
 import { toast, openDlg, ic } from "../../core/ui.js";
 import { esc, renderNow } from "../../core/dom.js";
 import { statusBox } from "../parts.js";
+import { seg15 } from "../rows15.js";
+import { logo } from "../../core/logos.js";
 
 let usage = null;
 let range = "30";
@@ -93,17 +95,83 @@ function evalCard() {
   <div class="acts" data-css="margin-top:8px"><button class="btn" type="button" data-act="eval-run" ${running || !suiteId ? "disabled" : ""}>${lastRun ? "Run again" : "Run the test"}</button></div></div>`;
 }
 
-const LIMITS_EMPTY = `<div class="sec"><h2>What each connection has left</h2></div>`;
+/* ---------- What each connection has left (GET /api/usage/glance), 1:1 with the status bar's list ---------- */
+let glance = null;
+let limits = null;
+const CHIP = { measured: '<span class="pill ok">Measured</span>', estimated: '<span class="pill warn">Estimate</span>', not_published: '<span class="pill idle">Not published</span>' };
+const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-const KEEPING = `<div class="sec"><h2>Keeping things</h2><div class="ctl"><b>Keep conversations</b><span class="right"><span class="seg" role="group" aria-label="Keep conversations"><button type="button" aria-pressed="false" data-act="seg">30 days</button><button type="button" aria-pressed="false" data-act="seg">1 year</button><button type="button" aria-pressed="false" data-act="seg">Forever</button></span></span><small>Older ones are deleted for good.</small></div><div class="ctl"><b>Checkpoints</b><span class="right"><button class="btn sm" type="button" data-act="toast">See all</button></span><small>Kept before a Trunk changes files. Put any of them back.</small></div></div>`;
+function windowRow(w, estimated) {
+  if (w.kind === "money" || !w.limit || w.remaining == null) return `<div class="lim-w"><span>${esc(w.title)}</span><span></span><span>${w.remaining == null ? "" : esc(String(w.remaining))}</span></div>`;
+  const pct = Math.max(0, Math.min(100, Math.round((w.remaining / w.limit) * 100)));
+  return `<div class="lim-w"><span>${esc(w.title)}</span><span class="lim-bar ${estimated ? "est" : ""}"><i data-css="width:${pct}%;${pct < 15 ? "background:var(--warn)" : ""}"></i></span><span>${pct}% left${w.resetAt ? " · resets " + esc(clock(w.resetAt)) : ""}</span></div>`;
+}
+
+function limitRow(r) {
+  const body = (r.windows ?? []).map((w) => windowRow(w, w.state === "estimated")).join("") + `<small>${esc(r.note)}</small>`;
+  return `<div class="lim">${logo(r.connection, r.connectionName, 28)}<div><div class="lim-h"><b>${esc(r.connectionName)}</b><span class="muted">${esc(r.accountLabel ?? "")}</span>${CHIP[r.state] ?? ""}${r.inUse ? '<span class="pill ok">used next</span>' : ""}</div>${body}</div></div>`;
+}
+
+async function loadGlance() {
+  const [g, l] = await Promise.all(["usage/glance", "usage/limits/settings"].map((path) => api(path).catch((error) => { toast(error.message); return null; })));
+  glance = g; limits = l?.usageLimits ?? null;
+  renderNow();
+}
+
+/* The ring and the save-progress offer (POST /api/usage/glance/settings, merged) and asking a service what is left
+   (POST /api/usage/limits/settings, a three-way switch: on unless "off", turned on as "when-needed"). The tray has no
+   route, and "Show me" only plays the prototype's demo, so both stay greyed. */
+const WIRES = {
+  "u-ring": [() => glance?.settings?.ring === "shown", (on) => api("usage/glance/settings", { ring: on ? "shown" : "hidden" })],
+  "u-ckpt": [() => glance?.settings?.saveProgress === "ask", (on) => api("usage/glance/settings", { saveProgress: on ? "ask" : "off" })],
+  "u-ask": [() => Boolean(limits?.mode) && limits.mode !== "off", (on) => api("usage/limits/settings", { mode: on ? "when-needed" : "off" })],
+};
+const checked = (id) => (WIRES[id][0]() ? "checked" : "");
+
+function limitsSec() {
+  return `<div class="sec"><h2>What each connection has left</h2><p class="hint" data-css="margin:0 0 6px">How much of each service’s allowance is still there: one row per connection, one row per account. Every figure arrived on traffic Branch was already sending.</p><div class="lims flat">${(glance?.rows ?? []).map(limitRow).join("")}</div>
+    <div class="ctl"><b>The ring bottom right</b><input class="sw" type="checkbox" id="u-ring" ${checked("u-ring")} aria-label="Show the ring" data-sw="ring"><small>The connection used next, how much of its window is left, and when it refills.</small></div>
+    <div class="ctl"><b>Offer to save progress at 95%</b><input class="sw" type="checkbox" id="u-ckpt" ${checked("u-ckpt")} aria-label="Offer to save progress at 95%" data-sw="ckpt"><small>It only asks, once per connection per window, and never for an estimate. <button class="link" type="button" data-act="ckpt-demo">Show me</button></small></div>
+    <div class="ctl"><b>Asking a service what is left</b><input class="sw" type="checkbox" id="u-ask" ${checked("u-ask")} aria-label="Asking a service what is left" data-sw="set"><small>Only OpenRouter documents a way to ask. Off until you switch it on. Subscriptions are never asked.</small></div>
+    <div class="ctl"><b>Show usage in the tray</b><input class="sw" type="checkbox" id="u-tray" aria-label="Show usage in the tray" data-sw="set"><small>A small ring by the clock opens the same list.</small></div></div>`;
+}
+
+/* Spend by Trunk: the engine keeps no spend per Trunk, so no bars are drawn; the month's total is the engine's. */
+function spendSec() {
+  const month = glance?.month?.pricedRuns ? `<p class="hint">This month: $${Number(glance.month.cost).toFixed(2)}. Plans are billed by their own sites; work on this computer is free.</p>` : "";
+  return `<div class="sec"><h2>Spend, last 7 days</h2><div class="bars"></div>${month}</div>`;
+}
+
+/* Keeping conversations deletes older ones for good, and checkpoints have no list here yet, so both stay greyed; the
+   pressed choice is the engine's own retention setting (GET /api/retention). */
+let retention = null;
+function keeping() {
+  const r = retention;
+  const cur = !r ? null : !r.enabled || !r.keepDays ? "forever" : r.keepDays === 30 ? "30" : r.keepDays === 365 ? "365" : null;
+  return `<div class="sec"><h2>Keeping things</h2>${seg15("Keep conversations", "Older ones are deleted for good.", [["30", "30 days"], ["365", "1 year"], ["forever", "Forever"]], cur)}<div class="ctl"><b>Checkpoints</b><span class="right"><button class="btn sm" type="button" data-act="soon">See all</button></span><small>Kept before a Trunk changes files. Put any of them back.</small></div></div>`;
+}
+
+async function loadRetention() {
+  try { retention = (await api("retention")).settings ?? null; } catch (error) { toast(error.message); }
+  renderNow();
+}
 
 export function draw() {
-  return `<h1>Data &amp; usage</h1><p class="lede">What each connection has left, what Branch spent, what it keeps.</p>` + reportCard() + LIMITS_EMPTY + KEEPING + evalCard();
+  return `<h1>Data &amp; usage</h1><p class="lede">What each connection has left, what Branch spent, what it keeps.</p>` + reportCard() + limitsSec() + spendSec() + keeping() + evalCard();
 }
 
 export function init() {
   loadUsage();
   loadSuites();
+  loadGlance();
+  loadRetention();
+  markLive(Object.keys(WIRES).map((id) => "sw:" + id));
+  document.addEventListener("change", async (e) => {
+    const wire = WIRES[e.target.id];
+    if (!wire) return;
+    try { await wire[1](e.target.checked); } catch (error) { toast(error.message); }
+    await loadGlance();
+  });
   on("rep15", (el) => { range = el.dataset.v; loadUsage(); });
   on("repopen15", () => openReport());
   on("eval-set", (el) => { if (running) return; suiteId = el.dataset.v; lastRun = null; loadLastRun(); });
@@ -111,6 +179,6 @@ export function init() {
   markLive(["rep15", "repopen15", "eval-set", "eval-run"]);
 }
 
-export function load() { loadSuites(); return loadUsage(); }
+export function load() { loadSuites(); loadGlance(); loadRetention(); return loadUsage(); }
 
 export const live = { "rep15": true, "repopen15": true, "eval-set": true, "eval-run": true };

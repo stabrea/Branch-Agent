@@ -50,7 +50,56 @@ const SWITCHES = [
   ["developer", f15("Flow search"), interop("flow-search")],
   ["developer", f15("Send metrics with OpenTelemetry"), async () => onMode((await api("usage/counters")).counters.mode)],
   ["developer", f15("Is Branch keeping up"), async () => onMode((await api("event-loop")).settings.mode)],
+  ["gateway", f15("Pause a chat app from the chat"), async () => onMode((await api("reach")).modes["platform-pause"])],
+  ["gateway", f15("Send files into chats"), async () => onMode((await api("personal")).modes["chat-files"])],
+  ["usage", "u-ring", async () => (await api("usage/glance/settings")).settings.ring === "shown"],
+  ["usage", "u-ckpt", async () => (await api("usage/glance/settings")).settings.saveProgress === "ask"],
+  ["usage", "u-ask", async () => onMode((await api("usage/limits/settings")).usageLimits.mode)],
+  ["advanced", "ad-think", async () => (await api("knobs")).values.reasoning.showReasoning === true],
+  ["advanced", "ad-log", async () => onMode((await api("diagnostics/log/settings")).mode)],
 ];
+
+/* Branch itself › Updating itself: each choice is the engine's update setting. */
+async function updatingItself(page) {
+  await openPage(page, "self");
+  const was = (await api("comfort")).values.notify.autoUpdate;
+  for (const v of ["install", "check", "off", was]) {
+    await page.locator(`[data-act="self-upd"][data-v="${v}"]`).click();
+    await settle(page, 1200);
+    const now = (await api("comfort")).values.notify.autoUpdate;
+    check(`self-upd ${v}: the engine's update setting`, now === v, now);
+    check(`self-upd ${v}: pressed as the engine says`, (await page.locator(`[data-act="self-upd"][data-v="${v}"]`).getAttribute("aria-pressed")) === "true");
+  }
+}
+
+/* Branch itself › Every change › Roll back: a change made through the engine is listed and undone. */
+async function rollBack(page) {
+  await api("event-loop", { mode: "when-needed" });
+  await openPage(page, "general");
+  await openPage(page, "self");
+  const newest = (await api("settings-kit/history")).records[0];
+  const button = page.locator(`[data-act="self-rollback"][data-id="${newest.id}"]`);
+  check("self-rollback: the newest change is listed with Roll back", (await button.count()) === 1, newest.detail);
+  await button.click();
+  await settle(page, 1500);
+  const after = (await api("settings-kit/history")).records.find((r) => r.id === newest.id);
+  check("self-rollback: the engine undid that change", Boolean(after?.undoneBy), after?.undoneBy ?? "not undone");
+  check("self-rollback: the setting is back as it was", !onMode((await api("event-loop")).settings.mode));
+}
+
+/* Saved sign-ins › Remove: a sign-in written through the engine is listed, and Remove takes it off the engine's list. */
+async function removeSignIn(page) {
+  await api("vault-autofill/settings", { logins: [{ name: "verify-one", site: "one.example", item: "verify one" }, { name: "verify-two", site: "two.example", item: "verify two" }] });
+  await openPage(page, "general");
+  await openPage(page, "secrets");
+  const names = await page.locator('.set-col [data-act="secret-rm"]').evaluateAll((els) => els.map((e) => e.dataset.name));
+  check("secrets: the engine's sign-ins are listed", names.join("|") === "verify-one|verify-two", names.join("|"));
+  await page.locator('[data-act="secret-rm"][data-name="verify-one"]').click();
+  await settle(page, 1200);
+  const left = (await api("vault-autofill/settings")).logins.map((l) => l.name);
+  check("secret-rm: the engine no longer lists it, and keeps the other", left.join("|") === "verify-two", left.join("|"));
+  await api("vault-autofill/settings", { logins: [] });
+}
 
 async function flip(page, pageId, id, engine) {
   const box = page.locator(`#${id}`);
@@ -93,6 +142,9 @@ async function copyAddress(page) {
       await flip(page, pageId, id, engine);
     }
     await copyAddress(page);
+    await updatingItself(page);
+    await rollBack(page);
+    await removeSignIn(page);
   } catch (e) { check("script finished", false, e.message); }
   check("no page errors", errors.length === 0, errors.join(" | "));
   await browser.close();
