@@ -15,8 +15,8 @@ import { logo } from "../core/logos.js";
 import { t } from "../../i18n.js";
 
 const N = 8;
-const TEMPLATES = [["Inbox Manager", "Clears your inbox and drafts replies in your voice", "#4F6FA8"], ["Expense Manager", "Files receipts and builds monthly reports", "#D8612A"],
-  ["Researcher", "Reads the web and writes short briefs with sources", "#2F8C86"], ["Chief of Staff", "Plans your week and chases loose ends", "#56616B"]];
+const TEMPLATES = [["Inbox Manager", "Clears your inbox and drafts replies in your voice", "#4F6FA8", 0], ["Expense Manager", "Files receipts and builds monthly reports", "#D8612A", 2],
+  ["Researcher", "Reads the web and writes short briefs with sources", "#2F8C86", 1], ["Chief of Staff", "Plans your week and chases loose ends", "#56616B", 3]];
 const F = { step: null, pick: "", accounts: [], channels: [], gw: "off", upd: "off" };
 
 const hero = () => `<span class="mark mark-full hero-mark" aria-hidden="true"></span><h1>Hi, I’m Branch.</h1><p class="lede">I work on this computer, for you. A few quick choices and you’re done.</p><div class="acts"><button class="btn pri" type="button" data-act="fr-next">Let’s start</button><button class="btn ghost" type="button" data-act="fr-skip">Skip for now</button></div>`;
@@ -38,7 +38,7 @@ function recs() {
   return `<h1>Two things we recommend</h1><div class="ways" data-css="grid-template-columns:1fr">${row("gw", "Keep your Trunks running when Branch is closed", "The gateway keeps Telegram, your phone and automations working, and restarts Branch if it stops.", F.gw === "on")}${row("upd", "Keep Branch up to date by itself", "Waits until nothing is running and keeps a safety copy first.", F.upd === "install")}</div><div class="acts"><button class="btn pri" type="button" data-act="fr-recs">Next</button></div>`;
 }
 function trunk() {
-  const tmpl = ([n, x, col], i) => `<button class="way" type="button" data-act="fr-tmpl" data-i="${i}"><span data-css="display:flex;align-items:center;gap:10px">${av({ kind: "trunk", color: col }, 30)}<b>${esc(n)}</b></span><small>${esc(x)}</small></button>`;
+  const tmpl = ([n, x, col, sh], i) => `<button class="way" type="button" data-act="fr-tmpl" data-i="${i}"><span data-css="display:flex;align-items:center;gap:10px">${av({ kind: "trunk", color: col, shape: sh }, 30)}<b>${esc(n)}</b></span><small>${esc(x)}</small></button>`;
   return `<h1>Meet your first Trunk</h1><p class="lede">A Trunk is an assistant with one job. Pick one; you can make more later.</p><div class="ways">${TEMPLATES.map(tmpl).join("")}</div>`;
 }
 const done = () => `<h1>All set.</h1><p class="lede">${esc(F.pick || "Your Trunk")} is ready. Things to try:</p><ul class="steps-list"><li><b>Ctrl K</b> finds anything.</li></ul><div class="acts"><button class="btn pri" type="button" data-act="fr-tour">Take the 2-minute tour</button><button class="btn" type="button" data-act="fr-skip">Open Branch</button></div>`;

@@ -54,7 +54,7 @@ function trunksTab() {
   const rows = E.trunks.map((t) => `<div class="prow">${av(face(t), 36)}<span class="grow"><b>${esc(t.name)}${t.paused ? " · paused" : ""}</b><small>${esc(t.title ?? "")}</small></span>
     <button class="btn sm" type="button" data-act="edit" data-id="${esc(t.id)}">Edit</button>
     <button class="btn ghost sm" type="button" data-act="pausetrunk" data-id="${esc(t.id)}">${t.paused ? "Resume" : "Pause"}</button></div>`).join("");
-  const jobs = TEMPLATES.map(([n, x, col], i) => `<div class="tile"><div class="th">${av({ name: n, color: col }, 34)}<b>${esc(n)}</b></div><p>${esc(x)}</p><div class="acts"><button class="btn sm" type="button" data-act="tmpl" data-i="${i}">Use this job</button></div></div>`).join("");
+  const jobs = TEMPLATES.map(([n, x, col, sh], i) => `<div class="tile"><div class="th">${av({ name: n, color: col, shape: sh }, 34)}<b>${esc(n)}</b></div><p>${esc(x)}</p><div class="acts"><button class="btn sm" type="button" data-act="tmpl" data-i="${i}">Use this job</button></div></div>`).join("");
   return `<div class="rows"><div class="acts" data-css="margin:6px 0 4px"><button class="btn pri" type="button" data-act="chat" data-id="new">${ic('plus', 's')}A new Trunk</button>
     <button class="btn" type="button" data-act="grp-new">${ic('room', 's')}A new room</button></div>${rows}
     <div class="sec"><h2>Start from a job</h2><div class="grid2">${jobs}</div></div></div>`;
