@@ -31,24 +31,14 @@ export const askKey = (part: AskPart): string => `asks-${part}`;
 export const askShipsOn: Partial<Record<AskPart, AskMode>> = {
   // The owner's rule (ships on, 2026-09-26): putting a flow or schedule under a project is a label on this computer; none of (a)–(f).
   "project-board": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): the same web search and page reading research already does, answered by the configured model; none of (a)–(f).
-  "answer-engine": "when-needed",
   // The owner's rule (ships on, 2026-09-26): an answer kept as a page stays in Library; nothing is put online; none of (a)–(f).
   "answer-pages": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): web search and the configured model, written into the workspace, only when asked; none of (a)–(f).
-  "article-writer": "when-needed",
   // The owner's rule (ships on, 2026-09-26): routes only the intents the owner names, by words on this computer unless they add the model stage; none of (a)–(f).
   "intent-pipeline": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): nothing is counted without the owner's yes, and counts go only to an address of their own; none of (a)–(f).
-  analytics: "when-needed",
   // The owner's rule (ships on, 2026-09-26): a page refreshes only once the owner pins it, and only through calls the rules allow outright; none of (a)–(f).
   "live-surfaces": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): calls go out only to computers the owner adds, with keys they gave; nothing comes in; none of (a)–(f).
-  nodes: "when-needed",
-  // The owner's rule (ships on, 2026-09-26): standard input and output of a `branch app-server` the owner starts; nothing listens; none of (a)–(f).
-  "app-server": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): a runtime answers only after the owner adds a program already on this computer and picks it; none of (a)–(f).
-  runtimes: "when-needed",
+  // Kept off, by the owner's rule (off for spending, sending, outside access, heavy disk): answer-engine and analytics send data out (a search provider, usage counts); article-writer and runtimes spend;
+  // nodes and app-server let the outside in (an outside client can answer approvals).
 };
 
 /** What each part is, in the owner's words, for the card and for a refusal. */

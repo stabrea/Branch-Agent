@@ -36,14 +36,8 @@ export const interopShipsOn: Partial<Record<InteropPart, InteropMode>> = {
   modes: "when-needed",
   // The owner's rule (ships on, 2026-09-26): scores the owner's projects on words, and only the owner switches; none of (a)–(f).
   "project-routing": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): one view of what is working, through the doors that exist, to assistants the owner added; none of (a)–(f).
-  fleet: "when-needed",
-  // The owner's rule (ships on, 2026-09-26): the tool reaches a terminal or an assistant the owner added; a device link is only the owner's window's; none of (a)–(f).
-  handoff: "when-needed",
-  // The owner's rule (ships on, 2026-09-26): bounded tries on the configured model; nothing is saved unless the owner asks; none of (a)–(f).
-  "flow-search": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): browsing installs nothing, bringing in is the owner's pick and cannot widen, publishing only writes a folder; none of (a)–(f).
-  "agent-market": "when-needed",
+  // Kept off, by the owner's rule (off for spending, sending, outside access, heavy disk): fleet and handoff reach assistants and devices outside this task; flow-search spends on repeated model
+  // tries; agent-market brings in outside content.
 };
 
 /** What each part is, in the owner's words, for the card and for a refusal. */

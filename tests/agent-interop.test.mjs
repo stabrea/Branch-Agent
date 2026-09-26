@@ -45,8 +45,9 @@ const taskContext = (app, prompt = "a task", permissions) => {
 
 test("bucket 20 ships off: no part answers and none of its tools is in the catalog until switched on", async (t) => {
   const f = await fixture(t);
-  // The owner's rule (ships on, 2026-09-26): only the Agent Protocol and lent tools (each a door in from outside) ship off.
-  const ships = { "agent-protocol": "off", "client-tools": "off" };
+  // The owner's rule (ships on, 2026-09-26): what reaches outside this task (the Agent Protocol, lent tools, the fleet,
+  // handing on, the market) and what spends (flow search) ship off; the rest ship "when needed".
+  const ships = { "agent-protocol": "off", "client-tools": "off", fleet: "off", handoff: "off", "flow-search": "off", "agent-market": "off" };
   assert.deepEqual(f.app.interop.modesOf(), Object.fromEntries(interopParts.map((part) => [part, ships[part] ?? "when-needed"])));
   for (const part of interopParts) f.on(part, "off");
   const all = Object.values(interopTools).flat();
@@ -231,9 +232,8 @@ test("A0146 fleet: one picture of what is working, and stop spares the task that
 test("A0319 a conversation is handed to another device with a short-lived key, or to a terminal", async (t) => {
   const f = await fixture(t, () => say("hi"), { server: true });
   const run = await f.app.runtime.run({ prompt: "start here" });
-  // The owner's rule (ships on, 2026-09-26): handing on ships "when needed"; "off" is tested by switching it off.
-  assert.equal(f.app.interop.modesOf().handoff, "when-needed");
-  f.on("handoff", "off");
+  // The owner's rule: handing on reaches another device or terminal, so it ships off.
+  assert.equal(f.app.interop.modesOf().handoff, "off");
   assert.equal((await f.http("/api/interop/handoff", { body: { sessionId: run.sessionId, to: "device" } })).status, 409, "off until switched on");
   f.on("handoff");
   const made = await (await f.http("/api/interop/handoff", { body: { sessionId: run.sessionId, to: "device", minutes: 10 } })).json();

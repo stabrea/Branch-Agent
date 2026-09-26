@@ -10,7 +10,7 @@
  * - `surfaces`: where it can be typed;
  * - `legacy`: where it already worked before this table existed. Those keep working whatever the
  *   owner's switch says; everywhere else the command follows the switch in `settings.ts`, which
- *   ships "when needed": the command works when typed, and the lists show only the everyday ones;
+ *   ships off, so a fresh install behaves exactly as it did;
  * - `level`: what the key (or chat sender) must be allowed: look, start tasks, or be the owner.
  *   `bareLooks` marks a command that only reads when typed on its own (`/lockdown` says whether
  *   Lockdown is on; `/lockdown on` changes it);

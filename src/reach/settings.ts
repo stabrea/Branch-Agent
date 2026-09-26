@@ -37,18 +37,12 @@ export const reachKey = (part: ReachPart): string => `reach-${part}`;
  * messages into chat apps, and the owner's rule keeps sending off until the owner turns it on).
  */
 export const reachShipsOn: Partial<Record<ReachPart, ReachMode>> = {
-  // The owner's rule (ships on, 2026-09-26): only the computers the owner added, through a fixed set of read views and two actions; nothing comes in; none of (a)–(f).
-  machines: "when-needed",
   // The owner's rule (ships on, 2026-09-26): pausing a chat app is the owner's alone and only quietens Branch; none of (a)–(f).
   "platform-pause": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): a bundle is looked at or brought in only when the owner asks, every skill arriving switched off; none of (a)–(f).
-  "skill-bundles": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): a USB rule starts nothing until the owner makes and switches it on; the minute look only reads the device list; none of (a)–(f).
-  usb: "when-needed",
   // The owner's rule (ships on, 2026-09-26): notes stay in Branch's database, and a rewrite is a suggestion from the configured model; none of (a)–(f).
   notes: "when-needed",
-  // The owner's rule (ships on, 2026-09-26): the arena asks two of the owner's own model connections, only when the owner asks; none of (a)–(f).
-  arena: "when-needed",
+  // Kept off, by the owner's rule (off for spending, sending, outside access, heavy disk): machines reaches other computers; skill-bundles brings in outside content; a plugged USB device starts
+  // tasks; arena spends on two model connections at once.
 };
 
 /** What each part is, in the owner's words, for the card and for a refusal. */

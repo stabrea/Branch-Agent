@@ -40,7 +40,7 @@ test("every part ships off: its tools are not offered, and it refuses in one sen
   const { app, store } = await scratchApp(t);
   // The owner's rule (ships on, 2026-09-26): these ship "when needed"; the rest stay off for the reasons in
   // src/reach/settings.ts. What "off" does is tested by switching every part off.
-  const shipsOn = ["machines", "platform-pause", "skill-bundles", "usb", "notes", "arena"]; // send stays off: it sends
+  const shipsOn = ["platform-pause", "notes"]; // the rest stay off for the reasons in src/reach/settings.ts
   assert.deepEqual(app.reachParts.modes(), Object.fromEntries(reachParts.map((part) => [part, shipsOn.includes(part) ? "when-needed" : "off"])));
   for (const part of reachParts) await app.reachParts.setMode(part, { mode: "off" });
   const names = new Set(app.registry.names());
@@ -84,7 +84,7 @@ test("R17-076: other computers are asked only fixed routes, with their key fille
     { id: "old", name: "Old laptop", address: "https://down.example", secret: "OLD_KEY", labels: [] },
   ];
   const window = new MachineWindow(store, owner, { list: () => machines }, fetcher, async (name) => `key-of-${name}`);
-  off(store, "machines"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
+  off(store, "machines"); // ships off; switched off explicitly all the same
   await assert.rejects(window.look({ machine: "gpu", view: "health" }), /switched off/);
   on(store, "machines");
   assert.deepEqual(window.list().map((m) => Object.keys(m).sort()), [["address", "id", "labels", "name"], ["address", "id", "labels", "name"]]);
@@ -410,7 +410,7 @@ test("R17-083: skill bundles are written, looked at, and brought in switched off
   const { app, root, store } = await scratchApp(t);
   const installed = store.skills.install(owner, { document: skill("bundle-me").document });
   const bundles = new SkillBundles({ store, owner, files: app.files, policy: allow, fetcher: async () => { throw new Error("no network"); } });
-  off(store, "skill-bundles"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
+  off(store, "skill-bundles"); // ships off; switched off explicitly all the same
   await assert.rejects(bundles.write({ name: "Mine", skills: [installed.id], path: "b/mine.branch-skills" }), /switched off/);
   on(store, "skill-bundles");
   await bundles.write({ name: "Mine", skills: [installed.id], path: "b/mine.branch-skills" });
@@ -455,7 +455,7 @@ test("R17-084: USB devices are read from ioreg and /sys, and a task starts only 
   let clock = 1_000_000;
   const started = [];
   const usb = new UsbTrigger({ store, owner, list: async () => { listed++; return plugged; }, start: async (prompt, label) => { started.push({ prompt, label }); }, now: () => clock });
-  off(store, "usb"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
+  off(store, "usb"); // ships off; switched off explicitly all the same
   assert.deepEqual(await usb.tick(), []);
   assert.equal(listed, 0, "nothing is looked at while off");
   on(store, "usb");

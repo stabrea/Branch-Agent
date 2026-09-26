@@ -43,8 +43,6 @@ const codingShipsOn: Partial<Record<CodingPart, CodingMode>> = {
   "shell-snapshot": "when-needed",
   // The owner's rule (ships on, 2026-09-26): an @ reads through the ordinary tools and the task's own permissions; none of (a)–(f).
   mentions: "when-needed",
-  // The owner's rule (ships on, 2026-09-26): a copy is made only when a conversation is forked, and removed only when it provably holds nothing; none of (a)–(f).
-  worktrees: "when-needed",
   // The owner's rule (ships on, 2026-09-26): /init writes AGENTS.md only when there is none, otherwise it proposes; none of (a)–(f).
   init: "when-needed",
   // The owner's rule (ships on, 2026-09-26): only writes the lines the owner pastes into their own workflow; no key is in them; none of (a)–(f).
@@ -59,6 +57,7 @@ const codingShipsOn: Partial<Record<CodingPart, CodingMode>> = {
   notebooks: "when-needed",
   // The owner's rule (ships on, 2026-09-26): checks run only when asked, each by a helper that may only read; none of (a)–(f).
   "review-checks": "when-needed",
+  // Kept off, by the owner's rule (off for spending, sending, outside access, heavy disk): worktrees puts a whole git worktree on disk for every forked conversation (heavy disk).
 };
 
 /** What each part is, in the owner's words, for the card and for a refusal. */
