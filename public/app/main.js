@@ -2,8 +2,8 @@
    view into #main; the shell draws the sidebar, title-bar actions and status bar. */
 
 import { $, onRender, render, renderNow, paint } from "./core/dom.js";
-import { S, E, loadSaved, refresh } from "./core/state.js";
-import { stream, link } from "./core/api.js";
+import { S, E, loadSaved, refresh, activeId } from "./core/state.js";
+import { api, stream, link } from "./core/api.js";
 import { listen, on } from "./core/actions.js";
 import { listenTips, closePop, closeDlg } from "./core/ui.js";
 import { greyOut } from "./core/features.js";
@@ -11,11 +11,23 @@ import { VIEWS } from "./views.js";
 import { drawShell, initShell } from "./shell/shell.js";
 import { showSignIn } from "./shell/signin.js";
 
+/* A place draws its own <main class="main" id="main">; inside the shell's #main that would be a second main and a second
+   #main, so it becomes a <div> with the same classes and children (the styles are by class). */
+function unnest(main) {
+  const inner = main?.querySelector(":scope > main");
+  if (!inner) return;
+  const box = document.createElement("div");
+  box.className = inner.className;
+  box.append(...inner.childNodes);
+  inner.replaceWith(box);
+}
+
 /* The focused control, and a text field's caret, are kept across redraws by core/dom.js for every region. */
 function drawMain() {
   const main = $("#main");
   const draw = VIEWS[S.view] ?? VIEWS.chat;
   paint(main, draw());
+  unnest(main);
   greyOut(main);
   VIEWS.after?.[S.view]?.(main);
 }
@@ -57,6 +69,22 @@ async function connect(refusal = "") {
     clearTimeout(queued);
     queued = setTimeout(() => refresh().then(render, () => {}), 250);
   });
+  watchPerson();
+}
+
+/* Who is using Branch can change from anywhere (a switch through POST /api/profiles/switch sends no event), so the window
+   asks GET /api/profiles every two seconds. When the person changes, the window starts again from nothing: no editor,
+   dialog or page the last person had open stays on screen or in memory, and every page is read again as the new person.
+   The session token is kept for the tab, so the window comes straight back. */
+function watchPerson() {
+  let known = E.profiles ? activeId() : undefined;
+  setInterval(async () => {
+    const now = await api("profiles").catch(() => undefined);
+    if (now === undefined) return;
+    const id = now?.active?.id ?? null;
+    if (known === undefined) known = id;
+    else if (id !== known) location.reload();
+  }, 2000);
 }
 
 boot();
