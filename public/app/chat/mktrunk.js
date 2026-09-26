@@ -14,6 +14,7 @@ import { on, run } from "../core/actions.js";
 import { av, openDlg, closeDlg, closePop, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { startWith } from "./chat.js";
+import { t } from "../../i18n.js";
 
 /* Proposals drawn so far by their call id, the calls being made now, and the ones put away. */
 const MK = { seen: new Map(), busy: new Set(), no: new Set() };
@@ -29,11 +30,11 @@ function proposals(m) {
 }
 
 function card(p) {
-  const made = E.trunks.find((t) => t.name === p.name);
-  if (made) return `<div class="card"><div class="card-h"><b>${esc(p.name)} is made</b><span class="pill done ml"><i></i>Ready</span></div><p data-css="margin:0">It’s in your list. Say hello, or change anything in Customize › Trunks.</p><div class="acts"><button class="btn sm" type="button" data-act="chat" data-id="${esc(made.chatSessionId)}">Open ${esc(p.name)}</button></div></div>`;
+  const made = E.trunks.find((tr) => tr.name === p.name), name = esc(p.name);
+  if (made) return `<div class="card"><div class="card-h"><b>${t("window.chat.mktrunk.made", { name })}</b><span class="pill done ml"><i></i>${t("window.chat.mktrunk.ready")}</span></div><p data-css="margin:0">${t("window.chat.mktrunk.made-body")}</p><div class="acts"><button class="btn sm" type="button" data-act="chat" data-id="${esc(made.chatSessionId)}">${t("window.chat.mktrunk.open", { name })}</button></div></div>`;
   const off = MK.busy.has(p.id) ? " disabled" : "", job = p.description || p.title, id = `data-id="${esc(p.id)}"`;
-  return `<div class="card mk10"><div class="card-h"><b>A new Trunk, proposed</b><span class="pill work ml"><i></i>Needs you</span></div><div class="mk10-b">${av({ name: p.name }, 56)}<dl class="kv"><dt>Name</dt><dd>${esc(p.name)}</dd>${job ? `<dt>Job</dt><dd>${esc(job)}</dd>` : ""}</dl></div>
-    <div class="acts"><button class="btn pri sm" type="button" data-act="mk-create" ${id}${off}>Make ${esc(p.name)}</button><button class="btn sm" type="button" data-act="mk-change" ${id}${off}>Change it first</button><button class="btn ghost sm" type="button" data-act="mk-no" ${id}>No thanks</button></div></div>`;
+  return `<div class="card mk10"><div class="card-h"><b>${t("window.chat.mktrunk.proposed")}</b><span class="pill work ml"><i></i>${t("window.chat.mktrunk.needs-you")}</span></div><div class="mk10-b">${av({ name: p.name }, 56)}<dl class="kv"><dt>${t("window.chat.mktrunk.name")}</dt><dd>${name}</dd>${job ? `<dt>${t("window.chat.mktrunk.job")}</dt><dd>${esc(job)}</dd>` : ""}</dl></div>
+    <div class="acts"><button class="btn pri sm" type="button" data-act="mk-create" ${id}${off}>${t("window.chat.mktrunk.make", { name })}</button><button class="btn sm" type="button" data-act="mk-change" ${id}${off}>${t("window.chat.mktrunk.change")}</button><button class="btn ghost sm" type="button" data-act="mk-no" ${id}>${t("window.chat.mktrunk.no")}</button></div></div>`;
 }
 
 /* The cards under a reply that called trunk.propose; none once the owner said No thanks. */
@@ -45,8 +46,8 @@ export function mkCard(m) {
 
 function newDlg() {
   closePop();
-  openDlg({ title: "Have Branch make a Trunk", body: '<label class="fld"><span>What should it take on?</span><textarea class="inp" id="mk-what" rows="3" placeholder="Watch my subscriptions and tell me before anything renews."></textarea></label><p class="hint">Nothing is made until you say so.</p>',
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="mk-go">Propose it</button>' });
+  openDlg({ title: t("window.chat.mktrunk.title"), body: `<label class="fld"><span>${t("window.chat.mktrunk.what")}</span><textarea class="inp" id="mk-what" rows="3" placeholder="${esc(t("window.chat.mktrunk.what-hint"))}"></textarea></label><p class="hint">${t("window.chat.mktrunk.nothing-made")}</p>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("window.chat.mktrunk.cancel")}</button><button class="btn pri" type="button" data-act="mk-go">${t("window.chat.mktrunk.propose")}</button>` });
 }
 
 /* The owner's words only: an empty box sends nothing (the placeholder is a hint, never the ask). */
@@ -54,7 +55,7 @@ async function propose() {
   const what = ($("#mk-what")?.value ?? "").trim();
   if (!what) { $("#mk-what")?.focus(); return; }
   closeDlg();
-  await startWith(`Make me a Trunk: ${what}`);
+  await startWith(t("window.chat.mktrunk.ask", { what }));
 }
 
 async function make(id, thenEdit) {
@@ -65,7 +66,7 @@ async function make(id, thenEdit) {
   try {
     const { trunk } = await api("trunks", { name: p.name, title: p.title, description: p.description });
     await refresh();
-    toast(`${trunk.name} is ready.`);
+    toast(t("window.flows.trunk.ready", { name: trunk.name }));
     if (thenEdit) { const b = document.createElement("button"); b.dataset.id = trunk.id; run("edit", b); }
   } catch (error) { toast(error.message); }
   MK.busy.delete(id);
