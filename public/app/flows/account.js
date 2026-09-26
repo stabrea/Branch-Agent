@@ -13,6 +13,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
 import { t } from "../../i18n.js";
+import { localPicker, initLocalPick } from "./localpick.js";
 
 /* ---------- the engine's list, shared by Settings › Accounts and Models ---------- */
 export const A = { view: null, catalog: null };
@@ -111,7 +112,7 @@ function step1() {
   return `<p data-css="margin:0 0 10px">${t("window.flows.acct.which-service", { count: all.length })}</p>
     <div class="aa-top12"><label class="set-search" data-css="margin:0;flex:1">${ic("search", "s")}<input id="aa-q" value="${esc(W.q)}" placeholder="${t("window.flows.acct.search")}" aria-label="${t("window.flows.acct.search")}" autocomplete="off"></label></div>
     <div class="tabs aa-tabs12">${GROUPS.map(([g, l]) => `<button class="tab" type="button" aria-selected="${W.group === g}" data-act="aa-grp" data-v="${g}">${t(l)}</button>`).join("")}</div>
-    <div class="aa-list12">${listHtml(all) || `<p class="empty">${t("window.flows.acct.no-match")}</p>`}</div>`;
+    <div class="aa-list12">${W.group === "local" ? localPicker() + listHtml(all) : listHtml(all) || `<p class="empty">${t("window.flows.acct.no-match")}</p>`}</div>`;
 }
 
 /* What a catalogue service asks for besides the key (src/provider-catalog.ts extras), in the engine's words: a fixed
@@ -294,6 +295,7 @@ function onSearch(e) {
 export function openAddAcct(pool = null) { return open(pool); }
 
 export function init() {
+  initLocalPick();
   markLive(["sw:aa-q", "sw:aa-key", "sw:aa-name", "sw:aaextra", "signin", "addacct", "aa-prov", "aa-back", "aa-done", "aa-key", "aa-grp", "aa-nm", "aa-tr", "aa-pos", "aa-local", "aa-gone", "acct-menu", "acct-first", "acct-out"]);
   on("addacct", (el) => open(el.dataset.v || null));
   on("aa-prov", (el) => pick(el.dataset.v));
