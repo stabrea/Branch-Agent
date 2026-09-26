@@ -3537,3 +3537,8 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .app.rail9 .side .machine>svg{display:none}
 /* Focus mode steps the list aside entirely, its edge too */
 .app.focus .side>.resizer{visibility:hidden}
+
+/* area: window-perf — the pet walks by transform (shell/scene.js placePet), so a step moves it without laying the window out */
+.keeper .petbox{transition:transform .32s linear}
+/* area: window-perf — a face scrolled out of its list is held still (core/still.js); it moves again as it comes into view */
+.av.still-perf,.av.still-perf *{animation-play-state:paused!important}
