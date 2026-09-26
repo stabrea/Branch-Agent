@@ -116,7 +116,7 @@ export function draw() {
 
   } else if (tab === "triggers") {
     html += `<p class="hint" data-css="margin:4px 0 8px">Work that starts when something happens.</p>
-    <form class="nl" data-form="nl"><input class="inp" id="nl-in" placeholder="Describe it: &quot;when a PDF lands in Downloads, summarise it&quot;" aria-label="Describe a new automation"><button class="btn pri soon" type="submit" disabled aria-disabled="true" data-tip="Coming soon">Add</button></form>
+    <form class="nl" data-form="nl"><input class="inp soon" id="nl-in" placeholder="Describe it: &quot;when a PDF lands in Downloads, summarise it&quot;" aria-label="Describe a new automation" disabled aria-disabled="true" data-tip="Coming soon"><button class="btn pri soon" type="submit" disabled aria-disabled="true" data-tip="Coming soon">Add</button></form>
     <div class="rows" data-css="margin-top:8px">${triggers.length ? triggers.map((t, i) => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(t.name ?? '')}</b><small>${esc(t.prompt ?? '')}</small></span><input class="sw" type="checkbox" id="auto-triggers-${i}" data-sw="trigger" data-id="${esc(t.id || '')}" ${t.enabled ? 'checked=""' : ''} aria-label="${esc(t.name ?? '')} on or off"></div>`).join('') : ''}</div>`;
 
     markLive(triggers.map((_, i) => `sw:auto-triggers-${i}`));

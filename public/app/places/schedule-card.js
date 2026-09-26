@@ -12,7 +12,7 @@ import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
 
 const DAYN = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-const cap1 = (s) => s[0].toUpperCase() + s.slice(1);
+const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 let P = null; // { proposal, what, days, day, time }
 
@@ -99,7 +99,7 @@ async function confirm() {
 }
 
 export function initScheduleCard() {
-  markLive(["nl-add", "ppset17d", "ppno17d", "ppok17d", "sw:pp-what17d", "sw:pp-time17d"]);
+  markLive(["nl-add", "sw:nl-in", "ppset17d", "ppno17d", "ppok17d", "sw:pp-what17d", "sw:pp-time17d"]);
   on("nl-add", () => proposeWords());
   on("ppset17d", (el) => {
     if (!P) return;
