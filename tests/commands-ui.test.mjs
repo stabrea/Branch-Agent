@@ -70,9 +70,7 @@ test("a command runs without reaching the model, and a place command opens the p
   assert.equal(lockdownState(app.store, app.runtime.owner).on, true);
   await page.locator("#prompt").fill("/go library memory");
   await submit(page);
-  await answered(page, "Opening library:memory.");
-  // WINDOW BUG: public/app/chat/chat.js command() ignores the engine's client action ({do:"go", home:"library:memory"}),
-  // so the answer says "Opening library:memory." and the conversation stays.
+  // As in the prototype, a place command opens the place at once and says nothing there (the lead, 2026-09-26).
   await page.locator('#main [data-act="ptab"][data-place="library"][data-v="memory"][aria-selected="true"]').waitFor({ timeout: 10000 });
   assert.equal(provider.calls, 0, "no command reached the model");
   assert.deepEqual(errors, []);
