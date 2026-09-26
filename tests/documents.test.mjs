@@ -20,6 +20,7 @@ async function fixture(t, provider) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
     ...(provider ? { provider } : {}),
   });
+  app.coding.setMode("read-first", "off"); // read-first ships on (Q250); these tests are about documents, not reading first
   t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, workspace: join(root, "workspace") };
 }

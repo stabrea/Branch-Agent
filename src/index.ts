@@ -233,6 +233,7 @@ import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; //
 import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
 import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
 import { Personal } from "./personal/index.js"; // R17-C: files, voice, devices and personal connectors
+import { unsetConnectorTools } from "./personal/settings.js"; // ships-on sweep
 import { Reach } from "./reach/index.js"; // r17-i: reach and platform
 import { platformRunners } from "./reach/host.js"; // r17-i
 import { trunkRoster } from "./reach/trunk-roster.js"; // r17-i
@@ -262,11 +263,24 @@ import { ReadFirstGuard } from "./coding/read-first.js"; // mac7/coding-next
 import { allowedForThisRun, projectTestsVerdict } from "./coding/project-tests.js"; // mac7/coding-next, mac7/tests-unattended
 import { codingOn } from "./coding/settings.js"; // mac7/coding-next
 
+/**
+ * The scripted test fixture (src/demo.ts), and only while Node's test runner runs this process: `node --test` sets
+ * NODE_TEST_CONTEXT in every test file's process, which is the fixture flag here. It keeps the hundreds of tests that
+ * open Branch without naming a model working. Branch itself (`branch start`, the desktop app) always passes its
+ * presets, even an empty list, so it never reaches this and never meets a made-up model.
+ */
+function testFixturePresets(): ModelPreset[] {
+  return process.env.NODE_TEST_CONTEXT ? [defaultPreset(new DemoProvider())] : [];
+}
+
 export async function createBranch(options: {
   workspace: string;
   dataDir: string;
   provider?: Provider;
-  /** Named model presets; the first is the default. Overrides `provider`. */
+  /**
+   * Named model presets; the first is the default. Overrides `provider`. An empty list, or neither this nor
+   * `provider`, means no model is set up yet: every request is refused in plain words until one is added.
+   */
   presets?: ModelPreset[];
   /** ChatGPT account sign-in; when present and signed in, ChatGPT presets are registered. */
   chatgpt?: ChatGPTAuth;
@@ -366,7 +380,7 @@ export async function createBranch(options: {
   // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
   files.scope = () => worktreeScope() ?? store.projects.active(options.owner ?? "local").folder;
   registry.pathScope = () => files.scope(); // integration (hardening-3): folder rules see the path from the workspace too
-  // mac7/coding-next: read before edit (src/coding/read-first.ts), the owner's switch, off as shipped.
+  // mac7/coding-next: read before edit (src/coding/read-first.ts), the owner's switch, on as shipped (Q250).
   const readFirst = new ReadFirstGuard(() => codingOn(store, options.owner ?? "local", "read-first"));
   files.readFirst = readFirst;
   registry.afterWrites = (context) => readFirst.settle(context.runId);
@@ -498,7 +512,7 @@ export async function createBranch(options: {
   // The page half is filled in later, if and when a browser is configured for this launch.
   const computer: ComputerLayers = { window: desktop };
   registerComputer(registry, computer);
-  const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
+  const presets = options.presets ?? (options.provider ? [defaultPreset(options.provider)] : testFixturePresets());
   const runtime = new Runtime(
     store,
     registry,
@@ -1166,6 +1180,7 @@ export async function createBranch(options: {
   // ── end mac7/nodes ──
   // ── r17-b: suggestions, standing orders, loops, self-starting procedures (src/autonomy/). Every part ships off. ──
   const autonomy = new Autonomy({ runtime, registry, scheduler, chats: channels, handoff: interop.handoffParts,
+    unsetTools: () => unsetConnectorTools(store, runtime.owner), // ships-on sweep: listed is not connected
     hasSecret: (name) => {
       try { return store.secrets.list(runtime.owner, store.projects.active(runtime.owner).id).some((entry) => entry.name === name); } catch { return false; }
     } });
@@ -1197,8 +1212,12 @@ export async function createBranch(options: {
     const owned = trunks.trunkForConversation(sessionId);
     const trunk = owned ? trunks.records.find(owned.trunkId) : undefined;
     return trunk && !trunk.reach.channels.includes(channel) // whatever the switch says, reach only narrows
-      ? `${trunk.name} does not answer on ${channel}. The owner can allow it under Customize → Trunks.` : null;
+      ? `${trunk.name} does not answer on ${channel}. The owner can allow it under Customize → Trunks.`
+      : trunks.pausedForConversation(sessionId, "it did not answer"); // eng-trunk-controls
   };
+  // eng-trunk-controls: a trigger or a standing order aimed at a paused Trunk's conversation does not start, and says why.
+  triggers.held = (sessionId) => trunks.pausedForConversation(sessionId, "this trigger did not start anything");
+  autonomy.runner.sessionHeld = (sessionId) => trunks.pausedForConversation(sessionId, "this did not start");
   // ── end R17-A ──
   // ── mac7/r17-d: coding polish (src/coding/). Every part ships off. ──
   const coding = new Coding({ runtime, registry, files, servers: languageServers, git, gitRun });
@@ -1767,6 +1786,7 @@ export * from "./tool-index.js";
 export * from "./tool-usage.js";
 export * from "./runtime.js";
 export * from "./demo.js";
+export * from "./no-model.js";
 export * from "./providers.js";
 export * from "./knowledge.js";
 export * from "./memory.js";

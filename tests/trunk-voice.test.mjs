@@ -106,10 +106,18 @@ test("voice in conversation info: /api/trunks/conversations includes Trunk voice
   assert.equal(infoResult.body.trunk.voice, "Australian", "voice in TrunkBrief");
 });
 
-test("in the window: a Trunk's answer is read in its voice, chosen in the studio; any other answer in yours", async (t) => {
+test.skip("in the window: a Trunk's answer is read in its voice, chosen in the studio; any other answer in yours", async (t) => {
+  // Redesign: replaced by the new window (prototype.html's Trunk editor has Look and What it may do, with no Voice field or
+  // "Hear it", and its replies have no "Read aloud"; Settings › Voice keeps the one voice answers are read in).
   const root = await mkdtemp(join(tmpdir(), "branch-trunk-voice-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: brain([]) });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   on(app);
@@ -129,7 +137,7 @@ test("in the window: a Trunk's answer is read in its voice, chosen in the studio
   await page.goto(server.url + "/");
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
 
   // The studio: a Voice field with its own sentence, from your list, saved with the Trunk.
   await openPlace(page, "customize:specialists");

@@ -47,7 +47,7 @@ async function windowFixture(t, { width = 1440, height = 950 } = {}) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("body.lx-ready").waitFor({ state: "attached" });
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => Boolean(globalThis.branchTopicPanes));
   errors.length = 0; // whatever the login page failed at is not this feature's business
   return { app, page, context, errors };
@@ -55,7 +55,83 @@ async function windowFixture(t, { width = 1440, height = 950 } = {}) {
 
 /* ---------------------------------------------------------------- wired into the product */
 
-test("More → Go to opens Compare topics side by side, and adding a topic through the picker shows its own messages", async (t) => {
+/* ---------------------------------------------------------------- the new window */
+/* Redesign: "Compare topics side by side" is replaced by the prototype's "Open another conversation beside" in the
+   conversation's menu (public/app/chat/beside.js): one other conversation read with GET /api/sessions/{id}, drawn next
+   to the open one on a wide window, with Open and a close button. What is still proved: each side shows only its own
+   conversation's messages, even when an earlier read settles last. */
+async function newWindow(t) {
+  const { app, root } = await world(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  // The first-run card (#323) takes every click; these tests are about the conversation beside.
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); });
+  return { app, server, browser };
+}
+async function signIn(f) {
+  const page = await f.browser.newPage({ viewport: { width: 1440, height: 950 }, serviceWorkers: "block" });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(f.server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  return { page, errors };
+}
+async function openBeside(page, id) {
+  await page.locator('[data-act="chatmenu"]').first().click();
+  await page.locator('.pop [data-act="beside15"]:not([data-v])').click();
+  await page.locator(`.pop [data-act="beside15"][data-v="${id}"]`).click();
+}
+
+test("the conversation menu opens another conversation beside, and each side shows only its own messages", async (t) => {
+  const f = await newWindow(t);
+  const cherries = seedTopic(f.app, "cherries");
+  const plums = seedTopic(f.app, "plums");
+  const { page, errors } = await signIn(f);
+  await page.locator(`#side [data-act="chat"][data-id="${plums}"]`).click();
+  await page.locator("#conversation").getByText("Here is what I know about plums.").waitFor();
+  await openBeside(page, cherries);
+  const aside = page.locator("aside.beside15");
+  await aside.getByText("Here is what I know about cherries.").waitFor();
+  assert.doesNotMatch(await aside.locator(".bs-body15").innerText(), /plums/, "the cherries side never shows the plums conversation");
+  assert.doesNotMatch(await page.locator("#conversation").innerText(), /cherries/, "and the open one never shows cherries");
+  await aside.getByRole("button", { name: "Close the conversation beside" }).click();
+  await aside.waitFor({ state: "detached" });
+  assert.match(await page.locator("#conversation").innerText(), /plums/, "closing it leaves the open conversation as it was");
+  assert.deepEqual(errors, []);
+});
+
+test("the conversation beside keeps its own messages when the one picked before it is read last", async (t) => {
+  const f = await newWindow(t);
+  const cherries = seedTopic(f.app, "cherries");
+  const pears = seedTopic(f.app, "pears");
+  const plums = seedTopic(f.app, "plums");
+  const { page, errors } = await signIn(f);
+  // The cherries conversation is read well after the pears one, so a late answer for an earlier pick would land in
+  // (or wipe) the conversation now beside.
+  await page.route(`**/api/sessions/${cherries}`, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.continue();
+  });
+  await page.locator(`#side [data-act="chat"][data-id="${plums}"]`).click();
+  await page.locator("#conversation").getByText("Here is what I know about plums.").waitFor();
+  await openBeside(page, cherries);
+  await openBeside(page, pears);
+  const aside = page.locator("aside.beside15");
+  await aside.getByText("Here is what I know about pears.").waitFor();
+  await page.waitForTimeout(2500); // the cherries answer has come back by now
+  // WINDOW BUG: public/app/chat/beside.js load() keeps whichever read comes back last (V.id/V.messages), so the late
+  // cherries answer replaces pears and the side beside goes blank.
+  const text = await aside.locator(".bs-body15").innerText();
+  assert.match(text, /Here is what I know about pears\./, "the conversation beside still shows its own messages");
+  assert.doesNotMatch(text, /cherries/, "and never the earlier pick's");
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the prototype has no compare sheet; one conversation opens beside the other from the conversation menu, checked above).
+test.skip("More → Go to opens Compare topics side by side, and adding a topic through the picker shows its own messages", async (t) => {
   const f = await windowFixture(t);
   const cherries = seedTopic(f.app, "cherries");
   seedTopic(f.app, "plums"); // a second, unrelated topic that must never appear in the cherries column
@@ -77,7 +153,8 @@ test("More → Go to opens Compare topics side by side, and adding a topic throu
 
 /* ---------------------------------------------------------------- messages stay with the right topic */
 
-test("two topics side by side keep their own messages even when the slower one's read finishes last", async (t) => {
+// Redesign: replaced by the new window (the prototype has no compare sheet; one conversation opens beside the other from the conversation menu, checked above).
+test.skip("two topics side by side keep their own messages even when the slower one's read finishes last", async (t) => {
   const f = await windowFixture(t);
   const cherries = seedTopic(f.app, "cherries");
   const plums = seedTopic(f.app, "plums");
@@ -132,7 +209,8 @@ test("two topics side by side keep their own messages even when the slower one's
 
 /* ---------------------------------------------------------------- Escape closes only the sheet */
 
-test("with the floating side pane open, one Escape closes only the compare sheet and the keyboard goes back to where it was", async (t) => {
+// Redesign: replaced by the new window (no compare sheet or floating side pane with its own Escape in the prototype; the conversation beside is checked above).
+test.skip("with the floating side pane open, one Escape closes only the compare sheet and the keyboard goes back to where it was", async (t) => {
   const f = await windowFixture(t, { width: 1000, height: 900 }); // narrow enough that the side pane floats
   const cherries = seedTopic(f.app, "cherries");
   await f.page.locator("#aside-toggle").click();
@@ -161,7 +239,8 @@ test("with the floating side pane open, one Escape closes only the compare sheet
 
 /* ---------------------------------------------------------------- Escape closes only the picker */
 
-test("with the sheet open, Escape in the picker closes only the picker and focus returns to the Add button", async (t) => {
+// Redesign: replaced by the new window (no compare sheet or floating side pane with its own Escape in the prototype; the conversation beside is checked above).
+test.skip("with the sheet open, Escape in the picker closes only the picker and focus returns to the Add button", async (t) => {
   const f = await windowFixture(t, { width: 1000, height: 900 });
   const cherries = seedTopic(f.app, "cherries");
   seedTopic(f.app, "plums");
@@ -190,7 +269,8 @@ test("with the sheet open, Escape in the picker closes only the picker and focus
   assert.deepEqual(f.errors, []);
 });
 
-test("after a click on the sheet's heading, Escape closes the sheet and leaves the floating side pane open", async (t) => {
+// Redesign: replaced by the new window (no compare sheet or floating side pane with its own Escape in the prototype; the conversation beside is checked above).
+test.skip("after a click on the sheet's heading, Escape closes the sheet and leaves the floating side pane open", async (t) => {
   const f = await windowFixture(t, { width: 1000, height: 900 });
   const cherries = seedTopic(f.app, "cherries");
   await f.page.locator("#aside-toggle").click();
@@ -207,7 +287,8 @@ test("after a click on the sheet's heading, Escape closes the sheet and leaves t
   assert.deepEqual(f.errors, []);
 });
 
-test("after picking a topic through the picker, Escape closes the sheet and leaves the floating side pane open", async (t) => {
+// Redesign: replaced by the new window (no compare sheet or floating side pane with its own Escape in the prototype; the conversation beside is checked above).
+test.skip("after picking a topic through the picker, Escape closes the sheet and leaves the floating side pane open", async (t) => {
   const f = await windowFixture(t, { width: 1000, height: 900 });
   const cherries = seedTopic(f.app, "cherries");
   seedTopic(f.app, "plums");
@@ -232,7 +313,8 @@ test("after picking a topic through the picker, Escape closes the sheet and leav
   assert.deepEqual(f.errors, []);
 });
 
-test("after pressing × on a column, Escape closes the sheet and leaves the floating side pane open", async (t) => {
+// Redesign: replaced by the new window (no compare sheet or floating side pane with its own Escape in the prototype; the conversation beside is checked above).
+test.skip("after pressing × on a column, Escape closes the sheet and leaves the floating side pane open", async (t) => {
   const f = await windowFixture(t, { width: 1000, height: 900 });
   const cherries = seedTopic(f.app, "cherries");
   const plums = seedTopic(f.app, "plums");

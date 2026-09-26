@@ -36,7 +36,7 @@ test("in the desktop window, with no key in the page, the settings that read it 
     return route.continue({ headers: signedHeaders(request.headers(), server.token) });
   });
   await page.goto(`${server.url}/?desktop=1`);
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   // The comfort settings load, so "update by itself" can be seen and chosen.
   await page.locator("#comfort-updates-card").waitFor({ state: "attached", timeout: 60000 });
   assert.ok(await page.locator("#comfort-notify-card").count(), "the notifications card loads too");

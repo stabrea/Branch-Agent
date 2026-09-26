@@ -30,13 +30,36 @@ async function fixture(t) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 });
   return { app, page, errors, root };
 }
 const noSidewaysScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
-test("R17-S03 and S02: a preset and putting things back both show every change, and loosening needs its own yes", async (t) => {
+/* The new window, at phone width: Settings › Instructions & personality lists which file does what, and one is written
+   without leaving the window (the prototype's editor), into the file the engine keeps. */
+test("R17-S05: which file does what, and writing one without leaving the window, at 400 px", async (t) => {
+  const { settingsWindow, openSettingsPage } = await import("./settings-window.mjs");
+  const { app, page, errors } = await settingsWindow(t, { name: "kit-ui", width: 400, height: 800 });
+  await openSettingsPage(page, "instructions");
+  const rows = page.locator(".set-col .prow");
+  await rows.first().waitFor();
+  assert.equal(await rows.count(), 8);
+  const soul = rows.filter({ hasText: "SOUL.md" });
+  assert.match(await soul.textContent(), /Who your assistant is: tone and boundaries/);
+  assert.match(await soul.textContent(), /Empty/);
+  await soul.getByRole("button", { name: "Write", exact: true }).click();
+  await page.getByRole("textbox", { name: "SOUL.md", exact: true }).fill("Speak plainly and briefly.");
+  await page.locator(".dlg").getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator(".dlg").waitFor({ state: "detached" });
+  assert.equal((await readFile(join(app.store.folder, "SOUL.md"), "utf8")).trim(), "Speak plainly and briefly.");
+  await rows.filter({ hasText: "SOUL.md" }).filter({ hasText: "1 lines" }).waitFor();
+  assert.ok(await noSidewaysScroll(page));
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the prototype has no presets or "put things back" change list).
+test.skip("R17-S03 and S02: a preset and putting things back both show every change, and loosening needs its own yes", async (t) => {
   const { app, page, errors } = await fixture(t);
   const owner = app.runtime.owner;
   await openSettings(page, "general");
@@ -72,7 +95,8 @@ test("R17-S03 and S02: a preset and putting things back both show every change, 
   assert.deepEqual(errors, []);
 });
 
-test("R17-S07: settings go out as one file and come back through the same change list", async (t) => {
+// Redesign: replaced by the new window (the prototype has no settings file to save or bring in).
+test.skip("R17-S07: settings go out as one file and come back through the same change list", async (t) => {
   const { app, page } = await fixture(t);
   await openSettings(page, "data");
   const card = page.locator("#settings-kit-file");
@@ -92,7 +116,8 @@ test("R17-S07: settings go out as one file and come back through the same change
   assert.equal(loopGuardMode(app.store, app.runtime.owner), "when-needed");
 });
 
-test("R17-S05: which file does what, and changing one without leaving the window", async (t) => {
+// Redesign: replaced by the new window (the file list and its editor are the prototype's; re-pointed above).
+test.skip("R17-S05: which file does what, and changing one without leaving the window", async (t) => {
   const { app, page } = await fixture(t);
   await openSettings(page, "instructions");
   const card = page.locator("#agent-files");
@@ -111,7 +136,8 @@ test("R17-S05: which file does what, and changing one without leaving the window
   assert.ok(await noSidewaysScroll(page));
 });
 
-test("R17-S06: after first run, an offer to say hello, watch once, or start from a suggested automation", async (t) => {
+// Redesign: replaced by the new window (the prototype has no "You're ready" card after the first run).
+test.skip("R17-S06: after first run, an offer to say hello, watch once, or start from a suggested automation", async (t) => {
   const { app, page } = await fixture(t);
   /* The calm window (0.18.1) leaves this card out; it belongs to the full window. */
   await showEverything(page);
@@ -130,7 +156,8 @@ test("R17-S06: after first run, an offer to say hello, watch once, or start from
   assert.ok(await noSidewaysScroll(page));
 });
 
-test("every word the new cards show is on file in English", async (t) => {
+// Redesign: replaced by the new window (the prototype's words are its own, not locale keys; these cards are gone).
+test.skip("every word the new cards show is on file in English", async (t) => {
   const en = JSON.parse(await readFile(join(LOCALES, "en.json"), "utf8"));
   const { page } = await fixture(t);
   await page.evaluate(() => { globalThis.branchFirstRunDone(); });
@@ -141,7 +168,8 @@ test("every word the new cards show is on file in English", async (t) => {
   assert.deepEqual([...new Set(keys.filter((key) => !(key in en)))], []);
 });
 
-test("Q83: putting back a record that held something closed asks the same less-careful yes, and the tick is right there", async (t) => {
+// Redesign: replaced by the new window (the prototype has no "put back as shipped" change list).
+test.skip("Q83: putting back a record that held something closed asks the same less-careful yes, and the tick is right there", async (t) => {
   const { app, page, errors } = await fixture(t);
   const owner = app.runtime.owner;
   const garbled = { systemVoice: "on", keepAudioOnThisComputer: "yes" };

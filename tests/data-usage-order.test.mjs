@@ -31,7 +31,7 @@ async function dataPage(t) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
   await page.locator("body.sg-ready").waitFor();
   /* Opened as a person opens it, not through the helper that shows every card of the page. */
@@ -59,7 +59,8 @@ const level = async (page, value) => {
   await page.waitForTimeout(300);
 };
 
-test("DG-081 Data & usage leads with usage, in the sample's order, at each level", async (t) => {
+// Redesign: replaced by the new window (the prototype's Settings › Data & usage page, public/app/settings/pages/usage.js, in place of the old sample's sections and cards).
+test.skip("DG-081 Data & usage leads with usage, in the sample's order, at each level", async (t) => {
   const { page, errors } = await dataPage(t);
   await level(page, "regular");
   const regular = await sections(page);
@@ -87,7 +88,8 @@ test("DG-081 Data & usage leads with usage, in the sample's order, at each level
   assert.deepEqual(errors, []);
 });
 
-test("DG-081 the monthly limit still saves from its new place, and the headings are French in French", async (t) => {
+// Redesign: replaced by the new window (the prototype's Data & usage page has no monthly limit control); its French headings are Coming soon (the Language select sw:lang), checked at fc541c24.
+test.skip("DG-081 the monthly limit still saves from its new place, and the headings are French in French", async (t) => {
   const { page, errors, call } = await dataPage(t);
   await page.locator("#usage-costs-card #max-dollars").fill("42");
   await page.locator("#usage-costs-card #save-budget").click();

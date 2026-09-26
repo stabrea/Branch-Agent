@@ -32,6 +32,12 @@ async function fixture(t) {
   await mkdir(workspace, { recursive: true });
   const app = await createBranch({ workspace, dataDir: join(root, "data"), provider: provider() });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.learningLoop.idle(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
@@ -42,12 +48,13 @@ async function fixture(t) {
   await token.waitFor({ state: "visible", timeout: 120000 });
   await token.fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).evaluate((button) => button.click());
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   return { page, errors, app };
 }
 const homes = [["learning-look-back", "library:memory"], ["learning-new-skills", "customize:skills"]];
 
-test("each card is on the screen that owns its subject, and both switches start off", async (t) => {
+test.skip("each card is on the screen that owns its subject, and both switches start off", async (t) => {
+  // Redesign: replaced by the new window (prototype.html has no "Looking back over conversations" or "Skills your assistant wrote" card; what a task suggests remembering is a "Remember this?" card in its conversation, chat/remember.js, and a skill waiting to be switched on is under "Suggested for you" in Customize › Tools › Skills).
   const { page, errors } = await fixture(t);
   for (const [id, home] of homes) {
     const card = page.locator("#" + id);
@@ -62,7 +69,8 @@ test("each card is on the screen that owns its subject, and both switches start 
   assert.deepEqual(errors, []);
 });
 
-test("looking back: save the switch, look now, and accept the batch from the card", async (t) => {
+test.skip("looking back: save the switch, look now, and accept the batch from the card", async (t) => {
+  // Redesign: replaced by the new window (prototype.html has no "Looking back over conversations" or "Skills your assistant wrote" card; what a task suggests remembering is a "Remember this?" card in its conversation, chat/remember.js, and a skill waiting to be switched on is under "Suggested for you" in Customize › Tools › Skills).
   const { page, errors, app } = await fixture(t);
   await app.runtime.run({ prompt: "remind me that I water the plants on Sundays" });
   await openPlace(page, "library:memory");
@@ -83,7 +91,8 @@ test("looking back: save the switch, look now, and accept the batch from the car
   assert.deepEqual(errors, []);
 });
 
-test("new skills: draft one from a conversation, see it tried, and keep it", async (t) => {
+test.skip("new skills: draft one from a conversation, see it tried, and keep it", async (t) => {
+  // Redesign: replaced by the new window (prototype.html has no "Looking back over conversations" or "Skills your assistant wrote" card; what a task suggests remembering is a "Remember this?" card in its conversation, chat/remember.js, and a skill waiting to be switched on is under "Suggested for you" in Customize › Tools › Skills).
   const { page, errors, app } = await fixture(t);
   await app.runtime.run({ prompt: "water the plants in the kitchen" });
   await openPlace(page, "customize:skills");
@@ -117,7 +126,8 @@ test("new skills: draft one from a conversation, see it tried, and keep it", asy
   assert.deepEqual(errors, []);
 });
 
-test("at 400 px nothing scrolls sideways, and every fixed word has a key with real French", async (t) => {
+test.skip("at 400 px nothing scrolls sideways, and every fixed word has a key with real French", async (t) => {
+  // Redesign: replaced by the new window (prototype.html has no "Looking back over conversations" or "Skills your assistant wrote" card; what a task suggests remembering is a "Remember this?" card in its conversation, chat/remember.js, and a skill waiting to be switched on is under "Suggested for you" in Customize › Tools › Skills).
   const { page, errors } = await fixture(t);
   await page.setViewportSize({ width: 400, height: 900 });
   for (const [id, home] of homes) {

@@ -14,6 +14,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, readVaultAutofillSettings } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openPlace, openSettings } from "./places.mjs";
+import { settingsWindow, openSettingsPage } from "./settings-window.mjs";
 
 async function fixture(t, viewport) {
   const root = await mkdtemp(join(tmpdir(), "branch-vault-autofill-ui-"));
@@ -28,13 +29,50 @@ async function fixture(t, viewport) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   return { app, page, errors };
 }
 
 const settings = (app) => readVaultAutofillSettings(app.store, app.runtime.owner);
 
-test("the card is in Settings, Secrets, starts off, and writes down one sign-in", async (t) => {
+/* The new window: Settings › Saved sign-ins lists what Branch may fill ("Branch may fill"), each with its website and
+   the password masked, and draws nothing a password could be typed into. The list is the engine's
+   (GET /api/vault-autofill/settings); the prototype has no form to write one down, so the sign-in is kept first. */
+test("Saved sign-ins starts empty on a fresh install, lists a sign-in the engine keeps, and could never hold a password", async (t) => {
+  const { app, page, errors, call } = await settingsWindow(t, { name: "vault-autofill-ui" });
+  assert.equal(settings(app).mode, "off", "a fresh install fills nothing");
+  assert.deepEqual(settings(app).logins, []);
+  await openSettingsPage(page, "secrets");
+  const col = page.locator(".set-col");
+  await col.getByRole("heading", { name: "Branch may fill", exact: true }).waitFor();
+  // The prototype has no empty-state words here (the lead, 2026-09-26): an empty list simply draws no masked sign-in.
+  assert.equal(await col.locator(".prow .meta", { hasText: "••••••••" }).count(), 0, "no sign-in is listed on a fresh install");
+
+  await call("/api/vault-autofill/settings", { mode: "when-needed", logins: [{ name: "shop", site: "example.com", service: "bitwarden", item: "My Shop" }] });
+  assert.deepEqual(settings(app).logins.map((login) => login.name), ["shop"], "the engine kept the sign-in");
+  await openSettingsPage(page, "general");
+  await openSettingsPage(page, "secrets");
+  const row = col.locator(".prow", { hasText: "shop" });
+  await row.waitFor({ timeout: 10000 });
+  assert.match(await row.innerText(), /example\.com/, "the sign-in's website is shown");
+  assert.equal(await row.locator(".meta").textContent(), "••••••••", "the password is only ever masked");
+  assert.equal(await col.locator('input[type="password"], textarea').count(), 0, "nothing here is a box a password could be typed into");
+  assert.deepEqual(errors, []);
+});
+
+test("Saved sign-ins fits a 400-pixel window", async (t) => {
+  const { page, errors } = await settingsWindow(t, { name: "vault-autofill-ui", width: 400, height: 900 });
+  await openSettingsPage(page, "secrets");
+  await page.locator(".set-col").getByRole("heading", { name: "Branch may fill", exact: true }).waitFor();
+  const box = await page.locator(".set-col").boundingBox();
+  assert.ok(box && box.width > 0 && box.x >= 0 && box.x + box.width <= 400, "the page fits inside 400 px");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the prototype's Saved sign-ins has no form to write a sign-in down; its
+// "Branch may fill" list is re-pointed above).
+test.skip("the card is in Settings, Secrets, starts off, and writes down one sign-in", async (t) => {
   const { app, page, errors } = await fixture(t, { width: 1280, height: 900 });
   await openSettings(page, "secrets");
   const card = page.locator("#vault-autofill");
@@ -62,7 +100,9 @@ test("the card is in Settings, Secrets, starts off, and writes down one sign-in"
   assert.deepEqual(errors, []);
 });
 
-test("every control on the card says what it does", async (t) => {
+// Redesign: replaced by the new window (the card's mode select and form fields are gone; Saved sign-ins has only a
+// Remove button per row).
+test.skip("every control on the card says what it does", async (t) => {
   const { page, errors } = await fixture(t, { width: 1280, height: 900 });
   await openSettings(page, "secrets");
   await page.locator("#vault-autofill").waitFor({ state: "visible" });
@@ -78,7 +118,8 @@ test("every control on the card says what it does", async (t) => {
   assert.deepEqual(errors, []);
 });
 
-test("the card fits a 400-pixel window and reads in French", async (t) => {
+// Redesign: Coming soon (sw:lang), checked at fc541c24. The 400-pixel half is re-pointed above.
+test.skip("the card fits a 400-pixel window and reads in French", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 900 });
   await openSettings(page, "secrets");
   const card = page.locator("#vault-autofill");

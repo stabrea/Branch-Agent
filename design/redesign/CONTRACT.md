@@ -11,6 +11,9 @@ and accounts must work before this merges to trunk (the Dev channel installs tru
 cannot do yet is drawn in place but **greyed out** ("Coming soon"). Nothing new is invented.
 
 ## The rules (a PR that breaks one is not merged)
+0. **The owner's priority: the redesign works 1:1.** Old conventions, labels, ids and test expectations never outrank the
+   design; tests adapt to the new window. (The engine's security policy and not uninstalling the owner's app still hold,
+   because they do not block 1:1.)
 1. **No new text.** Every visible sentence is in the design document. Exceptions only: words the engine sends (approval
    questions, errors, step labels, names, numbers) and the French locale. No explanatory hints, no "Note:", no placeholders
    that are not in the prototype.

@@ -568,8 +568,11 @@ test("branch mcp-serve reports a line that is not JSON and keeps going", async (
   assert.deepEqual(answers[1].result, {});
 });
 
-test("Settings offers sharing with a switch, a tool list and copyable settings", async (t) => {
+// Redesign: replaced by the new window (the prototype has no page for sharing Branch's own tools over MCP; Customize › Tools lists the connectors Branch uses).
+test.skip("Settings offers sharing with a switch, a tool list and copyable settings", async (t) => {
   const { app, url, token } = await fixture(t);
+  const call = (path, body) => fetch(new URL(path, url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });

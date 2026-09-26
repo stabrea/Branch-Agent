@@ -148,6 +148,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
   // sites they belong to. It holds no password, but it is a map of where the owner's passwords are.
   /^\/api\/vault-autofill(\/|$)/,
+  // Q255: the owner's password-manager helper setup (which services, the bw/op paths, the timeout). No
+  // secret is in it, but it is the owner's setup, like the saved sign-ins book above.
+  /^\/api\/credentials\/settings$/,
   // mac7/usage-bar: what each of the owner's connections has left, and how near its cap it is. That
   // is the owner's spending seen from another angle, so a household person and a script's key are
   // both refused the whole answer rather than shown a thinned-out one.
@@ -161,6 +164,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/comfort\/update-readiness$/,
   // Q55: what the owner's last update did, and which versions it went between.
   /^\/api\/never-break\/last-update$/,
+  // p17: the journal of every update tried, kept or rolled back, the same facts over time.
+  /^\/api\/never-break\/journal$/,
   // FQ-collaboration.unified-search: one query across every conversation, saved workflow and the
   // record of what the assistant was allowed to do is a wider window than any one of those
   // searches gives alone, so it stays the owner's the way the workflows and audit routes it reads do.
@@ -170,6 +175,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   // Requests from a chat to change Branch itself carry what people wrote and who they are
   // (src/self-development-requests.ts); only the owner reads and answers them, in the app window.
   /^\/api\/self-development\/requests$/,
+  // The bounded diff of such a change: Branch's own source as a task changed it, for the owner to read.
+  new RegExp(`^/api/self-development/requests/${id}/diff$`),
 ];
 
 /**

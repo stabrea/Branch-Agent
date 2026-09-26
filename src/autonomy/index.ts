@@ -37,6 +37,8 @@ export interface AutonomyDeps {
   hasSecret: (name: string) => boolean;
   /** Handing a conversation to a terminal or another assistant (mac4/bucket-20), behind its own switch. */
   handoff?: HandoffParts;
+  /** Ships-on sweep (2026-09-26): tools that are listed but whose service nobody set up, so no suggestion reads them as connected. */
+  unsetTools?: () => readonly string[];
   now?: () => Date;
 }
 
@@ -154,7 +156,9 @@ export class Autonomy {
   suggestions(starters = false): Suggestion[] {
     const facts = this.store.list("memory", this.owner).map((record) => String((record.data as { text?: unknown }).text ?? ""));
     const inUse = new Set(this.ledger.list("accepted").filter((e) => e.kind === "schedule").map((e) => String(e.payload.blueprint ?? "")));
-    return suggest({ facts, tools: this.deps.registry.names(), chats: this.deps.chats.chats(this.owner), inUse }, this.ledger, starters);
+    const unset = new Set(this.deps.unsetTools?.() ?? []);
+    const tools = this.deps.registry.names().filter((name) => !unset.has(name));
+    return suggest({ facts, tools, chats: this.deps.chats.chats(this.owner), inUse }, this.ledger, starters);
   }
 
   /** The owner's answer to a suggestion, on the spot. A yes makes the schedule; a no is kept for good. */
@@ -223,7 +227,8 @@ export class Autonomy {
   private apply(entry: LedgerEntry): unknown {
     if (entry.kind === "schedule") return this.scheduleFrom(entry.payload);
     if (entry.kind === "order") return this.orders.create(entry.payload.order);
-    if (entry.kind === "procedure") return this.procedures.create(entry.payload.procedure);
+    // A change the owner proposed to a kept procedure names it; a new one does not.
+    if (entry.kind === "procedure") return entry.payload.procedureId === undefined ? this.procedures.create(entry.payload.procedure) : this.procedures.applyChange(entry.payload);
     if (entry.kind === "instruction") return this.instructions.add(entry.payload);
     return undefined;
   }

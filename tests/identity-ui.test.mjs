@@ -23,7 +23,7 @@ async function fixture(t) {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(server.url); await page.getByLabel('Session token', { exact: true }).fill(server.token);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  await page.locator('#workspace').waitFor({ state: 'visible', timeout: 120000 }); await openSettingFor(page, '#identity-name');
+  await page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 }); await openSettingFor(page, '#identity-name');
   return { page, requests, errors, server };
 }
 async function edit(page, name, instructions) {
@@ -44,11 +44,13 @@ async function update(server, input) {
   assert.equal(response.ok, true); return response.json();
 }
 
-test('identity saves across reload and the next task receives its name and instructions', async t => {
+// Redesign: replaced by the new window (the prototype has no assistant name and working instructions form; the name is
+// written in Instructions & personality's IDENTITY.md file, see tests/settings-instructions-page.test.mjs).
+test.skip('identity saves across reload and the next task receives its name and instructions', async t => {
   const f = await fixture(t);
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Branch Agent');
   await edit(f.page, 'Juniper', 'Use concise answers and cite saved sources.'); await save(f.page);
-  await f.page.reload(); await f.page.locator('#workspace').waitFor({ state: 'visible', timeout: 120000 });
+  await f.page.reload(); await f.page.locator('#app #side').waitFor({ state: 'visible', timeout: 120000 });
   await openSettingFor(f.page, '#identity-name');
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Juniper');
   assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Use concise answers and cite saved sources.');
@@ -70,7 +72,9 @@ test('identity saves across reload and the next task receives its name and instr
   assert.deepEqual(f.errors, []);
 });
 
-test('identity draft and focus survive actual polling, including a blurred name field', async t => {
+// Redesign: replaced by the new window (the prototype has no assistant name and working instructions form; the name is
+// written in Instructions & personality's IDENTITY.md file, see tests/settings-instructions-page.test.mjs).
+test.skip('identity draft and focus survive actual polling, including a blurred name field', async t => {
   const f = await fixture(t);
   await edit(f.page, 'Unsaved name', 'Draft instructions');
   await f.page.locator('#identity-instructions').evaluate(node => node.setSelectionRange(6, 18, 'backward'));
@@ -85,7 +89,9 @@ test('identity draft and focus survive actual polling, including a blurred name 
   assert.deepEqual(f.errors, []);
 });
 
-test('identity conflict retains draft until explicit reload discards it for saved values', async t => {
+// Redesign: replaced by the new window (the prototype has no assistant name and working instructions form; the name is
+// written in Instructions & personality's IDENTITY.md file, see tests/settings-instructions-page.test.mjs).
+test.skip('identity conflict retains draft until explicit reload discards it for saved values', async t => {
   const f = await fixture(t);
   await edit(f.page, 'My draft', 'Keep this draft on conflict');
   await update(f.server, { name: 'Newer saved identity', instructions: 'Other editor', expectedRevision: 0 });
@@ -102,7 +108,9 @@ test('identity conflict retains draft until explicit reload discards it for save
   assert.deepEqual(f.errors, []);
 });
 
-test('pending identity saves freeze every control and failure restores the intact draft', async t => {
+// Redesign: replaced by the new window (the prototype has no assistant name and working instructions form; the name is
+// written in Instructions & personality's IDENTITY.md file, see tests/settings-instructions-page.test.mjs).
+test.skip('pending identity saves freeze every control and failure restores the intact draft', async t => {
   const f = await fixture(t); let release, started, calls = 0;
   const held = new Promise(resolve => { release = resolve; });
   const pending = new Promise(resolve => { started = resolve; });
@@ -123,7 +131,9 @@ test('pending identity saves freeze every control and failure restores the intac
   assert.deepEqual(f.errors, []);
 });
 
-test('explicit identity reload freezes controls until saved values arrive', async t => {
+// Redesign: replaced by the new window (the prototype has no assistant name and working instructions form; the name is
+// written in Instructions & personality's IDENTITY.md file, see tests/settings-instructions-page.test.mjs).
+test.skip('explicit identity reload freezes controls until saved values arrive', async t => {
   const f = await fixture(t); let release, started;
   await edit(f.page, 'Discard this draft', 'Unsaved instructions');
   await update(f.server, { name: 'Current saved identity', instructions: 'Current instructions', expectedRevision: 0 });

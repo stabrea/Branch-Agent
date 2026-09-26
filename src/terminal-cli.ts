@@ -107,7 +107,7 @@ async function themeCommand(app: Branch, args: string[], io: Io): Promise<void> 
   const { store } = app, owner = app.runtime.owner, word = args[0] ?? "list";
   if (["light", "dark", "follow"].includes(word)) saveLookMode(store, owner, word as LookMode | "follow");
   else if (word === "contrast") await saveLook(store, owner, { contrast: args[1] === "standard" || (!args[1] && readLook(store, owner).contrast === "more") ? "standard" : "more" });
-  else if (word === "language") await saveLook(store, owner, { language: (args[1] ?? "auto") as "auto" | "en" | "fr" });
+  else if (word === "language") await saveLook(store, owner, { language: (args[1] ?? "auto") as "auto" | "en" | "fr" | "es" });
   else if (word !== "list") await saveLook(store, owner, { theme: word });
   const look = readLook(store, owner), table = await loadThemeCatalogue();
   const saved = store.get("settings", owner, "preferences")?.data ?? {};

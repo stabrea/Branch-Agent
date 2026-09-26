@@ -45,7 +45,7 @@ async function fixture(t) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   /* These tests are about the full shell: every rail row, icon, tab and meter. Since 0.18.1 that is
      "Show everything"; the calm default has its own tests in calm-ui.test.mjs. */
   await showEverything(page);
@@ -87,7 +87,7 @@ test("the sidebar starts with this real computer and keeps project switching ava
   assert.equal(await f.page.locator(".rail-head #rail-target-name").textContent(), "studio-mac");
   assert.match(await f.page.locator("#app-switcher").ariaSnapshot(), /button "studio-mac/);
   await f.page.reload();
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await f.page.locator(".rail-head #rail-target-name").filter({ hasText: "studio-mac" }).waitFor();
 
   await f.page.locator("#app-switcher").click();
@@ -390,7 +390,7 @@ test("every appearance control applies at once and survives a reload", async (t)
   assert.equal(await f.page.locator(".acorn-art").isVisible(), false);
   await f.page.getByRole("button", { name: "Save appearance", exact: true }).click();
   await f.page.reload();
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForFunction(() => document.documentElement.dataset.textSize === "large");
   const accent = await f.page.evaluate(async () => {
     const { THEMES, TOKEN_NAMES } = await import("/theme-catalogue.js");
@@ -447,7 +447,7 @@ test("a rail folded away on a wide window still opens on a narrow one", async (t
   await f.page.getByRole("button", { name: "Conversations", exact: true }).click();
   assert.equal(await f.page.locator("#conversation-rail").isVisible(), false);
   await f.page.reload();
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await f.page.setViewportSize({ width: 400, height: 800 });
   assert.equal(await f.page.locator("#conversation-rail").isVisible(), false);
   await f.page.getByRole("button", { name: "Conversations", exact: true }).click();
@@ -522,7 +522,7 @@ test("the composer never comes to rest on top of the greeting or the welcome car
     });
   });
   await f.page.reload();
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   for (const size of SIZES) {
     await f.page.setViewportSize(size);
     await f.page.waitForTimeout(150);
@@ -578,7 +578,7 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   await f.page.locator("#conversation .message.assistant").first().waitFor({ timeout: 30000 });
   /* The rail fills itself when the workspace opens, so it is read after a reload. */
   await f.page.reload();
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await f.page.locator("#rail-list .rail-line").first().waitFor({ timeout: 30000 });
   const row = f.page.locator("#rail-list .rail-line").first();
   const colour = () => row.evaluate((node) => getComputedStyle(node).backgroundColor);
@@ -633,7 +633,7 @@ test("Tab walks the rail first, then the title bar, the messages and the compose
   const f = await fixture(t);
   /* A reload puts the focus back at the top of the document before the walk. */
   await f.page.reload();
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   /* DG-159: the old half-moon beside the computer's name is gone; day/night sits in the rail's foot. */
   assert.deepEqual(await tabStops(f.page, 4), [
     "app-switcher",
@@ -668,7 +668,7 @@ test("a folded Projects group stays folded, remembered for this workspace", asyn
   assert.equal(await head.getAttribute("aria-expanded"), "false");
   assert.equal(await f.page.locator("#rail-projects").isVisible(), false);
   await f.page.reload();
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   assert.equal(await head.getAttribute("aria-expanded"), "false", "it is still folded after a reload");
   const keys = await f.page.evaluate(() =>
     Object.keys(localStorage).filter((key) => key.startsWith("branch-group-") && localStorage.getItem(key) === "closed"),
@@ -681,7 +681,7 @@ test("a folded Projects group stays folded, remembered for this workspace", asyn
     localStorage.setItem("branch-group-recents", "closed");
   });
   await f.page.reload();
-  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   assert.equal(
     await f.page.locator('.group-head[data-toggle="recents"]').getAttribute("aria-expanded"),
     "false",

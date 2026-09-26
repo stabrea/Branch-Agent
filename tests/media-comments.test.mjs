@@ -87,7 +87,9 @@ test("a negative time is rejected over the API; NaN is rejected by the schema JS
   assert.deepEqual(listed.body.comments, [], "neither rejected write made it into the list");
 });
 
-test("the Files browser opens a workspace video, and clicking a comment's timestamp reopens it there (bucket-18 + FQ-collaboration, end to end)", async (t) => {
+test.skip("the Files browser opens a workspace video, and clicking a comment's timestamp reopens it there (bucket-18 + FQ-collaboration, end to end)", async (t) => {
+  // Redesign: replaced by the new window (the side panel's Files tab lists the files a conversation touched, chat/pane.js;
+  // prototype.html has no workspace browser, video player or comments on a moment in a media file).
   const { call, server, workspace, sessionId } = await fixtureWithConversation(t);
   await call("/api/workspace-editor/settings", { body: { mode: "on" } });
   await writeFile(join(workspace, "clip.mp4"), await readFile(join(here, "fixtures", "tiny-video.mp4")));
@@ -95,13 +97,19 @@ test("the Files browser opens a workspace video, and clicking a comment's timest
 
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); });
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 30000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 30000 });
   await page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, sessionId);
   await page.locator(".message.assistant").first().waitFor();
 
