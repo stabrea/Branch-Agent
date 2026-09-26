@@ -12,22 +12,30 @@ import { on } from "../core/actions.js";
 import { toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 
-const R = { bar: null, asked: false, later: new Set() };
+const R = { bar: null, seen: null, asking: false, failed: "", later: new Set() };
 const WORDS = {
   background: ["Keep your Trunks running when Branch is closed?", "The gateway keeps Telegram, your phone and automations working, and restarts Branch if it ever stops."],
   updates: ["Keep Branch up to date by itself?", "It waits until no task is working, checks the download and keeps a safety copy first."],
 };
 
-/* Draws again only when the answer changes what is shown. */
+/* Draws again only when the answer changes what is shown; one question at a time, and a refusal is told once. */
 async function readBar() {
+  if (R.asking) return;
+  R.asking = true;
   const before = R.bar;
-  try { R.bar = (await api("deployment/suggestion")).bar ?? null; } catch (error) { toast(error.message); R.bar = null; }
+  try { R.bar = (await api("deployment/suggestion")).bar ?? null; R.failed = ""; } catch (error) {
+    if (error.message !== R.failed) toast(error.message);
+    R.failed = error.message;
+    R.bar = null;
+  }
+  R.asking = false;
   if (R.bar !== before) render();
 }
 
-/* Read once the engine has let the window in; after that only an answer here re-reads it. */
+/* Asked again each time the engine's state is read afresh (refresh()), so the bar follows first run finishing and
+   anything else that changes the engine's answer. */
 export function recBar() {
-  if (!R.asked && E.loaded) { R.asked = true; readBar(); }
+  if (E.loaded && !R.asking && R.seen !== E.state) { R.seen = E.state; readBar(); }
   const id = R.bar, words = WORDS[id];
   if (!words || R.later.has(id)) return "";
   const yes = id === "updates" ? "rec" : "rec-install";
