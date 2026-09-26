@@ -38,7 +38,7 @@ test("every personal part ships off: no tools in the catalog, and a plain refusa
   const { app, call } = await fixture(t);
   // The owner's rule (ships on, 2026-09-26): the connectors ship "when needed" (ready once the owner signs in); the
   // rest stay off for the reasons in src/personal/settings.ts. What "off" does is tested by switching every part off.
-  const shipsOn = ["chat-files", "spoken-brief", "spotify", "google", "microsoft", "mail-search"];
+  const shipsOn = ["spotify", "google", "microsoft", "mail-search"]; // chat-files and spoken-brief send, so they stay off
   assert.deepEqual((await call("/api/personal")).body.modes, Object.fromEntries(personalParts.map((part) => [part, shipsOn.includes(part) ? "when-needed" : "off"])));
   for (const part of personalParts) await call("/api/personal/switch", { part, mode: "off" });
   const { body } = await call("/api/personal");
@@ -69,7 +69,6 @@ test("a switch puts a part's tools in and takes them out, and 'on' preloads them
   assert.equal(isReadOnlyPermission("personal.read"), true);
   // Sending the briefing to a chat is a sending tool, which a chat-started task never gets.
   await call("/api/personal/switch", { part: "spoken-brief", mode: "when-needed" });
-  await call("/api/personal/switch", { part: "chat-files", mode: "off" }); // ships "when needed" (the owner's rule, 2026-09-26)
   assert.equal(app.registry.permissionOf("brief.send_voice"), "channels.send");
   assert.equal(app.registry.permissionOf("chat.send_file"), "");
   assert.equal(app.registry.permissionOf("brief.spoken"), "personal.read");

@@ -37,13 +37,11 @@ export const personalKey = (part: PersonalPart): string => `personal-${part}`;
  * account, which is the owner's own step. Kept off, by the owner's rule: answering aloud (it opens the
  * microphone and eases an approval, (d) and (e)), the public webhook address (it lets the outside in, (a)),
  * Home Assistant (the defaults audit keeps it off under (a): it opens and works the house's own doors and
- * devices), and searching X (a paid xAI key beside the model provider, (b)).
+ * devices), searching X (a paid xAI key beside the model provider, (b)), and sending a file or a spoken
+ * briefing into a chat (`chat.send_file`, `brief.send_voice`: the owner's rule keeps sending off until the
+ * owner turns it on).
  */
 export const personalShipsOn: Partial<Record<PersonalPart, PersonalMode>> = {
-  // The owner's rule (ships on, 2026-09-26): only the owner sends, only a workspace file, only to a chat that already talks to Branch, past the leak guard; none of (a)–(f).
-  "chat-files": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): made only when asked, from what the owner already connected, spoken with their own voice settings; none of (a)–(f).
-  "spoken-brief": "when-needed",
   // The owner's rule (ships on, 2026-09-26): does nothing until the owner signs in with their own Spotify; none of (a)–(f).
   spotify: "when-needed",
   // The owner's rule (ships on, 2026-09-26): read-only until the owner signs in to their own Google account and never sends mail; none of (a)–(f).

@@ -40,7 +40,7 @@ test("every part ships off: its tools are not offered, and it refuses in one sen
   const { app, store } = await scratchApp(t);
   // The owner's rule (ships on, 2026-09-26): these ship "when needed"; the rest stay off for the reasons in
   // src/reach/settings.ts. What "off" does is tested by switching every part off.
-  const shipsOn = ["machines", "send", "platform-pause", "skill-bundles", "usb", "notes", "arena"];
+  const shipsOn = ["machines", "platform-pause", "skill-bundles", "usb", "notes", "arena"]; // send stays off: it sends
   assert.deepEqual(app.reachParts.modes(), Object.fromEntries(reachParts.map((part) => [part, shipsOn.includes(part) ? "when-needed" : "off"])));
   for (const part of reachParts) await app.reachParts.setMode(part, { mode: "off" });
   const names = new Set(app.registry.names());
@@ -294,7 +294,6 @@ test("R17-081: branch send reaches only chats that talked first, and never a pau
   const { store } = await scratchApp(t);
   const delivered = [];
   const router = { chats: () => [{ channel: "telegram", chatId: "c1" }], deliver: async (...args) => { delivered.push(args); return { queued: 0 }; } };
-  off(store, "send"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
   await assert.rejects(sendToChat(store, owner, router, { channel: "telegram", chat: "c1", text: "hi" }), /switched off/);
   on(store, "send", "platform-pause");
   await assert.rejects(sendToChat(store, owner, router, { channel: "telegram", chat: "someone-else", text: "hi" }), /already talked to it/);
