@@ -16,7 +16,8 @@ let english = {};
 let current = "en";
 
 async function load(language) {
-  const response = await fetch(`/locales/${language}.json`, { cache: "no-store" });
+  /* Kept by the browser and checked with the engine each time (its ETag): unchanged words come back as a 304. */
+  const response = await fetch(`/locales/${language}.json`, { cache: "no-cache" });
   if (!response.ok) throw new Error(`No words on file for ${language}`);
   return response.json();
 }

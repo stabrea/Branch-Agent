@@ -9,6 +9,7 @@ import { E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { toast } from "../core/ui.js";
 import { noticed } from "./scene.js";
+import { followLook } from "./language.js";
 
 const KEY = "branch-looks";
 export const BASE = "slate";
@@ -126,6 +127,7 @@ export async function loadLook() {
   try {
     [L.look, L.cat] = await Promise.all([api("look"), import("/theme-catalogue.js")]);
   } catch (error) { toast(error.message); }
+  await followLook(L.look); /* rw4-language: the engine's saved language (shell/language.js) */
   applyMode();
   applyLook();
   renderNow();
@@ -134,8 +136,9 @@ async function rereadLook() {
   seenState = E.state;
   const was = JSON.stringify(L.look), mode = document.documentElement.dataset.theme;
   try { L.look = await api("look"); } catch (error) { toast(error.message); return; }
+  const spoke = await followLook(L.look);
   applyMode();
-  if (JSON.stringify(L.look) === was && document.documentElement.dataset.theme === mode) return;
+  if (!spoke && JSON.stringify(L.look) === was && document.documentElement.dataset.theme === mode) return;
   applyLook();
   renderNow();
 }

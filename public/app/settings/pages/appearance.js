@@ -17,6 +17,8 @@ import { level as level17 } from "../../core/state.js";
 import { ART17, PETS17, pet17, art17Slot } from "../../core/art17.js";
 import { sec17 } from "../rows17.js";
 import { AG, saveUi } from "../../chat/agent17.js";
+import { language } from "../../../i18n.js";
+import { canSpeak, chooseLanguage } from "../../shell/language.js";
 
 const pressed = (on) => `aria-pressed="${!!on}"`;
 const segAct = (title, sub, opts, cur, act) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l, a]) => `<button type="button" ${pressed(v === cur)} data-act="${a ?? act}" data-v="${v}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
@@ -106,7 +108,23 @@ function shownSection() {
   return `<div class="sec"><h2>What’s shown</h2>${rows}
     <div class="ctl"><b>Keep things still</b><input class="sw" type="checkbox" id="a-still" aria-label="Keep things still" data-sw="still"><small>Stops the pet walking, the working ring, the logo's float and the background moving.</small></div>
     <div class="ctl"><b>Scenery behind the list</b><input class="sw" type="checkbox" id="a-scenery" aria-label="Scenery behind the list" data-sw="scenery"><small>A small pixel oak at the foot of the list.</small></div></div>
-  <div class="sec"><h2>Language</h2><div class="ctl"><b>Language</b><span class="right"><select class="inp" id="lang" data-sw="lang" aria-label="Language"><option>English</option><option>Français</option><option>Español</option><option>Deutsch</option><option>Yorùbá</option></select></span><small>Dates and numbers follow it too.</small></div></div>`;
+  ${languageSection()}`;
+}
+
+/* The prototype's five languages. Only those with words on file (public/locales, i18n.js LANGUAGES) can be picked; the
+   others stay drawn, greyed. The one in force is the one shown; picking one saves it (shell/language.js). */
+const SPOKEN = [["en", "English"], ["fr", "Français"], ["es", "Español"], ["de", "Deutsch"], ["yo", "Yorùbá"]];
+function languageSection() {
+  const now = language();
+  const opts = SPOKEN.map(([code, name]) => `<option value="${code}"${code === now ? " selected" : ""}${canSpeak(code) ? "" : ' class="soon" disabled aria-disabled="true" data-tip="Coming soon"'}>${esc(name)}</option>`).join("");
+  return `<div class="sec"><h2>Language</h2><div class="ctl"><b>Language</b><span class="right"><select class="inp" id="lang" data-sw="lang" aria-label="Language">${opts}</select></span><small>Dates and numbers follow it too.</small></div></div>`;
+}
+/* The window is drawn again in the new words; English says so as the prototype does. */
+async function pickLanguage(code) {
+  if (!canSpeak(code)) { renderNow(); return; }
+  try { L.look = await chooseLanguage(code); } catch (error) { toast(error.message); renderNow(); return; }
+  renderNow();
+  if (code === "en") toast("English.");
 }
 
 export function draw() {
@@ -171,6 +189,7 @@ export function init() {
     if (t.id === "bg-file6") { if (t.files?.[0]) pickOwn(t.files[0]); return; }
     if (t.id === "ag-show") { saveUi({ show: t.checked }); toast(t.checked ? "The agent is back beside the conversation." : "Hidden."); return; }
     if (t.id === "pet-name") { saveDelight({ pets: { name: t.value } }).then(() => renderNow()); return; }
+    if (t.id === "lang") { pickLanguage(t.value); return; }
     const row = HIDES.find(([id]) => id === t.id);
     if (!row) return;
     const k = row[1], hidden = (prefs().hidden ?? []).filter((x) => x !== k);
@@ -203,6 +222,7 @@ export const live = {
   "bg-remove-yes": true,
   "sw:bg-file6": true,
   "sw:pet-name": true,
+  "sw:lang": true,
   "sw:h-usage": true,
   "sw:h-gateway": true,
   "sw:h-pet": true,
