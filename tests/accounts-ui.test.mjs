@@ -84,21 +84,15 @@ async function addKey(page, name) {
 test("U1 the list lives in Settings › Accounts, starts off, and adding a key keeps the key off the page", async (t) => {
   const { page, errors, app, call } = await fixture(t);
   await openAccounts(page);
-  // Redesign: the design has no switch for several accounts per connection (the old #accounts-mode); the engine's own
-  // switch still starts off, and while it is off the engine refuses a new key and the window says so.
+  // Redesign: the design has no switch for several accounts per connection (the old #accounts-mode). The engine's own
+  // switch still starts off (the owner's decision of 2026-09-17); adding an account from the window is the owner's
+  // choice, so the window switches it on first, as the chat-app wizard does (#326), and nothing else is needed.
   assert.equal((await call("/api/accounts")).mode, "off", "several accounts per connection starts off");
-  await addKey(page);
-  await page.locator('.dlg [role="alert"]', { hasText: "switched off" }).waitFor({ timeout: 20000 });
-  await keyNowhere(page, KEY);
-  assert.equal((await call("/api/accounts")).pools.find((p) => p.pool === POOL).accounts.length, 1, "nothing was added while off");
-  await page.getByRole("button", { name: "Back", exact: true }).click();
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.locator(".dlg").waitFor({ state: "detached" });
-  await call("/api/accounts/settings", { mode: "on" });
+  await addKey(page, "Personal");
+  assert.notEqual((await call("/api/accounts")).mode, "off", "adding an account switched it on (the window uses \"when needed\")");
   const pool = (await call("/api/accounts")).pools.find((p) => p.pool === POOL);
   // Redesign: replaced by the new window (the old per-pool terms line is not in the design); the engine still says it.
   assert.match(pool.terms.text, /entitled to use/);
-  await addKey(page, "Personal");
   const row = page.locator(".set-col .prow", { hasText: "Personal" });
   await row.waitFor({ state: "visible", timeout: 20000 });
   await keyNowhere(page, KEY);
