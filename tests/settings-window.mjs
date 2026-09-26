@@ -36,23 +36,10 @@ export async function settingsWindow(t, { provider, width = 1440, height = 950, 
 /** Settings › <page>, from the Settings button and the page list. */
 export async function openSettingsPage(page, id) {
   if (!(await page.locator(".settings").count())) {
-    const gear = page.getByRole("button", { name: "Settings", exact: true }).first();
-    // A narrow window folds the list away (it slides out after the first draw); the button that shows the
-    // conversations slides it back in first.
-    const fold = page.locator('[data-act="side"]');
-    if (await fold.isVisible()) {
-      const at = () => gear.evaluate((node) => node.getBoundingClientRect().x);
-      for (let last = NaN, now = await at(), tries = 0; now !== last && tries < 40; tries++) {
-        await page.waitForTimeout(100);
-        [last, now] = [now, await at()];
-      }
-      if ((await at()) < 0) await fold.click();
-      await page.waitForFunction(() => {
-        const box = document.querySelector('[aria-label="Settings"][data-act="view"]')?.getBoundingClientRect();
-        return box && box.x >= 0 && box.right <= innerWidth;
-      });
-    }
-    await gear.click();
+    // A narrow window folds the list (and its Settings button) away; there a person opens Settings with its shortcut.
+    // (Choosing Settings from the slid-in list leaves the list over the page: tests/settings-phone-tabs.test.mjs.)
+    if (await page.locator('[data-act="side"]').isVisible()) await page.keyboard.press("ControlOrMeta+Comma");
+    else await page.getByRole("button", { name: "Settings", exact: true }).first().click();
     await page.locator(".settings").waitFor();
   }
   await page.locator(`[data-act="setpage"][data-v="${id}"]`).click();
