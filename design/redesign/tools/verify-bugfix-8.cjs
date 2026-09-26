@@ -79,6 +79,9 @@ async function faces(page) {
   const card = await faceOf(page, '#main .prow:has(b:text-is("Scout")) .av');
   check("A/B Customize › Trunks draws the same face as the row", card.emoji === row.emoji && card.colour === row.colour && card.shape === row.shape, JSON.stringify(card));
 
+  const jobs = await page.locator("#main .tile .th .av").evaluateAll((nodes) => nodes.map((n) => n.style.getPropertyValue("--r").trim()));
+  check("B Start from a job draws each job in the prototype's shape for it (templates: 0, 2, 1, 3, 4, 3)", JSON.stringify(jobs) === JSON.stringify([0, 2, 1, 3, 4, 3].map((i) => SHAPES[i])), JSON.stringify(jobs));
+
   const bare = await faceOf(page, `#side .row[data-id="${plain.chatSessionId}"] .av`);
   const plainGot = (await api("trunks")).trunks.find((t) => t.id === plain.id);
   check("C a Trunk with no chosen colour (GET: chosenColour empty) is drawn in one of the eight colours, not #2f6f5e", !plainGot.chosenColour && COLOURS.includes(bare.colour), bare.colour);
@@ -100,6 +103,14 @@ async function faces(page) {
   check("D the engine's introduce-yourself prompt (GET /api/sessions/<id> message 1) is not drawn as the owner's message", first.role === "user" && first.content.startsWith(INTRO) && !userLines.some((t) => t.includes(INTRO)), `${userLines.length} owner messages drawn`);
   const reply = await faceOf(page, "#conversation .b .gut .av");
   check("A the Trunk's reply is signed with its own face", !reply.brand && reply.emoji === "🦉" && reply.colour === "#b84a6b" && reply.shape === SHAPES[4], JSON.stringify(reply));
+
+  /* D in the side search: the Trunk's conversation is found and shown by its name. */
+  await page.locator("#side-q").fill("Scout");
+  const found = page.locator(`#side .sr-row[data-id="${scout.chatSessionId}"] b`).first();
+  await found.waitFor({ timeout: 10000 });
+  const foundName = await found.innerText();
+  check("D side search shows the Trunk's conversation by the Trunk's name", foundName === "Scout", foundName);
+  await page.locator('#side [data-act="sq-clear"]').click();
 }
 
 /* E: Overview's Who is using Branch lists everyone (GET /api/profiles); switching stays greyed. */
