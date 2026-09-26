@@ -53,7 +53,8 @@ const homes = [
   ["context-tools-file", "customize:skills"],
 ];
 
-test("each switch is on the screen that already owns its subject, not on a screen of its own", async (t) => {
+test.skip("each switch is on the screen that already owns its subject, not on a screen of its own", async (t) => {
+  // Redesign: replaced by the new window (prototype.html lists every one of these files in one place, Settings › Instructions & personality, as rows with Edit; there is no per-screen switch card).
   const { page, errors } = await fixture(t);
   await page.locator("#context-assistant").waitFor({ state: "attached", timeout: 15000 });
 
@@ -69,7 +70,8 @@ test("each switch is on the screen that already owns its subject, not on a scree
   assert.deepEqual(errors, []);
 });
 
-test("every switch starts off, and the one you change is the one that is saved", async (t) => {
+test.skip("every switch starts off, and the one you change is the one that is saved", async (t) => {
+  // Redesign: replaced by the new window (prototype.html's file rows carry no Off / When needed / On switch; a file is read once it has words in it).
   const { page, errors, app } = await fixture(t,
     (workspace) => writeFile(join(workspace, "AGENTS.md"), "Ask before you rename anything.", "utf8"));
   await openSettings(page, "general");
@@ -89,7 +91,8 @@ test("every switch starts off, and the one you change is the one that is saved",
   assert.deepEqual(errors, []);
 });
 
-test("the cards hold their shape at 400 px, and nothing scrolls sideways", async (t) => {
+test.skip("the cards hold their shape at 400 px, and nothing scrolls sideways", async (t) => {
+  // Redesign: replaced by the new window (the switch cards are not drawn; the instruction files editor at 390 px is checked in agent-files.test.mjs F4).
   const { page, errors } = await fixture(t);
   await page.setViewportSize({ width: 400, height: 900 });
   await openSettings(page, "assistant");
@@ -108,7 +111,8 @@ test("the cards hold their shape at 400 px, and nothing scrolls sideways", async
   assert.deepEqual(errors, []);
 });
 
-test("every word on these cards can be said in French", async (t) => {
+test.skip("every word on these cards can be said in French", async (t) => {
+  // Redesign: replaced by the new window (the switch cards are not drawn, and the new window has no data-t keys or /i18n.js).
   const { page, errors } = await fixture(t);
   await page.locator("#context-assistant").waitFor({ state: "attached", timeout: 15000 });
   const missing = await page.evaluate((ids) => {
