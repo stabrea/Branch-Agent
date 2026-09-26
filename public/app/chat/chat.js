@@ -240,7 +240,9 @@ function clearBox(fromBox) {
    task, or stop it and go next. The engine's words say which; a refusal keeps the words in the box. The conversation
    keeps following until the line has moved on. */
 async function queueNext(prompt, fromBox) {
-  const sid = C.sessionId ?? liveRun()?.sessionId;
+  let sid = C.sessionId ?? liveRun()?.sessionId;
+  /* A new conversation's first task may not be in the window's picture yet: read it once more before giving up. */
+  if (!sid) { await refresh().catch(() => {}); sid = liveRun()?.sessionId; }
   if (!sid) return;
   let said;
   try { said = await api("flows-boards/busy/send", { sessionId: sid, prompt }); } catch (error) { toast(error.message); return; }
