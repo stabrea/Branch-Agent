@@ -154,7 +154,7 @@ function allowed(id) {
 
 function fill(html) {
   const preset = P.presets.find((x) => x.id === P.policy?.preset);
-  const status = preset ? `<div class="status"><span class="sdot ${P.policy.preset === "off" ? "warn" : ""}"></span><div><b>${esc(preset.label)}</b><p>${esc(preset.description)}</p></div></div>` : "";
+  const status = preset ? `<div class="status"><span class="sdot ${P.policy.preset === "off" ? "warn" : ""}"></span><div><b>${esc(say(preset.label))}</b><p>${esc(say(preset.description))}</p></div></div>` : "";
   return html.replace("@@STATUS@@", status).replace("@@PINS@@", pinRows()).replace("@@RULES@@", ruleRows()).replace("@@LOCK@@", P.locked ? t("dashboard.controls.lockdownOff") : t("dashboard.controls.lockdownOn"))
     .replace(/@@(read|browse|message)@@/g, (_, id) => (allowed(id) ? "checked" : ""));
 }

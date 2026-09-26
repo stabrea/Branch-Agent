@@ -145,6 +145,11 @@ async function caching() {
 }
 
 const lang = (page) => page.evaluate(() => document.documentElement.lang);
+/* Every language i18n.js LANGUAGES lists, named in its own words the way the pickers name it (Intl.DisplayNames). */
+const ownNames = (page) => page.evaluate(async () => (await import("/i18n.js")).LANGUAGES.map(({ id }) => {
+  const name = new Intl.DisplayNames([id], { type: "language" }).of(id) ?? id;
+  return name.charAt(0).toLocaleUpperCase(id) + name.slice(1);
+}));
 const saved = (page) => page.evaluate(() => { try { return localStorage.getItem("branch-language"); } catch { return "unreadable"; } });
 const shown = (page) => page.locator("#lang").evaluate((s) => ({ value: s.value, text: s.selectedOptions[0]?.textContent ?? "", disabled: s.disabled }));
 async function closeSetup(page) {
@@ -168,7 +173,8 @@ async function languageSelect(browser, W, E) {
   check("select: shows the language in force (English), live", before.value === "en" && before.text === "English" && !before.disabled, JSON.stringify(before));
   const options = await page.locator("#lang option").evaluateAll((os) => os.map((o) => ({ v: o.value, t: o.textContent, off: o.disabled, tip: o.dataset.tip ?? "" })));
   // Only the languages with words on file are offered (public/i18n.js LANGUAGES); nothing is listed greyed.
-  check("select: only the languages with words on file, in their own names", options.map((o) => o.t).join("|") === "English|Français", options.map((o) => o.t).join("|"));
+  const names = await ownNames(page);
+  check("select: only the languages with words on file, in their own names", options.map((o) => o.t).join("|") === names.join("|") && names.includes("Français"), options.map((o) => o.t).join("|"));
   check("select: every option can be picked", options.every((o) => !o.off && !o.tip), JSON.stringify(options));
 
   await page.locator("#lang").selectOption("fr");
@@ -340,7 +346,8 @@ async function setupLanguage(browser, fr, en) {
   check("setup: the Language control comes first, before the greeting", first.firstIsLanguage, JSON.stringify(first));
   check(`setup: it is labelled "${en["appearance.language"]}"`, first.label === en["appearance.language"], first.label);
   check("setup: it lists only the languages with words on file (i18n.js LANGUAGES), none greyed", JSON.stringify(first.options.map((o) => o.v)) === JSON.stringify(listed) && first.options.every((o) => !o.off), JSON.stringify(first.options));
-  check("setup: each language is named in its own words (English, Français)", first.options.map((o) => o.t).join("|") === "English|Français", first.options.map((o) => o.t).join("|"));
+  const names = await ownNames(page);
+  check(`setup: each language is named in its own words (${names.join(", ")})`, first.options.map((o) => o.t).join("|") === names.join("|") && names.slice(0, 2).join("|") === "English|Français", first.options.map((o) => o.t).join("|"));
   check("setup: with nothing saved it shows the language in force (English)", first.value === "en" && (await lang(page)) === "en");
   await surface(page, "setup", "en", en, en);
 
