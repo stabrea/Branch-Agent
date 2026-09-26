@@ -23,7 +23,8 @@
  *   M10 POST /api/approvals/categories: delete the `policyChangeRefusal` throw          → "categories"
  *   M11 saveCredentialSettings: delete the audit() call                                 → "password manager"
  *   M12 saveCredentialSettings: `choose` replaces the list ([choose]) instead of keeping → "password manager"
- *   M13 policyChangeLooser: drop the unmatched-commands check                            → "POST /api/policy"
+ *   M13 policyChangeLooser: drop the unmatched-commands check → stays GREEN: the rules weighing also catches it
+ *       (a command tool asks, then does not); the check is kept for a registry with no command tool
  *   M14 policyChangeLooser: drop the per-minute limit check                              → "POST /api/policy"
  *   M15 POST /api/policy/approve: delete the unnamed-answer (no fingerprint) check       → "names no request"
  */
