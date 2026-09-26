@@ -4,11 +4,11 @@
 
 ### Desktop settings
 
-The native app includes **Settings → Model connection** for selecting `demo`, `openai` or `anthropic`, the API base URL, model identifier and API key. Save, quit from the tray, and reopen to apply changes. Saving does not contact the provider; the next assistant task uses the selected connection.
+The native app keeps one saved connection in `model-settings.json`: `openai` or `anthropic`, the API base URL, model identifier and API key. Save, quit from the tray, and reopen to apply changes. Saving does not contact the provider; the next assistant task uses the selected connection.
 
-Keys are protected using Electron's OS-backed key storage in `model-settings.json` beneath the desktop user-data directory. The settings API reports only whether a key exists. Leave the key field blank to retain it for the exact same provider and endpoint; changing either requires entering a key. Selecting the offline demonstration removes the saved key. This protection does not isolate a credential from every other process running as the same OS user.
+Keys are protected using Electron's OS-backed key storage in `model-settings.json` beneath the desktop user-data directory. The settings API reports only whether a key exists. Leave the key field blank to retain it for the exact same provider and endpoint; changing either requires entering a key. Clearing the connection removes the saved key. This protection does not isolate a credential from every other process running as the same OS user.
 
-If key protection is unavailable, the app declines to save new keys. If an existing connection cannot be read or unlocked, the app opens in demonstration mode with a recovery notice so it can be replaced in Settings. Linux's `basic_text` fallback is not used for storing keys.
+If key protection is unavailable, the app declines to save new keys. If an existing connection cannot be read or unlocked, the app opens with no model set up and a recovery notice, so it can be replaced in Settings › Models. Linux's `basic_text` fallback is not used for storing keys.
 
 An explicitly set `BRANCH_PROVIDER` makes launch environment configuration authoritative and disables saving model settings in the GUI. The other model variables then come from that environment. Remove `BRANCH_PROVIDER` to use the saved desktop connection.
 
@@ -18,7 +18,7 @@ The application reads environment variables when it starts. It does not automati
 
 | Variable | Meaning |
 | --- | --- |
-| `BRANCH_PROVIDER` | `demo` (default), `openai`, or `anthropic` |
+| `BRANCH_PROVIDER` | `openai` or `anthropic`. Unset means no model is set up: every task is refused with "No model yet. Choose one in setup or in Settings › Models." until one is added there. (`demo` names the tests' scripted fixture; only tests use it.) |
 | `BRANCH_ENDPOINT` | API base URL, for example `https://api.openai.com/v1` or `https://api.anthropic.com/v1` |
 | `BRANCH_MODEL` | Model identifier accepted by that endpoint |
 | `BRANCH_API_KEY` | API credential; keep outside source control |
@@ -43,7 +43,7 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 ### ChatGPT plan sign-in
 
-`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT (unofficial) · GPT-5.6 Sol (light)`, `GPT-5.6 Terra`, `GPT-5.6 Luna` and `GPT-5.5` presets (models `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`; plain `gpt-5.6` and `gpt-5.4` are refused for a ChatGPT account) and makes ChatGPT the default, with Sol first and the others as fallbacks, when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice. **This route is unofficial**; see [ChatGPT plan sign-in and OpenAI's terms](#chatgpt-plan-sign-in-and-openais-terms).
+`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT (unofficial) · GPT-5.6 Sol (light)`, `GPT-5.6 Terra`, `GPT-5.6 Luna` and `GPT-5.5` presets (models `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`; plain `gpt-5.6` and `gpt-5.4` are refused for a ChatGPT account) and makes ChatGPT the default, with Sol first and the others as fallbacks, when no other model was chosen yet. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice. **This route is unofficial**; see [ChatGPT plan sign-in and OpenAI's terms](#chatgpt-plan-sign-in-and-openais-terms).
 
 ### Several accounts per connection (mac6)
 
@@ -3425,7 +3425,7 @@ Open a conversation and choose **Forget what this conversation saved to memory**
 
 ### First-run setup
 
-Until setup is marked done, the Conversation view opens with the doors: sign in with a ChatGPT plan, paste an API key, use the model on this computer (only when Ollama or LM Studio answers on 127.0.0.1, `GET /api/providers/local`), or try it without an account on the offline demonstration, which finishes setup in one click. **Test the connection** makes one real, tool-free completion through the model that will answer next and reports the reply and how long it took (`POST /api/models/test {preset?}`); nothing is added to your conversations. **Done, start chatting** records completion (`POST /api/onboarding {done: true}`).
+Until setup is marked done, the Conversation view opens with the doors: sign in with a ChatGPT plan, paste an API key, or use the model on this computer (only when Ollama or LM Studio answers on 127.0.0.1, `GET /api/providers/local`). Until a model is set up, `GET /api/state` has `activeModel: null` and `modelNeeded` holds the refusal every task gets, and the window's message box says so with the way to set one up. **Test the connection** makes one real, tool-free completion through the model that will answer next and reports the reply and how long it took (`POST /api/models/test {preset?}`); nothing is added to your conversations. **Done, start chatting** records completion (`POST /api/onboarding {done: true}`).
 
 ### Stored facts
 
