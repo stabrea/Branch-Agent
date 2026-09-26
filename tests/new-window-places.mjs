@@ -62,5 +62,13 @@ export async function openSettings(page, setPage) {
   if (setPage) await page.locator(`[data-act="setpage"][data-v="${setPage}"]`).first().click();
 }
 
+/** The message box's + menu, "Attach files" (data-act="attach"): the system file picker, then chips in #attached. */
+export async function attachFiles(page, files) {
+  await page.locator('[data-act="plusmenu"]').click();
+  const chooser = page.waitForEvent("filechooser");
+  await page.locator('.pop [data-act="attach"]').click();
+  await (await chooser).setFiles(files);
+}
+
 /** Whether a control is drawn greyed out ("Coming soon", contract rule 6). */
 export const isSoon = async (locator) => (await locator.getAttribute("aria-disabled")) === "true" && /\bsoon\b/.test(await locator.getAttribute("class") ?? "");

@@ -87,7 +87,9 @@ test("a negative time is rejected over the API; NaN is rejected by the schema JS
   assert.deepEqual(listed.body.comments, [], "neither rejected write made it into the list");
 });
 
-test("the Files browser opens a workspace video, and clicking a comment's timestamp reopens it there (bucket-18 + FQ-collaboration, end to end)", async (t) => {
+test.skip("the Files browser opens a workspace video, and clicking a comment's timestamp reopens it there (bucket-18 + FQ-collaboration, end to end)", async (t) => {
+  // Redesign: replaced by the new window (the side panel's Files tab lists the files a conversation touched, chat/pane.js;
+  // prototype.html has no workspace browser, video player or comments on a moment in a media file).
   const { call, server, workspace, sessionId } = await fixtureWithConversation(t);
   await call("/api/workspace-editor/settings", { body: { mode: "on" } });
   await writeFile(join(workspace, "clip.mp4"), await readFile(join(here, "fixtures", "tiny-video.mp4")));
