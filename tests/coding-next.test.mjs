@@ -363,6 +363,26 @@ test("1 read-first on (Q250): a recipe or workflow the model runs itself is held
   assert.equal(await fileText(workspace, "a.txt"), "one\n", "nothing was written round the guard");
 });
 
+test("1 read-first on (Q250): a workflow the model set going stays held when the owner's yes carries it on later", async (t) => {
+  const flowId = "2d3e4f50-6172-4839-9a4b-5c6d7e8f9a01", ownFlowId = "3e4f5061-7283-494a-8b5c-6d7e8f9a0b12";
+  const steps = [{ name: "ask", kind: "approval", question: "Go on?" },
+    { name: "write", kind: "tool", tool: "files.write", args: { path: "a.txt", content: "blind\n" } }];
+  const { app, workspace } = await readFirstFixture(t, [
+    call("workflows.create", { id: flowId, name: "later", steps }), call("workflows.run", { id: flowId }), say("done")]);
+  await app.runtime.run({ prompt: "set it going" });
+  assert.equal(app.workflows.view("local", flowId).status, "waiting_approval", "it stops at the owner's question");
+  // The owner's yes carries it on, outside any model's call.
+  const resumed = await app.workflows.resume("local", flowId);
+  assert.equal(resumed.status, "failed");
+  assert.match(String(resumed.error), /read "a\.txt" with files\.read first/);
+  assert.equal(await fileText(workspace, "a.txt"), "one\n", "the write after the wait is still held");
+  // The owner's own workflow with the same steps is not held.
+  app.workflows.create("local", { id: ownFlowId, name: "mine", steps });
+  await app.workflows.run("local", ownFlowId);
+  assert.equal((await app.workflows.resume("local", ownFlowId)).status, "completed");
+  assert.equal(await fileText(workspace, "a.txt"), "blind\n");
+});
+
 test("1 read-first on: an unread file is refused, in a sentence that says to read it first", async (t) => {
   const { app, workspace } = await readFirstFixture(t, [
     edit("one", "two"),
