@@ -215,7 +215,12 @@ async function inbox(page) {
   await act(page, "view", { v: "inbox" });
   await act(page, "ptab", { place: "inbox", v: "needs" });
   await page.waitForSelector('#main [data-act="xdo-no"]', { timeout: 8000 }).catch(() => {});
-  check("allowall: drawn with the real count and greyed", await greyed(page, '#main [data-act="allowall"]'));
+  // unhold-approvals: Allow all is live and counts only what it may answer (questions and Trunk messages, never the
+  // install requests, whose own Allow stays greyed); with fewer than two of those it is not drawn.
+  const allowable = ((await get("policy")).waiting ?? []).filter((q) => !q.parentRunId).length + ((await get("state")).trunkWaiting ?? []).length;
+  const allowAll = page.locator('#main [data-act="allowall"]');
+  check("allowall: drawn only for two or more it may answer, live, with that count",
+    allowable > 1 ? !(await greyed(page, '#main [data-act="allowall"]')) && (await allowAll.innerText()).includes(String(allowable)) : (await allowAll.count()) === 0, `${allowable}`);
   const [first, second] = (await get("flows-boards/installs")).requests.filter((r) => r.status === "waiting");
   await page.click(`#main [data-act="xdo-no"][data-id="${first.id}"][data-v="denied"]`);
   const declined = await until("the decline", async () => (await get("flows-boards/installs")).requests.find((r) => r.id === first.id && r.status !== "waiting"), 8000).catch(() => null);

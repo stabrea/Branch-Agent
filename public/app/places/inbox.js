@@ -6,13 +6,17 @@
    POST /api/runs/<id>/resume or left with POST /api/runs/<id>/cancel. At the bottom of "Needs you": each request to change
    Branch itself (GET /api/self-development/requests), waiting or prepared; its review shows the request and the engine's
    bounded diff of it (GET /api/self-development/requests/<id>/diff), and answering or publishing it stays greyed.
+   "Allow all N…" (more than one waiting) answers exactly the questions and Trunk messages its confirm lists, each once,
+   through the same routes as their own Allow: POST /api/policy/approve { remember: "never" } by session and fingerprint,
+   and POST /api/trunks/messages/<id>/answer. It never keeps a standing yes, and it leaves out install requests, whose
+   own Allow stays greyed; anything that arrives after the confirm opened waits for its own answer.
    History's "Verify" walks the activity chain (POST /api/safety-extras/activity/verify) and shows what the engine found.
    "Watch again" plays a task back from its recording (GET /api/runs/<id>/recording): the engine's own frames, stepped or
    played; with recordings switched off the engine's sentence is shown. It never runs the task again. */
 
 import { $, esc, renderNow, paint } from "../core/dom.js";
 import { S, E, refresh, level } from "../core/state.js";
-import { ic, av, toast, openDlg, dialog } from "../core/ui.js";
+import { ic, av, toast, openDlg, closeDlg, dialog } from "../core/ui.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -60,8 +64,10 @@ function selfCard(r) {
 const waitingChanges = () => changeRequests.filter((r) => r.status === "waiting" || r.status === "approved");
 
 const waitingCount = () => asks.length + E.state.trunkWaiting.length + installs.length;
+/* What Allow all may answer: the questions and the Trunk messages, never the install requests. */
+const allowable = () => asks.length + E.state.trunkWaiting.length;
 function needsTab() {
-  const count = waitingCount();
+  const count = allowable();
   let html = `<div class="rows">`;
   if (count > 1) html += `<div class="acts" data-css="margin:4px 0 6px"><button class="btn" type="button" data-act="allowall">${t("window.places.inbox.allow-all-count", { count })}</button></div>`;
   html += asks.map(askRow).join("");
@@ -258,11 +264,41 @@ async function reviewChange(id) {
     foot });
 }
 
+/* ---------- Allow all: the confirm names each request, and only those are answered ---------- */
+let allowing = null;
+function openAllowAll() {
+  allowing = { asks: asks.map((q) => ({ sessionId: q.sessionId, fingerprint: q.fingerprint, label: q.question || q.label || "" })),
+    messages: E.state.trunkWaiting.map((m) => ({ id: m.id, label: m.message })) };
+  const n = allowing.asks.length + allowing.messages.length;
+  if (n < 2) return;
+  const items = [...allowing.asks, ...allowing.messages].map((x) => `<li>${esc(x.label)}</li>`).join("");
+  openDlg({ title: `Allow all ${n}?`, body: `<ul data-css="margin:0 0 8px">${items}</ul><p data-css="margin:0">Each Trunk still asks next time.</p>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="allowall-go">Allow all ${n}</button>` });
+}
+async function allowAll() {
+  const picked = allowing;
+  allowing = null;
+  closeDlg();
+  if (!picked) return;
+  let failed = 0;
+  for (const q of picked.asks) {
+    try { await api("policy/approve", { sessionId: q.sessionId, decision: "allow", remember: "never", ...(q.fingerprint ? { fingerprint: q.fingerprint } : {}), carryOn: true }); }
+    catch (error) { failed++; toast(error.message); }
+  }
+  for (const m of picked.messages) {
+    try { await api(`trunks/messages/${encodeURIComponent(m.id)}/answer`, {}); } catch (error) { failed++; toast(error.message); }
+  }
+  if (!failed) toast("All allowed.");
+  asks = ((await api("policy").catch(sayOnce)).waiting ?? []).filter((q) => !q.parentRunId);
+  await refresh().catch((error) => toast(error.message));
+  renderNow();
+}
+
 export function init() {
   initDemo17();
   initInbox17();
   // Allow on an install request (xdo) stays greyed for the security review; Don't (xdo-no) only declines.
-  markLive(["ptab", "chat", "tmsg", "cutgo15", "cutno15", "verify15", "selfrev15", "replay", "rp", "compare", "xdo-no"]);
+  markLive(["allowall", "allowall-go", "ptab", "chat", "tmsg", "cutgo15", "cutno15", "verify15", "selfrev15", "replay", "rp", "compare", "xdo-no"]);
   on("replay", (el) => openReplay(el.dataset.id));
   on("compare", (el) => openCompare(el));
   on("xdo", (el) => answerInstall(el));
@@ -286,5 +322,7 @@ export function init() {
     renderNow();
   });
   on("verify15", () => verifyRecord());
+  on("allowall", () => openAllowAll());
+  on("allowall-go", () => allowAll());
   on("selfrev15", (el) => reviewChange(el.dataset.id));
 }
