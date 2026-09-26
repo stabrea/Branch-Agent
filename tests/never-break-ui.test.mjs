@@ -78,6 +78,8 @@ test("Settings › Gateway: ships off, a change that failed its try cannot be us
 
   await page.locator("#main #gw-mode").click();
   await page.waitForFunction(() => document.querySelector("#main #gw-mode")?.checked === true);
+  // A native switch shows its new state at once; the engine's answer is what counts.
+  for (let i = 0; i < 50 && (await view()).mode !== "on"; i++) await page.waitForTimeout(100);
   assert.equal((await view()).mode, "on", "the engine keeps the switch");
   const tile = page.locator("#main .tile").filter({ hasText: "A change Branch suggested" });
   await tile.waitFor();
