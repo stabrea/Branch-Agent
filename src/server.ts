@@ -501,6 +501,8 @@ async function staticFile(
     "/pair": ["pair.html", "text/html; charset=utf-8"],
     "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
     "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    // A phone paired in its browser sends its own secret on every request (public/app/main.js installs it).
+    "/device-headers.js": ["device-headers.js", "text/javascript; charset=utf-8"],
     "/people": ["people.html", "text/html; charset=utf-8"],
     "/people.js": ["people.js", "text/javascript; charset=utf-8"],
     "/people.css": ["people.css", "text/css; charset=utf-8"],
