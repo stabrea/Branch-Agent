@@ -39,6 +39,10 @@ async function signedIn(t) {
   page.on("pageerror", (error) => errors.push(error.message));
   /* After a reload the tab still holds the key, so the window opens without asking for it again. */
   const connect = async () => {
+    // The window fetches its locale before drawing (#345), so the key field appears a beat after goto: wait for it, or
+    // for the window itself when the tab already holds the key, before looking.
+    await Promise.race([page.getByLabel("Session token", { exact: true }).waitFor({ timeout: 60000 }),
+      page.locator("#app #side").waitFor({ state: "visible", timeout: 60000 })]).catch(() => {});
     if (await page.getByLabel("Session token", { exact: true }).isVisible()) {
       await page.getByLabel("Session token", { exact: true }).fill(server.token);
       await page.getByRole("button", { name: "Connect", exact: true }).click();
