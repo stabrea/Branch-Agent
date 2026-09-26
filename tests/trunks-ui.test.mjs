@@ -190,10 +190,14 @@ test("the card, the three-field create, Edit Trunk, a room, the roster and @ in 
   await app.trunks.introduced();
 
   // Edit Trunk opens its fields.
+  // Redesign: the prototype's editor (editTrunk) has Look (name, what it's for, colour, shape, photo, movement, eyes), What
+  // it may do, and pass 17's Its computers (itsComputers): no model, reasoning, instructions, skills or channels fields,
+  // which the old editor had.
   await place(page, "customize", "trunks");
   await card.locator(`[data-act="edit"][data-id="${made.id}"]`).click();
   const editor = page.locator(".dlg");
   await editor.getByRole("heading", { name: "Edit Trunk 1" }).waitFor();
+  const editorTabs = await texts(editor.locator('[role="tab"]'));
   for (const id of ["st-name", "st-role", "st-photo"]) assert.equal(await editor.locator(`#${id}`).count(), 1, id);
   assert.equal(await editor.locator('[data-act="st-colour"]').count(), 8, "the prototype's eight colours");
   assert.equal(await editor.locator('[data-act="st-shape"]').count(), 5, "its five shapes");
@@ -213,6 +217,8 @@ test("the card, the three-field create, Edit Trunk, a room, the roster and @ in 
   assert.equal(await wide(page), false, "no sideways scrolling in the editor");
 
   // The roster: Ada's conversation is a row in the sidebar's list, with her face.
+  // Redesign: the prototype has no separate Trunks roster above Recents, no Trunks tab in the sidebar and no unread count
+  // badge on a Trunk; a Trunk's conversation is a row in the one list (rowHtml), with a dot while unread.
   const row = await sidebar(page, `#side .row[data-id="${ada.chatSessionId}"]`);
   assert.equal(await row.locator(".avw .av").count(), 1, "the row has her face");
   await page.keyboard.press("Escape");
@@ -247,6 +253,8 @@ test("the card, the three-field create, Edit Trunk, a room, the roster and @ in 
   assert.equal(await reply.locator(".from").innerText(), "Ada", "the reply is signed with who wrote it");
   assert.equal(await reply.locator(".txt").innerText(), "I can do it. @you which day?", "without its @handle prefix");
   assert.equal(await wide(page), false, "no sideways scrolling with a room open");
+  // Redesign: the prototype has no "Reply to @ada" button on a room's reply and no Inbox card "Rooms that need you"; a
+  // conversation waiting for you is marked in its own row (rowHtml: p.attn, statusLine "Waiting for you"), checked below.
 
   // "@" in the message box offers the Trunks; "@Ada …" goes to Ada.
   await (await sidebar(page, '#side [data-act="newmenu"]')).click();
@@ -267,5 +275,7 @@ test("the card, the three-field create, Edit Trunk, a room, the roster and @ in 
   // "Needs you": the room's @you. The prototype marks a waiting conversation's line in its row (rowHtml, p.attn).
   assert.equal(app.trunks.rooms.list()[0].needsYou, true, "the engine says the room needs you");
   const roomRow = await sidebar(page, `#side .row[data-id="${room.sessionId}"]`);
-  assert.equal(await roomRow.locator("p.attn").count(), 1, "window bug: a room that needs you (GET /api/trunks rooms[].needsYou) is not marked in its row");
+  const seen = { roomMarked: await roomRow.locator("p.attn").count(), editorTabs };
+  assert.deepEqual(seen, { roomMarked: 1, editorTabs: ["Look", "What it may do", "Its computers"] },
+    "window bug: a room that needs you (GET /api/trunks rooms[].needsYou) is not marked in its row; the Trunk editor has no Its computers tab (prototype itsComputers, pass 17)");
 });

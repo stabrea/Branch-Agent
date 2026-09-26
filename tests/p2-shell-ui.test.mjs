@@ -225,7 +225,9 @@ test("Add a Trunk: switched off it says so and offers the switch; the tab strip 
   await f.page.locator('#side [data-act="newmenu"]').click();
   await f.page.locator(".pop").getByRole("menuitem", { name: "New Trunk" }).click();
   await f.page.locator(".toast").waitFor();
-  assert.notEqual((await f.page.locator(".toast").innerText()).trim(), "", "the engine's refusal is said");
+  const refusal = (await f.call("/api/trunks", { name: "Trunk 1" })).error;
+  assert.ok(refusal, "the engine refuses while Trunks are off");
+  assert.equal((await f.page.locator(".toast").innerText()).trim(), refusal, "the engine's refusal is said in its own words");
   assert.equal((await f.call("/api/trunks")).trunks.length, 0, "nothing was made");
   await f.call("/api/trunks/switch", { part: "trunks", mode: "on" });
   await f.page.locator('#side [data-act="newmenu"]').click();
