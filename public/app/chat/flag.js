@@ -9,18 +9,20 @@ import { openDlg, closeDlg, toast, ic } from "../core/ui.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
-const REASONS = [["wrong", "Wrong or made up"], ["ignored", "Didn’t do what I asked"], ["unasked", "Did something I didn’t ask for"],
-  ["unsafe", "Unsafe or rude"], ["unclear", "Too long or unclear"], ["other", "Something else"]];
+/* The six reasons, each worded through t() when it is drawn (the language may change after this module loads). */
+const REASONS = ["wrong", "ignored", "unasked", "unsafe", "unclear", "other"];
+const reason = (k) => (REASONS.includes(k) ? t(`window.chat.flag.reason.${k}`) : k);
 const F = { list: [], reply: null, pick: new Set() };
-const words = (keys) => keys.map((k) => REASONS.find(([id]) => id === k)?.[1] ?? k).join(", ");
+const words = (keys) => keys.map(reason).join(", ");
 
 export const flagOf = (sessionId, messageId) => F.list.find((f) => f.sessionId === sessionId && f.messageId === messageId);
 
 /* The line under a flagged reply. */
 export function flagBadge(sessionId, m) {
   const f = m.messageId ? flagOf(sessionId, m.messageId) : null;
-  return f ? `<div class="flb17c">${ic("flag", "s")}<span>Flagged: ${esc(words(f.reasons))} · kept on this computer</span><button type="button" data-act="flrm17c" data-v="${esc(f.id)}">Remove</button></div>` : "";
+  return f ? `<div class="flb17c">${ic("flag", "s")}<span>${t("window.chat.flag.flagged", { reasons: esc(words(f.reasons)) })}</span><button type="button" data-act="flrm17c" data-v="${esc(f.id)}">${t("accounts.action.remove")}</button></div>` : "";
 }
 
 export async function loadFlags() {
@@ -31,16 +33,16 @@ export async function loadFlags() {
   if (changed) render();
 }
 
-const sendRow = () => `<div class="flsend17c off17c"><input type="checkbox" class="sw" id="fl-send17c" aria-label="Also send to the Branch team"><span class="grow"><b>Also send to the Branch team</b><small>Off. You can allow it in Settings › Data &amp; usage.</small></span><button class="link" type="button" data-act="flgo17c">Open that setting</button></div>`;
+const sendRow = () => `<div class="flsend17c off17c"><input type="checkbox" class="sw" id="fl-send17c" aria-label="${esc(t("window.chat.flag.send"))}"><span class="grow"><b>${esc(t("window.chat.flag.send"))}</b><small>${esc(t("window.chat.flag.send-off"))}</small></span><button class="link" type="button" data-act="flgo17c">${esc(t("window.chat.flag.open-setting"))}</button></div>`;
 
 function openFlag(el) {
   F.reply = { sessionId: el.dataset.sid, messageId: Number(el.dataset.mid) };
   F.pick = new Set();
   const said = (el.closest("[data-i15]")?.querySelector(".txt")?.textContent ?? "").trim().slice(0, 70);
-  const chips = REASONS.map(([k, r]) => `<button type="button" class="chip6" data-act="flr17c" data-v="${k}" aria-pressed="false">${esc(r)}</button>`).join("");
-  openDlg({ title: "Flag this reply",
-    body: `<p class="lede" data-css="margin:0 0 10px">What went wrong with “${esc(said)}”? The flag is kept on this computer with the reply, so you can look back at it.</p><div class="flr17c" role="group" aria-label="What went wrong">${chips}</div><div class="field"><label for="fl-note17c">A note (optional)</label><textarea class="inp" id="fl-note17c" rows="3" placeholder="What should it have done?"></textarea></div>${sendRow()}`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="flsave17c">Keep the flag</button>' });
+  const chips = REASONS.map((k) => `<button type="button" class="chip6" data-act="flr17c" data-v="${k}" aria-pressed="false">${esc(reason(k))}</button>`).join("");
+  openDlg({ title: t("window.chat.flag.title"),
+    body: `<p class="lede" data-css="margin:0 0 10px">${t("window.chat.flag.lede", { reply: esc(said) })}</p><div class="flr17c" role="group" aria-label="${esc(t("window.chat.flag.what-went-wrong"))}">${chips}</div><div class="field"><label for="fl-note17c">${esc(t("window.chat.flag.note"))}</label><textarea class="inp" id="fl-note17c" rows="3" placeholder="${esc(t("window.chat.flag.note-hint"))}"></textarea></div>${sendRow()}`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn pri" type="button" data-act="flsave17c">${esc(t("window.chat.flag.keep"))}</button>` });
 }
 
 function pick(el) {
@@ -50,7 +52,7 @@ function pick(el) {
 }
 
 async function save() {
-  if (!F.pick.size) { toast("Pick at least one reason."); return; }
+  if (!F.pick.size) { toast(t("window.chat.flag.pick")); return; }
   try {
     const kept = await api("reply-flags", { ...F.reply, reasons: [...F.pick], note: $("#fl-note17c")?.value ?? "" });
     closeDlg();

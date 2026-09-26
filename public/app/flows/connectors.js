@@ -34,8 +34,9 @@ function catalogueList() {
   return groups || `<p class="empty">${t("window.flows.conn.nothing")}</p>`;
 }
 function catalogueBody() {
-  const tabs = ["All", ...CAT.list.map((g) => g.category)].map((c) => `<button class="tab" type="button" aria-selected="${CAT.cat === c}" data-act="mcp-cat" data-v="${esc(c)}">${esc(c)}</button>`).join("");
-  return `<p data-css="margin:0 0 10px">${CAT.count} ready to connect, or add your own server.</p><div class="ch-top12"><label class="set-search" data-css="margin:0;flex:1">${ic("search", "s")}<input id="mcp-q" value="${esc(CAT.q)}" placeholder="Search connectors" aria-label="Search connectors" autocomplete="off"></label></div>
+  /* "All" stays the tab's value; only its label follows the language. The categories are the engine's words. */
+  const tabs = ["All", ...CAT.list.map((g) => g.category)].map((c) => `<button class="tab" type="button" aria-selected="${CAT.cat === c}" data-act="mcp-cat" data-v="${esc(c)}">${c === "All" ? t("look.filter.all") : esc(c)}</button>`).join("");
+  return `<p data-css="margin:0 0 10px">${t("window.flows.conn.ready", { count: CAT.count })}</p><div class="ch-top12"><label class="set-search" data-css="margin:0;flex:1">${ic("search", "s")}<input id="mcp-q" value="${esc(CAT.q)}" placeholder="${t("window.flows.conn.search")}" aria-label="${t("window.flows.conn.search")}" autocomplete="off"></label></div>
     <div class="tabs aa-tabs12">${tabs}</div><div class="aa-list12">${catalogueList()}</div>`;
 }
 async function connectorCatalogue() {
@@ -90,21 +91,22 @@ function pickHow(el) {
 }
 
 /* ---------- command-line tools ---------- */
+const allowedPill = () => `<span class="pill ok"><i></i>${t("window.settings.self.allowed")}</span>`;
 function cliRow(c) {
-  const act = c.allowed ? '<span class="pill ok"><i></i>Allowed</span>' : `<button class="btn sm" type="button" data-act="cli-add" data-v="${esc(c.name)}">Allow</button>`;
+  const act = c.allowed ? allowedPill() : `<button class="btn sm" type="button" data-act="cli-add" data-v="${esc(c.name)}">${t("window.settings.permissions.rule-allow")}</button>`;
   return `<div class="prow"><span class="ico-tile">${ic("term", "s")}</span><span class="grow"><b>${esc(c.name)}</b><small>${esc(c.path)}</small></span>${act}</div>`;
 }
 async function addCliDialog() {
   let found;
   try { found = (await api("clis")).found ?? []; } catch (error) { toast(error.message); return; }
-  openDlg({ title: "Add a command-line tool",
-    body: `<p class="hint" data-css="margin:0 0 8px">Found on this computer. Allow one and choose what it may run without asking.</p><div class="rows">${found.map(cliRow).join("")}</div><label class="fld" data-css="margin-top:12px"><span>Or add one by its path</span><input class="inp" id="cli-path"></label>`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Done</button>' });
+  openDlg({ title: t("window.flows.conn.add-cli"),
+    body: `<p class="hint" data-css="margin:0 0 8px">${t("window.flows.conn.cli-found")}</p><div class="rows">${found.map(cliRow).join("")}</div><label class="fld" data-css="margin-top:12px"><span>${t("window.flows.conn.cli-path")}</span><input class="inp" id="cli-path"></label>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.done")}</button>` });
 }
 async function allowCli(body, el) {
   try {
     const added = await api("clis", body);
-    if (el) el.outerHTML = '<span class="pill ok"><i></i>Allowed</span>';
+    if (el) el.outerHTML = allowedPill();
     else closeDlg();
     showTool("clis", added.program.name);
     await reloadTools();

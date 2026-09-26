@@ -7,6 +7,7 @@ import { openDlg, closeDlg, closePop, toast, ic } from "../core/ui.js";
 import { api } from "../core/api.js";
 import { on, run, has } from "../core/actions.js";
 import { markLive, isLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 const dataAttrs = (data) => Object.entries(data ?? {}).map(([k, v]) => `data-${esc(k)}="${esc(v)}"`).join(" ");
 /* A note whose place is not live yet carries its own action, so it is greyed out like that control. */
@@ -17,8 +18,8 @@ async function openWhatsNew() {
   closePop();
   let notes;
   try { notes = await api("release-notes"); } catch (error) { toast(error.message); return; }
-  openDlg({ title: "What’s new", wide: true,
-    body: `<p class="hint" data-css="margin:0 0 10px">Everything added in the last passes, and where it lives. Your choices are kept on this computer.</p><div class="new13">${(notes.items ?? []).map(row).join("")}</div>` });
+  openDlg({ title: t("window.settings.updates.whats-new"), wide: true,
+    body: `<p class="hint" data-css="margin:0 0 10px">${t("window.flows.whatsnew.lede")}</p><div class="new13">${(notes.items ?? []).map(row).join("")}</div>` });
 }
 
 function go(el) {
