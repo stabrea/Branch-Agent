@@ -83,9 +83,17 @@ async function toggleProjects() {
 /* A row is pinned when the engine keeps its Trunk or room pinned (POST /api/trunks/<id>, /api/trunks/rooms/<id>). */
 const pinnedRow = (s) => !!(s.pinned || chatOwner(sessionId(s))?.pinned);
 
+/* The rooms this person is in (GET /api/trunks rooms) that the conversation list does not already have: for a household
+   person GET /api/sessions holds only their own conversations, so their rooms get a row from here. */
+function roomRows() {
+  const have = new Set(E.sessions.map(sessionId));
+  return E.rooms.filter((r) => r.sessionId && !have.has(r.sessionId))
+    .map((r) => ({ sessionId: r.sessionId, opening: r.name, lastMessage: r.latest ?? "", updatedAt: r.at, pinned: r.pinned }));
+}
+
 function list() {
   if (SQ.q.trim()) return `<nav class="list searching9" aria-label="Conversations">${searchHTML()}</nav>`;
-  const rows = E.sessions;
+  const rows = [...E.sessions, ...roomRows()];
   const pinned = rows.filter(pinnedRow);
   const recent = rows.filter((s) => !pinnedRow(s));
   return `<nav class="list" aria-label="Conversations">

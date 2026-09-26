@@ -24,6 +24,7 @@ export const E = {
   state: null,
   trunks: [],
   trunkModes: {},
+  rooms: [],
   sessions: [],
   conversation: null,
   profiles: null,
@@ -53,6 +54,7 @@ export async function refresh() {
   E.state = state;
   E.trunks = trunks?.trunks ?? (Array.isArray(trunks) ? trunks : []);
   E.trunkModes = trunks?.modes ?? {};
+  E.rooms = Array.isArray(trunks?.rooms) ? trunks.rooms : [];
   E.sessions = sessions?.sessions ?? [];
   E.loaded = true;
   render();
