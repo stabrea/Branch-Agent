@@ -1,7 +1,7 @@
 /* Overview: status dashboard and controls. */
 
 import { esc } from "../core/dom.js";
-import { S, E, personHere } from "../core/state.js";
+import { S, E, activeId } from "../core/state.js";
 import { ic, av } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
@@ -93,9 +93,12 @@ function controlsTile() {
   return `<div class="tile"><h2>Controls</h2><p>Mode: <b data-css="font-weight:600">${esc(mode)}</b> · <button class="link" type="button" data-act="setgo" data-v="permissions">change</button></p><div class="acts"><button class="btn bad sm" type="button" data-act="lock">Lockdown</button><button class="btn sm" type="button" data-act="pauseall">${allPaused() ? "Resume all Trunks" : "Pause all Trunks"}</button></div></div>`;
 }
 
+/* Everyone on this computer (GET /api/profiles: the owner, then each profile), as the prototype's tile lists them; the
+   person here now is marked so. Switching person stays in the person menu, greyed. */
 function usersTile() {
-  const identity = personHere();
-  return `<div class="tile"><h2>Who is using Branch</h2><div data-css="display:flex;align-items:center;gap:10px;font-size:13px"><span class="me" data-css="width:26px;height:26px;font-size:11px">${esc(identity.charAt(0))}</span><span data-css="flex:1">${esc(identity)}</span></div><div class="acts"><button class="btn sm" type="button" data-act="invite">Invite someone</button></div></div>`;
+  const everyone = [[null, E.profiles?.roleLabels?.owner?.label || ""], ...(E.profiles?.profiles ?? []).map((p) => [p.id, p.name])];
+  const rows = everyone.map(([id, name]) => `<div data-css="display:flex;align-items:center;gap:10px;font-size:13px"><span class="me" data-css="width:26px;height:26px;font-size:11px">${esc(String(name ?? "").charAt(0))}</span><span data-css="flex:1">${esc(name)}</span>${activeId() === id ? '<span data-css="color:var(--ink-3)">Here now</span>' : ""}</div>`).join("");
+  return `<div class="tile"><h2>Who is using Branch</h2>${rows}<div class="acts"><button class="btn sm" type="button" data-act="invite">Invite someone</button></div></div>`;
 }
 
 function milestonesTile() {

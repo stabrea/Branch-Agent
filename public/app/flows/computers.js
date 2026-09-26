@@ -9,12 +9,14 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 
 const TABS = [["network", "On your network"], ["code", "With a code"], ["phone", "Your phone"]];
+/* The prototype's note under the tabs (addComputer): what pairing leads to. Pairing itself stays greyed. */
+const AFTER = '<div class="status" data-css="margin-top:4px"><span class="sdot"></span><div><b>What happens after pairing</b><p>The other computer’s Trunks show in the switcher. You can send it tasks, and it asks you before doing anything. Unpair any time from Settings › Computer.</p></div></div>';
 
 function addComputer(tab) {
   closePop();
   const body = tab === "phone" ? '<p data-css="margin:0">Scan with the Branch app on your phone.</p><button class="btn" type="button" data-act="pair">Show the phone code</button>' : "";
   openDlg({ title: "Add a computer or phone",
-    body: `<div class="tabs" data-css="margin:0">${TABS.map(([k, l]) => `<button class="tab" type="button" aria-selected="${tab === k}" data-act="ac-tab" data-v="${k}">${l}</button>`).join("")}</div>${body}` });
+    body: `<div class="tabs" data-css="margin:0">${TABS.map(([k, l]) => `<button class="tab" type="button" aria-selected="${tab === k}" data-act="ac-tab" data-v="${k}">${l}</button>`).join("")}</div>${body}${AFTER}` });
 }
 
 const KINDS = [["sandbox", "shield", "A new private computer on this PC", "A sealed Windows box."], ["pair", "monitor", "Another computer with Branch", "A PC, a Mac or a Linux box. Pair it once with a six-digit code."], ["cloud", "globe", "A KeepOak cloud computer", "Always on, works while this PC sleeps. Billed by KeepOak."], ["remote", "key", "A computer over remote desktop or SSH", "Proposal: for a machine that can’t run Branch itself."]];
