@@ -107,7 +107,8 @@ test("A2 a new key can be given to a Trunk, saved on the Trunk, and a sign-in ne
   assert.equal((await page.content()).includes("sk-sample-scout-0000000007"), false, "the key is never on the page");
   // A sign-in account is never used for a Trunk (src/trunks/accounts.ts), so it is never saved as one's pick.
   await page.locator('[data-act="addacct"][data-v="cli-claude-code"]').click();
-  await page.locator(`.dlg [data-act="aa-tr"][data-v="${trunk.id}"]`).click();
+  // For a sign-in, the Trunk chip is drawn disabled on purpose (#326): it cannot be picked at all.
+  assert.equal(await page.locator(`.dlg [data-act="aa-tr"][data-v="${trunk.id}"]`).isDisabled(), true, "a sign-in's Trunk chip is disabled");
   await page.getByLabel("Call it", { exact: true }).fill("Partner plan");
   await page.getByRole("button", { name: "Add account", exact: true }).click();
   await page.locator(".dlg").waitFor({ state: "detached", timeout: 30000 });
