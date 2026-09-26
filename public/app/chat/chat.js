@@ -78,7 +78,7 @@ function bot(m, first, who, info) {
    owner's policy, POST /api/policy/approve { remember: "always" }; the engine keeps it for every Trunk, so the card does
    not name one), and "Don't …" (deny). Always allow is drawn only where the engine could keep it: not in Ask first or
    Plan (noStanding), not for a call that names nothing a rule could hold (noAlways), not for a once-only question, not
-   for work the owner did not start, and not on a household profile; the engine refuses each of those anyway. The verb comes from the tool alone,
+   for work the owner did not start, not on a household profile, and not under Lockdown; the engine refuses each anyway. The verb comes from the tool alone,
    never from the label, which can carry a reviewer's or hook's words; the label is the card's body. Each button names
    its request by session and fingerprint, and only that exact request is answered. */
 const VERBS = { files: "window.chat.ask.change-it", shell: "playground.run", code: "playground.run", device: "trunks.room.allow", browser: "window.chat.ask.go-ahead", channels: "window.chat.ask.send-it", memory: "window.chat.ask.save-it" };
@@ -91,7 +91,8 @@ function askCard(q) {
   const verb = verbOf(q.tool);
   const off = answering.has(askKey(q.sessionId, q.fingerprint)) ? " disabled" : "";
   const id = `data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}"${off}`;
-  const standing = !q.noStanding && !q.noAlways && !q.onceOnly && q.source === "owner" && !E.profiles?.active?.id;
+  const locked = document.getElementById("app")?.classList.contains("locked"); // Lockdown keeps no standing yes either
+  const standing = !q.noStanding && !q.noAlways && !q.onceOnly && q.source === "owner" && !E.profiles?.active?.id && !locked;
   const always = standing ? `<button class="btn" type="button" data-act="ask-always" ${id}>${t("window.chat.ask.always")}</button>` : "";
   return `<div class="b"><div class="gut"></div><div><div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.question || q.label)}</span><span class="pill work ml"><i></i>${t("dashboard.needs.title")}</span></div>
     ${(q.question && q.label) || q.bytes ? `<dl class="kv">${q.question && q.label ? `<dd class="mailbody">${esc(q.label)}</dd>` : ""}${q.bytes ? `<dd class="mailbody">${esc(q.bytes)}</dd>` : ""}</dl>` : ""}

@@ -64,8 +64,9 @@ function selfCard(r) {
 const waitingChanges = () => changeRequests.filter((r) => r.status === "waiting" || r.status === "approved");
 
 const waitingCount = () => asks.length + E.state.trunkWaiting.length + installs.length;
-/* What Allow all may answer: the questions and the Trunk messages, never the install requests. */
-const allowable = () => asks.length + E.state.trunkWaiting.length;
+/* What Allow all may answer: the questions and the Trunk messages, never the install requests. On a household profile
+   it is not offered: GET /api/policy lists the owner's questions there too, and one yes for all of them is the owner's. */
+const allowable = () => (E.profiles?.active?.id ? 0 : asks.length + E.state.trunkWaiting.length);
 function needsTab() {
   const count = allowable();
   let html = `<div class="rows">`;
@@ -267,6 +268,7 @@ async function reviewChange(id) {
 /* ---------- Allow all: the confirm names each request, and only those are answered ---------- */
 let allowing = null;
 function openAllowAll() {
+  if (allowable() < 2) return;
   allowing = { asks: asks.map((q) => ({ sessionId: q.sessionId, fingerprint: q.fingerprint, label: q.question || q.label || "" })),
     messages: E.state.trunkWaiting.map((m) => ({ id: m.id, label: m.message })) };
   const n = allowing.asks.length + allowing.messages.length;

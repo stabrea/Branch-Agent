@@ -54,6 +54,20 @@ async function alwaysAllow(page, ctx) {
   check("Always allow: the engine keeps a standing rule (GET /api/rules)", rule, rule?.sentence);
   await until("the file", async () => existsSync(join(ctx.workspace, "always.txt")));
   check("Always allow: the task carried on and wrote the file", existsSync(join(ctx.workspace, "always.txt")));
+  // Under Lockdown the engine keeps no standing yes, so the card does not offer one.
+  await api("lockdown", { on: true });
+  await page.reload();
+  await page.locator("#app.locked").waitFor({ timeout: 30000 });
+  await page.locator("#prompt").fill("write locked.txt");
+  await page.locator("#send").click();
+  const locked = page.locator("#live-ask");
+  await locked.waitFor({ state: "visible", timeout: 30000 });
+  check("Always allow under Lockdown: not offered", (await locked.getByRole("button", { name: "Always allow", exact: true }).count()) === 0);
+  await locked.getByRole("button", { name: "Don’t allow", exact: true }).click();
+  await api("lockdown", { on: false });
+  await page.reload();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 30000 });
+  await settle(page, 1000);
 }
 
 /* Allow all: two tasks waiting on a yes; the confirm names both, and both are answered once. */
