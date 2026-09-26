@@ -115,10 +115,12 @@ test("each card lists what the grant really allows, the owner's card changes the
   // The prototype's permission names, ticked from the grant Branch really holds each person to.
   const owner = await cardOf(f.page, "Owner");
   assert.deepEqual((await mayOf(owner)).map((one) => one.endsWith(":yes")), [true, true, true, true, true, true, true]);
-  assert.deepEqual(await factsOf(owner), ["Trunks=All of them", "Projects=All of them", "Daily allowance=None", "PIN=Not set"]);
+  // The prototype's words for the owner's card (design/redesign/prototype.html: All, No limit, and where they are signed in).
+  assert.deepEqual(await factsOf(owner), ["Trunks=All", "Projects=All", "Daily allowance=No limit", "PIN=—", "Signed in on=This computer"]);
   const card = await cardOf(f.page, "Sam");
   assert.deepEqual((await mayOf(card)).filter((one) => one.endsWith(":yes")).length, 2, "a narrowed grant shows as narrowed, not as the role's full list");
-  assert.deepEqual(await factsOf(card), ["Trunks=None", "Projects=garden", "Daily allowance=2.50", "PIN=Set"]);
+  // The prototype lists every fact, "—" when there is none, and money as dollars a day.
+  assert.deepEqual(await factsOf(card), ["Trunks=—", "Projects=garden", "Daily allowance=$2.50 a day", "PIN=Set"]);
   // Redesign: replaced by the new window (prototype.html's person card has no "Change look"; Appearance is its own page).
 
   await f.call("/api/profiles/switch", { profileId: sam.id, pin: "1234" });
@@ -151,8 +153,8 @@ test("a person's own card ticks only what Branch enforces and names their own Tr
   await f.people();
   // Sam is made a Child from his card (the prototype's Adult / Child choice, data-act="p-role").
   let samCard = await cardOf(f.page, "Sam");
-  await samCard.locator('[data-act="p-role"][data-v="Child"]').click();
-  await f.page.waitForFunction(() => document.querySelector('.pcard10 [data-act="p-role"][data-v="Child"]')?.getAttribute("aria-pressed") === "true");
+  await samCard.locator('[data-act="p-role"]', { hasText: "Child" }).click();
+  await f.page.waitForFunction(() => [...document.querySelectorAll('.pcard10 [data-act="p-role"]')].find((b) => b.textContent.trim() === "Child")?.getAttribute("aria-pressed") === "true");
   const onlyRead = (list) => list.filter((one) => one.endsWith(":yes")).length === 1;
   const kimCard = await cardOf(f.page, "Kim");
   assert.ok(onlyRead(await mayOf(kimCard)), "the owner sees Kim's group narrowing");

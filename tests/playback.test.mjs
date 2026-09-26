@@ -41,6 +41,8 @@ async function fixture(t) {
 async function openWorkspace(t, page, server) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // The first-run card (#323) takes every click; these tests are about playback, so first run is marked done.
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
   await signIn(page, server);
   return errors;
 }

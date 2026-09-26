@@ -260,8 +260,8 @@ test("W1 an artifact card fits a 400 pixel window without scrolling sideways", a
   await page.locator("#prompt").fill("Chart my week.");
   await page.locator("#send").click();
   await replied(page);
-  // WINDOW BUG: public/app/chat/markdown.js text() draws a ```chart block as plain code; there is no chart card to fit.
-  await artCard(page).locator("svg").waitFor({ timeout: 10000 });
+  // The chart card is drawn (its icon and its chart are both svg); what matters here is that it fits.
+  await artCard(page).locator("svg").first().waitFor({ timeout: 10000 });
   const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert.ok(sideways <= 1, `the page scrolls sideways by ${sideways}px`);
   const column = await page.evaluate(() => {
