@@ -204,13 +204,16 @@ function draw() {
 /* What the engine has now, for every step. A read that fails leaves its step's choice unpicked, never a setup default
    shown as if it were saved. */
 async function load(o) {
-  const [accounts, local, channels, connected, mcp, gw, mode, progress] = await Promise.all([
-    api("accounts").catch(() => ({})), api("local-models").catch(() => ({})), api("channel-setup").catch(() => ({})),
+  /* The models on this computer can take a moment on a cold start (the engine asks the runtime), so setup is not held
+     for them: the Models step draws them as soon as they come back. */
+  api("local-models").then((local) => { o.local = local.ollama?.models ?? []; if (S.ob === o) draw(); }).catch(() => null);
+  const [accounts, channels, connected, mcp, gw, mode, progress] = await Promise.all([
+    api("accounts").catch(() => ({})), api("channel-setup").catch(() => ({})),
     api("channels").catch(() => ({})), api("mcp/connections").catch(() => ({})), api("never-break").catch(() => ({})),
     api("conversation-mode/settings").catch(() => ({})), api("onboarding"),
   ]);
   Object.assign(o, {
-    pools: accounts.pools ?? [], local: local.ollama?.models ?? [], channels: channels.channels ?? [], connected: connected.channels ?? [],
+    pools: accounts.pools ?? [], channels: channels.channels ?? [], connected: connected.channels ?? [],
     servers: mcp.servers ?? [], gw: gw.mode ?? null, asks: ["auto", "ask", "plan"].includes(mode.settings?.newConversation) ? mode.settings.newConversation : null,
   });
   keepProgress(o, progress);

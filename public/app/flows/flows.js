@@ -55,7 +55,9 @@ function checkFirstRun() {
   if (!setupDue()) return;
   const root = document.getElementById("app");
   root?.classList.add("ob-due");
-  setup.openSetup(1, "resume").finally(() => root?.classList.remove("ob-due"));
+  const show = () => root?.classList.remove("ob-due");
+  setTimeout(show, 4000); // an engine that is slow to answer never leaves the window blank
+  setup.openSetup(1, "resume").finally(show);
 }
 
 export function openAddAcct(prov) {
