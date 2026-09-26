@@ -73,8 +73,8 @@ test("U2 the pins card is under Settings, Permissions, starts empty, and its Pin
   await card.waitFor({ state: "visible" });
   assert.equal(await card.locator(".rows > *").count(), 0, "nothing is pinned yet");
   assert.equal(app.store.get("settings", "local", "settings-pins"), undefined);
-  // Redesign: Coming soon (pin-add8), checked at e5b8a610; the pin and unpin flow is the skipped test below.
-  assert.equal(await card.getByRole("button", { name: "Pin a setting", exact: true }).getAttribute("aria-disabled"), "true");
+  // Pinning a setting is live since #353 (settings-kit pins, through the owner check).
+  assert.notEqual(await card.getByRole("button", { name: "Pin a setting", exact: true }).getAttribute("aria-disabled"), "true");
   assert.deepEqual(errors, []);
 });
 

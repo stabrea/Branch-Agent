@@ -49,14 +49,8 @@ test("browser UI connects, runs demo, finds it again, and fits mobile viewport",
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   if (process.env.BRANCH_SCREENSHOT_DIR)
     await page.screenshot({ path: join(process.env.BRANCH_SCREENSHOT_DIR, "branch-mobile.png"), fullPage: true });
-  /* No model yet is said once, in plain words: the first run's Practice first (prototype.html's toast). */
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.locator("#side .owner").click();
-  await page.getByRole("menuitem", { name: "Replay the first run" }).click();
-  await page.getByRole("button", { name: "Let’s start", exact: true }).click();
-  await page.getByRole("button", { name: /Practice first/ }).click();
-  await page.getByRole("status").filter({ hasText: "Practice mode: examples only until you choose a model." }).waitFor({ timeout: 5000 })
-    .catch(() => assert.fail("choosing Practice first says practice mode, in the prototype's words"));
+  /* "Practice first" and the demo model are gone (#359, the owner's decision): with no model the engine refuses in
+     plain words and the window points to setup, which the engine's own tests check. */
   assert.deepEqual(errors, []);
 });
 
