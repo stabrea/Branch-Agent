@@ -34,6 +34,10 @@ export async function streamRunEvents(store: Store, runId: string, response: Ser
  *
  * `kinds` names the kinds of event wanted; an empty list means all of them. `after` is the last id
  * already seen, so a client that reconnects carries on rather than repeating itself.
+ *
+ * Q253: `scopeNow` answers whose records the window shows at this moment. When it stops naming the
+ * `owner` the stream was opened for (the window switched to a household person, or back), nothing
+ * more is written and the stream ends, so the window reconnects under whoever is there now.
  */
 export async function streamOwnerEvents(
   store: Store, owner: string, response: ServerResponse,
@@ -43,6 +47,8 @@ export async function streamOwnerEvents(
     maxEvents?: number;
     /** Takes any saved password or key back out before an event is sent (the runtime's own). */
     scrub?: <T>(value: T) => T;
+    /** Whose records the window shows now (profiles.scope()); the stream ends once it is not `owner`. */
+    scopeNow?: () => string;
   } = {},
 ): Promise<void> {
   // Nobody may ask to be held open longer than the ceiling, nor to be sent an unbounded number of
@@ -52,7 +58,8 @@ export async function streamOwnerEvents(
   const maxEvents = Math.min(Math.max(options.maxEvents ?? 2000, 1), 5000);
   const deadline = Date.now() + maxMs;
   const scrub = options.scrub ?? (<T>(value: T) => value);
-  let sent = 0;
+  let sent = 0, moved = false;
+  const scopeMoved = () => options.scopeNow !== undefined && options.scopeNow() !== owner;
   const wanted = new Set(options.kinds ?? []);
   response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
   response.flushHeaders();
@@ -63,9 +70,13 @@ export async function streamOwnerEvents(
   response.on("close", () => { closed = true; });
   response.write(`event: ready\ndata: ${JSON.stringify({ after: last, kinds: [...wanted] })}\n\n`);
   while (!closed && Date.now() < deadline) {
+    if ((moved = scopeMoved())) break;
     // recentEvents comes back newest first, so it is turned round to keep the stream in order.
     const fresh = store.recentEvents(owner, 200).filter((event) => event.id > last).reverse();
     for (const event of fresh) {
+      // Checked again before every event, not only once a poll, so nothing of the scope the stream
+      // opened with goes out after the window has moved to somebody else.
+      if ((moved = scopeMoved())) break;
       last = Math.max(last, event.id);
       if (wanted.size && !wanted.has(event.kind)) continue;
       // An event's own body can hold what a tool was asked to do, so it goes out through the same
@@ -73,9 +84,9 @@ export async function streamOwnerEvents(
       response.write(`id: ${event.id}\nevent: ${event.kind}\ndata: ${JSON.stringify(scrub({ id: event.id, runId: event.runId, kind: event.kind, data: event.data, createdAt: event.createdAt }))}\n\n`);
       if (++sent >= maxEvents) { closed = true; break; }
     }
-    if (closed) break;
+    if (closed || moved) break;
     await delay(pollMs);
   }
-  response.write(`event: end\ndata: ${JSON.stringify({ after: last, sent })}\n\n`);
+  response.write(`event: end\ndata: ${JSON.stringify({ after: last, sent, ...(moved ? { reason: "profile" } : {}) })}\n\n`);
   response.end();
 }

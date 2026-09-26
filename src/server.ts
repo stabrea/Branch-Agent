@@ -3982,6 +3982,9 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
       // The stream carries tool arguments and results, so nothing goes out of it carrying a saved
       // password or key; how long it may run and how much it may send are both capped inside.
       scrub: app.runtime.hideSecrets,
+      // Q253: an open stream follows who is at the window (as the activity list does since #324). Once
+      // the window switches profile it ends, and the window's reconnect opens it under the new scope.
+      scopeNow: () => app.store.profiles.scope(),
       ...(Number(query.get("maxMs")) ? { maxMs: Number(query.get("maxMs")) } : {}),
     });
     return true;
