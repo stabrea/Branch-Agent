@@ -156,10 +156,15 @@ export class WorkspaceHistory {
     return this.db.prepare("SELECT * FROM workspace_snapshots WHERE owner=? ORDER BY created_at DESC LIMIT 50").all(this.owner)
       .map((row) => ({ id: String(row.id), label: String(row.label), files: Number(row.files), bytes: Number(row.bytes), createdAt: String(row.created_at) }));
   }
-  /** Puts every file in the snapshot back to its exact bytes; files created since are left in place. */
-  async restoreSnapshot(id: string): Promise<{ id: string; restored: number }> {
+  /**
+   * Puts every file in the snapshot back to its exact bytes; files created since are left in place.
+   * Redesign security review: what those files hold now is kept first, as a snapshot of its own ("Before putting back
+   * …"), so putting a point back never loses work done since; that snapshot can itself be put back.
+   */
+  async restoreSnapshot(id: string): Promise<{ id: string; restored: number; kept?: string }> {
     const rows = this.db.prepare("SELECT path, content FROM file_versions WHERE owner=? AND snapshot_id=?").all(this.owner, id);
     if (!rows.length) throw new Error("That snapshot is not kept");
+    const kept = await this.keepBeforeRestore(id, rows.map((row) => String(row.path)));
     let restored = 0;
     for (const row of rows) {
       const path = String(row.path), target = await this.files.checked(path);
@@ -167,7 +172,23 @@ export class WorkspaceHistory {
       await writeFile(target, Buffer.from(String(row.content), "base64"), { mode: 0o600 });
       restored++;
     }
-    return { id, restored };
+    return { id, restored, ...(kept ? { kept } : {}) };
+  }
+  /** The files a restore is about to write over, as they are now, under a snapshot of their own; null when none exists yet. */
+  private async keepBeforeRestore(restoring: string, paths: string[]): Promise<string | null> {
+    const from = this.db.prepare("SELECT label FROM workspace_snapshots WHERE owner=? AND id=?").get(this.owner, restoring);
+    const id = randomUUID();
+    let files = 0, bytes = 0;
+    for (const path of paths) {
+      const content = await this.current(path);
+      if (!content || content.length > snapshotLimits.fileBytes) continue;
+      this.insert(path, content, "", "before snapshot restore", id);
+      files++; bytes += content.length;
+    }
+    if (!files) return null;
+    const label = `Before putting back ${String(from?.label ?? "a snapshot")}`.slice(0, 120);
+    this.db.prepare("INSERT INTO workspace_snapshots VALUES(?,?,?,?,?,?)").run(id, this.owner, label, files, bytes, new Date().toISOString());
+    return id;
   }
   /**
    * A named point in one conversation: the exact bytes, right now, of every file the assistant has
