@@ -3483,5 +3483,5 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .app.has-bg>.ob9{background:color-mix(in srgb,var(--bg) calc(80% - var(--see,25%)),transparent);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .app.has-bg>.ob9 .ob-rail{background:color-mix(in srgb,var(--side) calc(90% - var(--see,25%)),transparent)}
 .app.has-bg>.ob9 .ob-foot{background:transparent}
-.app.has-bg:has(>.ob9)>:is(.titlebar,.body,.statusbar,.focus-exit){visibility:hidden}
+.app.has-bg:has(>.ob9)>:is(.titlebar,.body,.statusbar,.focus-exit){opacity:0}
 @media (prefers-reduced-motion:reduce){.ob-th15{transition:none}.ob-strip15{scroll-behavior:auto}}
