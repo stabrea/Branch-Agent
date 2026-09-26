@@ -1,0 +1,38 @@
+[
+  {
+    "id": "redpanda",
+    "name": "Red panda",
+    "still": "assets/pets/redpanda.webp",
+    "walk": "assets/pets/redpanda-walk.webm"
+  },
+  {
+    "id": "pangolin",
+    "name": "Pangolin",
+    "still": "assets/pets/pangolin.webp",
+    "walk": "assets/pets/pangolin-walk.webm"
+  },
+  {
+    "id": "quokka",
+    "name": "Quokka",
+    "still": "assets/pets/quokka.webp",
+    "walk": "assets/pets/quokka-walk.webm"
+  },
+  {
+    "id": "acornling",
+    "name": "Acorn sprite",
+    "still": "assets/pets/acornling.webp",
+    "walk": "assets/pets/acornling-walk.webm"
+  },
+  {
+    "id": "goatkid",
+    "name": "Goat kid",
+    "still": "assets/pets/goatkid.webp",
+    "walk": "assets/pets/goatkid-walk.webm"
+  },
+  {
+    "id": "piglet",
+    "name": "Teacup piglet",
+    "still": "assets/pets/piglet.webp",
+    "walk": "assets/pets/piglet-walk.webm"
+  }
+]

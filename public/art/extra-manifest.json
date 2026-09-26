@@ -7,6 +7,34 @@
   "wait": "assets/anim-wait.webm",
   "oops": "assets/anim-oops.webm"
  },
+ "art": {
+  "art17-cloud": {
+   "still": "assets/cloud.webp",
+   "loop": "assets/cloud.webm"
+  },
+  "art17-call": {
+   "still": "assets/call.webp",
+   "loop": "assets/call.webm"
+  },
+  "art17-meeting": {
+   "still": "assets/meeting.webp",
+   "loop": "assets/meeting.webm"
+  },
+  "art17-learn": {
+   "still": "assets/learn.webp",
+   "loop": "assets/learn.webm"
+  },
+  "art17-timeline": {
+   "still": "assets/timeline.webp",
+   "loop": "assets/timeline.webm"
+  },
+  "art17-branch-call": {
+   "still": "assets/branch-call.webp"
+  },
+  "art17-branch-workbook": {
+   "still": "assets/branch-workbook.webp"
+  }
+ },
  "backgrounds": [
   {
    "id": "summer",
@@ -55,6 +83,36 @@
    "name": "Sunflower Hills",
    "description": "rolling sunflower hills under soft afternoon sky",
    "file": "assets/bg/grove-hills.webp"
+  },
+  {
+   "id": "night17-lake",
+   "name": "Still lake at night",
+   "file": "assets/bg/lake-night.webp"
+  },
+  {
+   "id": "night17-highland",
+   "name": "Moonlit highland",
+   "file": "assets/bg/highland-moon.webp"
+  },
+  {
+   "id": "day17-sea",
+   "name": "Morning sea",
+   "file": "assets/bg/sea-morning.webp"
+  },
+  {
+   "id": "day17-meadow",
+   "name": "Meadow afternoon",
+   "file": "assets/bg/meadow-afternoon.webp"
+  },
+  {
+   "id": "glow17-amber",
+   "name": "Amber glass",
+   "file": "assets/bg/glow-amber.webp"
+  },
+  {
+   "id": "season17-snow",
+   "name": "First snow",
+   "file": "assets/bg/first-snow.webp"
   }
  ],
  "notes": {
