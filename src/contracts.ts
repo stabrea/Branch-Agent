@@ -106,6 +106,11 @@ export interface Message {
    * these are written down with the conversation, so it can still show what it was given.
    */
   attachments?: AttachmentRef[];
+  /**
+   * A message the engine wrote itself rather than the person: "trunk-intro" is the ask that has a new
+   * Trunk introduce itself in its own conversation, which the window does not draw as the owner's words.
+   */
+  system?: "trunk-intro";
 }
 export interface Usage {
   input: number;
