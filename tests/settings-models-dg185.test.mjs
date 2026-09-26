@@ -73,10 +73,13 @@ for (const width of [1440, 400]) {
     assert.equal(await page.locator('.set-col [role="tab"]').count(), 5, "the Models tabs stay");
     await setLevel(page, "advanced");
     const advanced = await heads();
-    assert.deepEqual(advanced, ["Models", "Budgets", "Models for smaller jobs", "Compare models"]);
+    // Pass 17 adds "Mixtures and savings" at Advanced (whereB17("models", 1, ...)).
+    assert.deepEqual(advanced, ["Models", "Budgets", "Models for smaller jobs", "Compare models", "Mixtures and savings"]);
     await setLevel(page, "technical");
     const technical = await heads();
-    assert.deepEqual(technical, [...advanced, "Retries and timeouts", "Per connection"]);
+    // The prototype draws the FINE15 rows first, then pass 17's (whereB17): Technical adds "Retries and timeouts" and
+    // "Per connection" among the FINE15 rows, and "Connections, technical" after "Mixtures and savings".
+    assert.deepEqual(technical, ["Models", "Budgets", "Models for smaller jobs", "Compare models", "Retries and timeouts", "Per connection", "Mixtures and savings", "Connections, technical"]);
     assert.equal(new Set(technical).size, technical.length, "no heading is drawn twice");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${width} px fits`);
     assert.deepEqual(errors, []);

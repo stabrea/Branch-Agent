@@ -21,7 +21,8 @@ const TECHNICAL = ["Fixing problems", "For developers", "Under the hood"];
 
 /* The new window: Settings › Advanced is on the list from Advanced up (not at Regular), and is the prototype's page: its
    title, the only h1, over its sections in order, the same at Advanced and Technical, at 1440, 860 and 400 px. */
-const NEW_SECTIONS = ["Advanced", "Seeing more", "Memory", "Automations", "Tools and skills", "Trunks, more", "Library, more", "Pinned skills"];
+// Pass 17 adds "What it can do" and "Memory, more" at Advanced (whereB17("advanced", 1, ...)).
+const NEW_SECTIONS = ["Advanced", "Seeing more", "Memory", "Automations", "Tools and skills", "Trunks, more", "Library, more", "Pinned skills", "What it can do", "Memory, more"];
 test("Advanced has the prototype's sections at 1440, 860 and 400 px, at Advanced and Technical, and waits for Advanced", async (t) => {
   const { settingsWindow, openSettingsPage, setLevel } = await import("./settings-window.mjs");
   const { page, errors } = await settingsWindow(t, { name: "settings-advanced" });
@@ -34,7 +35,8 @@ test("Advanced has the prototype's sections at 1440, 860 and 400 px, at Advanced
       await setLevel(page, one);
       await openSettingsPage(page, "advanced");
       const heads = await page.locator(".set-col").locator("h1, h2, h3").evaluateAll((all) => all.filter((node) => node.checkVisibility()).map((node) => node.textContent.trim()));
-      assert.deepEqual(heads, NEW_SECTIONS, `${one} at ${width} px`);
+      // Pass 17 adds "Health" at Technical (whereB17("advanced", 2, ...)).
+      assert.deepEqual(heads, [...NEW_SECTIONS, ...(one === "technical" ? ["Health"] : [])], `${one} at ${width} px`);
       assert.equal(await page.locator(".set-col h1").count(), 1, "only the page title is level one");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, `${width} px fits`);
     }

@@ -33,7 +33,8 @@ const pageHeads = (page) => page.locator(".set-col").locator("h1, h2, h3, h4").e
   all.filter((node) => node.checkVisibility()).map((node) => node.textContent.trim()));
 // The prototype (pass 17) adds "Phones lent to Branch" to the page itself, so it shows at every level.
 const REGULAR_NOW = ["Computer & browser", "Computers they may use", "Which Trunk uses which", "On a computer", "The browser", "Phones lent to Branch"];
-const ADVANCED_NOW = [...REGULAR_NOW, "The browser, more", "Code", "On a computer, more"];
+// Pass 17 adds "Where scripts run, more" at Advanced (whereB17("computer", 1, ...)).
+const ADVANCED_NOW = [...REGULAR_NOW, "The browser, more", "Code", "On a computer, more", "Where scripts run, more"];
 
 test("Computer & browser has the prototype's sections at Regular and Advanced, at every width", async (t) => {
   const { settingsWindow, openSettingsPage, setLevel } = await import("./settings-window.mjs");

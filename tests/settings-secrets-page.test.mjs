@@ -27,7 +27,8 @@ test("DG-189 Saved sign-ins shows the prototype's headings at every width and le
       await setLevel(page, one);
       const headings = await page.locator(".set-col").locator("h1, h2, h3, h4").evaluateAll((all) =>
         all.filter((node) => node.getClientRects().length > 0).map((node) => `${node.tagName} ${node.textContent.trim()}`));
-      assert.deepEqual(headings, ["H1 Saved sign-ins", "H2 Branch may fill"], `${width} px, ${one}`);
+      // Pass 17 adds "Where passwords come from" from Advanced up (whereB17("secrets", 1, ...)).
+      assert.deepEqual(headings, ["H1 Saved sign-ins", "H2 Branch may fill", ...(one === "regular" ? [] : ["H2 Where passwords come from"])], `${width} px, ${one}`);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `${width} px fits`);
     }
   }

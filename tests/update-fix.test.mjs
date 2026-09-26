@@ -56,7 +56,9 @@ async function failedUpdate(t, before = async () => {}, model = provider) {
 test("the first Fix update makes the Update keeper, switches Trunks on and says so, and hands it the cleaned record", async (t) => {
   const { app, call } = await failedUpdate(t);
   const owner = app.runtime.owner;
-  assert.equal(trunkMode(app.store, owner, "trunks"), "off", "Trunks ships off");
+  // #327 (the owner's rule): Trunks ship "when needed"; the Fix is tested from off, as a switched-off install has it.
+  app.trunks.setMode("trunks", { mode: "off" });
+  assert.equal(trunkMode(app.store, owner, "trunks"), "off", "Trunks switched off");
   const fix = (await call("updates/fix", {})).body;
   assert.deepEqual([fix.name, fix.made, fix.trunksSwitchedOn], [keeperName, true, true]);
   assert.equal(trunkMode(app.store, owner, "trunks"), "when-needed");
