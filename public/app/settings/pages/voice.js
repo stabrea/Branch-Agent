@@ -1,5 +1,5 @@
 /* Settings › Voice, 1:1 with the prototype's page, from the engine:
-   the voice settings (GET/POST /api/voice/settings, merged by the engine), the push-to-talk key (the comfort card
+   the voice settings (GET /api/voice/settings), the push-to-talk key (the comfort card
    "voice", POST /api/comfort { card, values }, merged), dictation in the message box and how long a quiet room ends it
    (GET/POST /api/voice/dictation { mode, silenceSeconds }), the wake word switch (GET/POST /api/voice/wake { mode }) and
    the computer's own voices (GET /api/voice/voices). "Listening", "Voice", "Answer aloud" and the spoken morning brief
@@ -29,10 +29,6 @@ async function loadVoice() {
 }
 
 /* Each save sends only the part it changes; the engine merges it and answers what is now in force. */
-async function saveVoice(part) {
-  try { V.settings = await api("voice/settings", part); } catch (error) { toast(error.message); }
-  render();
-}
 async function saveDictation(part) {
   try { V.dictation = (await api("voice/dictation", part)).settings; } catch (error) { toast(error.message); }
   render();
@@ -68,17 +64,13 @@ function captureKey() {
   window.addEventListener("keydown", waiting, true);
 }
 
-const seg = (title, sub, opts, act) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l, p]) => `<button type="button" aria-pressed="${!!p}" data-act="${act}" data-v="${esc(v)}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
 const num = (id, title, sub, value, unit, attrs = "") => `<div class="ctl"><b>${esc(title)}</b><span class="right num15"><input class="inp" id="${id}" value="${esc(value ?? "")}" aria-label="${esc(title)}" data-sw="set" ${attrs}>${unit ? `<small>${esc(unit)}</small>` : ""}</span><small>${esc(sub)}</small></div>`;
 
 function talking() {
-  const s = V.settings ?? {}, key = V.comfort?.pushToTalkKey ?? "";
+  const key = V.comfort?.pushToTalkKey ?? "";
   const listening = !V.settings ? "" : V.wake && V.wake !== "off" ? "Wake word" : key ? "Push to talk" : "Off";
-  const sys = [["off", "Off"], ["on", "On"], ["auto", "Auto"]].map(([v, l]) => [v, l, s.systemVoice === v]);
   return `<div class="sec"><h2>Talking</h2>${ctlSeg("Listening", "Push to talk holds the key; wake word listens for “Hey Branch”.", ["Off", "Push to talk", "Wake word"], listening)}
-    <div class="ctl"><b>Push-to-talk key</b><span class="right">${key ? `<kbd data-css="font-size:12px;padding:4px 8px">${esc(key)}</kbd>` : ""}<button class="btn sm" type="button" data-act="ptt-key">Change</button></span><small>Hold it anywhere in Windows.</small></div>
-    ${seg("System voice", "Use the computer's own voice for speaking. On only when you ask, since it keeps the microphone open.", sys, "sys-voice")}
-    ${ctl("v-local", "Keep audio on this computer", "Nothing with sound leaves this computer; cloud routes refuse instead.", !!s.keepAudioOnThisComputer)}</div>`;
+    <div class="ctl"><b>Push-to-talk key</b><span class="right">${key ? `<kbd data-css="font-size:12px;padding:4px 8px">${esc(key)}</kbd>` : ""}<button class="btn sm" type="button" data-act="ptt-key">Change</button></span><small>Hold it anywhere in Windows.</small></div></div>`;
 }
 
 function speakingBack() {
@@ -86,8 +78,7 @@ function speakingBack() {
   const voices = [...V.voices.map((n) => [n, n, reads && s.voiceId === n]), ["off", "Off", !!V.settings && !reads]];
   const dict = !!V.dictation && V.dictation.mode !== "off";
   return `<div class="sec"><h2>Speaking back</h2><div class="ctl"><b>Voice</b><span class="right"><span class="seg" role="group" aria-label="Voice">${voices.map(([, l, p]) => `<button type="button" aria-pressed="${p}" data-act="seg">${esc(l)}</button>`).join("")}</span></span><small>Read replies out loud in this voice.</small></div>
-    ${ctl("v-dict", "Dictation in the message box", "The microphone button turns speech into text.", dict)}
-    ${seg("Read replies aloud", "Read every reply, or ask first.", [["false", "No", !!V.settings && !reads], ["true", "Yes", reads]], "auto-read")}</div>`;
+    ${ctl("v-dict", "Dictation in the message box", "The microphone button turns speech into text.", dict)}</div>`;
 }
 
 function listeningMore() {
@@ -114,8 +105,6 @@ export function draw() {
 
 export function init() {
   loadVoice();
-  on("sys-voice", (el) => saveVoice({ systemVoice: el.dataset.v }));
-  on("auto-read", (el) => saveVoice({ autoReadAloud: el.dataset.v === "true" }));
   on("ptt-key", () => captureKey());
   document.addEventListener("change", (e) => {
     const t = e.target;
@@ -126,9 +115,9 @@ export function init() {
       if (t.value.trim() && Number.isFinite(n)) saveDictation({ silenceSeconds: n }); else render();
     }
   });
-  markLive(["sys-voice", "auto-read", "ptt-key", "sw:v-dict", "sw:f15-wake-word", "sw:f15-silence"]);
+  markLive(["ptt-key", "sw:v-dict", "sw:f15-wake-word", "sw:f15-silence"]);
 }
 
 export function load() { stopCapture(); return loadVoice(); }
 
-export const live = { "sys-voice": true, "auto-read": true, "ptt-key": true, "sw:v-dict": true, "sw:f15-wake-word": true, "sw:f15-silence": true };
+export const live = { "ptt-key": true, "sw:v-dict": true, "sw:f15-wake-word": true, "sw:f15-silence": true };
