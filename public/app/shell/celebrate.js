@@ -11,7 +11,8 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { app, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
+import { lookFollowed } from "./language.js";
 import { say } from "../core/words.js";
 
 const TIERS = ["Bronze", "Silver", "Gold", "Diamond", "Godly", "SSS+"];
@@ -67,7 +68,8 @@ async function check() {
   last = Date.now();
   busy = true;
   try {
-    const view = await api("delight/achievements");
+    await lookFollowed;
+    const view = await api(`delight/achievements?lang=${language()}`);
     const next = (view.on ? view.fresh ?? [] : []).slice().sort((a, b) => TIERS.indexOf(b.tier) - TIERS.indexOf(a.tier))[0];
     if (next) { show(next); await api("delight/told", { ids: [next.id] }); }
   } catch (error) { refused = true; syncTicker(); toast(error.message); } finally { busy = false; }

@@ -141,7 +141,7 @@ import { handlesLearnPath, learnApi, LearnHttpError } from "./learn/api.js"; // 
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
-import { lookApi } from "./terminal-theme.js";
+import { LOOK_LANGUAGES, lookApi } from "./terminal-theme.js";
 // Wave mac3: the owner's control dashboard, a page of its own at /dashboard.
 import {
   DashboardApiError, dashboardAccess, dashboardApi, dashboardSettings, handlesDashboardPath, isDashboardFile,
@@ -504,9 +504,8 @@ async function staticFile(
     "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
     // The people page's words (public/people.js imports it; the owner's dashboard does too).
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
-    "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
-    "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
-    "/locales/es.json": ["locales/es.json", "application/json; charset=utf-8"],
+    // Every language the look setting takes has its words served (src/terminal-theme.ts LOOK_LANGUAGES), and no other file.
+    ...Object.fromEntries(LOOK_LANGUAGES.map((code): [string, [string, string]] => [`/locales/${code}.json`, [`locales/${code}.json`, "application/json; charset=utf-8"]])),
     // Wave mac3: the owner's dashboard (the old window's card that switched it on left with that window). While it is off, isDashboardFile keeps
     // every /dashboard path unserved. Its stylesheets and modules, including its own copies of the words, the theme
     // bridge, the oak, the look and the event reader that left public/ with the old window (#291):

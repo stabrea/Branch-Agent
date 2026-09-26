@@ -17,10 +17,10 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { openDlg, closeDlg, closePop, toast } from "../core/ui.js";
-import { S, E, activeId } from "../core/state.js";
+import { S, E, activeId, roleLabel } from "../core/state.js";
 import { pickPerson } from "../settings/pages/people.js";
 
-const ownerName = () => E.profiles?.roleLabels?.owner?.label ?? "";
+const ownerName = () => roleLabel("owner");
 const personOf = (id) => (E.profiles?.profiles ?? []).find((p) => p.id === id);
 const first = (name) => String(name ?? "").split(" ")[0];
 const PIN = /^\d{4,8}$/;
@@ -114,7 +114,7 @@ const tabs = () => HOW.map(([v, l]) => (v === "this"
 
 function inviteDlg() {
   closePop();
-  const roles = [["adult", "Adult"], ["child", "Child"]].map(([v, l], i) => `<button type="button" data-act="p-inv-role" data-v="${v}" aria-pressed="${i === 0}">${esc(E.profiles?.roleLabels?.[v]?.label ?? l)}</button>`).join("");
+  const roles = [["adult", "Adult"], ["child", "Child"]].map(([v, l], i) => `<button type="button" data-act="p-inv-role" data-v="${v}" aria-pressed="${i === 0}">${esc(roleLabel(v) || l)}</button>`).join("");
   const body = `<div class="tabs" data-css="margin:0">${tabs()}</div><label class="fld"><span>Name</span><input class="inp" id="inv-n" placeholder="Their name" maxlength="40" autocomplete="off"></label><div class="fld"><span>Role</span><span class="seg">${roles}</span></div><label class="fld"><span>Their PIN, four to eight digits</span><input class="inp" id="inv-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>`;
   openDlg({ title: "Invite someone", body, foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="p-inv-go">Add them</button>' });
 }

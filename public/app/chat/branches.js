@@ -16,7 +16,7 @@ import { markLive } from "../core/features.js";
 import { text } from "./markdown.js";
 import { extraTabs } from "./pane.js";
 import { addMoreItem } from "./more.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 const B = { sid: null, paths: [], at: 0, pick: null, model: null, from: null };
 let X = { state: () => ({ sessionId: null, messages: [] }), sendText: async () => {}, reopen: async () => {} };
@@ -26,7 +26,7 @@ const here = () => B.paths.find((p) => p.sessionId === B.sid);
 const pathOf = (id) => B.paths.find((p) => p.sessionId === id);
 const nameOf = (p) => p?.name || t("window.chat.branches.original");
 const modelOf = (p) => (p?.preset ? (E.state?.models?.presets ?? []).find((x) => x.id === p.preset)?.name ?? p.preset : "");
-const when = (at) => (at ? new Date(at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
+const when = (at) => (at ? new Date(at).toLocaleString(language(), { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
 
 /* The tree the open conversation belongs to, read when it opens and after each change. */
 export async function loadPaths(sid) {

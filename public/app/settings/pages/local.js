@@ -11,7 +11,8 @@ import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { ic, toast, closeDlg } from "../../core/ui.js";
 import { logo } from "../../core/logos.js";
-import { t } from "../../../i18n.js";
+import { t, language } from "../../../i18n.js";
+import { say } from "../../core/words.js";
 
 /* The engine's answer, shared with Models › On this computer. */
 export const L = { data: null, catalog: null };
@@ -45,7 +46,7 @@ function hardware() {
 const setupFor = (o) => (L.data?.oneClick?.setups ?? []).find((j) => j.request?.model === o.id && !j.finishedAt);
 
 const FIT = { well: ["great", "ok"], tight: ["ok", "warn"], no: ["no", "no"] };
-const summaryOf = (o) => (typeof o.summary === "string" ? o.summary : o.summary?.en ?? "");
+const summaryOf = (o) => (typeof o.summary === "string" ? o.summary : o.summary?.[language()] ?? o.summary?.en ?? "");
 
 function offer(o) {
   const pick = chosen[o.id] ?? o.suggested ?? o.variants[0]?.quant;
@@ -59,7 +60,7 @@ function offer(o) {
   const act = job
     ? `<div class="lm-bar12"><i data-css="width:${Math.round(job.percent)}%"></i></div><small class="lm-st12">${esc(job.message)} · ${Math.round(job.percent)}%</small>`
     : `<div class="acts"><button class="btn ${fit === "no" ? "ghost" : "pri"} sm" type="button" data-act="lm-get" data-id="${esc(o.id)}" data-v="${esc(v?.quant ?? "")}" ${fit === "no" ? "disabled" : ""}>${DOWNLOAD_ICON}${t("window.settings.local.install-size", { size: gb(v?.downloadBytes) })}</button></div>`;
-  return `<div class="lm12 fit-${fit}"><div class="lm-h12"><b>${esc(o.name)}</b><span class="pill ${pill}" data-tip="${esc(note)}"><i></i>${esc(note.split(":")[0])}</span></div><p>${esc(summaryOf(o))}</p>
+  return `<div class="lm12 fit-${fit}"><div class="lm-h12"><b>${esc(o.name)}</b><span class="pill ${pill}" data-tip="${esc(note)}"><i></i>${esc(say(note.split(":")[0]))}</span></div><p>${esc(summaryOf(o))}</p>
     <div class="lm-tags12">${tags}</div><div class="seg lm-v12">${sizes}</div>
     ${act}</div>`;
 }

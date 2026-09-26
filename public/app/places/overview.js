@@ -1,7 +1,7 @@
 /* Overview: status dashboard and controls. */
 
 import { esc } from "../core/dom.js";
-import { S, E, activeId, ownerHere } from "../core/state.js";
+import { S, E, activeId, ownerHere, roleLabel } from "../core/state.js";
 import { ic, av } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
@@ -10,12 +10,14 @@ import { recBar } from "../chat/rec.js";
 import { allPaused } from "../flows/pause.js";
 import { look17, figure17 } from "../core/art17.js";
 import { agentState } from "../chat/agent17.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 let lastHealthCheck = 0;
 let cachedHealth = null;
 let conversationMode = null;
 let achievements = null;
+let achievementsIn = "";
 let approvals = 0;
 
 function formatSpend(amount) {
@@ -45,7 +47,7 @@ function healthTile() {
   let html = `<div class="tile"><h2>${t("dashboard.area.health")}</h2>`;
   cachedHealth.items.forEach(item => {
     const dotClass = item.ok ? "" : "bad";
-    html += `<div data-css="display:flex;align-items:center;gap:8px;font-size:13px"><span class="dot ${dotClass}"></span><span>${esc(item.name || "")}</span><span data-css="color:var(--ink-3);margin-left:auto;text-align:right">${esc(item.summary || "")}</span></div>`;
+    html += `<div data-css="display:flex;align-items:center;gap:8px;font-size:13px"><span class="dot ${dotClass}"></span><span>${esc(say(item.name || ""))}</span><span data-css="color:var(--ink-3);margin-left:auto;text-align:right">${esc(item.summary || "")}</span></div>`;
   });
   html += `</div>`;
   return html;
@@ -66,7 +68,7 @@ function spendTile() {
   });
   const sorted = Object.entries(byTrunk).sort((a, b) => b[1] - a[1]).slice(0, 3);
   const maxCost = Math.max(...sorted.map(e => e[1]), 0.01);
-  let html = `<div class="tile"><h2>${t("window.places.overview.spend-this-week")}</h2><div class="big-n">${priced.length ? formatSpend(total) : esc(week.find((r) => r.cost?.display)?.cost.display ?? "")}</div><div class="bars" data-css="margin:0">`;
+  let html = `<div class="tile"><h2>${t("window.places.overview.spend-this-week")}</h2><div class="big-n">${priced.length ? formatSpend(total) : esc(say(week.find((r) => r.cost?.display)?.cost.display ?? ""))}</div><div class="bars" data-css="margin:0">`;
   sorted.forEach(([trunk, cost]) => {
     const pct = (cost / maxCost) * 100;
     html += `<div class="brow"><span>${esc(trunk)}</span><span class="track"><u data-css="width:${pct}%"></u></span><span class="v">${formatSpend(cost)}</span></div>`;
@@ -97,7 +99,7 @@ function controlsTile() {
 /* Everyone on this computer (GET /api/profiles: the owner, then each profile), as the prototype's tile lists them; the
    person here now is marked so. Switching person stays in the person menu, greyed. */
 function usersTile() {
-  const everyone = [[null, E.profiles?.roleLabels?.owner?.label || ""], ...(E.profiles?.profiles ?? []).map((p) => [p.id, p.name])];
+  const everyone = [[null, roleLabel("owner")], ...(E.profiles?.profiles ?? []).map((p) => [p.id, p.name])];
   const rows = everyone.map(([id, name]) => `<div data-css="display:flex;align-items:center;gap:10px;font-size:13px"><span class="me" data-css="width:26px;height:26px;font-size:11px">${esc(String(name ?? "").charAt(0))}</span><span data-css="flex:1">${esc(name)}</span>${activeId() === id ? `<span data-css="color:var(--ink-3)">${t("window.places.overview.here-now")}</span>` : ""}</div>`).join("");
   return `<div class="tile"><h2>${t("strip.who")}</h2>${rows}${ownerHere() ? `<div class="acts"><button class="btn sm" type="button" data-act="invite">${t("household.invite")}</button></div>` : ""}</div>`;
 }
@@ -168,9 +170,10 @@ export async function after() {
     if (conversationMode) needsRender = true;
   }
 
-  // Fetch achievements if not yet cached
-  if (!achievements) {
-    achievements = await api("delight/achievements").catch(() => null);
+  // Fetch achievements if not yet cached, or cached in another language (their names are the engine's words)
+  if (!achievements || achievementsIn !== language()) {
+    achievementsIn = language();
+    achievements = await api(`delight/achievements?lang=${achievementsIn}`).catch(() => null);
     if (achievements) needsRender = true;
   }
 

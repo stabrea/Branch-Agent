@@ -16,7 +16,8 @@
    },
    "summary": {
     "en": "Small and quick: notes, tidying text and short answers.",
-    "fr": "Petit et rapide : notes, mise au propre de textes et réponses courtes."
+    "fr": "Petit et rapide : notes, mise au propre de textes et réponses courtes.",
+    "de": "Klein und schnell: Notizen, Texte aufräumen und kurze Antworten."
    },
    "variants": [
     {
@@ -85,7 +86,8 @@
    },
    "summary": {
     "en": "Small, and good at using tools for its size.",
-    "fr": "Petit, et doué pour utiliser des outils vu sa taille."
+    "fr": "Petit, et doué pour utiliser des outils vu sa taille.",
+    "de": "Klein und für seine Größe gut im Umgang mit Werkzeugen."
    },
    "variants": [
     {
@@ -154,7 +156,8 @@
    },
    "summary": {
     "en": "Small, and can be shown a picture. It cannot use tools.",
-    "fr": "Petit, et on peut lui montrer une image. Il ne sait pas utiliser d'outils."
+    "fr": "Petit, et on peut lui montrer une image. Il ne sait pas utiliser d'outils.",
+    "de": "Klein, und du kannst ihm ein Bild zeigen. Werkzeuge kann es nicht nutzen."
    },
    "variants": [
     {
@@ -205,7 +208,8 @@
    },
    "summary": {
     "en": "A steady all-rounder for everyday questions and short documents.",
-    "fr": "Un polyvalent solide pour les questions de tous les jours et les documents courts."
+    "fr": "Un polyvalent solide pour les questions de tous les jours et les documents courts.",
+    "de": "Ein solider Allrounder für Alltagsfragen und kurze Dokumente."
    },
    "variants": [
     {
@@ -260,7 +264,8 @@
    },
    "summary": {
     "en": "A capable helper that uses tools well; a good first choice with 16 GB.",
-    "fr": "Un assistant capable qui utilise bien les outils ; un bon premier choix avec 16 Go."
+    "fr": "Un assistant capable qui utilise bien les outils ; un bon premier choix avec 16 Go.",
+    "de": "Ein fähiger Helfer, der Werkzeuge gut nutzt; eine gute erste Wahl mit 16 GB."
    },
    "variants": [
     {
@@ -325,7 +330,8 @@
    },
    "summary": {
     "en": "Slower, but much better at reasoning and longer work.",
-    "fr": "Plus lent, mais bien meilleur pour raisonner et pour les travaux longs."
+    "fr": "Plus lent, mais bien meilleur pour raisonner et pour les travaux longs.",
+    "de": "Langsamer, aber viel besser im Nachdenken und bei längeren Aufgaben."
    },
    "variants": [
     {
@@ -380,7 +386,8 @@
    },
    "summary": {
     "en": "An older, well-tested model for reasoning and longer documents.",
-    "fr": "Un modèle plus ancien et éprouvé pour raisonner et lire des documents longs."
+    "fr": "Un modèle plus ancien et éprouvé pour raisonner et lire des documents longs.",
+    "de": "Ein älteres, bewährtes Modell zum Nachdenken und für längere Dokumente."
    },
    "variants": [
     {
@@ -431,7 +438,8 @@
    },
    "summary": {
     "en": "OpenAI's open model: strong reasoning, and it uses tools well.",
-    "fr": "Le modèle ouvert d'OpenAI : bon raisonnement, et il utilise bien les outils."
+    "fr": "Le modèle ouvert d'OpenAI : bon raisonnement, et il utilise bien les outils.",
+    "de": "Das offene Modell von OpenAI: denkt gut nach und nutzt Werkzeuge gut."
    },
    "variants": [
     {
@@ -468,7 +476,8 @@
    },
    "summary": {
     "en": "Large: careful answers, tools and pictures. Needs a well-equipped computer.",
-    "fr": "Grand : réponses soignées, outils et images. Demande un ordinateur bien équipé."
+    "fr": "Grand : réponses soignées, outils et images. Demande un ordinateur bien équipé.",
+    "de": "Groß: sorgfältige Antworten, Werkzeuge und Bilder. Braucht einen gut ausgestatteten Computer."
    },
    "variants": [
     {
@@ -519,7 +528,8 @@
    },
    "summary": {
     "en": "Large but quick for its size, because only part of it works on each word.",
-    "fr": "Grand mais rapide pour sa taille, car seule une partie travaille sur chaque mot."
+    "fr": "Grand mais rapide pour sa taille, car seule une partie travaille sur chaque mot.",
+    "de": "Groß, aber schnell für seine Größe, weil bei jedem Wort nur ein Teil davon arbeitet."
    },
    "variants": [
     {

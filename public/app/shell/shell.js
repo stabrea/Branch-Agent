@@ -2,7 +2,7 @@
    sidebar (machine, search, Places, the conversation list, the person) and the status bar. Real data only. */
 
 import { $, esc, paint, renderNow } from "../core/dom.js";
-import { S, E, refresh, save, activeId, personHere, ownerHere, ownName, chatFace } from "../core/state.js";
+import { S, E, refresh, save, activeId, personHere, ownerHere, ownName, chatFace, roleLabel, projectName } from "../core/state.js";
 import { on, run } from "../core/actions.js";
 import { ic, av, mi, openPop, closePop, openDlg, toast } from "../core/ui.js";
 import { greyOut, markLive } from "../core/features.js";
@@ -24,7 +24,7 @@ import { chatOwner, pinChat, renameDlg } from "../flows/trunk.js";
 import { unreadDot, recentClass, markAllButton, unreadItem, initUnread } from "../chat/unread.js"; // pass 17
 import { initQuick, quickItem } from "../chat/quick.js";
 import { init as initPeople } from "../flows/people.js"; // unhold/people: switching person, invites, roles
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 import { say } from "../core/words.js";
 
 const WIDE = matchMedia("(min-width: 761px)");
@@ -46,7 +46,7 @@ const when = (t) => {
   if (!t) return "";
   const d = new Date(t);
   const today = new Date().toDateString() === d.toDateString();
-  return today ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString([], { weekday: "short" });
+  return today ? d.toLocaleTimeString(language(), { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString(language(), { weekday: "short" });
 };
 
 /* A helper's question (parentRunId) is answered in its task's Activity › Helpers, never counted here (FEATURES17C §4). */
@@ -86,7 +86,7 @@ function searchInside(q) {
 
 /* The engine's projects (GET /api/projects), read when the fold is opened. A project's own page is not in this window yet. */
 let projects = [];
-const projectRows = () => projects.map((pr) => `<button class="nav" type="button" data-act="project" data-v="${esc(pr.id)}" aria-current="${S.activeProject === pr.id}">${ic("folder", "s")}${esc(pr.name)}</button>`).join("");
+const projectRows = () => projects.map((pr) => `<button class="nav" type="button" data-act="project" data-v="${esc(pr.id)}" aria-current="${S.activeProject === pr.id}">${ic("folder", "s")}${esc(projectName(pr))}</button>`).join("");
 async function toggleProjects() {
   S.projOpen = !S.projOpen;
   const got = S.projOpen ? await api("projects").catch(() => null) : null;
@@ -276,7 +276,7 @@ async function hidePart(v) {
 
 /* ---------- the person menu ---------- */
 function people() {
-  const owner = E.profiles?.roleLabels?.owner?.label || "";
+  const owner = roleLabel("owner");
   const all = [[null, owner], ...(E.profiles?.profiles ?? []).map((p) => [p.id, p.name])];
   return all.map(([id, name]) => `<button type="button" data-act="switchto" data-v="${esc(id ?? "")}" data-css="display:grid;justify-items:center;gap:3px;font-size:11.5px;padding:4px;border-radius:10px;${activeId() === id ? "background:var(--fill-2)" : ""}"><span class="me">${esc(String(name ?? "").slice(0, 1).toUpperCase())}</span>${esc(name)}</button>`).join("");
 }

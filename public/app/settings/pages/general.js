@@ -3,7 +3,7 @@
    computer's own start-up. The projects are the engine's (GET /api/projects answers { active, all }); every other
    row is drawn in place and greyed until its engine setting is wired. */
 import { esc, renderNow } from "../../core/dom.js";
-import { level } from "../../core/state.js";
+import { level, projectName } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { toast } from "../../core/ui.js";
 import { ctl, ctlSeg } from "../parts.js";
@@ -22,7 +22,7 @@ async function loadProjects() {
 }
 
 const FOLDER = '<svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"></path></svg>';
-const project = (p) => `<div class="prow"><span class="ico-tile">${FOLDER}</span><span class="grow"><b>${esc(p.name)}</b><small>${p.instructions ? t("window.settings.general.its-own-instructions") : ""}</small></span><button class="btn sm" type="button" data-act="toast" data-msg="Edit this project’s instructions.">${t("prompts.action.edit")}</button></div>`;
+const project = (p) => `<div class="prow"><span class="ico-tile">${FOLDER}</span><span class="grow"><b>${esc(projectName(p))}</b><small>${p.instructions ? t("window.settings.general.its-own-instructions") : ""}</small></span><button class="btn sm" type="button" data-act="toast" data-msg="Edit this project’s instructions.">${t("prompts.action.edit")}</button></div>`;
 const num = (id, title, sub, unit) => `<div class="ctl"><b>${esc(title)}</b><span class="right num15"><input class="inp" id="${id}" aria-label="${esc(title)}" data-sw="set"><small>${esc(unit)}</small></span><small>${esc(sub)}</small></div>`;
 
 function advanced() {

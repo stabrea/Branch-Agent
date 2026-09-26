@@ -5,7 +5,7 @@ import { lockdownState, setLockdown } from "./lockdown.js";
 import { LineEditor, type MouseEvent } from "./terminal-input.js";
 import { glyphsFor, progressIndicator, resolveStyle, windowTitle, wrap, type TerminalStyle } from "./terminal-style.js";
 import {
-  loadThemeCatalogue, lookLanguage, lookMode, paletteFor, readLook, saveLook, saveLookMode, saveTerminalSwitch,
+  LOOK_LANGUAGES, loadThemeCatalogue, lookLanguage, lookMode, paletteFor, readLook, saveLook, saveLookMode, saveTerminalSwitch,
   terminalSwitches, type Look, type LookMode, type TerminalPalette, type TerminalSwitches, type ThemeCatalogue,
 } from "./terminal-theme.js";
 import { loadWords, type Words } from "./terminal-words.js";
@@ -506,7 +506,11 @@ export class Tui {
     if (["light", "dark", "follow"].includes(word)) saveLookMode(store, owner, word as LookMode | "follow");
     else if (word === "mode") saveLookMode(store, owner, this.mode === "follow" ? "dark" : this.mode === "dark" ? "light" : "follow");
     else if (word === "contrast") await saveLook(store, owner, { contrast: this.look.contrast === "more" ? "standard" : "more" });
-    else if (word === "language") await saveLook(store, owner, { language: this.look.language === "auto" ? "en" : this.look.language === "en" ? "fr" : this.look.language === "fr" ? "es" : "auto" });
+    else if (word === "language") {
+      // auto → each language on file in turn → auto
+      const cycle = ["auto", ...LOOK_LANGUAGES] as const;
+      await saveLook(store, owner, { language: cycle[(cycle.indexOf(this.look.language) + 1) % cycle.length] });
+    }
     else await saveLook(store, owner, { theme: word });
     this.previewTheme = undefined;
     this.readLook(true);

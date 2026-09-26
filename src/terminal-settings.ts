@@ -22,9 +22,15 @@ const inWindow = (words: Words, page: string): Row => ({
 const switchWord = (words: Words, value: string): string =>
   value === "on" ? words.t("terminal.state.on", "on") : value === "off" ? words.t("terminal.state.off", "off") : words.t("terminal.state.whenNeeded", "when needed");
 
+/** A language named in its own words (English, Français, Deutsch), as the window names it. */
+function ownName(code: string): string {
+  const name = new Intl.DisplayNames([code], { type: "language" }).of(code) ?? code;
+  return name.charAt(0).toLocaleUpperCase(code) + name.slice(1);
+}
+
 function appearance(words: Words, state: SettingsState): Row[] {
   const mode = { dark: words.t("look.mode.dark", "Dark"), light: words.t("look.mode.light", "Light"), follow: words.t("look.mode.follow", "Follow this computer") }[state.mode];
-  const language = state.look.language === "auto" ? words.t("terminal.settings.languageAuto", "Same as this computer") : state.look.language === "fr" ? "Français" : state.look.language === "es" ? "Español" : "English";
+  const language = state.look.language === "auto" ? words.t("terminal.settings.languageAuto", "Same as this computer") : ownName(state.look.language);
   const s = state.switches;
   return [
     { title: `${words.t("look.theme", "Theme")}: ${state.themeName}`, detail: words.t("terminal.settings.themeDetail", "All 44 themes, shared with the window. Enter shows them."), command: "/theme list" },

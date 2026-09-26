@@ -14,7 +14,7 @@ import { toast, ic } from "../../core/ui.js";
 import { seg15 } from "../rows15.js";
 import { self17 } from "../p17-more.js";
 import { level as level17 } from "../../core/state.js";
-import { t } from "../../../i18n.js";
+import { t, language } from "../../../i18n.js";
 
 const D = { history: [], names: {}, gw: null, policy: null, comfort: null };
 
@@ -100,7 +100,7 @@ function neverDiesSection() {
 
 function timelineSection() {
   const items = D.history.slice(0, 3).map((r) => {
-    const when = new Date(r.at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+    const when = new Date(r.at).toLocaleString(language(), { weekday: "short", hour: "2-digit", minute: "2-digit" });
     const back = r.undoneBy || r.undoes ? "" : `<button class="btn ghost sm" type="button" data-act="self-rollback" data-id="${esc(r.id)}">${t("window.places.customize17.roll-back")}</button>`;
     return `<li class="">${ic("info", "s")}<span>${esc(D.names[r.detail] ?? r.detail)}<small>${esc(when)}</small></span>${back}</li>`;
   }).join("");

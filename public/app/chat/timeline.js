@@ -77,7 +77,7 @@ export const everyStepItem = (runId) => (runId ? mi("tlopen17c", "tl17c", t("win
 
 const dur = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s` : `${s < 10 ? s.toFixed(1) : Math.round(s)} s`);
 const money = (n) => `$${n.toFixed(2)}`;
-const clock = (at) => { const d = new Date(at); return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }); };
+const clock = (at) => { const d = new Date(at); return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString(language(), { hour: "numeric", minute: "2-digit", second: "2-digit" }); };
 const nums = (n) => (typeof n === "number" ? n.toLocaleString(language()) : "");
 
 /* Who took a step: a helper by its name, the owner as "You", everything else the conversation's Trunk or Branch. */

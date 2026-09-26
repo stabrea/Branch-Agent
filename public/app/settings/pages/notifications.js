@@ -9,7 +9,7 @@ import { markLive } from "../../core/features.js";
 import { esc, render } from "../../core/dom.js";
 import { toast } from "../../core/ui.js";
 import { ctl, ctlSeg } from "../parts.js";
-import { t } from "../../../i18n.js";
+import { t, language } from "../../../i18n.js";
 
 let notify = null;
 let quiet = null;
@@ -31,7 +31,7 @@ async function saveNotify(part) {
 const seg = (title, sub, act, opts, cur) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l]) => `<button type="button" aria-pressed="${cur === v}" data-act="${act}" data-v="${v}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
 
 /* "21:00" as the prototype says it ("10 PM"), in this computer's own way of writing a time. */
-const clock = (hm) => { const [h, m] = String(hm).split(":").map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString([], { hour: "numeric", minute: m ? "2-digit" : undefined }); };
+const clock = (hm) => { const [h, m] = String(hm).split(":").map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString(language(), { hour: "numeric", minute: m ? "2-digit" : undefined }); };
 const status = () => (quiet?.enabled ? `<div class="status"><span class="sdot "></span><div><b>${t("window.settings.notifications.quiet-hours-are-from-to-to", { from: esc(clock(quiet.from)), to: esc(clock(quiet.to)) })}</b><p>${t("window.settings.notifications.approvals-still-wait-in-the-inbox")}</p></div></div>` : "");
 
 export function draw() {

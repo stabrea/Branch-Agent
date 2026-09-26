@@ -15,7 +15,7 @@ import { E, refresh } from "../core/state.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 const OFF = () => ` disabled aria-disabled="true" data-tip="${t("window.flows.coming-soon")}"`;
 const KINDS = [["when", "window.flows.flow.when"], ["do", "window.flows.flow.ask-trunk"], ["if", "window.flows.flow.if"], ["ask", "window.flows.flow.ask-me"], ["wait", "window.flows.flow.wait"]];
@@ -68,7 +68,7 @@ const pictureOf = () => flowSVG([{ kind: "when", text: F.record.starts }, ...F.s
 
 function historyList(r) {
   const versions = [{ version: r.version ?? 1, from: r.changedAt ?? r.createdAt, now: true }, ...(r.history ?? []).slice().reverse()];
-  const when = (iso) => new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+  const when = (iso) => new Date(iso).toLocaleDateString(language(), { month: "short", day: "numeric" });
   return `<div class="fh17d"><b>${t("place.inbox.history")}</b><ol>${versions.map((x) => `<li><span class="grow"><b>${t("window.flows.flow.version-n", { n: x.version })}</b><small>${esc(when(x.from))}</small></span>${x.now ? `<span class="pill ok"><i></i>${t("window.flows.flow.in-use")}</span>` : `<button class="btn ghost sm" type="button" data-act="ppold17d" data-v="${x.version}">${t("window.flows.flow.go-back")}</button>`}</li>`).join("")}</ol></div>`;
 }
 

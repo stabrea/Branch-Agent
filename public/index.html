@@ -18,9 +18,9 @@
         <span class="tb-grow"></span>
         <span class="tb-actions" id="tbActions"></span>
         <span class="win">
-          <button type="button" aria-label="Minimize" data-act="win-min"><svg class="i" viewBox="0 0 12 12"><path d="M1 6h10"/></svg></button>
-          <button type="button" aria-label="Focus mode" data-act="focus"><svg class="i" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9"/></svg></button>
-          <button type="button" class="close" aria-label="Quit" data-act="quit"><svg class="i" viewBox="0 0 12 12"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"/></svg></button>
+          <button type="button" aria-label="Minimize" data-t-label="window.shell.extras.minimize" data-act="win-min"><svg class="i" viewBox="0 0 12 12"><path d="M1 6h10"/></svg></button>
+          <button type="button" aria-label="Focus mode" data-t-label="window.shell.extras.focus-mode" data-act="focus"><svg class="i" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9"/></svg></button>
+          <button type="button" class="close" aria-label="Quit" data-t-label="window.shell.extras.quit" data-act="quit"><svg class="i" viewBox="0 0 12 12"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"/></svg></button>
         </span>
       </header>
       <div class="body" id="body">
@@ -29,7 +29,7 @@
         <aside class="pane" id="pane" hidden></aside>
       </div>
       <footer class="statusbar" id="statusbar"></footer>
-      <button class="btn sm focus-exit" type="button" data-act="focus">Leave focus mode · Ctrl+.</button>
+      <button class="btn sm focus-exit" type="button" data-act="focus" data-t="window.shell.extras.leave-focus">Leave focus mode · Ctrl+.</button>
     </div>
   </body>
 </html>
