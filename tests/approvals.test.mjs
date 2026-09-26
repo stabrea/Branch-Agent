@@ -44,6 +44,7 @@ async function fixture(t, steps = [say("ok")], options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-approvals-"));
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
+  app.coding.setMode("read-first", "off"); // read-first ships on (Q250); these tests are about approvals, not reading first
   t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, workspace: join(root, "workspace") };
 }
@@ -185,7 +186,9 @@ test("with the approval rules full, a standing yes is kept for the conversation 
 test("replaying a saved recipe asks about the steps inside it before any of them runs", async (t) => {
   let recipeId = "";
   const replay = () => ({ content: "", toolCalls: [{ id: "r1", name: "procedures.replay", arguments: JSON.stringify({ id: recipeId }) }] });
-  const { app, api, workspace, provider } = await served(t, [replay, say("done")]);
+  // Q250: read before edit ships on and holds a recipe the model replays, so it reads the file the recipe writes first.
+  const readIt = () => ({ content: "", toolCalls: [{ id: "r0", name: "files.read", arguments: JSON.stringify({ path: "recipe.txt" }) }] });
+  const { app, api, workspace, provider } = await served(t, [readIt, replay, say("done")]);
   const context = app.runtime.context();
   const recipe = app.knowledge.proposeProcedure(context, {
     name: "write a file", preconditions: [],
