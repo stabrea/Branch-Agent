@@ -13,11 +13,15 @@
  *
  * It only ever makes things stricter: it turns an "allow" into a question, never a refusal or a
  * question into a yes. Lockdown refuses `desktop.open` before it is weighed at all.
+ *
+ * rw4: it ships on. A stricter guard is not one of the things that ship off (spending, sending, deleting,
+ * the microphone or camera, heavy work), so with nothing saved it reads as on; an owner who switched it
+ * off keeps it off, because that choice is saved as `{ on: false }`.
  */
 import { z } from "zod";
 import type { Store } from "./store.js";
 
-export const AppAskSettingsSchema = z.object({ on: z.boolean().default(false) }).strict();
+export const AppAskSettingsSchema = z.object({ on: z.boolean().default(true) }).strict();
 export type AppAskSettings = z.infer<typeof AppAskSettingsSchema>;
 const settingsKey = "desktop-app-ask";
 const usedKey = (trunk: string): string => `desktop-apps-used:${trunk}`;

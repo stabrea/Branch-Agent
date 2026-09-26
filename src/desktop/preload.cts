@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("branchDesktop", Object.freeze({
   exportConversation: (text: unknown) =>
     ipcRenderer.invoke("branch:export-conversation", text),
   exportMemory: (text: unknown) => ipcRenderer.invoke("branch:export-memory", text),
+  exportMemoryLines: (text: unknown) => ipcRenderer.invoke("branch:export-memory-lines", text),
   exportBackup: (text: unknown) => ipcRenderer.invoke("branch:export-backup", text),
   updateStatus: () => ipcRenderer.invoke("branch:update-status"),
   checkForUpdates: () => ipcRenderer.invoke("branch:update-check"),
