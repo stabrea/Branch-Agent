@@ -1,8 +1,14 @@
 /* Settings › Computer & browser, 1:1 with the prototype at each level. The computers are this one and the owner's other
    devices (GET /api/devices); the Trunks are the engine's. A switch shows the engine's own value; it is live only where a
    route changes it (WIRES below), and a three-way feature switch reads as on unless its mode is "off", turns on as
-   "when-needed" and off as "off". Letting Trunks use the screen, approvals, sandboxes and borrowing your own browser
-   change what Branch may do and have no route here, so those stay greyed.
+   "when-needed" and off as "off". On a computer: "See the screen and use the mouse" is the engine's screen-and-keyboard
+   switch (POST /api/desktop/settings {enabled}); "Where scripts run" is the wall around programs (GET/POST /api/os-sandbox,
+   the whole record sent back with only its mode changed: Sealed box is "on", This computer is "off"), and where this
+   computer cannot build the wall the engine's own reason is shown under it; "Work in apps in the background" is the reach
+   part background-screen (POST /api/reach/switch). Lockdown still wins over each: the engine reads them as off and refuses
+   the tools while it is on. "Ask before opening an app it hasn’t used" is the engine's own switch for it
+   (GET/POST /api/desktop/app-ask, src/desktop-app-ask.ts): a program a Trunk has never opened is asked about once, for
+   that Trunk; the approval preset is not touched. Borrowing your own browser stays greyed.
    Paired devices (GET /api/devices): "Stop lending" switches off everything a phone lends (POST
    /api/devices/<id>/switch, on: false, for each), and "Remove" unpairs a device after a confirm (POST
    /api/devices/<id>/revoke; its key stops working at once). Both are the owner's alone in the engine. */
@@ -17,7 +23,7 @@ import { t } from "../../../i18n.js";
 import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
 import { computer17 } from "../p17-more.js";
 
-const D = { coding: null, notes: null, prs: null, devices: null };
+const D = { coding: null, notes: null, prs: null, devices: null, desktop: null, wall: null, reach: null, appAsk: null };
 const onMode = (mode) => (mode ? mode !== "off" : false);
 const coding = (part) => onMode(D.coding?.modes?.[part]);
 const setCoding = (part, on) => api("coding/switch", { part, mode: on ? "when-needed" : "off" });
@@ -35,13 +41,17 @@ const WIRES = {
   "f15-read-jupyter-notebooks": [() => coding("notebooks"), (on) => setCoding("notebooks", on)],
   "f15-review-checks-and-a-checklist-per-task": [() => coding("review-checks") && coding("checklist"),
     async (on) => { await setCoding("review-checks", on); await setCoding("checklist", on); }],
+  "c-screen": [() => D.desktop?.enabled === true, (on) => api("desktop/settings", { enabled: on })],
+  "c-ask": [() => D.appAsk?.on === true, (on) => api("desktop/app-ask", { on })],
+  "f15-work-in-apps-in-the-background": [() => onMode(D.reach?.modes?.["background-screen"]),
+    (on) => api("reach/switch", { part: "background-screen", mode: on ? "when-needed" : "off" })],
 };
 const sw = (title, sub) => sw15(title, sub, WIRES[id15(title)]?.[0]() ?? false);
 
 async function loadAll() {
-  const [c, n, p, d] = await Promise.all(["coding", "browser/notes/settings", "developer/pull-requests", "devices"]
+  const [c, n, p, d, desktop, wall, reach, appAsk] = await Promise.all(["coding", "browser/notes/settings", "developer/pull-requests", "devices", "desktop/settings", "os-sandbox", "reach", "desktop/app-ask"]
     .map((path) => api(path).catch((error) => { toast(error.message); return null; })));
-  Object.assign(D, { coding: c, notes: n?.settings ?? null, prs: p, devices: d });
+  Object.assign(D, { coding: c, notes: n?.settings ?? null, prs: p, devices: d, desktop, wall, reach, appAsk });
   render();
 }
 
@@ -49,10 +59,11 @@ export function init() {
   markLive(["sw:f15-page-notes-and-send-to-branch-", "sw:f15-try-ideas-on-a-branch", "sw:f15-check-and-format-files-after-editing",
     "sw:f15-draft-a-pull-request-from-a-task", "sw:f15-remember-the-shell", "sw:f15-read-a-file-before-editing-it",
     "sw:f15-keep-large-tool-outputs", "sw:f15-read-jupyter-notebooks", "sw:f15-review-checks-and-a-checklist-per-task",
-    "lend15", "dev-remove", "dev-remove-yes"]);
+    "lend15", "dev-remove", "dev-remove-yes", "sw:c-screen", "sw:c-ask", "sw:f15-work-in-apps-in-the-background", "c-where"]);
   on("lend15", (el) => stopLending(el.dataset.v));
   on("dev-remove", (el) => removeDialog(el.dataset.v));
   on("dev-remove-yes", (el) => removeDevice(el.dataset.v));
+  on("c-where", (el) => where(el.dataset.v));
   onPaired.add(() => loadAll());
   document.addEventListener("change", async (e) => {
     const wire = WIRES[e.target.id];
@@ -64,6 +75,13 @@ export function init() {
 }
 
 export async function load() { await loadAll(); }
+
+/* Where scripts run: the wall's whole record goes back with only its mode changed, as the route replaces it. */
+async function where(v) {
+  if (!D.wall?.settings) return;
+  try { await api("os-sandbox", { ...D.wall.settings, mode: v === "sealed" ? "on" : "off" }); } catch (error) { toast(error.message); }
+  await loadAll();
+}
 
 export const live = {};
 
@@ -93,7 +111,13 @@ function whichTrunk() {
   return `<div class="sec"><h2>${t("window.settings.computer.which-trunk-uses-which")}</h2><p class="hint" data-css="margin:0 0 8px">${t("window.settings.computer.a-trunk-can-use-several-computers")}</p><div class="rows">${(E.trunks ?? []).map(trunkRow).join("")}</div></div>`;
 }
 
-const ON_A_COMPUTER = () => `<div class="sec"><h2>${t("window.settings.computer.on-a-computer")}</h2><div class="ctl"><b>${t("window.settings.computer.see-the-screen-and-use-the")}</b><input class="sw" type="checkbox" id="c-screen" aria-label="${t("window.settings.computer.see-the-screen-and-use-the")}" data-sw="set"><small>${t("window.settings.computer.needed-for-apps-without-a-connection")}</small></div><div class="ctl"><b>${t("window.settings.computer.ask-before-opening-an-app-it")}</b><input class="sw" type="checkbox" id="c-ask" aria-label="${t("window.settings.computer.ask-before-opening-an-app-it")}" data-sw="set"><small>${t("window.settings.computer.once-per-app-per-trunk")}</small></div>${seg15(t("settings.card.where-scripts-run"), t("window.settings.computer.a-sealed-box-keeps-scripts-away"), [["sealed", t("window.settings.computer.sealed-box")], ["this", t("dashboard.computer.title")]], null)}</div>`;
+function onAComputer() {
+  const wall = D.wall?.settings, here = D.wall?.computer;
+  const cur = wall ? (wall.mode === "off" ? "this" : "sealed") : null;
+  // Where this computer cannot build the wall, the engine's own reason is shown instead of the promise.
+  const sub = here && !here.available ? here.reason : t("window.settings.computer.a-sealed-box-keeps-scripts-away");
+  return `<div class="sec"><h2>${t("window.settings.computer.on-a-computer")}</h2><div class="ctl"><b>${t("window.settings.computer.see-the-screen-and-use-the")}</b><input class="sw" type="checkbox" id="c-screen" ${D.desktop?.enabled ? "checked" : ""} aria-label="${t("window.settings.computer.see-the-screen-and-use-the")}" data-sw="set"><small>${t("window.settings.computer.needed-for-apps-without-a-connection")}</small></div><div class="ctl"><b>${t("window.settings.computer.ask-before-opening-an-app-it")}</b><input class="sw" type="checkbox" id="c-ask" ${D.appAsk?.on ? "checked" : ""} aria-label="${t("window.settings.computer.ask-before-opening-an-app-it")}" data-sw="set"><small>${t("window.settings.computer.once-per-app-per-trunk")}</small></div>${seg15(t("settings.card.where-scripts-run"), sub, [["sealed", t("window.settings.computer.sealed-box")], ["this", t("dashboard.computer.title")]], cur, "c-where")}</div>`;
+}
 
 const BROWSER = () => `<div class="sec"><h2>${t("settingsGrown.bucket.computer.browser")}</h2>${seg15(t("window.settings.computer.which-browser"), t("window.settings.computer.its-own-profile-keeps-your-tabs"), [["own", t("window.settings.computer.branchs-own")], ["chrome", t("window.settings.computer.your-chrome")]], null)}<div class="ctl"><b>${t("window.settings.computer.ask-before-a-site-it-hasnt")}</b><input class="sw" type="checkbox" id="b-new" aria-label="${t("window.settings.computer.ask-before-a-site-it-hasnt")}" data-sw="set"><small>${t("window.settings.computer.you-say-yes-once-per-site")}</small></div><div class="ctl"><b>${t("window.settings.computer.open-the-browser-full-size-when")}</b><input class="sw" type="checkbox" id="b-watch" aria-label="${t("window.settings.computer.open-the-browser-full-size-when")}" data-sw="set"><small>${t("window.settings.computer.otherwise-it-stays-small-in-the")}</small></div></div>`;
 
@@ -166,7 +190,7 @@ const computerMore = () => sec15(t("window.settings.computer.on-a-computer-more"
 export function draw() {
   const lev = level();
   let html = `<h1>${esc(t("settings.page.computer"))}</h1><p class="lede">${t("window.settings.computer.the-computers-your-trunks-may-use")}</p>`;
-  html += computers() + whichTrunk() + ON_A_COMPUTER() + BROWSER();
+  html += computers() + whichTrunk() + onAComputer() + BROWSER();
   if (lev < 2) html += `<p class="hint">${t("window.settings.computer.switch-to-technical-bottom-left-to")}</p>`;
   else html += `<div class="sec"><h2>${t("settingsGrown.level.technical")}</h2><dl class="kv"></dl></div>`; // the engine gives no sandbox, profile or screen facts
   html += phones();
