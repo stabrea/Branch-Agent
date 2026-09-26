@@ -41,6 +41,9 @@ const shown = (part) => (MAC && part === "Ctrl" ? "Cmd" : part);
 /* "Ctrl+Shift+K" as the prototype shows keys: one <kbd> each. */
 export const kbd = (combo, esc) => String(combo).split("+").filter(Boolean).map((x) => `<kbd>${esc(shown(x))}</kbd>`).join(" ");
 export const spoken = (combo) => String(combo).split("+").map(shown).join(" ");
+/* The same keys for aria-keyshortcuts: the main key is Meta on a Mac and Control elsewhere; a Mac's own Control stays. */
+const ARIA = { Ctrl: MAC ? "Meta" : "Control", Control: "Control", Alt: "Alt", Shift: "Shift" };
+export const ariaKeys = (combo) => String(combo).split("+").filter(Boolean).map((x) => ARIA[x] ?? x).join("+");
 export const usedBy = (combo, except) => Object.keys(K.keys ?? FIRST).find((a) => a !== except && binding(a) && same(binding(a)) === same(combo));
 
 export async function loadKeys() {

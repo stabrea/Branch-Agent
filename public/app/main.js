@@ -61,7 +61,7 @@ async function boot() {
 /* Escape, as the prototype's: the popover, else the dialog, else Focus mode; and the phone's list closes. */
 function escape() {
   const app = $("#app");
-  if (document.querySelector(".pop")) closePop();
+  if (document.querySelector(".pop")) closePop({ refocus: true });
   else if (dialog()) closeDlg();
   else if (app?.classList.contains("focus")) app.classList.remove("focus");
   app?.classList.remove("side-open");

@@ -18,7 +18,7 @@ import { initThemes } from "./themes.js";
 import { loadDelight, drawBackground, drawPet, petHTML, pat, D } from "./scene.js";
 import { initPalette } from "./palette.js";
 import { ACT, working, readActivity } from "./activity.js";
-import { K, loadKeys, pressed, binding, spoken } from "./keys.js";
+import { K, loadKeys, pressed, binding, spoken, ariaKeys } from "./keys.js";
 import { M, machineName, loadMachineName } from "./machines.js";
 import { chatOwner, pinChat, renameDlg } from "../flows/trunk.js";
 import { unreadDot, recentClass, markAllButton, unreadItem, initUnread } from "../chat/unread.js"; // pass 17
@@ -109,7 +109,7 @@ function side() {
   const person = personHere();
   return `<div class="resizer" data-resize="side"><i class="grip9"></i></div>
     <button class="machine" type="button" data-act="machines" data-tip="Which computer you’re talking to"><span class="mico">${ic("monitor", "s")}</span><span class="mach14"><b>${esc(machineName() || "This computer")}</b><i class="dot"></i></span>${ic("chev", "s")}</button>
-    <div class="side-top"><label class="sq9">${ic("search", "s")}<input id="side-q" type="search" placeholder="Search" value="${esc(SQ.q)}" autocomplete="off" aria-label="Search chats, Trunks, messages and past sessions">${SQ.q ? `<button type="button" class="sq-x" data-act="sq-clear" aria-label="Clear the search">${ic("x", "s")}</button>` : binding("palette") ? `<kbd>${esc(spoken(binding("palette")))}</kbd>` : ""}</label><button class="icon-btn" type="button" aria-label="New conversation, Trunk, room or automation" data-act="newmenu">${ic("plus")}</button></div>
+    <div class="side-top"><label class="sq9">${ic("search", "s")}<input id="side-q" type="search" placeholder="Search" value="${esc(SQ.q)}" autocomplete="off" aria-label="Search chats, Trunks, messages and past sessions"${binding("palette") ? ` aria-keyshortcuts="${esc(ariaKeys(binding("palette")))}"` : ""}>${SQ.q ? `<button type="button" class="sq-x" data-act="sq-clear" aria-label="Clear the search">${ic("x", "s")}</button>` : binding("palette") ? `<kbd>${esc(spoken(binding("palette")))}</kbd>` : ""}</label><button class="icon-btn" type="button" aria-label="New conversation, Trunk, room or automation" data-act="newmenu">${ic("plus")}</button></div>
     <button class="lh lh-btn places-h14" type="button" data-act="places14" aria-expanded="${!S.placesShut}">${ic("chev", "s")}Places</button>
     <div class="side-nav nav7">${PLACES.map(([v, i, l]) => `<button class="nav" type="button" data-act="view" data-v="${v}" aria-current="${S.view === v}">${ic(i)}${l}${v === "inbox" && n ? `<span class="cnt">${n}</span>` : ""}</button>`).join("")}</div>
     ${list()}
@@ -204,7 +204,18 @@ export function initShell() {
     if (mod && key === ".") { e.preventDefault(); toggleFocus(); }
   });
   document.addEventListener("contextmenu", (e) => rowMenu(e) || hideMenu(e));
+  document.addEventListener("keydown", rowArrows);
   WIDE.addEventListener("change", () => renderNow());
+}
+
+/* Up and Down move between the list's rows (Pinned, then Recent), as the old Trunks list did. */
+function rowArrows(e) {
+  if ((e.key !== "ArrowDown" && e.key !== "ArrowUp") || !e.target.matches?.("#side .row[data-id]")) return;
+  const rows = [...document.querySelectorAll("#side .row[data-id]")];
+  const next = rows[rows.indexOf(e.target) + (e.key === "ArrowDown" ? 1 : -1)];
+  if (!next) return;
+  e.preventDefault();
+  next.focus();
 }
 
 /* Focus mode: the list and the status bar step aside until it is left (the button, or Ctrl+. again). */
@@ -221,7 +232,7 @@ function rowMenu(e) {
   const base = mi("chat", "chat", "Open", "", `data-id="${id}"`) + unreadItem(row.dataset.id) + mi(own ? "pin-id" : "pin-id-off", "pin", own?.pinned ? "Unpin" : "Pin to top", "", `data-id="${id}"`) + mi(own ? "rename-id" : "rename-id-off", "edit", "Rename", "", `data-id="${id}"`);
   const tid = esc(t?.id ?? "");
   const trunk = t ? mi("new-with", "plus", `New conversation with ${esc(t.name)}`, "", `data-id="${tid}"`) + mi("pausetrunk", "pause", t.paused ? "Resume" : "Pause", "", `data-id="${tid}"`) + mi("edit", "sliders", "Edit Trunk…", "", `data-id="${tid}"`) + "<hr>" + mi("remove", "trash", "Remove…", "", `data-id="${tid}"`) : "";
-  openPop(row, base + trunk, { force: true });
+  openPop(row, base + trunk, { force: true, label: t?.name });
   return true;
 }
 /* A new conversation answered by that Trunk (POST /api/trunks/conversations). */
