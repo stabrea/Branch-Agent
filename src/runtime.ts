@@ -137,7 +137,8 @@ import { isOutOfRoomThinking } from "./provider-stream.js"; // mac7/coding-gap
 import * as savings from "./model-savings/hook.js";
 import { KeepAlive } from "./model-savings/keep-alive.js";
 // --- end R17-E ---
-import { Orchestration, PlanOnlyAnswer, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
+import { Orchestration, PlanOnlyAnswer, orchestrationSettings, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
+import { patternNote, patternOfTool, patternQuestion, type TeamPattern } from "./team-pattern.js"; // eng-trunk-controls
 import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand, saveSessionPlanAct } from "./plan-act.js";
 import { heldMode, policyForMode, readConversationMode, saveConversationMode, type ConversationMode, type ConversationModeRecord } from "./conversation-mode.js"; // redesign phase 1
 import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
@@ -400,6 +401,8 @@ export class Runtime {
   /** Dogfood B7: set once a real model has answered and the first-run card is done with. */
   private setupFinished = false;
   private readonly activeSessions = new Set<string>();
+  /** eng-trunk-controls: each running task that is a Trunk's turn → that Trunk, so "pause now" can stop it. */
+  private readonly trunkRuns = new Map<string, string>();
   /** Notes the owner sent to a task that is still working, waiting for its next round. */
   private readonly steers = new Map<string, { note: string; from: string | undefined }[]>();
   /** The catalog each running task is showing the model, so a tool it found stays loaded. */
@@ -1069,6 +1072,9 @@ ${run.output.slice(0, 6000)}`;
     const budget = parent?.budget ?? new Budget(options.budget ?? knobs.taskBudget(this.store, this.owner)); // R17-S09
     // ── R17-A (Trunks): a Trunk's turn carries its own instructions, memory scope, tools and model. ──
     const trunk = parent ? null : this.trunkShape(options);
+    // eng-trunk-controls: a paused Trunk starts nothing new, whoever asks; said in words, above the first await.
+    const paused = trunk ? this.trunkPaused(trunk.trunkId) : null;
+    if (paused) throw new Error(paused);
     if (trunk) {
       instructions += trunk.instructions;
       options = { ...options, permissions: trunk.permissions,
@@ -1084,6 +1090,7 @@ ${run.output.slice(0, 6000)}`;
     // A file the conversation will refuse is refused before the task starts, so nothing is left running (#190).
     if (options.attachments?.length && this.attachments) this.attachments.check(options.attachments);
     const run = this.prepareRun(options);
+    if (trunk) this.trunkRuns.set(run.id, trunk.trunkId); // eng-trunk-controls
     this.joinSpend(run.id, parent?.runId); // R17-S09
     if (inlet?.applied.length) this.store.event(run.id, "filter.applied", { stage: "inlet", filters: inlet.applied });
     const controller = new AbortController();
@@ -1358,6 +1365,7 @@ ${run.output.slice(0, 6000)}`;
     } finally {
       this.controllers.delete(run.id);
       this.activeSessions.delete(run.sessionId);
+      this.trunkRuns.delete(run.id); // eng-trunk-controls
       this.steers.delete(run.id);
       this.recordToolWork(run, context, status);
       // What this conversation is carrying is written down at the end of every task, so closing the
@@ -1402,6 +1410,12 @@ ${run.output.slice(0, 6000)}`;
   trunkPermissionsFor: (id: string) => string[] | null = () => null;
   /** Q144: Q44's refusal of a Trunk set to start on another computer, as its own error, or null (set by src/trunks). */
   trunkStartsElsewhere: (id: string) => Error | null = () => null;
+  /** eng-trunk-controls: why a Trunk may not start anything now (it is paused), in words, or null (set by src/trunks). */
+  trunkPaused: (id: string) => string | null = () => null;
+  /** eng-trunk-controls: the tasks running as this Trunk right now. */
+  runsOfTrunk(trunkId: string): string[] {
+    return [...this.trunkRuns].filter(([, id]) => id === trunkId).map(([runId]) => runId);
+  }
   /** Q114: the Trunk whose work is going on here (a turn, or something it set going), if any. */
   trunkAtWork(): string | undefined { return currentAccountCall()?.trunk?.id; }
   /** Q122: why a Trunk's work cannot be carried on from here, or null when it can: asTrunkWork's own checks, asked first. */
@@ -1973,7 +1987,8 @@ ${run.output.slice(0, 6000)}`;
           cannotRunInstructions(codeRunSettings(this.store, context.owner).enabled, run.prompt) +
           steerNote +
           identityInstructions(identity) + instructions + this.store.projects.instructions(context.owner) + skillInstructions(this.store, context) + pinnedSkillInstructions(this.store, context) +
-          autonomyPrompt(this, context), // r17-b: standing orders and "from now on" instructions (src/autonomy/hooks.ts)
+          autonomyPrompt(this, context) + // r17-b: standing orders and "from now on" instructions (src/autonomy/hooks.ts)
+          patternNote(this.teamPattern(run.sessionId)), // eng-trunk-controls: how Trunks work together, when the owner chose
       },
     ];
     // Read under whoever is using the app: with a household profile switched on, their task is
@@ -3035,8 +3050,11 @@ ${run.output.slice(0, 6000)}`;
     const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
     // Wave 9: two things the owner asked to be stopped for even when the rules would let them past
     // — work the agreed plan did not mention, and a command that already failed being tried again.
+    const patternNo = decision === "deny" ? null : this.patternRefusal(call, context); // eng-trunk-controls
+    if (patternNo) return { refusal: { ok: false, error: patternNo }, ...held };
     const aside = decision === "deny" ? null
-      : this.offPlanQuestion(context, { label, target, readOnly }) ?? this.retriedCommandQuestion(call, args, context);
+      : this.offPlanQuestion(context, { label, target, readOnly }) ?? this.retriedCommandQuestion(call, args, context)
+        ?? this.patternAside(call, context); // eng-trunk-controls
     if (aside) {
       this.orchestration.pausePlan(this.sessionOf(context));
       return this.askApproval(context, { tool: call.name, label: aside, target, source: this.sourceOf(context),
@@ -3089,6 +3107,40 @@ ${run.output.slice(0, 6000)}`;
       proposed: next.join(" "), difference: commandDifference(failed, next) });
     return correctionLabel(failed, next);
   }
+  /**
+   * eng-trunk-controls: a multi-worker tool that works another way than the one the owner chose for how Trunks work
+   * together. The owner is asked on an approval card until they answer; only their answer (`approve`) is kept, for
+   * this conversation: a yes lets that tool go ahead, a no refuses it (`patternRefusal`). The model cannot give either.
+   */
+  private patternAside(call: ToolCall, context: ToolContext): string | null {
+    const sessionId = this.sessionOf(context);
+    const question = patternQuestion(this.teamPattern(sessionId), call.name);
+    if (!question || this.patternAnswers.has(`${sessionId}\u0000${call.name}`)) return null;
+    this.store.event(context.runId, "pattern.asked", { tool: call.name });
+    return question;
+  }
+  /** eng-trunk-controls: the owner said no to this way of working together in this conversation. */
+  private patternRefusal(call: ToolCall, context: ToolContext): string | null {
+    const sessionId = this.sessionOf(context);
+    if (!patternQuestion(this.teamPattern(sessionId), call.name)) return null;
+    return this.patternAnswers.get(`${sessionId}\u0000${call.name}`) === "deny"
+      ? "The owner said no to working together this way in this conversation. Use the way they chose, or ask them in words." : null;
+  }
+  /** eng-trunk-controls: keeps the owner's answer to a pattern question, by conversation and tool. */
+  private notePatternAnswer(sessionId: string, tool: string, decision: "allow" | "deny"): void {
+    if (!patternOfTool(tool)) return;
+    if (this.patternAnswers.size > 500) this.patternAnswers.clear();
+    this.patternAnswers.set(`${sessionId}\u0000${tool}`, decision);
+  }
+  /** eng-trunk-controls: the owner's answers to pattern questions, `${sessionId}\0${tool}` → allow or deny. */
+  private readonly patternAnswers = new Map<string, "allow" | "deny">();
+  /** eng-trunk-controls: the way Trunks work together here: the room's own choice, else the owner's default. */
+  teamPattern(sessionId: string): TeamPattern {
+    const room = this.roomPattern(this.modeFollows(sessionId) ?? sessionId);
+    return room ?? orchestrationSettings(this.store, this.owner).pattern;
+  }
+  /** eng-trunk-controls: a room's own way of working together, by the room's conversation, or null (set by src/trunks). */
+  roomPattern: (sessionId: string) => TeamPattern | null = () => null;
   /** True the first time a conversation is asked one particular thing, false every time after. */
   private askOnce(sessionId: string, key: string): boolean {
     if (this.askedAside.size > 500) this.askedAside.clear();
@@ -3216,6 +3268,7 @@ ${run.output.slice(0, 6000)}`;
     // Wave mac3 (tool-safety): a request the safety check advised against may be allowed only this once.
     this.approvals.settleOverrule(sessionId, waiting, decision, remember, askerOf(runOrigin(this.store, waiting.runId))); // dogfood A6
     this.approvals.resolve(sessionId, waiting.fingerprint);
+    this.notePatternAnswer(sessionId, waiting.tool, decision); // eng-trunk-controls
     if (remember !== "never")
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
         fingerprint: waiting.fingerprint, label: waiting.label,

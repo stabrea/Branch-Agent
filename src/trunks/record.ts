@@ -87,6 +87,12 @@ export interface Trunk extends TrunkFields {
   taught: { workflowId: string; name: string; runId: string }[];
   /** The specialist it was brought across from, when it was. */
   fromSpecialist?: string;
+  /**
+   * eng-trunk-controls: paused by the owner. A paused Trunk starts nothing new (src/trunks/pause.ts).
+   * Kept off TrunkSchema so only the pause and resume routes change it, never the generic edit.
+   */
+  paused?: boolean;
+  pausedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
