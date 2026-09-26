@@ -15,7 +15,8 @@
  *   --prefix, --from, --with, --with-editable, --spec, and -e/--editable for pip and uv, as `--opt=value` or `--opt value`.
  * `cmd /c <program> …` is judged as that program as well (the unwrapping the malware check uses, package-launch.ts).
  * The code and package checks read text, not files: they refuse a written mention of the workspace, whether or not it
- * exists yet. Code that builds the path at run time (joined strings, an environment variable, base64) is not caught.
+ * exists yet. Code that builds the path at run time (joined pieces of it, an environment variable, text it decodes
+ * itself) is not caught.
  * Any other folder argument stays allowed, so a server pointed at the workspace (a filesystem server) still works.
  * Checked when a server is added and again before every start.
  */

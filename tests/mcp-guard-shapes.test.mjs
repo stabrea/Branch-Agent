@@ -37,7 +37,7 @@ const api = (url, token, path, body) => fetch(`${url}${path}`, {
 const toolsOf = (app, id) => app.registry.names().filter((name) => name.startsWith(`mcp.${id}.`));
 const stdio = (command, args, cwd) => ({ transport: "stdio", command, args, envKeys: [], ...(cwd ? { cwd } : {}) });
 
-/** A workspace script that leaves a marker if it ever runs, then serves the notes tools so a start would succeed. */
+/** A workspace script that only leaves a marker if it ever runs; each launch line runs the notes server itself. */
 async function plant(workspace, marker) {
   const script = join(workspace, "srv.mjs");
   await writeFile(script, `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "ran");\n`);
