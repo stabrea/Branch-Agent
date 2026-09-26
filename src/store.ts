@@ -206,6 +206,14 @@ export class Store {
   recentSessions(owner: string, limit?: number) {
     return this.library.recent(owner, limit, this.hiddenSessions().slice(0, 500));
   }
+  /** A project's conversations, newest first, in the same shape as recentSessions (src/session-library.ts projectOf). */
+  projectSessions(owner: string, project: string, limit = 100) {
+    return this.library.recent(owner, limit, this.hiddenSessions().slice(0, 500), project);
+  }
+  /** How many conversations each project has, by project id. */
+  projectSessionCounts(owner: string): Record<string, number> {
+    return this.library.projectCounts(owner, this.hiddenSessions().slice(0, 500));
+  }
   /**
    * phase2/rooms (integration review): conversations kept out of Recents and search. Set by
    * src/index.ts to each Trunk's side of a room, whose first message is the room's instructions to

@@ -867,6 +867,7 @@ export const ROUTES = {
   "/api/projects": "owner POST",
   "/api/projects/active": "owner POST",
   "/api/projects/costs": "look",
+  "/api/projects/default/conversations": "look", // a project's conversations, as /api/sessions lists them
   "/api/projects/default/remove": "owner POST",
   "/api/projects/notes": "other POST",
   "/api/projects/notes/:id/remove": "other POST",
