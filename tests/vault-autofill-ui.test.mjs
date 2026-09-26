@@ -45,7 +45,8 @@ test("Saved sign-ins starts empty on a fresh install, lists a sign-in the engine
   await openSettingsPage(page, "secrets");
   const col = page.locator(".set-col");
   await col.getByRole("heading", { name: "Branch may fill", exact: true }).waitFor();
-  await col.getByText("No saved sign-ins yet.", { exact: true }).waitFor();
+  // The prototype has no empty-state words here (the lead, 2026-09-26): an empty list simply draws no masked sign-in.
+  assert.equal(await col.locator(".prow .meta", { hasText: "••••••••" }).count(), 0, "no sign-in is listed on a fresh install");
 
   await call("/api/vault-autofill/settings", { mode: "when-needed", logins: [{ name: "shop", site: "example.com", service: "bitwarden", item: "My Shop" }] });
   assert.deepEqual(settings(app).logins.map((login) => login.name), ["shop"], "the engine kept the sign-in");
