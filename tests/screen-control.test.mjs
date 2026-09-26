@@ -243,7 +243,8 @@ test("that same picture is kept when nothing private is on screen", async (t) =>
   assert.equal(actionsIn(f.app, f.run.id).length, 1, "the ordinary case still goes through");
 });
 
-test("the Settings card starts unticked and ticking it is what turns the tools on", async (t) => {
+// Redesign: Coming soon (Settings › Computer & browser, sw:c-screen "See the screen and use the mouse"), checked at fc541c24.
+test.skip("the Settings card starts unticked and ticking it is what turns the tools on", async (t) => {
   const f = await fixture(t);
   const server = await startServer(f.app, { dataDir: join(f.root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
