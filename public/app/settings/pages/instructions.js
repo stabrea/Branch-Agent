@@ -9,6 +9,8 @@ import { esc, render, $ } from "../../core/dom.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { ic, toast, openDlg, closeDlg } from "../../core/ui.js";
+import { t } from "../../../i18n.js";
+import { say } from "../../core/words.js";
 
 /* The prototype's line for each file, by the engine's slot. */
 const ABOUT = {
@@ -34,31 +36,31 @@ async function loadFiles() {
 
 function fileRow(f) {
   const one = opened[f.slot], n = lines(one?.text), h = one?.lastSave ? 1 : 0;
-  return `<div class="prow"><code class="if-name">${esc(nameOf(f))}</code><span class="grow"><b data-css="font-weight:500">${esc(ABOUT[f.slot] ?? f.about)}</b><small>${n ? `${n} lines` : "Empty"}${h ? ` · ${h} earlier version` : ""}</small></span><button class="btn sm" type="button" data-act="if-open" data-f="${esc(f.slot)}">${n ? "Edit" : "Write"}</button></div>`;
+  return `<div class="prow"><code class="if-name">${esc(nameOf(f))}</code><span class="grow"><b data-css="font-weight:500">${esc(say(ABOUT[f.slot]) ?? f.about)}</b><small>${n ? t("window.settings.instructions.count-lines", { count: n }) : t("agent-files.empty")}${h ? t("window.settings.instructions.value-earlier-version", { value: h }) : ""}</small></span><button class="btn sm" type="button" data-act="if-open" data-f="${esc(f.slot)}">${n ? t("prompts.action.edit") : t("agent-files.write")}</button></div>`;
 }
 
 export function draw() {
   const everyone = true; // state: this window edits the files every Trunk reads; a Trunk's own copy is not offered yet
-  const owners = `<button class="chip6" type="button" data-act="if-owner" data-v="branch" aria-pressed="${everyone}">Every Trunk</button>${E.trunks.map((t) => `<button class="chip6" type="button" data-act="if-owner" data-v="${esc(t.id)}" aria-pressed="false">${esc(t.name)}</button>`).join("")}`;
-  return `<h1>Instructions &amp; personality</h1><p class="lede">Plain files every Trunk reads before it works. They work the same as in other agents, so a file written for one of them works here.</p>
-  <div class="fld" data-css="margin-top:6px"><span>Whose files</span><span class="acts" data-css="gap:6px">${owners}</span></div>
+  const owners = `<button class="chip6" type="button" data-act="if-owner" data-v="branch" aria-pressed="${everyone}">${t("window.settings.instructions.every-trunk")}</button>${E.trunks.map((t) => `<button class="chip6" type="button" data-act="if-owner" data-v="${esc(t.id)}" aria-pressed="false">${esc(t.name)}</button>`).join("")}`;
+  return `<h1>${esc(t("settings.page.instructions"))}</h1><p class="lede">${t("window.settings.instructions.plain-files-every-trunk-reads-before")}</p>
+  <div class="fld" data-css="margin-top:6px"><span>${t("window.settings.instructions.whose-files")}</span><span class="acts" data-css="gap:6px">${owners}</span></div>
   <div class="rows" data-css="margin-top:8px">${(files ?? []).map(fileRow).join("")}</div>
-  <p class="hint">A file can’t widen what Branch may do; Permissions still decides. A Trunk’s own copy replaces the shared one for that Trunk only.</p>`;
+  <p class="hint">${t("window.settings.instructions.a-file-cant-widen-what-branch")}</p>`;
 }
 
 function versions(one) {
-  if (!one.lastSave) return '<p class="hint" data-css="margin:4px 0">None yet. Each save keeps the one before.</p>';
+  if (!one.lastSave) return `<p class="hint" data-css="margin:4px 0">${t("window.settings.instructions.none-yet-each-save-keeps-the")}</p>`;
   const when = new Date(one.lastSave).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
-  return `<div class="ifed-v"><span>${esc(when)}</span><button class="btn ghost sm" type="button" data-act="if-back" data-f="${esc(one.slot)}" data-i="0">Put this back</button></div>`;
+  return `<div class="ifed-v"><span>${esc(when)}</span><button class="btn ghost sm" type="button" data-act="if-back" data-f="${esc(one.slot)}" data-i="0">${t("window.settings.instructions.put-this-back")}</button></div>`;
 }
 
 function openEditor(slot, text) {
   const one = opened[slot];
   if (!one) return;
-  openDlg({ title: `${one.name} · every Trunk`, wide: true, body: `<div class="ifed"><textarea class="inp code6 ifed-t" id="if-text" rows="14" spellcheck="false" aria-label="${esc(one.name)}" ${one.editable ? "" : "readonly"}>${esc(text ?? one.text)}</textarea>
-    <aside class="ifed-h"><b>Earlier versions</b>${versions(one)}
-    <button class="btn sm" type="button" data-act="if-write" data-f="${esc(slot)}">${ic("spark", "s")}Write it for me</button><p class="hint" data-css="margin:0">Looks around this workspace and writes a first version, like /init. Read it before you save.</p></aside></div>`,
-    foot: `<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="if-save" data-f="${esc(slot)}">Save</button>` });
+  openDlg({ title: t("window.settings.instructions.name-every-trunk", { name: one.name }), wide: true, body: `<div class="ifed"><textarea class="inp code6 ifed-t" id="if-text" rows="14" spellcheck="false" aria-label="${esc(one.name)}" ${one.editable ? "" : "readonly"}>${esc(text ?? one.text)}</textarea>
+    <aside class="ifed-h"><b>${t("window.settings.instructions.earlier-versions")}</b>${versions(one)}
+    <button class="btn sm" type="button" data-act="if-write" data-f="${esc(slot)}">${ic("spark", "s")}${t("window.settings.instructions.write-it-for-me")}</button><p class="hint" data-css="margin:0">${t("window.settings.instructions.looks-around-this-workspace-and-writes")}</p></aside></div>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn pri" type="button" data-act="if-save" data-f="${esc(slot)}">${t("action.save")}</button>` });
 }
 
 async function openFile(slot) {
@@ -71,7 +73,7 @@ async function save(slot) {
   try {
     const saved = await api("settings-kit/files", { slot, text });
     closeDlg();
-    toast(saved.setting === "off" ? "Saved." : "Saved. The next task reads it.");
+    toast(saved.setting === "off" ? t("accounts.saved") : t("window.settings.instructions.saved-the-next-task-reads-it"));
   } catch (error) { toast(error.message); return; }
   await loadFiles();
 }

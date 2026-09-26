@@ -8,29 +8,31 @@ import { api } from "../../core/api.js";
 import { toast, ic, openPop, closePop } from "../../core/ui.js";
 import { setLockdown } from "../../chat/approvals.js";
 import { sections17, init17, load17 } from "../p17-permissions.js";
+import { t } from "../../../i18n.js";
+import { say } from "../../core/words.js";
 
-const HEAD = `<h1>Permissions</h1><p class="lede">What Trunks may do without asking you first.</p>`;
+const HEAD = () => `<h1>${t("settings.page.permissions")}</h1><p class="lede">${t("window.settings.permissions.what-trunks-may-do-without-asking")}</p>`;
 
-const BASE_SWITCHES = `@@STATUS@@
-    <div class="sec"><h2>Without asking, Trunks may…</h2>
-      <div class="ctl"><b>Read files in Documents and Downloads</b><input class="sw" type="checkbox" id="p-read" @@read@@ aria-label="Read files in Documents and Downloads" data-sw="set"><small>Reading never changes a file.</small></div>
-      <div class="ctl"><b>Use the browser on this computer</b><input class="sw" type="checkbox" id="p-browse" @@browse@@ aria-label="Use the browser on this computer" data-sw="set"><small>Signs in with your saved sign-ins. You can take over any time.</small></div>
-      <div class="ctl"><b>Send email and messages</b><input class="sw" type="checkbox" id="p-send" @@message@@ aria-label="Send email and messages" data-sw="set"><small>Off means every message waits for your yes.</small></div>
-      <div class="ctl"><b>Install tools and packages</b><input class="sw" type="checkbox" id="p-install" aria-label="Install tools and packages" data-sw="set"><small>Off means a request shows up in your Inbox.</small></div>
-      <div class="ctl"><b>Record tasks so you can watch them again</b><input class="sw" type="checkbox" id="p-record" aria-label="Record tasks so you can watch them again" data-sw="set"><small>Recordings stay on this computer.</small></div>
+const BASE_SWITCHES = () => `@@STATUS@@
+    <div class="sec"><h2>${t("window.settings.permissions.without-asking-trunks-may")}</h2>
+      <div class="ctl"><b>${t("window.settings.permissions.read-files-in-documents-and-downloads")}</b><input class="sw" type="checkbox" id="p-read" @@read@@ aria-label="${t("window.settings.permissions.read-files-in-documents-and-downloads")}" data-sw="set"><small>${t("window.settings.permissions.reading-never-changes-a-file")}</small></div>
+      <div class="ctl"><b>${t("window.settings.permissions.use-the-browser-on-this-computer")}</b><input class="sw" type="checkbox" id="p-browse" @@browse@@ aria-label="${t("window.settings.permissions.use-the-browser-on-this-computer")}" data-sw="set"><small>${t("window.settings.permissions.signs-in-with-your-saved-sign")}</small></div>
+      <div class="ctl"><b>${t("window.settings.permissions.send-email-and-messages")}</b><input class="sw" type="checkbox" id="p-send" @@message@@ aria-label="${t("window.settings.permissions.send-email-and-messages")}" data-sw="set"><small>${t("window.settings.permissions.off-means-every-message-waits-for")}</small></div>
+      <div class="ctl"><b>${t("window.settings.permissions.install-tools-and-packages")}</b><input class="sw" type="checkbox" id="p-install" aria-label="${t("window.settings.permissions.install-tools-and-packages")}" data-sw="set"><small>${t("window.settings.permissions.off-means-a-request-shows-up")}</small></div>
+      <div class="ctl"><b>${t("window.settings.permissions.record-tasks-so-you-can-watch")}</b><input class="sw" type="checkbox" id="p-record" aria-label="${t("window.settings.permissions.record-tasks-so-you-can-watch")}" data-sw="set"><small>${t("window.settings.permissions.recordings-stay-on-this-computer")}</small></div>
     </div>
-    <details class="adv"><summary><svg class="i s chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>Advanced</summary>
-      <div class="ctl"><b>When tools are loaded</b><span class="right"><span class="seg" role="group" aria-label="When tools are loaded"><button type="button" aria-pressed="false" data-act="seg">Never</button><button type="button" aria-pressed="false" data-act="seg">When needed</button><button type="button" aria-pressed="false" data-act="seg">Always</button></span></span><small>“When needed” keeps a tool one step away until a task calls for it.</small></div>
-      <div class="ctl"><b>Stop a Trunk that repeats itself</b><input class="sw" type="checkbox" id="p-loop" aria-label="Stop a Trunk that repeats itself" data-sw="set"><small>After 5 identical steps it pauses and asks you.</small></div>
-      <div class="ctl"><b>Trusted folders</b><span class="right"><button class="btn sm" type="button" data-act="soon">Add</button></span><small></small></div>
+    <details class="adv"><summary><svg class="i s chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>${t("settings.page.advanced")}</summary>
+      <div class="ctl"><b>${t("window.settings.permissions.when-tools-are-loaded")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.settings.permissions.when-tools-are-loaded")}"><button type="button" aria-pressed="false" data-act="seg">${t("window.settings.advanced.never")}</button><button type="button" aria-pressed="false" data-act="seg">${t("accounts.switch.when-needed")}</button><button type="button" aria-pressed="false" data-act="seg">${t("window.places.automations.always")}</button></span></span><small>${t("window.settings.permissions.when-needed-keeps-a-tool-one")}</small></div>
+      <div class="ctl"><b>${t("window.settings.permissions.stop-a-trunk-that-repeats-itself")}</b><input class="sw" type="checkbox" id="p-loop" aria-label="${t("window.settings.permissions.stop-a-trunk-that-repeats-itself")}" data-sw="set"><small>${t("window.settings.permissions.after-5-identical-steps-it-pauses")}</small></div>
+      <div class="ctl"><b>${t("settings-kit.name.folder-trust")}</b><span class="right"><button class="btn sm" type="button" data-act="soon">${t("asks.runtimes.add")}</button></span><small></small></div>
     </details>
-    <div class="danger"><div><b>Lockdown</b><p>One switch that stops every Trunk from sending, changing or spending anything.</p></div><button class="btn bad" type="button" data-act="perm-lock">@@LOCK@@</button></div>`;
+    <div class="danger"><div><b>${t("lockdown.label")}</b><p>${t("window.settings.permissions.one-switch-that-stops-every-trunk")}</p></div><button class="btn bad" type="button" data-act="perm-lock">@@LOCK@@</button></div>`;
 
-const PINNED = `<div class="sec"><h2>Pinned settings</h2><p class="hint" data-css="margin:0 0 8px">A pinned setting is fixed. Someone else who uses this computer sees it pinned and can’t change it any way.</p>@@PINS@@<div class="acts" data-css="margin-top:8px"><button class="btn sm" type="button" data-act="pin-add8"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Pin a setting</button></div></div>`;
+const PINNED = () => `<div class="sec"><h2>${t("window.settings.permissions.pinned-settings")}</h2><p class="hint" data-css="margin:0 0 8px">${t("window.settings.permissions.a-pinned-setting-is-fixed-someone")}</p>@@PINS@@<div class="acts" data-css="margin-top:8px"><button class="btn sm" type="button" data-act="pin-add8"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>${t("window.settings.permissions.pin-a-setting")}</button></div></div>`;
 
-const RULES = `<div class="sec x15-sec"><h2>Rules for each tool and folder</h2><p class="hint" data-css="margin:0 0 6px">The first rule that matches wins. Everything else follows the mode.</p><div class="rows"></div><div class="acts" data-css="margin-top:8px"><button class="btn sm" type="button" data-act="soon"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add a rule</button></div><div class="ctl"><b>Practice runs</b><input class="sw" type="checkbox" id="f15-practice-runs" aria-label="Practice runs" data-sw="set"><small>A Trunk can show what it would do without doing it.</small></div><div class="ctl"><b>Messages per conversation per hour</b><span class="right num15"><input class="inp" id="p-rate" aria-label="Messages per conversation per hour" data-sw="set" disabled></span><small>Stops a runaway loop.</small></div></div><div class="sec x15-sec"><h2>Checks before anything runs</h2><div class="ctl"><b>Scan commands for hidden characters</b><input class="sw" type="checkbox" id="f15-scan-commands-for-hidden-characters" aria-label="Scan commands for hidden characters" data-sw="set"><small>Invisible and look-alike characters that hide what a command does.</small></div><div class="ctl"><b>Scan for personal details</b><input class="sw" type="checkbox" id="f15-scan-for-personal-details" aria-label="Scan for personal details" data-sw="set"><small>Card numbers, ID numbers and addresses are held back from outside services.</small></div><div class="ctl"><b>Authenticator code for sensitive tools</b><input class="sw" type="checkbox" id="f15-authenticator-code-for-sensitive-tools" aria-label="Authenticator code for sensitive tools" data-sw="set"><small>A six-digit code before sending money or deleting a lot.</small></div></div>`;
+const RULES = () => `<div class="sec x15-sec"><h2>${t("window.settings.permissions.rules-for-each-tool-and-folder")}</h2><p class="hint" data-css="margin:0 0 6px">${t("window.settings.permissions.the-first-rule-that-matches-wins")}</p><div class="rows"></div><div class="acts" data-css="margin-top:8px"><button class="btn sm" type="button" data-act="soon"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>${t("window.settings.permissions.add-a-rule")}</button></div><div class="ctl"><b>${t("window.settings.permissions.practice-runs")}</b><input class="sw" type="checkbox" id="f15-practice-runs" aria-label="${t("window.settings.permissions.practice-runs")}" data-sw="set"><small>${t("window.settings.permissions.a-trunk-can-show-what-it")}</small></div><div class="ctl"><b>${t("window.settings.permissions.messages-per-conversation-per-hour")}</b><span class="right num15"><input class="inp" id="p-rate" aria-label="${t("window.settings.permissions.messages-per-conversation-per-hour")}" data-sw="set" disabled></span><small>${t("window.settings.permissions.stops-a-runaway-loop")}</small></div></div><div class="sec x15-sec"><h2>${t("window.settings.permissions.checks-before-anything-runs")}</h2><div class="ctl"><b>${t("window.settings.permissions.scan-commands-for-hidden-characters")}</b><input class="sw" type="checkbox" id="f15-scan-commands-for-hidden-characters" aria-label="${t("window.settings.permissions.scan-commands-for-hidden-characters")}" data-sw="set"><small>${t("window.settings.permissions.invisible-and-look-alike-characters-that")}</small></div><div class="ctl"><b>${t("window.settings.permissions.scan-for-personal-details")}</b><input class="sw" type="checkbox" id="f15-scan-for-personal-details" aria-label="${t("window.settings.permissions.scan-for-personal-details")}" data-sw="set"><small>${t("window.settings.permissions.card-numbers-id-numbers-and-addresses")}</small></div><div class="ctl"><b>${t("window.settings.permissions.authenticator-code-for-sensitive-tools")}</b><input class="sw" type="checkbox" id="f15-authenticator-code-for-sensitive-tools" aria-label="${t("window.settings.permissions.authenticator-code-for-sensitive-tools")}" data-sw="set"><small>${t("window.settings.permissions.a-six-digit-code-before-sending")}</small></div></div>`;
 
-const ISOLATION = `<div class="sec x15-sec"><h2>Isolation</h2><div class="ctl"><b>A container per Trunk</b><span class="right"><span class="seg" role="group" aria-label="A container per Trunk"><button type="button" aria-pressed="false" data-act="seg">Off</button><button type="button" aria-pressed="false" data-act="seg">For code</button><button type="button" aria-pressed="false" data-act="seg">Always</button></span></span><small></small></div><div class="ctl"><b>System sandbox for commands</b><span class="right"><span class="seg" role="group" aria-label="System sandbox for commands"><button type="button" aria-pressed="false" data-act="seg">Off</button><button type="button" aria-pressed="false" data-act="seg">When needed</button><button type="button" aria-pressed="false" data-act="seg">Always</button></span></span><small></small></div><div class="ctl"><b>Add sign-ins from outside the sandbox</b><input class="sw" type="checkbox" id="f15-add-sign-ins-from-outside-the-sandbox" aria-label="Add sign-ins from outside the sandbox" data-sw="set"><small>The sandbox never holds a password; Branch adds it on the way out.</small></div><div class="ctl"><b>Verify each release</b><input class="sw" type="checkbox" id="f15-verify-each-release" aria-label="Verify each release" data-sw="set"><small>Checks the signature before installing an update.</small></div><div class="ctl"><b>Pin SSH hosts</b><input class="sw" type="checkbox" id="f15-pin-ssh-hosts" aria-label="Pin SSH hosts" data-sw="set"><small>Refuses a computer whose fingerprint changed.</small></div><div class="ctl"><b>Downloads may come from</b><span class="right"><span class="seg" role="group" aria-label="Downloads may come from"><button type="button" aria-pressed="false" data-act="seg">Anywhere</button><button type="button" aria-pressed="false" data-act="seg">Known sites</button><button type="button" aria-pressed="false" data-act="seg">Ask each time</button></span></span><small></small></div></div>`;
+const ISOLATION = () => `<div class="sec x15-sec"><h2>${t("window.settings.permissions.isolation")}</h2><div class="ctl"><b>${t("window.settings.permissions.a-container-per-trunk")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.settings.permissions.a-container-per-trunk")}"><button type="button" aria-pressed="false" data-act="seg">${t("accounts.switch.off")}</button><button type="button" aria-pressed="false" data-act="seg">${t("window.settings.permissions.for-code")}</button><button type="button" aria-pressed="false" data-act="seg">${t("window.places.automations.always")}</button></span></span><small></small></div><div class="ctl"><b>${t("window.settings.permissions.system-sandbox-for-commands")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.settings.permissions.system-sandbox-for-commands")}"><button type="button" aria-pressed="false" data-act="seg">${t("accounts.switch.off")}</button><button type="button" aria-pressed="false" data-act="seg">${t("accounts.switch.when-needed")}</button><button type="button" aria-pressed="false" data-act="seg">${t("window.places.automations.always")}</button></span></span><small></small></div><div class="ctl"><b>${t("window.settings.permissions.add-sign-ins-from-outside-the")}</b><input class="sw" type="checkbox" id="f15-add-sign-ins-from-outside-the-sandbox" aria-label="${t("window.settings.permissions.add-sign-ins-from-outside-the")}" data-sw="set"><small>${t("window.settings.permissions.the-sandbox-never-holds-a-password")}</small></div><div class="ctl"><b>${t("window.settings.permissions.verify-each-release")}</b><input class="sw" type="checkbox" id="f15-verify-each-release" aria-label="${t("window.settings.permissions.verify-each-release")}" data-sw="set"><small>${t("window.settings.permissions.checks-the-signature-before-installing-an")}</small></div><div class="ctl"><b>${t("window.settings.permissions.pin-ssh-hosts")}</b><input class="sw" type="checkbox" id="f15-pin-ssh-hosts" aria-label="${t("window.settings.permissions.pin-ssh-hosts")}" data-sw="set"><small>${t("window.settings.permissions.refuses-a-computer-whose-fingerprint-changed")}</small></div><div class="ctl"><b>${t("window.settings.permissions.downloads-may-come-from")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.settings.permissions.downloads-may-come-from")}"><button type="button" aria-pressed="false" data-act="seg">${t("os-sandbox.network.open")}</button><button type="button" aria-pressed="false" data-act="seg">${t("window.settings.permissions.known-sites")}</button><button type="button" aria-pressed="false" data-act="seg">${t("window.settings.permissions.ask-each-time")}</button></span></span><small></small></div></div>`;
 
 /* The approval policy as the engine keeps it (GET /api/policy, GET /api/approvals/categories, GET /api/lockdown). */
 const P = { policy: null, presets: [], categories: [], locked: false, loaded: false, was: {} };
@@ -51,23 +53,23 @@ const OS_ROWS = {
     ["microphone", "mic", "Microphone", "Talking to Branch and the wake word"], ["camera", "cam16", "Camera", "Photos and scanning a code"]],
   win32: [["microphone", "mic", "Microphone", "Talking to Branch and the wake word"], ["camera", "cam16", "Camera", "Photos and scanning a code"]],
 };
-const PILL = { allowed: '<span class="pill ok"><i></i>Granted</span>', refused: '<span class="pill bad16"><i></i>Turned off</span>' };
+const PILL = () => ({ allowed: `<span class="pill ok"><i></i>${t("window.settings.permissions.granted")}</span>`, refused: `<span class="pill bad16"><i></i>${t("window.settings.permissions.turned-off")}</span>` });
 function osSection() {
   const mac = P.os?.platform === "darwin";
   const rows = (OS_ROWS[P.os?.platform] ?? []).map(([cap, icon, title, sub]) => [P.os.permissions.find((x) => x.capability === cap), icon, title, sub]).filter(([x]) => x);
   if (!rows.length) return "";
-  const html = rows.map(([x, icon, title, sub]) => `<div class="prow perm16"><span class="ico-tile">${ic(icon, "s")}</span><span class="grow"><b>${title}</b><small>${sub}</small></span>${PILL[x.state] ?? '<span class="pill idle"><i></i>Not yet</span>'}${x.state === "allowed" ? "" : `<button class="btn sm" type="button" data-act="sys16" data-v="${esc(x.capability)}">${mac ? "Open System Settings" : "Open Windows Settings"}</button>`}</div>`).join("");
+  const html = rows.map(([x, icon, title, sub]) => `<div class="prow perm16"><span class="ico-tile">${ic(icon, "s")}</span><span class="grow"><b>${esc(say(title))}</b><small>${esc(say(sub))}</small></span>${PILL()[x.state] ?? `<span class="pill idle"><i></i>${t("window.settings.permissions.not-yet")}</span>`}${x.state === "allowed" ? "" : `<button class="btn sm" type="button" data-act="sys16" data-v="${esc(x.capability)}">${mac ? t("action.open-system-settings") : t("window.settings.permissions.open-windows-settings")}</button>`}</div>`).join("");
   const granted = rows.filter(([x]) => x.state === "allowed").length;
-  const hint = mac ? `${granted} of ${rows.length} granted. macOS keeps these in System Settings › Privacy &amp; Security; Branch asks for each one the first time a Trunk needs it.`
-    : "Windows asks for very little. Seeing the screen and using the mouse need nothing here; Branch still asks you before it takes over.";
-  return `<div class="sec x15-sec"><h2>${mac ? "This Mac" : "This PC"}</h2><p class="hint" data-css="margin:0 0 6px">${hint}</p><div class="rows">${html}</div></div>`;
+  const hint = mac ? esc(t("window.settings.permissions.granted-of-count-granted-macos", { granted, count: rows.length }))
+    : t("window.settings.mac-permissions.windows-asks-for-very-little-seeing");
+  return `<div class="sec x15-sec"><h2>${mac ? t("window.settings.permissions.this-mac") : t("window.settings.permissions.this-pc")}</h2><p class="hint" data-css="margin:0 0 6px">${hint}</p><div class="rows">${html}</div></div>`;
 }
 
 /* Pinned settings from GET /api/settings-kit; pinning and unpinning are POST /api/settings-kit/pins {key, field, pinned},
    which only the owner reaches (the household table and settings-kit's own requireOwner). */
 function pinRows() {
   if (!P.pins?.length) return '<div class="rows"></div>';
-  return `<div class="rows">${P.pins.map((x) => `<div class="prow"><span class="ico-tile">${ic("pin", "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.label)}</small></span><button class="btn ghost sm" type="button" data-act="pin-rm8" data-key="${esc(x.key)}" data-field="${esc(x.field)}">Unpin</button></div>`).join("")}</div>`;
+  return `<div class="rows">${P.pins.map((x) => `<div class="prow"><span class="ico-tile">${ic("pin", "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.label)}</small></span><button class="btn ghost sm" type="button" data-act="pin-rm8" data-key="${esc(x.key)}" data-field="${esc(x.field)}">${t("accounts.action.unpin")}</button></div>`).join("")}</div>`;
 }
 
 /* "Pin a setting": every setting the engine's catalogue lists that is not pinned yet, in the engine's words; a setting
@@ -75,7 +77,7 @@ function pinRows() {
 function pinMenu(el) {
   const items = (P.kit ?? []).flatMap((s) => s.fields.filter((f) => !f.pinned).map((f) =>
     `<button class="mi" type="button" role="menuitem" data-act="pin-do8" data-key="${esc(s.key)}" data-field="${esc(f.field)}"><span class="mi-t">${esc(s.name)}</span>${s.fields.length > 1 ? `<span class="r">${esc(f.label)}</span>` : ""}</button>`));
-  openPop(el, `<div class="ph">Pin a setting</div>${items.join("")}`);
+  openPop(el, `<div class="ph">${t("window.settings.permissions.pin-a-setting")}</div>${items.join("")}`);
 }
 
 async function setPinned(el, pinned) {
@@ -83,7 +85,7 @@ async function setPinned(el, pinned) {
   const name = (P.kit ?? []).find((s) => s.key === el.dataset.key)?.name ?? "";
   try {
     await api("settings-kit/pins", { key: el.dataset.key, field: el.dataset.field, pinned });
-    toast(pinned ? `${name} is pinned.` : `${name} is no longer pinned.`);
+    toast(pinned ? t("window.settings.permissions.name-is-pinned", { name }) : t("window.settings.permissions.name-is-no-longer-pinned", { name }));
   } catch (error) { toast(error.message); }
   await load();
 }
@@ -99,7 +101,7 @@ function allowed(id) {
 function fill(html) {
   const preset = P.presets.find((x) => x.id === P.policy?.preset);
   const status = preset ? `<div class="status"><span class="sdot ${P.policy.preset === "off" ? "warn" : ""}"></span><div><b>${esc(preset.label)}</b><p>${esc(preset.description)}</p></div></div>` : "";
-  return html.replace("@@STATUS@@", status).replace("@@PINS@@", pinRows()).replace("@@LOCK@@", P.locked ? "Turn Lockdown off" : "Turn Lockdown on")
+  return html.replace("@@STATUS@@", status).replace("@@PINS@@", pinRows()).replace("@@LOCK@@", P.locked ? t("dashboard.controls.lockdownOff") : t("dashboard.controls.lockdownOn"))
     .replace(/@@(read|browse|message)@@/g, (_, id) => (allowed(id) ? "checked" : ""));
 }
 
@@ -117,9 +119,9 @@ function followLockdown() {
 export function draw() {
   followLockdown();
   const lev = level();
-  let html = HEAD + osSection() + BASE_SWITCHES + PINNED;
-  if (lev >= 1) html += RULES;
-  if (lev >= 2) html += ISOLATION;
+  let html = HEAD() + osSection() + BASE_SWITCHES() + PINNED();
+  if (lev >= 1) html += RULES();
+  if (lev >= 2) html += ISOLATION();
   return fill(html) + sections17(lev);
 }
 

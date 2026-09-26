@@ -10,6 +10,7 @@ import { markLive } from "../core/features.js";
 import { toast } from "../core/ui.js";
 import { id15, sw15 } from "./rows15.js";
 import { demos17, demo17, sec17 } from "./rows17.js";
+import { t } from "../../i18n.js";
 
 const A = { web: null, personal: null };
 const onMode = (mode) => (mode ? mode !== "off" : false);
@@ -29,16 +30,16 @@ export async function load17() {
 
 export function sections17(lv) {
   if (lv < 1) return "";
-  let html = sec17("What it can do",
+  let html = sec17(t("window.settings.p17-advanced.what-it-can-do"),
     sw("Read links you paste", "Opens the page and reads it, including PDFs and videos with captions.")
     + sw("Deep research reports", "Many searches, then a brief with numbered sources.")
     + sw("Edit documents exactly", "Word, Excel and PowerPoint changes that leave everything else as it was.")
     + sw("Tables and charts from spreadsheets", "Read-only questions over CSV and Excel files, answered with a chart.")
     + sw("GitLab", "Issues and merge requests, like the GitHub connection.")
     + sw("Smart home", "Lights, heating and sensors through Home Assistant.")
-    + demo17("claims"), "Model tools. Each one is used only when a task needs it.");
-  html += sec17("Memory, more", demos17(["consolidate", "wsmem", "followup", "scratch", "kcards", "reachnotes"]));
-  if (lv >= 2) html += sec17("Health", demos17(["health", "fixhints"]));
+    + demo17("claims"), t("window.settings.p17-advanced.model-tools-each-one-is-used"));
+  html += sec17(t("window.settings.p17-advanced.memory-more"), demos17(["consolidate", "wsmem", "followup", "scratch", "kcards", "reachnotes"]));
+  if (lv >= 2) html += sec17(t("dashboard.area.health"), demos17(["health", "fixhints"]));
   return html;
 }
 

@@ -11,6 +11,7 @@ import { render, esc } from "../../core/dom.js";
 import { toast, ic } from "../../core/ui.js";
 import { id15, sw15, code15, sec15 } from "../rows15.js";
 import { gateway17, initMore17 } from "../p17-more.js";
+import { t } from "../../../i18n.js";
 
 let gwData = null;
 const D = { reach: null, personal: null };
@@ -35,7 +36,7 @@ async function loadGateway() {
 async function answerProposal(use) {
   try {
     const done = await api(use ? "never-break/proposal/accept" : "never-break/proposal/discard", {});
-    toast(use ? done.note : "Discarded. Nothing changed.");
+    toast(use ? done.note : t("window.settings.gateway.discarded-nothing-changed"));
   } catch (e) {
     toast(e.message);
   }
@@ -67,7 +68,7 @@ export async function load() {
   await loadGateway();
 }
 
-const BASE = `<h1>Gateway</h1><p class="lede">A small helper that keeps Branch running in the background, starts it again if it stops, and carries interrupted work on.</p>`;
+const BASE = () => `<h1>${t("window.settings.gateway.gateway")}</h1><p class="lede">${t("window.settings.gateway.a-small-helper-that-keeps-branch")}</p>`;
 
 function statusSection(gw) {
   if (!gw) return "";
@@ -75,25 +76,25 @@ function statusSection(gw) {
   const isOn = mode === "on";
   const isWhenNeeded = mode === "when-needed";
   const sdotClass = isOn || isWhenNeeded ? "ok" : "bad";
-  const title = isOn ? "The gateway is on" : isWhenNeeded ? "The gateway is when-needed" : "The gateway is off";
-  const desc = isOn ? "On. Telegram, your phone and automations keep working when the window is closed, and it restarts the engine if it stops." : isWhenNeeded ? "When needed. It starts when a Trunk or a message needs it, and stops after the last task." : "Off. When you close Branch, your Trunks stop, and Telegram and automations go quiet until you open it again.";
+  const title = isOn ? t("window.settings.gateway.the-gateway-is-on") : isWhenNeeded ? t("window.settings.gateway.the-gateway-is-when-needed") : t("window.settings.gateway.the-gateway-is-off");
+  const desc = isOn ? t("window.settings.gateway.on-telegram-your-phone-and-automations") : isWhenNeeded ? t("window.settings.gateway.when-needed-it-starts-when-a") : t("window.settings.gateway.off-when-you-close-branch-your");
 
   return `<div class="status"><span class="sdot ${sdotClass}"></span><div><b>${title}</b><p>${desc}</p></div></div>`;
 }
 
 function modeSection(gw) {
   const mode = gw?.mode ?? null;
-  const seg = [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]].map(([v, l]) => `<button type="button" aria-pressed="${mode === v}" data-act="gw-mode" data-v="${v}">${l}</button>`).join("");
-  return `<div class="sec"><h2>Keep Branch running</h2><div class="ctl"><b>Gateway</b><span class="right"><span class="seg" role="group" aria-label="Gateway">${seg}</span></span><small>Recommended: On. Telegram, your phone and automations keep working when the window is closed.</small></div>`
-    + `<div class="ctl"><b>Carry on interrupted work by itself</b><input class="sw" type="checkbox" id="gw-carry" ${mode === "on" ? "checked" : ""} aria-label="Carry on interrupted work by itself" data-sw="set"><small>After a restart, safe steps carry on. Anything that sends or changes something asks you first.</small></div>`
-    + `<div class="ctl"><b>Show the gateway in the tray</b><input class="sw" type="checkbox" id="gw-tray" aria-label="Show the gateway in the tray" data-sw="set"><small>A small Branch icon by the clock with Restart and Quit.</small></div></div>`;
+  const seg = [["off", t("accounts.switch.off")], ["when-needed", t("accounts.switch.when-needed")], ["on", t("accounts.switch.on")]].map(([v, l]) => `<button type="button" aria-pressed="${mode === v}" data-act="gw-mode" data-v="${v}">${l}</button>`).join("");
+  return `<div class="sec"><h2>${t("field.never-break-mode")}</h2><div class="ctl"><b>${t("window.settings.gateway.gateway")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.settings.gateway.gateway")}">${seg}</span></span><small>${t("window.settings.gateway.recommended-on-telegram-your-phone-and")}</small></div>`
+    + `<div class="ctl"><b>${t("window.settings.gateway.carry-on-interrupted-work-by-itself")}</b><input class="sw" type="checkbox" id="gw-carry" ${mode === "on" ? "checked" : ""} aria-label="${t("window.settings.gateway.carry-on-interrupted-work-by-itself")}" data-sw="set"><small>${t("window.settings.gateway.after-a-restart-safe-steps-carry")}</small></div>`
+    + `<div class="ctl"><b>${t("window.settings.gateway.show-the-gateway-in-the-tray")}</b><input class="sw" type="checkbox" id="gw-tray" aria-label="${t("window.settings.gateway.show-the-gateway-in-the-tray")}" data-sw="set"><small>${t("window.settings.gateway.a-small-branch-icon-by-the")}</small></div></div>`;
 }
 
 /* What it has been doing: while the gateway is off the prototype's one line is simply true; the engine keeps no list
    of the gateway's own events here, so none is written in while it is on. */
 function doing(gw) {
-  const rows = gw?.mode === "off" ? `<li class="">${ic("info", "s")}<span>Nothing is watching Branch<small>The gateway is off, so a stopped engine stays stopped</small></span><time></time></li>` : "";
-  return `<div class="sec"><h2>What it has been doing</h2><ol class="tl">${rows}</ol></div>`;
+  const rows = gw?.mode === "off" ? `<li class="">${ic("info", "s")}<span>${t("window.settings.gateway.nothing-is-watching-branch")}<small>${t("window.settings.gateway.the-gateway-is-off-so-a")}</small></span><time></time></li>` : "";
+  return `<div class="sec"><h2>${t("window.settings.gateway.what-it-has-been-doing")}</h2><ol class="tl">${rows}</ol></div>`;
 }
 
 /* 1:1 with the prototype's tile, shown while the gateway is not off: the reason is the assistant's own words, and the
@@ -101,25 +102,25 @@ function doing(gw) {
 function proposalTile(gw) {
   const p = gw?.proposal;
   if (!p || (gw.mode ?? "off") === "off") return "";
-  const passed = p.check?.ok ? '<span class="pill ok ml">Tried on a test gateway · passed</span>' : "";
-  return `<div class="tile" data-css="margin-top:22px"><div class="th"><b>A change Branch suggested</b>${passed}</div><p>${esc(p.why)}</p><div class="acts"><button class="btn pri sm" type="button" data-act="gw-prop" data-v="use">Use it</button><button class="btn ghost sm" type="button" data-act="gw-prop" data-v="no">Discard</button></div></div>`;
+  const passed = p.check?.ok ? `<span class="pill ok ml">${t("window.settings.gateway.tried-on-a-test-gateway-passed")}</span>` : "";
+  return `<div class="tile" data-css="margin-top:22px"><div class="th"><b>${t("window.settings.gateway.a-change-branch-suggested")}</b>${passed}</div><p>${esc(p.why)}</p><div class="acts"><button class="btn pri sm" type="button" data-act="gw-prop" data-v="use">${t("lmore.switch.label")}</button><button class="btn ghost sm" type="button" data-act="gw-prop" data-v="no">${t("window.settings.gateway.discard")}</button></div></div>`;
 }
 
-const ACTIONS = `<div class="acts" data-css="margin-top:16px"><button class="btn" type="button" data-act="gw-restart">${ic("retry", "s")}Restart the engine</button></div>`;
+const ACTIONS = () => `<div class="acts" data-css="margin-top:16px"><button class="btn" type="button" data-act="gw-restart">${ic("retry", "s")}${t("window.settings.gateway.restart-the-engine")}</button></div>`;
 
 /* The gateway's own settings, as the engine holds them. */
 function technical(gw) {
   const c = gw?.config ?? {};
   const rows = [["mode", gw?.mode], ["startSeconds", c.startSeconds], ["holdSeconds", c.holdSeconds], ["maxQuickCrashes", c.maxQuickCrashes], ["gapSeconds", c.gapSeconds]]
     .filter(([, v]) => v != null).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
-  return `<div class="sec"><h2>Technical</h2><dl class="kv">${rows}</dl></div>`;
+  return `<div class="sec"><h2>${t("settingsGrown.level.technical")}</h2><dl class="kv">${rows}</dl></div>`;
 }
 
-const chatMore = () => sec15("Chat apps, more", sw("Pause a chat app from the chat", "/pause and /resume in that app."));
-const fromScripts = () => sec15("From scripts",
-  code15("Send a message", "From any script or scheduled job.", "branch send --to telegram \"Backup done\"")
-  + code15("Connect a chat app", "In one command.", "branch connect telegram"));
-const chatEvenMore = () => sec15("Chat apps, even more",
+const chatMore = () => sec15(t("window.settings.gateway.chat-apps-more"), sw("Pause a chat app from the chat", "/pause and /resume in that app."));
+const fromScripts = () => sec15(t("window.settings.gateway.from-scripts"),
+  code15(t("window.settings.gateway.send-a-message"), t("window.settings.gateway.from-any-script-or-scheduled-job"), "branch send --to telegram \"Backup done\"")
+  + code15(t("window.settings.gateway.connect-a-chat-app"), t("window.settings.gateway.in-one-command"), "branch connect telegram"));
+const chatEvenMore = () => sec15(t("window.settings.gateway.chat-apps-even-more"),
   sw("Send files into chats", "A Trunk can reply with the file itself, not a link.")
   + sw("Relay for chat-app accounts", "Your phone number stays with Branch, not the bot service.")
   + sw("Push to your phone and browser", "When a Trunk needs you and no chat app is set up."));
@@ -127,8 +128,8 @@ const chatEvenMore = () => sec15("Chat apps, even more",
 export function draw() {
   const gw = gwData;
   const lev = level();
-  let html = BASE + statusSection(gw) + modeSection(gw) + doing(gw) + proposalTile(gw) + ACTIONS;
-  if (lev < 2) html += `<p class="hint">Switch to Technical (bottom left) to see file paths, ports and raw settings.</p>`;
+  let html = BASE() + statusSection(gw) + modeSection(gw) + doing(gw) + proposalTile(gw) + ACTIONS();
+  if (lev < 2) html += `<p class="hint">${t("window.settings.computer.switch-to-technical-bottom-left-to")}</p>`;
   else html += technical(gw);
   if (lev >= 1) html += chatMore();
   if (lev >= 2) html += fromScripts();

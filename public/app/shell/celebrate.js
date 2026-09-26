@@ -11,6 +11,8 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { app, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 const TIERS = ["Bronze", "Silver", "Gold", "Diamond", "Godly", "SSS+"];
 const COLOUR = { Bronze: "#A86A3D", Silver: "#8C959E", Gold: "#C9982E", Diamond: "#4F8FB8", Godly: "#8A5AA8", "SSS+": "#C2412D" };
@@ -34,12 +36,12 @@ function show(a) {
     $(".ach-toast")?.remove();
     el.className = "ach-toast";
     el.setAttribute("role", "status");
-    el.innerHTML = `${medal}<span><b>Achievement unlocked</b> · ${esc(a.name)} · ${esc(a.tier)}</span>`;
+    el.innerHTML = `${medal}<span><b>${t("window.shell.celebrate.achievement-unlocked")}</b> · ${esc(a.name)} · ${esc(say(a.tier))}</span>`;
     setTimeout(() => el.remove(), 7000);
   } else {
     $(".ach-big")?.remove();
     el.className = "ach-big";
-    el.innerHTML = `<canvas id="confetti"></canvas><div class="card">${medal}<b data-css="font-size:18px">${esc(a.name)}</b><span>${esc(a.desc)}</span><span class="pill idle">${esc(a.tier)}</span><button class="btn pri sm" type="button" data-act="ach-close">Nice</button></div>`;
+    el.innerHTML = `<canvas id="confetti"></canvas><div class="card">${medal}<b data-css="font-size:18px">${esc(a.name)}</b><span>${esc(a.desc)}</span><span class="pill idle">${esc(say(a.tier))}</span><button class="btn pri sm" type="button" data-act="ach-close">${t("window.shell.celebrate.nice")}</button></div>`;
     setTimeout(() => el.remove(), 6000);
   }
   applyCss(el);

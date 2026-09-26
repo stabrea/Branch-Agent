@@ -14,6 +14,7 @@ import { toast, ic } from "../../core/ui.js";
 import { seg15 } from "../rows15.js";
 import { self17 } from "../p17-more.js";
 import { level as level17 } from "../../core/state.js";
+import { t } from "../../../i18n.js";
 
 const D = { history: [], names: {}, gw: null, policy: null, comfort: null };
 
@@ -27,7 +28,7 @@ async function loadData() {
 }
 
 async function rollBack(id) {
-  try { await api("settings-kit/undo", { record: id }); toast("Rolled back to before that change."); } catch (error) { toast(error.message); }
+  try { await api("settings-kit/undo", { record: id }); toast(t("window.settings.self.rolled-back-to-before-that-change")); } catch (error) { toast(error.message); }
   await loadData();
 }
 
@@ -63,12 +64,12 @@ export const live = {
 function statusSection() {
   const version = E.state?.version;
   let html = "<div class=\"status\"><span class=\"sdot \"></span><div>";
-  html += "<b>Running</b>";
+  html += `<b>${t("dashboard.running")}</b>`;
   // "the gateway watches it" only while the engine says the gateway is on or when-needed (GET /api/never-break).
-  const watched = D.gw?.mode && D.gw.mode !== "off" ? " · the gateway watches it and starts it again if it stops." : ".";
-  if (version) html += "<p>Engine " + esc(version) + watched + "</p>";
+  const watched = D.gw?.mode && D.gw.mode !== "off" ? ` · ${t("window.settings.self.the-gateway-watches-it-and-starts")}` : ".";
+  if (version) html += `<p>${t("window.settings.self.engine")} ` + esc(version) + watched + "</p>";
   html += "</div></div>";
-  html += `<div class="acts" data-css="margin-top:12px"><button class="btn" type="button" data-act="doctor">${ic("check", "s")}Check and fix</button><button class="btn" type="button" data-act="gw-restart">${ic("retry", "s")}Restart the engine</button><button class="btn ghost" type="button" data-act="soon">Reload without dropping work</button></div>`;
+  html += `<div class="acts" data-css="margin-top:12px"><button class="btn" type="button" data-act="doctor">${ic("check", "s")}${t("window.settings.self.check-and-fix")}</button><button class="btn" type="button" data-act="gw-restart">${ic("retry", "s")}${t("window.settings.gateway.restart-the-engine")}</button><button class="btn ghost" type="button" data-act="soon">${t("window.settings.self.reload-without-dropping-work")}</button></div>`;
   return html;
 }
 
@@ -80,34 +81,34 @@ function policySection() {
   const upd = D.comfort?.notify?.autoUpdate ?? null;
   // Loosening always asks, but the engine returns no value for it, so no choice is shown pressed.
   const loosen = null;
-  return "<div class=\"sec\"><h2>What Branch may change about itself</h2>"
-    + seg15("Its own settings", "It shows you the change first, tried on a throwaway copy.", [["ask", "Ask me first"], ["never", "Never"]], own)
-    + seg15("Loosening what it may do", "Asked every time; the answer is never kept.", [["ask", "Ask every time"]], loosen)
-    + seg15("The gateway’s timings", "It can suggest; you decide.", [["suggest", "Suggest"], ["never", "Never"]], timings)
-    + seg15("Restarting its own engine", "When it’s stuck. Safe steps carry on after.", [["allowed", "Allowed"], ["ask", "Ask me first"]], null)
-    + seg15("Updating itself", "Only when nothing is working, with a safety copy.", [["install", "Allowed"], ["check", "Ask me first"], ["off", "Never"]], upd, "self-upd")
-    + "<div class=\"ctl\"><b>Its own program and your saved work</b><span class=\"right\"><span class=\"pill idle\">Never, by itself</span></span><small>This one can’t be switched on.</small></div>"
-    + "<div class=\"ctl\"><b>Work on its own code in a separate copy</b><input class=\"sw\" type=\"checkbox\" id=\"self-dev\" aria-label=\"Work on its own code in a separate copy\" data-sw=\"set\"><small>A private copy of Branch’s source. The installed app is never touched. Off until you switch it on.</small></div></div>";
+  return `<div class=\"sec\"><h2>${t("window.settings.self.what-branch-may-change-about-itself")}</h2>`
+    + seg15(t("window.settings.self.its-own-settings"), t("window.settings.self.it-shows-you-the-change-first"), [["ask", t("toolKinds.ask")], ["never", t("window.settings.advanced.never")]], own)
+    + seg15(t("window.settings.self.loosening-what-it-may-do"), t("window.settings.self.asked-every-time-the-answer-is"), [["ask", t("window.settings.self.ask-every-time")]], loosen)
+    + seg15(t("window.settings.self.the-gateways-timings"), t("window.settings.self.it-can-suggest-you-decide"), [["suggest", t("window.settings.self.suggest")], ["never", t("window.settings.advanced.never")]], timings)
+    + seg15(t("window.settings.self.restarting-its-own-engine"), t("window.settings.self.when-its-stuck-safe-steps-carry"), [["allowed", t("window.settings.self.allowed")], ["ask", t("toolKinds.ask")]], null)
+    + seg15(t("window.settings.self.updating-itself"), t("window.settings.self.only-when-nothing-is-working-with"), [["install", t("window.settings.self.allowed")], ["check", t("toolKinds.ask")], ["off", t("window.settings.advanced.never")]], upd, "self-upd")
+    + `<div class=\"ctl\"><b>${t("window.settings.self.its-own-program-and-your-saved")}</b><span class=\"right\"><span class=\"pill idle\">${t("window.settings.self.never-by-itself")}</span></span><small>${t("window.settings.self.this-one-cant-be-switched-on")}</small></div>`
+    + `<div class=\"ctl\"><b>${t("window.settings.self.work-on-its-own-code-in")}</b><input class=\"sw\" type=\"checkbox\" id=\"self-dev\" aria-label=\"${t("window.settings.self.work-on-its-own-code-in")}\" data-sw=\"set\"><small>${t("window.settings.self.a-private-copy-of-branchs-source")}</small></div></div>`;
 }
 
 function neverDiesSection() {
   const c = D.gw?.config;
-  const hold = c ? `The gateway starts it again, holding messages for up to ${esc(c.holdSeconds)} seconds` : "The gateway starts it again";
-  const crash = c ? `<dt>If it keeps crashing</dt><dd>After ${esc(c.maxQuickCrashes)} quick crashes it rolls back to the last good settings and tells you</dd>` : "";
-  return `<div class="sec"><h2>Never dies</h2><dl class="kv"><dt>If the engine stops</dt><dd>${hold}</dd>${crash}<dt>Interrupted work</dt><dd>Safe steps carry on by themselves; anything that sends or changes something asks first</dd></dl></div>`;
+  const hold = c ? t("window.settings.self.the-gateway-starts-it-again-holding", { seconds: esc(c.holdSeconds) }) : t("window.settings.self.the-gateway-starts-it-again");
+  const crash = c ? `<dt>${t("window.settings.self.if-it-keeps-crashing")}</dt><dd>${t("window.settings.self.after-maxquickcrashes-quick-crashes-it-rolls", { maxQuickCrashes: esc(c.maxQuickCrashes) })}</dd>` : "";
+  return `<div class="sec"><h2>${t("window.settings.self.never-dies")}</h2><dl class="kv"><dt>${t("window.settings.self.if-the-engine-stops")}</dt><dd>${hold}</dd>${crash}<dt>${t("window.settings.self.interrupted-work")}</dt><dd>${t("window.settings.self.safe-steps-carry-on-by-themselves")}</dd></dl></div>`;
 }
 
 function timelineSection() {
   const items = D.history.slice(0, 3).map((r) => {
     const when = new Date(r.at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
-    const back = r.undoneBy || r.undoes ? "" : `<button class="btn ghost sm" type="button" data-act="self-rollback" data-id="${esc(r.id)}">Roll back</button>`;
+    const back = r.undoneBy || r.undoes ? "" : `<button class="btn ghost sm" type="button" data-act="self-rollback" data-id="${esc(r.id)}">${t("window.places.customize17.roll-back")}</button>`;
     return `<li class="">${ic("info", "s")}<span>${esc(D.names[r.detail] ?? r.detail)}<small>${esc(when)}</small></span>${back}</li>`;
   }).join("");
-  return `<div class="sec"><h2>Every change</h2><ol class="tl">${items}</ol></div>`;
+  return `<div class="sec"><h2>${t("window.settings.self.every-change")}</h2><ol class="tl">${items}</ol></div>`;
 }
 
 export function draw() {
-  let html = `<h1>Branch itself</h1><p class="lede">What Branch may change about itself, how it stays running, and every change it made, each one reversible.</p>`;
+  let html = `<h1>${t("dashboard.computer.engine")}</h1><p class="lede">${t("window.settings.self.what-branch-may-change-about-itself-2")}</p>`;
   html += statusSection();
   html += policySection();
   html += neverDiesSection();

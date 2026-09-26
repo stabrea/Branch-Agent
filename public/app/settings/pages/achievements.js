@@ -7,6 +7,8 @@ import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { toast } from "../../core/ui.js";
 import { markLive } from "../../core/features.js";
+import { t } from "../../../i18n.js";
+import { say } from "../../core/words.js";
 
 const TIERS = [["Bronze", "#A86A3D"], ["Silver", "#8C959E"], ["Gold", "#C9982E"], ["Diamond", "#4F8FB8"], ["Godly", "#8A5AA8"], ["SSS+", "#C2412D"]];
 const COLOUR = Object.fromEntries(TIERS);
@@ -45,7 +47,7 @@ export async function load() { await loadAchievements(); }
 function tierChips(list) {
   return TIERS.map(([tier, colour]) => {
     const all = list.filter((a) => a.tier === tier);
-    return all.length ? `<span class="tierc"><i data-css="background:${colour}"></i>${tier} · ${all.filter((a) => a.got).length}/${all.length}</span>` : "";
+    return all.length ? `<span class="tierc"><i data-css="background:${colour}"></i>${esc(say(tier))} · ${all.filter((a) => a.got).length}/${all.length}</span>` : "";
   }).join("");
 }
 
@@ -55,19 +57,19 @@ function card(a) {
 
 /* The engine answers { on: false } while achievements are switched off: no list then, but the quiet switch is still its. */
 function settingsSec() {
-  return `<div class="sec"><h2>Settings</h2><div class="ctl"><b>Keep achievements quiet</b><input class="sw" type="checkbox" id="ach-q" ${quiet ? "checked" : ""} aria-label="Keep achievements quiet" data-sw="achquiet"><small>No pop-ups. They still unlock. Bronze and Silver pop small for 7 seconds; Gold and up get the big one with confetti.</small></div><p class="hint">Hints: Bronze and Silver get a pet hint at most once an hour; Gold and up get none.</p></div>`;
+  return `<div class="sec"><h2>${t("memory.movein.kind.setting")}</h2><div class="ctl"><b>${t("window.settings.achievements.keep-achievements-quiet")}</b><input class="sw" type="checkbox" id="ach-q" ${quiet ? "checked" : ""} aria-label="${t("window.settings.achievements.keep-achievements-quiet")}" data-sw="achquiet"><small>${t("window.settings.achievements.no-pop-ups-they-still-unlock")}</small></div><p class="hint">${t("window.settings.achievements.hints-bronze-and-silver-get-a")}</p></div>`;
 }
 
 export function draw() {
-  let html = "<h1>Achievements</h1>";
-  if (!view?.on) return html + (view ? `<p class="lede">Private to you, never nagging.</p>${settingsSec()}` : "");
+  let html = `<h1>${t("delight.ach.title")}</h1>`;
+  if (!view?.on) return html + (view ? `<p class="lede">${t("window.settings.achievements.private-to-you-never-nagging")}</p>${settingsSec()}` : "");
   const list = view.list ?? [];
   const kinds = ["All", ...new Set(list.map((a) => a.kind))];
   if (!kinds.includes(category)) category = "All";
   const shown = category === "All" ? list : list.filter((a) => a.kind === category);
-  html += `<p class="lede">Private to you, never nagging. ${esc(view.earned)} of ${esc(view.total)} unlocked.</p>`;
+  html += `<p class="lede">${t("window.settings.achievements.private-to-you-never-nagging-earned", { earned: esc(view.earned), total: esc(view.total) })}</p>`;
   html += `<div class="ach-sum">${tierChips(list)}</div>`;
-  html += `<div class="tabs" role="tablist" data-css="margin-top:6px">${kinds.map((k) => `<button class="tab" role="tab" type="button" aria-selected="${category === k}" data-act="achcat" data-v="${esc(k)}">${esc(k)}</button>`).join("")}</div>`;
+  html += `<div class="tabs" role="tablist" data-css="margin-top:6px">${kinds.map((k) => `<button class="tab" role="tab" type="button" aria-selected="${category === k}" data-act="achcat" data-v="${esc(k)}">${esc(k === "All" ? t("look.filter.all") : k)}</button>`).join("")}</div>`;
   html += `<div class="achs">${shown.map(card).join("")}</div>`;
   html += settingsSec();
   return html;

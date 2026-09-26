@@ -17,17 +17,18 @@ import { markLive } from "../core/features.js";
 import { toast, openDlg, dialog } from "../core/ui.js";
 import { seg15 } from "./rows15.js";
 import { demos17, demo17, row17, sec17 } from "./rows17.js";
+import { t } from "../../i18n.js";
 
 const C = { suites: [], suite: null, runs: [], savings: null, rounds: null };
 
 export function sections17(lv, tab) {
   if (lv < 1) return "";
-  let html = sec17("Mixtures and savings",
-    row17("See what it saved", "Round-by-round figures for fewer rounds, the cache and mixing models on hard questions.", "See the savings", "savingsb17")
+  let html = sec17(t("window.settings.p17-models.mixtures-and-savings"),
+    row17(t("window.settings.p17-models.see-what-it-saved"), t("window.settings.p17-models.round-by-round-figures-for-fewer"), t("window.settings.p17-models.see-the-savings"), "savingsb17")
     + demos17(["localroute", "jev"]));
-  if (tab === "second") html += sec17("Second opinion, more", demo17("debate"));
-  if (lv >= 2 && tab === "connections") html += sec17("Connections, technical", demos17(["provplug", "retired"]));
-  if (lv >= 2 && tab === "media") html += sec17("Media, technical", demo17("mediapaths"));
+  if (tab === "second") html += sec17(t("window.settings.p17-models.second-opinion-more"), demo17("debate"));
+  if (lv >= 2 && tab === "connections") html += sec17(t("window.settings.p17-models.connections-technical"), demos17(["provplug", "retired"]));
+  if (lv >= 2 && tab === "media") html += sec17(t("window.settings.p17-models.media-technical"), demo17("mediapaths"));
   return html;
 }
 
@@ -42,11 +43,11 @@ function newestPerModel() {
 }
 function cmpDlg() {
   const rows = newestPerModel();
-  const seg = `<div class="seg" role="group" aria-label="Test suite">${C.suites.map((s) => `<button type="button" data-act="cmpsuiteb17" data-v="${esc(s.id)}" aria-pressed="${C.suite === s.id}">${esc(s.name)} · ${esc(s.tasks?.length ?? 0)}</button>`).join("")}</div>`;
-  const table = `<table class="tbl-b17"><thead><tr><th>Model</th><th>Right</th><th>Cost</th><th>Time</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(nameOf(r.preset))}</td><td>${esc(r.summary.passed)} of ${esc(r.summary.total)}</td><td>${r.summary.dollars == null ? "" : `$${esc(r.summary.dollars.toFixed(2))}`}</td><td>${esc(time(r.summary.latencyMs?.mean))}</td></tr>`).join("")}</tbody></table>`;
-  const last = C.runs[0] ? `<p class="hint" data-css="margin:0">Last run ${esc(new Date(C.runs[0].startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }))} · each task checked the same way every time.</p>` : "";
-  openDlg({ title: "Compare models", wide: true, body: seg + table + last,
-    foot: `<button class="btn ghost" type="button" data-act="cmpsideb17">Side by side</button><button class="btn pri" type="button" data-act="cmprunb17" ${presets().length >= 2 && C.suite ? "" : "disabled"}>Run again</button>` });
+  const seg = `<div class="seg" role="group" aria-label="${t("window.settings.p17-models.test-suite")}">${C.suites.map((s) => `<button type="button" data-act="cmpsuiteb17" data-v="${esc(s.id)}" aria-pressed="${C.suite === s.id}">${esc(s.name)} · ${esc(s.tasks?.length ?? 0)}</button>`).join("")}</div>`;
+  const table = `<table class="tbl-b17"><thead><tr><th>${t("coding.ci.model")}</th><th>${t("window.settings.p17-models.right")}</th><th>${t("window.settings.p17-models.cost")}</th><th>${t("comfort.status.item.time")}</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(nameOf(r.preset))}</td><td>${t("delight.ach.progress", { now: esc(r.summary.passed), goal: esc(r.summary.total) })}</td><td>${r.summary.dollars == null ? "" : `$${esc(r.summary.dollars.toFixed(2))}`}</td><td>${esc(time(r.summary.latencyMs?.mean))}</td></tr>`).join("")}</tbody></table>`;
+  const last = C.runs[0] ? `<p class="hint" data-css="margin:0">${t("window.settings.p17-models.last-run-value-each-task-checked", { value: esc(new Date(C.runs[0].startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })) })}</p>` : "";
+  openDlg({ title: t("window.settings.p17-models.compare-models"), wide: true, body: seg + table + last,
+    foot: `<button class="btn ghost" type="button" data-act="cmpsideb17">${t("window.settings.p17-models.side-by-side")}</button><button class="btn pri" type="button" data-act="cmprunb17" ${presets().length >= 2 && C.suite ? "" : "disabled"}>${t("window.places.library17.run-again")}</button>` });
 }
 async function readRuns() {
   C.runs = C.suite ? (await api(`evaluation/history?suite=${encodeURIComponent(C.suite)}`)).runs ?? [] : [];
@@ -83,10 +84,10 @@ function cachedShare() {
 }
 function savingsDlg() {
   const share = cachedShare();
-  const tiles = share == null ? "" : `<div class="scope15 s3-b17"><div><small>From the cache</small><b>${esc(share)}%</b></div></div>`;
+  const tiles = share == null ? "" : `<div class="scope15 s3-b17"><div><small>${t("savings.chart.cached")}</small><b>${esc(share)}%</b></div></div>`;
   const mixing = (C.savings?.liveMixtures?.length ?? 0) > 0 ? "on" : C.savings ? "off" : null;
-  openDlg({ title: "What it saved", wide: true, body: tiles + seg15("Mix models on hard questions", "Asks two models and merges the best of each.", [["off", "Off"], ["on", "On"]], mixing, "mixb17"),
-    foot: '<button class="btn" type="button" data-act="dlg-close">Close</button>' });
+  openDlg({ title: t("window.settings.p17-models.what-it-saved"), wide: true, body: tiles + seg15(t("window.settings.p17-models.mix-models-on-hard-questions"), t("window.settings.p17-models.asks-two-models-and-merges-the"), [["off", t("accounts.switch.off")], ["on", t("accounts.switch.on")]], mixing, "mixb17"),
+    foot: `<button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });
 }
 async function openSavings() {
   try {

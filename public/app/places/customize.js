@@ -12,8 +12,10 @@ import { markLive, greyOut } from "../core/features.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { logo } from "../core/logos.js";
-import { face, TEMPLATES } from "../flows/trunk.js";
+import { face, TEMPLATES, TEMPLATE_WORDS } from "../flows/trunk.js";
 import { specLine, toolsSection, codingAgentsSection, initCustomize17 } from "./customize17.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 function tabBar(tabs, place, current) {
   return `<div class="tabs" role="tablist">${tabs.map(([id, label, count]) =>
@@ -51,13 +53,15 @@ function itemsOf(k) {
 const ADD = { mcp: ["tool-add", "Add a server"], skills: ["tool-add", "Add a skill"], plugins: ["plug-add", "Add a plugin"], clis: ["cli-add", "Add a tool"], agents: ["tool-add", "Connect another agent"] };
 
 function trunksTab() {
-  const rows = E.trunks.map((t) => `<div class="prow">${av(face(t), 36)}<span class="grow"><b>${esc(t.name)}${t.paused ? " · paused" : ""}</b><small>${esc(t.title ?? "")}</small></span>
-    <button class="btn sm" type="button" data-act="edit" data-id="${esc(t.id)}">Edit</button>
-    <button class="btn ghost sm" type="button" data-act="pausetrunk" data-id="${esc(t.id)}">${t.paused ? "Resume" : "Pause"}</button></div>`).join("");
-  const jobs = TEMPLATES.map(([n, x, col, sh], i) => `<div class="tile"><div class="th">${av({ name: n, color: col, shape: sh }, 34)}<b>${esc(n)}</b></div><p>${esc(x)}</p><div class="acts"><button class="btn sm" type="button" data-act="tmpl" data-i="${i}">Use this job</button></div></div>`).join("");
-  return `<div class="rows"><div class="acts" data-css="margin:6px 0 4px"><button class="btn pri" type="button" data-act="chat" data-id="new">${ic('plus', 's')}A new Trunk</button>
-    <button class="btn" type="button" data-act="grp-new">${ic('room', 's')}A new room</button></div>${rows}
-    <div class="sec"><h2>Start from a job</h2><div class="grid2">${jobs}</div></div></div>`;
+  const rows = E.trunks.map((tr) => `<div class="prow">${av(face(tr), 36)}<span class="grow"><b>${esc(tr.name)}${tr.paused ? ` · ${t("autonomy.orders.paused")}` : ""}</b><small>${esc(tr.title ?? "")}</small></span>
+    <button class="btn sm" type="button" data-act="edit" data-id="${esc(tr.id)}">${t("prompts.action.edit")}</button>
+    <button class="btn ghost sm" type="button" data-act="pausetrunk" data-id="${esc(tr.id)}">${tr.paused ? t("autonomy.resume") : t("autonomy.pause")}</button></div>`).join("");
+  /* The jobs in the language in force (flows/trunk.js TEMPLATE_WORDS, the same jobs in the same order); the face keeps the job's own name. */
+  const words = (i, n, x) => (TEMPLATE_WORDS[i] ? TEMPLATE_WORDS[i].map((key) => t(key)) : [n, x]);
+  const jobs = TEMPLATES.map(([n, x, col, sh], i) => `<div class="tile"><div class="th">${av({ name: n, color: col, shape: sh }, 34)}<b>${esc(words(i, n, x)[0])}</b></div><p>${esc(words(i, n, x)[1])}</p><div class="acts"><button class="btn sm" type="button" data-act="tmpl" data-i="${i}">${t("window.places.customize.use-this-job")}</button></div></div>`).join("");
+  return `<div class="rows"><div class="acts" data-css="margin:6px 0 4px"><button class="btn pri" type="button" data-act="chat" data-id="new">${ic('plus', 's')}${t("studio.tab.trunk")}</button>
+    <button class="btn" type="button" data-act="grp-new">${ic('room', 's')}${t("window.places.customize.a-new-room")}</button></div>${rows}
+    <div class="sec"><h2>${t("window.places.customize.start-from-a-job")}</h2><div class="grid2">${jobs}</div></div></div>`;
 }
 
 /* The engine's changed lines, as the file history writes them: "+" added, "-" taken out, anything else kept. */
@@ -69,7 +73,7 @@ function learnedCard() {
   const r = revisions.find((x) => !x.decision);
   if (T9.k !== "skills" || !r) return "";
   const at = `data-id="${esc(r.skillId)}" data-version="${esc(r.version)}"`;
-  return `<div class="tile t9-learn"><div class="th"><b>A better version of “${esc(r.skillName)}”</b><span class="pill work ml"><i></i>Suggested</span></div><p>Nothing changes on its own.</p><pre class="diff6">${diffLines(r.diff)}</pre><div class="acts"><button class="btn sm" type="button" data-act="rev" data-v="tried" ${at}>${r.trial ? "Try again" : "Practice run on the last 3 tasks"}</button><button class="btn pri sm" type="button" data-act="rev" data-v="kept" ${at}>Keep it</button><button class="btn ghost sm" type="button" data-act="rev" data-v="gone" ${at}>Throw it away</button></div></div>`;
+  return `<div class="tile t9-learn"><div class="th"><b>${t("window.places.customize.a-better-version-of-skillname", { skillName: esc(r.skillName) })}</b><span class="pill work ml"><i></i>${t("window.places.customize.suggested")}</span></div><p>${t("window.places.customize.nothing-changes-on-its-own")}</p><pre class="diff6">${diffLines(r.diff)}</pre><div class="acts"><button class="btn sm" type="button" data-act="rev" data-v="tried" ${at}>${r.trial ? t("first-run-trouble.retry") : t("window.places.customize.practice-run-on-the-last-3")}</button><button class="btn pri sm" type="button" data-act="rev" data-v="kept" ${at}>${t("window.core.keep-it")}</button><button class="btn ghost sm" type="button" data-act="rev" data-v="gone" ${at}>${t("window.places.customize.throw-it-away")}</button></div></div>`;
 }
 
 /* A switched-off skill you already have is switched on (sugg15). One a registry lists would be installed from that
@@ -77,7 +81,7 @@ function learnedCard() {
    drawn under its own name and stays greyed. */
 function suggested() {
   if (T9.k !== "skills" || !suggestions.length) return "";
-  return `<div class="sugg15"><h3>Suggested for you</h3>${suggestions.map((s) => `<div class="sg-row15"><span class="grow"><b>${esc(s.name)}</b><small>${esc(s.description)}</small></span><button type="button" class="btn sm" data-act="${s.source === "installed" ? "sugg15" : "sugg15-reg"}" data-v="${esc(s.id)}">Add</button></div>`).join("")}</div>`;
+  return `<div class="sugg15"><h3>${t("window.places.customize.suggested-for-you")}</h3>${suggestions.map((s) => `<div class="sg-row15"><span class="grow"><b>${esc(s.name)}</b><small>${esc(s.description)}</small></span><button type="button" class="btn sm" data-act="${s.source === "installed" ? "sugg15" : "sugg15-reg"}" data-v="${esc(s.id)}">${t("asks.runtimes.add")}</button></div>`).join("")}</div>`;
 }
 
 /* What each of a server's tools may do: its tools are the engine's own list (GET /api/state tools, named mcp.<server>.…),
@@ -88,19 +92,19 @@ function toolPerms(x) {
   const tools = (E.state?.tools ?? []).filter((t) => t.name.startsWith(`mcp.${x.id}.`));
   const rows = tools.map((t) => {
     const rule = policyRules.find((r) => r.tool === t.name);
-    return `<div class="prow t9-perm"><code>${esc(t.description)}</code><span class="grow"></span><span class="seg">${DECISIONS.map(([d, l]) => `<button type="button" data-act="seg" aria-pressed="${rule?.decision === d}">${l}</button>`).join("")}</span></div>`;
+    return `<div class="prow t9-perm"><code>${esc(t.description)}</code><span class="grow"></span><span class="seg">${DECISIONS.map(([d, l]) => `<button type="button" data-act="seg" aria-pressed="${rule?.decision === d}">${say(l)}</button>`).join("")}</span></div>`;
   }).join("");
-  return `<div class="sec"><h2>What each tool may do</h2><div class="rows">${rows}</div></div>`;
+  return `<div class="sec"><h2>${t("window.places.customize.what-each-tool-may-do")}</h2><div class="rows">${rows}</div></div>`;
 }
 /* A server that would not start says why, in the engine's words; trying again and its log stay greyed. */
-const startProblem = (x) => (x.error ? `<div class="status"><span class="sdot bad"></span><div><b>It didn’t start</b><p>${esc(String(x.error).replace(/\.$/, ""))}. <button class="link" type="button" data-act="tool-retry">Try again</button> · <button class="link" type="button" data-act="tool-log">See its log</button></p></div></div>` : "");
+const startProblem = (x) => (x.error ? `<div class="status"><span class="sdot bad"></span><div><b>${t("window.places.customize.it-didnt-start")}</b><p>${esc(String(x.error).replace(/\.$/, ""))}. <button class="link" type="button" data-act="tool-retry">${t("first-run-trouble.retry")}</button> · <button class="link" type="button" data-act="tool-log">${t("window.places.customize.see-its-log")}</button></p></div></div>` : "");
 /* Remove is live for skills only (tool-rm). A server lives in the launch file and a plugin or an agent here has no removal
    this window checks, so theirs is drawn disabled. Test it would start the server's program, and no route checks a
    server or a tool for updates, so both stay greyed under their own names. */
 function detailActs(k, x) {
-  const rmOff = k === "skills" ? "" : ' disabled aria-disabled="true" data-tip="Coming soon"';
-  const test = k === "mcp" ? '<button class="btn sm" type="button" data-act="tool-test">Test it</button>' : "";
-  return `<div class="acts" data-css="margin-top:16px">${test}<button class="btn sm" type="button" data-act="tool-upd">Check for updates</button><span class="grow"></span><button class="btn ghost sm${rmOff ? " soon" : ""}" type="button" data-act="tool-rm" data-k="${k}" data-id="${esc(x.id)}"${rmOff}>Remove</button></div>`;
+  const rmOff = k === "skills" ? "" : ` disabled aria-disabled="true" data-tip="${t("window.places.automations.coming-soon")}"`;
+  const test = k === "mcp" ? `<button class="btn sm" type="button" data-act="tool-test">${t("window.places.customize.test-it")}</button>` : "";
+  return `<div class="acts" data-css="margin-top:16px">${test}<button class="btn sm" type="button" data-act="tool-upd">${t("action.check-for-updates")}</button><span class="grow"></span><button class="btn ghost sm${rmOff ? " soon" : ""}" type="button" data-act="tool-rm" data-k="${k}" data-id="${esc(x.id)}"${rmOff}>${t("accounts.action.remove")}</button></div>`;
 }
 /* Which Trunks may use a server or a skill is drawn from each Trunk's own lists (servers by id, skills by name), and stays
    greyed: adding a server to a Trunk widens what it can reach. */
@@ -108,18 +112,18 @@ function detailActs(k, x) {
 const mainChip = (x) => `<button type="button" class="chip6" data-act="tool-who" data-k="mcp" data-id="${esc(x.id)}" data-v="main" aria-pressed="${(E.state?.tools ?? []).some((t) => t.name.startsWith(`mcp.${x.id}.`))}">${esc(E.state?.identity?.name ?? "")}</button>`;
 function detail(k, x) {
   const list = k === "mcp" ? "mcpServers" : k === "skills" ? "skills" : null;
-  const who = list ? `<div class="sec"><h2>Which Trunks may use it</h2><div class="chips8">${E.trunks.map((t) => `<button type="button" class="chip6" data-act="tool-who" data-k="${k}" data-id="${esc(x.id)}" data-v="${esc(t.id)}" aria-pressed="${(t[list] ?? []).includes(k === "skills" ? x.name : x.id)}">${esc(t.name)}</button>`).join("")}${k === "mcp" ? mainChip(x) : ""}</div></div>` : "";
-  const onOff = k === "mcp" ? `<input type="checkbox" class="sw" data-sw="tool9g" data-k="${k}" data-id="${esc(x.id)}" aria-label="${esc(x.name)} on or off">` : "";
+  const who = list ? `<div class="sec"><h2>${t("window.places.customize.which-trunks-may-use-it")}</h2><div class="chips8">${E.trunks.map((t) => `<button type="button" class="chip6" data-act="tool-who" data-k="${k}" data-id="${esc(x.id)}" data-v="${esc(t.id)}" aria-pressed="${(t[list] ?? []).includes(k === "skills" ? x.name : x.id)}">${esc(t.name)}</button>`).join("")}${k === "mcp" ? mainChip(x) : ""}</div></div>` : "";
+  const onOff = k === "mcp" ? `<input type="checkbox" class="sw" data-sw="tool9g" data-k="${k}" data-id="${esc(x.id)}" aria-label="${t("window.places.customize.name-on-or-off", { name: esc(x.name) })}">` : "";
   return `<div class="t9-detail"><div class="t9-dh"><span class="ico-tile t9i" data-css="width:40px;height:40px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span>${onOff}</div>
     ${startProblem(x)}${who}${k === "mcp" ? toolPerms(x) : ""}${detailActs(k, x)}</div>`;
 }
 
 function toolsTab() {
   const k = T9.k, items = itemsOf(k), sel = items.find((x) => x.id === T9.sel) ?? items[0];
-  const nav = KINDS.map(([id, label, icon, desc]) => `<button type="button" data-act="t9-kind" data-v="${id}" aria-current="${k === id}">${ic(icon, 's')}<span><b>${esc(label)}</b><small>${esc(desc)}</small></span><em>${itemsOf(id).length}</em></button>`).join("");
-  const [act, label] = ADD[k];
+  const nav = KINDS.map(([id, label, icon, desc]) => `<button type="button" data-act="t9-kind" data-v="${id}" aria-current="${k === id}">${ic(icon, 's')}<span><b>${esc(say(label))}</b><small>${esc(say(desc))}</small></span><em>${itemsOf(id).length}</em></button>`).join("");
+  const [act, words] = ADD[k], label = say(words);
   const rows = items.map((x) => `<button type="button" class="t9-item" data-act="t9-sel" data-v="${esc(x.id)}" aria-current="${sel?.id === x.id}"><span class="ico-tile t9i" data-css="width:32px;height:32px">${ic(KINDS.find(([id]) => id === k)[2], 's')}</span><span class="grow"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></span></button>`).join("");
-  return `<div class="t9"><nav class="t9-nav" aria-label="Kinds of tools">${nav}<button type="button" class="btn pri t9-addbtn" data-act="${act}" data-v="${k}">${ic('plus', 's')}${label}</button></nav>
+  return `<div class="t9"><nav class="t9-nav" aria-label="${t("window.places.customize.kinds-of-tools")}">${nav}<button type="button" class="btn pri t9-addbtn" data-act="${act}" data-v="${k}">${ic('plus', 's')}${label}</button></nav>
     <div class="t9-list">${learnedCard()}${rows}${suggested()}</div>${sel ? detail(k, sel) : ""}</div>${toolsSection(k, sel?.id)}`;
 }
 
@@ -144,17 +148,17 @@ const patSvg = ([, , , d, dots]) => `<svg viewBox="0 0 60 60" aria-hidden="true"
 function fleet(specs) {
   const n = E.trunks.length, working = (E.state.runs ?? []).filter((r) => r.status === "running").length;
   const dots = [...E.trunks.map((t) => av(face(t), 22)), av({ kind: "main" }, 22)].join("");
-  return `<div class="fleet15"><span class="fl-dots15">${dots}</span><span><b>${n} ${n === 1 ? "Trunk" : "Trunks"}</b><small>${working} working now · ${specs.length} ${specs.length === 1 ? "specialist" : "specialists"} on call</small></span></div>`;
+  return `<div class="fleet15"><span class="fl-dots15">${dots}</span><span><b>${n} ${n === 1 ? t("window.places.customize.trunk") : t("settingsDirectory.trunks")}</b><small>${(specs.length === 1 ? t("window.places.customize.working-now-one-specialist", { working }) : t("window.places.customize.working-now-count-specialists", { working, count: specs.length }))}</small></span></div>`;
 }
 
 function specialistsTab() {
   const specs = E.state.specialists || [];
-  const rows = specs.map((s) => `<div class="prow"><span class="ico-tile">${ic('bolt', 's')}</span><span class="grow"><b>${esc(specName(s))}</b><small>${esc(specWhat(s))}</small>${specLine(s)}</span><button class="btn sm" type="button" data-act="specb17" data-id="${esc(s.id ?? "")}">Edit</button></div>`).join('');
+  const rows = specs.map((s) => `<div class="prow"><span class="ico-tile">${ic('bolt', 's')}</span><span class="grow"><b>${esc(specName(s))}</b><small>${esc(specWhat(s))}</small>${specLine(s)}</span><button class="btn sm" type="button" data-act="specb17" data-id="${esc(s.id ?? "")}">${t("prompts.action.edit")}</button></div>`).join('');
   const chosen = E.state.orchestration?.pattern;
-  const pats = PATTERNS.map((p) => `<button type="button" role="radio" class="pat15" aria-checked="${chosen === p[0]}" data-act="${p[0] === "teams" ? "pat15-teams" : "pat15"}" data-v="${p[0]}">${patSvg(p)}<b>${esc(p[1])}</b><small>${esc(p[2])}</small></button>`).join("");
-  return `<div class="rows"><p class="hint" data-css="margin:4px 0 8px">Helpers a Trunk calls in for one job, then lets go.</p>${rows}</div>
-    <div class="sec x15-sec">${fleet(specs)}<h2 data-css="margin-top:22px">How Trunks work together</h2><p class="hint" data-css="margin:0 0 10px">The pattern a room or a big task uses. Branch picks one; you can choose.</p>
-    <div class="pats15" role="radiogroup" aria-label="How Trunks work together">${pats}</div></div>${codingAgentsSection()}`;
+  const pats = PATTERNS.map((p) => `<button type="button" role="radio" class="pat15" aria-checked="${chosen === p[0]}" data-act="${p[0] === "teams" ? "pat15-teams" : "pat15"}" data-v="${p[0]}">${patSvg(p)}<b>${esc(say(p[1]))}</b><small>${esc(say(p[2]))}</small></button>`).join("");
+  return `<div class="rows"><p class="hint" data-css="margin:4px 0 8px">${t("window.places.customize.helpers-a-trunk-calls-in-for")}</p>${rows}</div>
+    <div class="sec x15-sec">${fleet(specs)}<h2 data-css="margin-top:22px">${t("window.places.customize.how-trunks-work-together")}</h2><p class="hint" data-css="margin:0 0 10px">${t("window.places.customize.the-pattern-a-room-or-a")}</p>
+    <div class="pats15" role="radiogroup" aria-label="${t("window.places.customize.how-trunks-work-together")}">${pats}</div></div>${codingAgentsSection()}`;
 }
 
 const FAM_WORDS = { core: "Two minutes to set up", chat: "Text through a webhook" };
@@ -162,31 +166,31 @@ function channelGrid() {
   const q = CH.q.trim().toLowerCase();
   const on = new Set(connected.map((c) => c.id ?? c.kind));
   const list = channelSetup.filter((c) => (CH.fam === "all" || c.family === CH.fam) && (!q || String(c.name).toLowerCase().includes(q)));
-  return list.map((c) => `<button type="button" class="ch12 ${on.has(c.id) ? "on12" : ""}" data-act="ch-open" data-v="${esc(c.id)}">${logo(c.id, c.name, 32)}<span><b>${esc(c.name)}</b><small>${on.has(c.id) ? "Connected · reaches Branch" : FAM_WORDS[c.family] ?? "Switch it on"}</small></span>${on.has(c.id) ? '<i class="dot12"></i>' : ""}</button>`).join("");
+  return list.map((c) => `<button type="button" class="ch12 ${on.has(c.id) ? "on12" : ""}" data-act="ch-open" data-v="${esc(c.id)}">${logo(c.id, c.name, 32)}<span><b>${esc(c.name)}</b><small>${on.has(c.id) ? t("window.places.customize.connected-reaches-branch") : say(FAM_WORDS[c.family]) ?? t("addons.switch.on")}</small></span>${on.has(c.id) ? '<i class="dot12"></i>' : ""}</button>`).join("");
 }
 
 function channelsTab() {
-  const fams = [["all", "All"], ["core", "Popular"], ["chat", "Work chat"], ["parity", "More"]].map(([v, l]) => `<button type="button" data-act="ch-fam" data-v="${v}" aria-pressed="${CH.fam === v}">${l}</button>`).join("");
-  return `<p class="hint" data-css="margin:4px 0 10px">Talk to Branch from other apps. Each chat app reaches the Trunk you choose; with the gateway on, they work while Branch is closed.</p>
-    <div class="ch-wrap12"><div class="ch-top12"><label class="set-search" data-css="margin:0;flex:1">${ic('search', 's')}<input id="ch-q" value="${esc(CH.q)}" placeholder="Search ${channelSetup.length} chat apps" aria-label="Search chat apps" autocomplete="off"></label>
+  const fams = [["all", t("look.filter.all")], ["core", t("window.places.customize.popular")], ["chat", t("window.places.customize.work-chat")], ["parity", t("more.label")]].map(([v, l]) => `<button type="button" data-act="ch-fam" data-v="${v}" aria-pressed="${CH.fam === v}">${l}</button>`).join("");
+  return `<p class="hint" data-css="margin:4px 0 10px">${t("window.places.customize.talk-to-branch-from-other-apps")}</p>
+    <div class="ch-wrap12"><div class="ch-top12"><label class="set-search" data-css="margin:0;flex:1">${ic('search', 's')}<input id="ch-q" value="${esc(CH.q)}" placeholder="${t("window.places.customize.search-count-chat-apps", { count: channelSetup.length })}" aria-label="${t("window.places.customize.search-chat-apps")}" autocomplete="off"></label>
     <span class="seg">${fams}</span></div>
-    <div class="ch-grid12">${channelGrid()}</div><div class="tile phone12"><div class="th"><span class="ico-tile">${ic('phone', 's')}</span><b>Your phone</b></div><p>Answer approvals and talk to Trunks from the Branch app.</p>
-    <div class="acts"><button class="btn pri sm" type="button" data-act="pair">Pair a phone</button></div></div></div>`;
+    <div class="ch-grid12">${channelGrid()}</div><div class="tile phone12"><div class="th"><span class="ico-tile">${ic('phone', 's')}</span><b>${t("studio.tab.phone")}</b></div><p>${t("window.places.customize.answer-approvals-and-talk-to-trunks")}</p>
+    <div class="acts"><button class="btn pri sm" type="button" data-act="pair">${t("window.places.customize.pair-a-phone")}</button></div></div></div>`;
 }
 
 function everywhereTab() {
   const version = E.state?.version ?? "";
-  const tile = (icon, name, text, extra = "", v = "") => `<div class="tile"><div class="th"><span class="ico-tile">${ic(icon, 's')}</span><b>${name}</b></div><p>${text}</p><div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="${v}">Open this view</button>${extra}</div></div>`;
-  const pair = '<button class="btn ghost sm" type="button" data-act="pair">Pair</button>';
-  return `<div class="rows"><p class="hint" data-css="margin:4px 0 10px">One Branch, everywhere you are. Open any card to see that surface; the switcher in the title bar does the same.</p><div class="grid2">
-    ${tile("win", "Windows", `This computer · Branch ${esc(version)}`, "", "desktop")}
-    ${tile("mac", "Mac", "The same app on a Mac · menu bar icon with usage", "", "mac")}
-    ${tile("term", "Terminal", "Type branch in any terminal. Same places, same theme", "", "terminal")}
-    ${tile("phone", "iPhone", "Pair with the square code · lock screen answers", pair, "iphone")}
-    ${tile("android", "Android", "Pair with the square code · answer from the notification", pair, "android")}
-    ${tile("globe", "keepoak.com", "Connect your account to reach Branch from a browser", "", "web")}
-    <div class="tile"><div class="th"><span class="ico-tile">${ic('chat', 's')}</span><b>Chat apps</b></div><p>Telegram, WhatsApp, Discord, Slack: talk to a Trunk from where you already are.</p><div class="acts"><button class="btn sm ml" type="button" data-act="ptab" data-place="customize" data-v="channels">Channels</button></div></div>
-    <div class="tile"><div class="th"><span class="ico-tile">${ic('doc', 's')}</span><b>A page of your own</b></div><p>A small box on your own notes page or desk dashboard that asks Branch something. It talks only to your paired address, with its own key.</p><div class="acts"><button class="btn sm" type="button" data-act="widget6">Get the snippet</button></div></div>
+  const tile = (icon, name, text, extra = "", v = "") => `<div class="tile"><div class="th"><span class="ico-tile">${ic(icon, 's')}</span><b>${name}</b></div><p>${text}</p><div class="acts"><button class="btn sm ml" type="button" data-act="surface" data-v="${v}">${t("window.places.customize.open-this-view")}</button>${extra}</div></div>`;
+  const pair = `<button class="btn ghost sm" type="button" data-act="pair">${t("pair.step.pair")}</button>`;
+  return `<div class="rows"><p class="hint" data-css="margin:4px 0 10px">${t("window.places.customize.one-branch-everywhere-you-are-open")}</p><div class="grid2">
+    ${tile("win", "Windows", t("window.places.customize.this-computer-branch-version", { version: esc(version) }), "", "desktop")}
+    ${tile("mac", "Mac", t("window.places.customize.the-same-app-on-a-mac"), "", "mac")}
+    ${tile("term", t("pane.terminal"), t("window.places.customize.type-branch-in-any-terminal-same"), "", "terminal")}
+    ${tile("phone", "iPhone", t("window.places.customize.pair-with-the-square-code-lock"), pair, "iphone")}
+    ${tile("android", "Android", t("window.places.customize.pair-with-the-square-code-answer"), pair, "android")}
+    ${tile("globe", "keepoak.com", t("window.places.customize.connect-your-account-to-reach-branch"), "", "web")}
+    <div class="tile"><div class="th"><span class="ico-tile">${ic('chat', 's')}</span><b>${t("dashboard.links.chats")}</b></div><p>${t("window.places.customize.telegram-whatsapp-discord-slack-talk-to")}</p><div class="acts"><button class="btn sm ml" type="button" data-act="ptab" data-place="customize" data-v="channels">${t("place.customize.channels")}</button></div></div>
+    <div class="tile"><div class="th"><span class="ico-tile">${ic('doc', 's')}</span><b>${t("window.places.customize.a-page-of-your-own")}</b></div><p>${t("window.places.customize.a-small-box-on-your-own")}</p><div class="acts"><button class="btn sm" type="button" data-act="widget6">${t("window.places.customize.get-the-snippet")}</button></div></div>
     </div></div>`;
 }
 
@@ -195,10 +199,10 @@ const DRAW = { trunks: trunksTab, tools: toolsTab, specialists: specialistsTab, 
 export function draw() {
   const tab = S.tabs.customize || "trunks";
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
-  const tabs = [["trunks", "Trunks", E.trunks.length], ["tools", "Tools", 0], ["specialists", "Specialists", 0], ["channels", "Channels", 0], ["everywhere", "Everywhere", 0]];
-  const lockBanner = E.state.lock ? `<div class="lock-banner">${ic('lock', 's')}Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div>` : "";
+  const tabs = [["trunks", t("settingsDirectory.trunks"), E.trunks.length], ["tools", t("dashboard.filter.tools"), 0], ["specialists", t("nav.specialists"), 0], ["channels", t("place.customize.channels"), 0], ["everywhere", t("window.places.customize.everywhere"), 0]];
+  const lockBanner = E.state.lock ? `<div class="lock-banner">${ic('lock', 's')}${t("window.places.automations.lockdown-is-on-trunks-can-read")}<button type="button" data-act="lock">${t("lockdown.turnOff")}</button></div>` : "";
   return `<main class="main enter11" id="main">${lockBanner}<div class="scroll"><div class="place${tab === "tools" ? " t9-place" : ""}">
-    <h1>Customize</h1><p class="lede">Who your Trunks are, what they can do, and where you can reach them.</p>
+    <h1>${t("place.customize")}</h1><p class="lede">${t("window.places.customize.who-your-trunks-are-what-they")}</p>
     ${tabBar(tabs, "customize", tab)}${(DRAW[tab] ?? trunksTab)()}</div></div></main>`;
 }
 
@@ -237,7 +241,7 @@ async function removeTool(el) {
     await refresh();
     await after();
     renderNow();
-    toast(`${name} removed.`);
+    toast(t("window.places.customize.name-removed", { name }));
   } catch (error) { toast(error.message); }
 }
 
@@ -250,8 +254,8 @@ async function revise(el) {
   el.disabled = true;
   try {
     await api(`skill-revisions/${REV[v]}`, { skillId: id, version });
-    if (v === "tried") toast("Practice run done. Nothing was really changed.");
-    if (v === "gone" && before?.activeVersion) toast(`Thrown away. The skill stays on version ${before.activeVersion}.`);
+    if (v === "tried") toast(t("window.places.customize.practice-run-done-nothing-was-really"));
+    if (v === "gone" && before?.activeVersion) toast(t("window.places.customize.thrown-away-the-skill-stays-on", { activeVersion: before.activeVersion }));
     await refresh();
   } catch (error) { toast(error.message); }
   el.disabled = false;
@@ -278,7 +282,7 @@ async function choosePattern(el) {
     await api("orchestration", { pattern: again ? "auto" : v });
     await refresh();
     const p = PATTERNS.find((x) => x[0] === v);
-    if (!again) toast(`${p[1]}: used for rooms and big tasks from now on.`);
+    if (!again) toast(t("window.places.customize.value-used-for-rooms-and-big", { value: say(p[1]) }));
   } catch (error) { toast(error.message); }
 }
 

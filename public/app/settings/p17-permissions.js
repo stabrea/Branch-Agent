@@ -20,6 +20,8 @@ import { markLive } from "../core/features.js";
 import { toast, openDlg, dialog, $ } from "../core/ui.js";
 import { sw15, seg15 } from "./rows15.js";
 import { demos17, demo17, row17, sec17, pill17 } from "./rows17.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 const P = { kit: null, safety: null, result: null, fw: null, why: [] };
 
@@ -38,19 +40,19 @@ export function sections17(lv) {
   if (lv < 1) return "";
   const n = P.kit ? changed().length : null;
   const stopped = P.safety?.stop?.engaged === true;
-  let html = sec17("Test and explain",
-    row17("Test a rule", "Type a command, a file or a site and see which rule decides, before any Trunk tries it.", "Test", "ruletestb17")
-    + row17("What Trunks may reach, in sentences", "Every site and network rule written out as plain sentences.", "Read it", "fwb17")
-    + row17("Why is this set?", "Each setting that differs from the default: who set it, when, and why. Put any back.", n == null ? "See" : `See ${n}`, "whyb17")
+  let html = sec17(t("window.settings.p17-permissions.test-and-explain"),
+    row17(t("window.settings.p17-permissions.test-a-rule"), t("window.settings.p17-permissions.type-a-command-a-file-or"), t("window.settings.p17-permissions.test"), "ruletestb17")
+    + row17(t("window.settings.p17-permissions.what-trunks-may-reach-in-sentences"), t("window.settings.p17-permissions.every-site-and-network-rule-written"), t("window.settings.p17-permissions.read-it"), "fwb17")
+    + row17(t("window.settings.p17-permissions.why-is-this-set"), t("window.settings.p17-permissions.each-setting-that-differs-from-the"), n == null ? t("window.settings.p17-permissions.see") : t("window.settings.p17-permissions.see-count", { count: n }), "whyb17")
     + sw15("A second look before approvals", "Another model reads risky actions first and says what worries it.", (kitMode("approval_reviewer") ?? "off") !== "off")
     + sw15("Hold back keys found in answers", "A key or password in a reply is hidden before it is sent anywhere.", false)
     + demo17("trust"));
-  html += sec17("Locks and records",
-    seg15("App lock", "", [["off", "Off"], ["quiet", "After 15 min"], ["pin", "Always"]], null, "applockb17")
-    + (stopped ? row17("Emergency stop", "Stopped. Every task is halted; nothing resumes until you say so.", "Let them resume", "estoprelb17")
-      : row17("Emergency stop", "Stops every task at once, on every computer, and holds them.", "Stop everything", "estopb17"))
+  html += sec17(t("window.settings.p17-permissions.locks-and-records"),
+    seg15(t("window.settings.p17-permissions.app-lock"), "", [["off", t("accounts.switch.off")], ["quiet", t("window.settings.p17-permissions.after-15-min")], ["pin", t("window.places.automations.always")]], null, "applockb17")
+    + (stopped ? row17(t("safety.stop.title"), t("window.settings.p17-permissions.stopped-every-task-is-halted-nothing"), t("window.settings.p17-permissions.let-them-resume"), "estoprelb17")
+      : row17(t("safety.stop.title"), t("window.settings.p17-permissions.stops-every-task-at-once-on"), t("window.settings.p17-permissions.stop-everything"), "estopb17"))
     + demos17(["audit", "practice"]));
-  if (lv >= 2) html += sec17("Guards that are always on", demos17(["injection", "chatperm", "loopguard", "leakguard", "codecheck"]));
+  if (lv >= 2) html += sec17(t("window.settings.p17-permissions.guards-that-are-always-on"), demos17(["injection", "chatperm", "loopguard", "leakguard", "codecheck"]));
   return html;
 }
 
@@ -58,9 +60,9 @@ export function sections17(lv) {
 const DECIDES = { allow: ["ok", "Allowed"], ask: ["warn", "Asks"], deny: ["no", "Never"] };
 function ruleDlg() {
   const r = P.result;
-  const res = r ? `<div class="res-line-b17">${pill17(...(DECIDES[r.decision] ?? ["idle", r.decision]))}<span><b>${esc(r.because)}</b><small></small></span></div>` : "";
-  openDlg({ title: "Test a rule", body: `<p class="lead-b17">Nothing runs. Branch only says what would decide.</p><div class="test-b17"><input class="inp" id="rule-in-b17" value="${esc(P.ruleQ ?? "")}" aria-label="Command, file or site"><button class="btn pri sm" type="button" data-act="rulerunb17">Test</button></div><div class="chips-b17">${["git status", "https://unknown.example"].map((t) => `<button type="button" class="chip-b17" data-act="rulepickb17" data-v="${esc(t)}">${esc(t)}</button>`).join("")}</div>${res}`,
-    foot: '<button class="btn" type="button" data-act="dlg-close">Close</button>' });
+  const res = r ? `<div class="res-line-b17">${DECIDES[r.decision] ? pill17(DECIDES[r.decision][0], say(DECIDES[r.decision][1])) : pill17("idle", r.decision)}<span><b>${esc(r.because)}</b><small></small></span></div>` : "";
+  openDlg({ title: t("window.settings.p17-permissions.test-a-rule"), body: `<p class="lead-b17">${t("window.settings.p17-permissions.nothing-runs-branch-only-says-what")}</p><div class="test-b17"><input class="inp" id="rule-in-b17" value="${esc(P.ruleQ ?? "")}" aria-label="${t("window.settings.p17-permissions.command-file-or-site")}"><button class="btn pri sm" type="button" data-act="rulerunb17">${t("window.settings.p17-permissions.test")}</button></div><div class="chips-b17">${[t("window.settings.p17-permissions.git-status"), "https://unknown.example"].map((t) => `<button type="button" class="chip-b17" data-act="rulepickb17" data-v="${esc(t)}">${esc(t)}</button>`).join("")}</div>${res}`,
+    foot: `<button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });
 }
 const toolFor = (q) => (/^https?:\/\//i.test(q) ? "web.fetch" : /\s/.test(q) ? "shell.session.run" : "files.write");
 async function runRule() {
@@ -74,8 +76,8 @@ async function runRule() {
 /* ---------- What Trunks may reach ---------- */
 function fwDlg(out = "") {
   const sentences = P.fw?.sentences ?? [];
-  openDlg({ title: "What Trunks may reach", body: `<ol class="fw-b17">${sentences.map((s) => `<li>${esc(s)}</li>`).join("")}</ol><div class="test-b17"><input class="inp" id="fw-in-b17" value="${esc(P.fwQ ?? "https://unknown.example")}" aria-label="An address to check"><button class="btn sm" type="button" data-act="fwtestb17">Check an address</button></div><p class="hint" id="fw-out-b17" data-css="margin:0">${esc(out)}</p>`,
-    foot: '<button class="btn" type="button" data-act="dlg-close">Close</button>' });
+  openDlg({ title: t("window.settings.p17-permissions.what-trunks-may-reach"), body: `<ol class="fw-b17">${sentences.map((s) => `<li>${esc(s)}</li>`).join("")}</ol><div class="test-b17"><input class="inp" id="fw-in-b17" value="${esc(P.fwQ ?? "https://unknown.example")}" aria-label="${t("window.settings.p17-permissions.an-address-to-check")}"><button class="btn sm" type="button" data-act="fwtestb17">${t("window.settings.p17-permissions.check-an-address")}</button></div><p class="hint" id="fw-out-b17" data-css="margin:0">${esc(out)}</p>`,
+    foot: `<button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });
 }
 async function openFw() {
   try { P.fw = await api("firewall"); } catch (error) { toast(error.message); return; }
@@ -102,8 +104,8 @@ async function readWhy() {
   }));
 }
 function whyDlg() {
-  const body = P.why.map((row) => `<div class="prow why-b17"><span class="grow"><b>${esc(title(row))}</b><small>${esc(row.words)}</small></span>${pill17("ok", String(row.field.value))}<button class="btn ghost sm" type="button" data-act="whyputb17" data-key="${esc(row.spec.key)}" data-field="${esc(row.field.field)}">Put back</button></div>`).join("");
-  openDlg({ title: "Why is this set?", wide: true, body: `<div class="rows">${body}</div>`, foot: '<button class="btn" type="button" data-act="dlg-close">Close</button>' });
+  const body = P.why.map((row) => `<div class="prow why-b17"><span class="grow"><b>${esc(title(row))}</b><small>${esc(row.words)}</small></span>${pill17("ok", String(row.field.value))}<button class="btn ghost sm" type="button" data-act="whyputb17" data-key="${esc(row.spec.key)}" data-field="${esc(row.field.field)}">${t("activityLog.action.putBack")}</button></div>`).join("");
+  openDlg({ title: t("window.settings.p17-permissions.why-is-this-set"), wide: true, body: `<div class="rows">${body}</div>`, foot: `<button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });
 }
 async function openWhy() {
   try { P.kit = await api("settings-kit"); await readWhy(); } catch (error) { toast(error.message); return; }
@@ -117,7 +119,7 @@ async function putBack(el) {
     const done = await api("settings-kit/apply", { plan: { source: "set", key: row.spec.key, field: row.field.field, value: row.field.initial }, accept: [`${row.spec.key}.${row.field.field}`] });
     const why = done.skipped?.[0]?.why ?? done.refused?.[0]?.why ?? done.refused?.[0]?.reason;
     if (!done.applied?.length && why) toast(why);
-    else if (done.applied?.length) toast(`Put back: ${title(row)}.`);
+    else if (done.applied?.length) toast(t("window.settings.p17-permissions.put-back-row", { row: title(row) }));
     P.kit = done.overview ?? await api("settings-kit");
     await readWhy();
   } catch (error) { toast(error.message); }
@@ -130,8 +132,8 @@ async function openAudit() {
   const { entries } = await api("audit?limit=100");
   const day = (at) => new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const rows = (entries ?? []).map((e) => `<div class="prow"><span class="grow"><b>${esc(e.subject)}</b><small>${esc(day(e.at))} · ${esc(e.reason)}</small></span>${pill17("idle", e.outcome)}</div>`).join("");
-  openDlg({ title: "Every change to what Branch may reach", body: `<div class="rows demo-b17">${rows}</div>`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Close</button><button class="btn pri" type="button" data-act="demodob17" data-k="audit">Export as CSV</button>' });
+  openDlg({ title: t("window.settings.p17-permissions.every-change-to-what-branch-may"), body: `<div class="rows demo-b17">${rows}</div>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("delight.ach.close")}</button><button class="btn pri" type="button" data-act="demodob17" data-k="audit">${t("window.places.automations17.export-as-csv")}</button>` });
 }
 /* The CSV is not JSON, so it is fetched with the session key and saved as it came. */
 async function saveAudit() {
