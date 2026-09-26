@@ -3289,3 +3289,6 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .pair-match15{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
 .pair-match15 input{width:16px;height:16px;margin:0}
 .dlg-f [data-act="pair-letin"]:disabled{opacity:.45;cursor:not-allowed}
+
+/* area: unhold-control */
+#app:not(.locked) .lockhint-u{display:none}
