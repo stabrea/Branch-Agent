@@ -6408,6 +6408,7 @@
   "window.chat.mode.full-hint": "Hace cualquier cosa en este equipo sin preguntar: archivos, comandos, internet.",
   "window.chat.mode.mode-tip": "Cuánto puede hacer en esta conversación (Mayús+Tab)",
   "window.chat.mode.model-tip": "Modelo y cuánto piensa",
+  "window.chat.mode.no-model": "Aún no hay modelo",
   "window.chat.mode.plan-hint": "Escribe un plan y espera tu visto bueno antes de hacer nada.",
   "window.chat.mode.thinking-hint": "Las opciones de razonamiento dependen del modelo.",
   "window.chat.mode.this-conversation": "Esta conversación",

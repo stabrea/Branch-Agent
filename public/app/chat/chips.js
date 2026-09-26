@@ -39,7 +39,8 @@ export function startMode() {
 
 export function chips() {
   const m = current(), mode = modeNow(), p = PMODES.find(([id]) => id === mode);
-  const model = `<button type="button" class="chip-c" data-act="modelmenu2" data-tip="${t("window.chat.mode.model-tip")}">${logo(m.provider, m.name, 18)}<span class="lbl">${esc(m.name)}${m.reasoning ? " · " + esc(String(m.reasoning).toLowerCase()) : ""}</span>${ic("down", "s")}</button>`;
+  const none = !E.state?.activeModel || m.id === "none"; // no model set up: plain words, no letter tile standing in for a logo
+  const model = `<button type="button" class="chip-c" data-act="modelmenu2" data-tip="${t("window.chat.mode.model-tip")}">${none ? "" : logo(m.provider, m.name, 18)}<span class="lbl">${none ? t("window.chat.mode.no-model") : esc(m.name)}${m.reasoning ? " · " + esc(String(m.reasoning).toLowerCase()) : ""}</span>${ic("down", "s")}</button>`;
   const label = mode === "lock" ? t("lockdown.label") : mode === "follow" ? M.mode?.following?.label ?? "" : p ? t(p[1]) : "";
   const modeChip = `<button type="button" class="chip-c ${mode === "full" ? "full" : ""} ${mode === "lock" ? "lockd" : ""}" data-act="modemenu2" data-tip="${t("window.chat.mode.mode-tip")}">${ic(mode === "lock" ? "lock" : p?.[3] ?? "shield")}<span class="lbl">${esc(label)}</span>${ic("down", "s")}</button>`;
   return model + modeChip;
