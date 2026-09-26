@@ -4,7 +4,8 @@ import { audit, auditCsv, AuditQuerySchema } from "./audit.js";
 import { clarifyingQuestions, promptWithAnswers, askFirstSettings, saveAskFirstSettings } from "./ask-first.js";
 import { configureRepositoryContext, repositoryContextSettings } from "./context-providers.js";
 import { decisionsFromRules, mergeCategoryRules } from "./tool-categories.js";
-import { readPolicy, savePolicy } from "./policy.js";
+import { nextPolicy, readPolicy, savePolicy } from "./policy.js";
+import { policyChangeRefusal, withoutConfirm } from "./policy-change-guard.js"; // Q257
 import { IssueLinkSchema } from "./integrations/issue-context.js";
 import type { createBranch } from "./index.js";
 import { byCard, recordedWrite } from "./settings-kit/recorded-write.js"; // Q48
@@ -79,7 +80,12 @@ async function categoriesApi(
     return { categories: decisionsFromRules(app.registry, readPolicy(app.store, owner).rules) };
   if (request.method === "POST") {
     // Only the kinds named in the request change; every other rule the owner has is kept.
-    const rules = mergeCategoryRules(app.registry, readPolicy(app.store, owner).rules, await readBody(request));
+    const { confirmLoosening, input } = withoutConfirm(await readBody(request));
+    const current = readPolicy(app.store, owner);
+    const rules = mergeCategoryRules(app.registry, current.rules, input);
+    // Q257: refused under Lockdown, and a kind made less strict needs the owner's yes to loosening.
+    const refusal = policyChangeRefusal(app.store, owner, nextPolicy(current, { rules }), confirmLoosening, app.registry);
+    if (refusal) throw new MiscApiError(409, refusal);
     const policy = recordedWrite(app.store, owner, byCard("policy"), ["policy"],
       () => savePolicy(app.store, owner, { rules }, "Decided a whole kind of thing at once in the approval settings"));
     return { policy, categories: decisionsFromRules(app.registry, policy.rules) };

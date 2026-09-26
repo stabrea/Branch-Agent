@@ -382,15 +382,18 @@ export function readPolicy(store: Store, owner: string): Policy {
  * Saves a preset, a hand-edited rule list, or new limits; anything left out keeps its current value.
  * A preset on its own keeps the owner's refusals in front of its lines (`presetMoved`).
  */
-export function savePolicy(store: Store, owner: string, input: unknown, reason = "The approval settings were saved"): Policy {
+/** Q257: the policy a save of `input` would leave, worked out without saving, so a change can be weighed first. */
+export function nextPolicy(current: Policy, input: unknown): Policy {
   const value = PolicyInputSchema.parse(input ?? {});
-  const current = readPolicy(store, owner);
-  const next: Policy = {
+  return {
     preset: value.preset ?? (value.rules ? "custom" : current.preset),
     rules: value.rules ?? (value.preset ? presetMoved(current, value.preset) : current.rules),
     limits: PolicyLimitsSchema.parse({ ...current.limits, ...value.limits }),
     unmatchedCommands: value.unmatchedCommands ?? current.unmatchedCommands,
   };
+}
+export function savePolicy(store: Store, owner: string, input: unknown, reason = "The approval settings were saved"): Policy {
+  const next = nextPolicy(readPolicy(store, owner), input);
   store.save("settings", owner, policyKey, next);
   audit(store, owner, { action: "policy.changed", actor: owner, subject: `${next.preset}, ${next.rules.length} rules`, reason, outcome: "saved" });
   return next;

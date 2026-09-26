@@ -164,8 +164,8 @@ async function passwordManager(page) {
   check("password manager: Windows Credential Manager stays greyed (no engine service)", await greyed(page.locator('[data-act="vaultwinb17"]')));
   for (const [v, service] of [["bitwarden", "bitwarden"], ["onepassword", "1password"]]) {
     await page.locator(`[data-act="vaultb17"][data-v="${v}"]`).click();
-    const saved = await until(service, async () => { const c = await api("credentials/settings"); return c.services.includes(service) ? c : null; }).catch(() => null);
-    check(`password manager ${service}: the engine keeps it (GET /api/credentials/settings)`, saved && saved.services.length === 1 && saved.enabled === false, JSON.stringify(saved?.services));
+    const saved = await until(service, async () => { const c = await api("credentials/settings"); return c.services[0] === service ? c : null; }).catch(() => null);
+    check(`password manager ${service}: the engine keeps it (GET /api/credentials/settings)`, saved && saved.services[0] === service && saved.enabled === false, JSON.stringify(saved?.services)); // Q257: chosen first, the other kept
     await settle(page, 600);
     check(`password manager ${service}: drawn pressed from the engine`, (await page.locator(`[data-act="vaultb17"][data-v="${v}"]`).getAttribute("aria-pressed")) === "true");
   }

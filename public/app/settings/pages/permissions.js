@@ -36,7 +36,7 @@ const ISOLATION = () => `<div class="sec x15-sec"><h2>${t("window.settings.permi
 
 /* The approval policy as the engine keeps it (GET /api/policy, GET /api/approvals/categories, GET /api/lockdown), and
    its rules in the engine's own sentences (GET /api/rules). */
-const P = { policy: null, presets: [], categories: [], locked: false, loaded: false, was: {}, rules: [] };
+const P = { policy: null, presets: [], categories: [], locked: false, loaded: false, was: {}, rules: [], loosen: null };
 const SWITCH = { "p-read": "read", "p-browse": "browse", "p-send": "message" };
 
 async function load() {
@@ -179,9 +179,18 @@ export function draw() {
   return fill(html) + sections17(lev);
 }
 
+/* Q257: a kind made less strict is refused by the engine (409) until the owner says yes to loosening. The dialog shows
+   the engine's own words and asks; anything else refused (Lockdown included) is shown as the engine said it. */
+function askLoosen(error, body) {
+  if (error.status !== 409 || !/less careful/.test(error.message)) { toast(error.message); return; }
+  P.loosen = body;
+  openDlg({ title: t("settings-kit.loosens"), body: `<p>${esc(error.message)}</p>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("mode.cancel")}</button><button class="btn pri" type="button" data-act="perm-loosen8">${t("settings-kit.confirm")}</button>` });
+}
+
 export function init() {
   markLive(["sw:p-read", "sw:p-browse", "sw:p-send", "perm-lock", "pin-add8", "pin-do8", "pin-rm8",
-    "rule-add8", "rule-dec8", "rule-save8", "rule-rm8", "sw:rule-new8"]);
+    "rule-add8", "rule-dec8", "rule-save8", "rule-rm8", "sw:rule-new8", "perm-loosen8"]);
   on("pin-add8", (el) => pinMenu(el));
   on("pin-do8", (el) => setPinned(el, true));
   on("pin-rm8", (el) => setPinned(el, false));
@@ -198,7 +207,16 @@ export function init() {
     const before = P.categories.find((c) => c.id === id)?.decision ?? null;
     if (e.target.checked) P.was[id] = before;
     const off = P.was[id] === "deny" ? "deny" : "ask";
-    try { await api("approvals/categories", { [id]: e.target.checked ? "allow" : off }); } catch (error) { toast(error.message); }
+    const body = { [id]: e.target.checked ? "allow" : off };
+    try { await api("approvals/categories", body); } catch (error) { askLoosen(error, body); }
+    await load();
+  });
+  // Q257: sent again with the owner's yes to loosening only from this dialog's own button; Cancel changes nothing.
+  on("perm-loosen8", async () => {
+    const body = P.loosen;
+    P.loosen = null;
+    closeDlg();
+    if (body) try { await api("approvals/categories", { ...body, confirmLoosening: true }); } catch (error) { toast(error.message); }
     await load();
   });
   load();

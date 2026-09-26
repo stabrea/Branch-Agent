@@ -153,7 +153,9 @@ import { tokenReport } from "./commands/tokens.js";
 import { handlesPromptsPath, promptsApi } from "./prompt-library-api.js"; // bucket 12
 import { handlesWikiPath, wikiApi } from "./wiki.js";
 import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
-import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
+import { PolicyRememberSchema, nextPolicy, policyPresets, readPolicy, savePolicy } from "./policy.js";
+import { policyChangeRefusal, withoutConfirm } from "./policy-change-guard.js"; // Q257
+import { mayAnswerHere, nothingWaitingRefusal, unnamedAnswerRefusal } from "./household-approvals.js"; // Q257
 import { archiveBodyLimit } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
@@ -785,9 +787,26 @@ async function settleAsked(app: Branch, asked: { runId: string; sessionId: strin
   app.store.finish(run.id, decision === "allow" ? "completed" : "cancelled", run.output);
   return "settled";
 }
+/**
+ * Q257: refuses a household person an answer to a question that is not their own task's, in the same words and with
+ * the same 404 whether it is live, answered already, made up, or in a conversation that is not theirs. The question
+ * looked at is the one the answer would land on: the fingerprint's, or without one (or with one that matches nothing)
+ * the conversation's oldest, which is where Runtime.approve would otherwise fall back to.
+ */
+function refuseForeignQuestion(app: Branch, sessionId: string, fingerprint: string | undefined): void {
+  if (app.store.profiles.isOwner()) return;
+  const approvals = app.runtime.approvals;
+  const asked = approvals.questionFor(sessionId, fingerprint) ?? approvals.questionFor(sessionId);
+  if (!asked || !mayAnswerHere(app.store, asked)) throw new HttpError(404, nothingWaitingRefusal);
+}
 function attention(app: Branch) {
   type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; parentRunId?: string; canContinue?: true; who?: string; room?: string; open?: string };
-  return app.store.waitingRuns(app.runtime.owner).map((run): Waiting => {
+  // Q257: a household person reads their own tasks' waits only (their conversations, runs started for them), never
+  // the owner's; the owner's list is as it was.
+  const profiles = app.store.profiles;
+  const runs = profiles.isOwner() ? app.store.waitingRuns(app.runtime.owner)
+    : app.store.waitingRuns(profiles.scope()).filter((run) => mayAnswerHere(app.store, { runId: run.id, sessionId: run.sessionId }));
+  return runs.map((run): Waiting => {
     // phase2/rooms (integration review): a Trunk's question says which Trunk, and a room member's opens the room.
     const by = app.trunks.conversations.answerer(run.sessionId);
     return { runId: run.id, sessionId: run.sessionId, question: waitingWords(app, run), createdAt: run.createdAt, ...helperMark(app, run.id),
@@ -1705,9 +1724,16 @@ async function api(
     return runToolChecksSafely(app, AbortSignal.timeout(120000));
   if (request.method === "GET" && path === "/api/policy")
     return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(),
-      waiting: app.runtime.approvals.waiting().map((asked) => ({ ...asked, ...helperMark(app, asked.runId) })) };
+      // Q257: a household person is shown only their own tasks' questions (the Inbox and the chat card read this).
+      waiting: app.runtime.approvals.waiting().filter((asked) => mayAnswerHere(app.store, asked))
+        .map((asked) => ({ ...asked, ...helperMark(app, asked.runId) })) };
   if (request.method === "POST" && path === "/api/policy") {
-    const input = await readBody(request);
+    // Q257: refused under Lockdown (409, as the rules and the settings kit are), and a change that makes Branch less
+    // careful needs the owner's separate yes, weighed on exactly the policy it would save.
+    const { confirmLoosening, input } = withoutConfirm(await readBody(request));
+    const current = readPolicy(app.store, app.runtime.owner);
+    const refusal = policyChangeRefusal(app.store, app.runtime.owner, nextPolicy(current, input), confirmLoosening, app.registry);
+    if (refusal) throw new HttpError(409, refusal);
     return { policy: recordedWrite(app.store, app.runtime.owner, { writer: "owner-in-window", source: "card", detail: "policy" }, ["policy"],
       () => savePolicy(app.store, app.runtime.owner, input)) };
   }
@@ -1723,6 +1749,14 @@ async function api(
       carryOn: z.boolean().optional(),
       // Redesign: "Always allow for <Trunk>": the Trunk the standing yes is kept for; it must be the Trunk that asked.
       trunk: z.string().min(1).max(100).optional() }).strict().parse(await readBody(request));
+    // Q257: first of all, a household person answers only their own task's question; anything else reads as nothing
+    // waiting, before the room check, the code, the answer or the carry-on can say or change anything.
+    refuseForeignQuestion(app, input.sessionId, input.fingerprint);
+    // Q257: a bare yes lands on whatever the conversation is asking now, which need not be what the person saw. So an
+    // answer that names no request is refused whenever the question it would land on carries one, before anything
+    // is answered or settled; one with no fingerprint of its own can only be answered as it always was.
+    if (input.fingerprint === undefined && app.runtime.approvals.questionFor(input.sessionId)?.fingerprint)
+      throw new HttpError(409, unnamedAnswerRefusal);
     // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
     if (input.remember === "always" && startedWithShortLivedKey())
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");

@@ -52,7 +52,7 @@ async function served(t, steps) {
       ...(body ? { body: JSON.stringify(body) } : {}) });
     return { status: response.status, body: await response.json() };
   };
-  await api("POST", "/api/policy", { preset: "off", unmatchedCommands: "allow" });
+  await api("POST", "/api/policy", { preset: "off", unmatchedCommands: "allow", confirmLoosening: true }); // Q257: a loosening needs the owner's yes
   return { app, api, ran };
 }
 /** Sets up the app's codes and answers with the key, as a phone would hold it. */

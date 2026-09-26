@@ -14,6 +14,9 @@ import { markLive } from "../core/features.js";
 import { timelineRun, stepsOf, loadSteps, forgetSteps } from "./timeline.js";
 import { t } from "../../i18n.js";
 
+/* Q257: a question the engine bound to the exact request shown (its fingerprint); only such a question is answered here. */
+const exactAsk = (q) => /^[a-f0-9]{32}$/.test(String(q.fingerprint ?? ""));
+
 const H = { redraw: () => {}, busy: new Set() };
 const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const key = (q) => `${q.sessionId}\n${q.fingerprint}`;
@@ -79,7 +82,8 @@ async function answer(el) {
   try {
     const waiting = (await api("policy")).waiting ?? [];
     const asked = waiting.find((w) => w.sessionId === q.sessionId && (w.fingerprint || "") === q.fingerprint);
-    if (asked) await api("policy/approve", { sessionId: asked.sessionId, decision: el.dataset.v === "deny" ? "deny" : "allow", remember: "never", ...(asked.fingerprint ? { fingerprint: asked.fingerprint } : {}), carryOn: true });
+    // Q257: only a question that carries a fingerprint is answered, and always with it, so a yes lands on what was shown.
+    if (asked && exactAsk(asked)) await api("policy/approve", { sessionId: asked.sessionId, decision: el.dataset.v === "deny" ? "deny" : "allow", remember: "never", fingerprint: asked.fingerprint, carryOn: true });
   } catch (error) { toast(error.message); }
   H.busy.delete(key(q));
   const runId = timelineRun();
