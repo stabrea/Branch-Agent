@@ -58,7 +58,7 @@ export function besideWrap(scroll) {
   if (V.loaded !== id) load(id);
   const body = V.id === id ? thread(V.messages, id) : "";
   const name = esc(nameOf(id));
-  return `<div class="split15">${scroll}<aside class="beside15" aria-label="${name}, beside"><div class="bs-h15">${av({ kind: "main" }, 26)}<span class="grow"><b>${name}</b><small></small></span><button class="btn ghost sm" type="button" data-act="chat" data-id="${esc(id)}">Open</button><button class="icon-btn" type="button" aria-label="Close the conversation beside" data-act="beside15" data-v="">${ic("x", "s")}</button></div><div class="bs-body15"><div class="thread">${body}</div></div></aside></div>`;
+  return `<div class="split15">${scroll}<aside class="beside15" aria-label="${name}, beside"><div class="bs-h15">${av(chatFace(id), 26)}<span class="grow"><b>${name}</b><small></small></span><button class="btn ghost sm" type="button" data-act="chat" data-id="${esc(id)}">Open</button><button class="icon-btn" type="button" aria-label="Close the conversation beside" data-act="beside15" data-v="">${ic("x", "s")}</button></div><div class="bs-body15"><div class="thread">${body}</div></div></aside></div>`;
 }
 
 function beside(el) {
