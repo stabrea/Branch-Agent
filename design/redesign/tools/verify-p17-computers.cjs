@@ -306,6 +306,32 @@ async function chatApps(page) {
   await closeDlg(page);
 }
 
+/* ---------- the words, in French: every part D word goes through t() ---------- */
+async function french(page) {
+  const fr = require(join(ROOT, "public/locales/fr.json"));
+  await page.evaluate(() => localStorage.setItem("branch-language", "fr"));
+  await page.reload();
+  await page.waitForSelector("#side .machine");
+  await settle(page, 1500);
+  const rawKey = async () => (await page.content()).match(/window\.p17d\.[a-z0-9-]+/)?.[0] ?? null;
+  await settingsPage(page, "models", "technical");
+  check("French: Decision models in French", (await page.locator("#main .dm17d h2").textContent()) === fr["window.p17d.decision-models"]);
+  check("French: its Decide button in French", (await page.locator('#main [data-act="dmrun17d"]').textContent()) === fr["window.p17d.decide"]);
+  await settingsPage(page, "chatapps", "technical");
+  check("French: Settings › Chat apps in French", (await page.locator("#main .lede").first().textContent()) === fr["window.p17d.chat-apps-lede"]);
+  await settingsPage(page, "voice", "advanced");
+  check("French: Calls and meetings in French", (await page.locator("#main h2", { hasText: fr["window.p17d.calls-meetings"] }).count()) === 1);
+  check("French: no raw key on screen", (await rawKey()) === null, (await rawKey()) ?? "");
+  await page.keyboard.press("Escape");
+  await page.locator('[data-act="view"][data-v="customize"]').click();
+  await page.locator('#main [data-act="ptab"][data-v="tools"]').click();
+  await page.locator('#main [data-act="t9-kind"][data-v="skills"]').click();
+  await settle(page, 800);
+  check("French: learn-this in French", (await page.locator("#main .wb17d h2").first().textContent()) === fr["window.p17d.how-it-works"]);
+  check("French: no raw key in Customize", (await rawKey()) === null, (await rawKey()) ?? "");
+  await page.evaluate(() => localStorage.setItem("branch-language", "en"));
+}
+
 async function main() {
   const root = mkdtempSync(join(tmpdir(), "branch-p17d-verify-"));
   const dataDir = join(root, "data"), workspace = join(root, "workspace"), integrations = join(root, "integrations.json");
@@ -347,6 +373,7 @@ async function main() {
     await decisions(page);
     await learn(page);
     await chatApps(page);
+    await french(page);
     check("no page errors, console errors or refused requests", errors.length === 0, errors.join(" | "));
   } finally {
     await browser.close();
