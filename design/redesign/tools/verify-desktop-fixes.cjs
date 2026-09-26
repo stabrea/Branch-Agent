@@ -1,4 +1,4 @@
-// Verifies the desktop fixes (PR "fix(desktop): ...") against a real engine, in a browser: the title bar is the window's
+// Verifies the desktop fixes (branch claude/rw4-desktop-fixes) against a real engine, in a browser: the title bar is the window's
 // moving area with its buttons still pressable, the "Read IDENTITY.md" switch on Instructions & personality is the
 // engine's own switch, Export conversation adds the engine's Markdown copy to Library › Documents, and, with a scripted
 // stand-in for the desktop's window.branchDesktop, the conversation and memory archives go to the desktop's guarded
