@@ -263,6 +263,13 @@ test("cmd's ^ escape inside a path is read the way cmd reads it", async (t) => {
   await refusedEverywhere(f, stdio("cmd", ["/c", "node", caret(script)]), /srv\.mjs, a file inside the workspace/, false);
 });
 
+/* Mutation: make `unbacktick` (src/mcp-launch-shapes.ts) return its text unchanged; this is then saved. */
+test("PowerShell's backtick escape inside a path is read the way PowerShell reads it", async (t) => {
+  const f = await fixture(t);
+  const path = later(f.workspace, "srv.mjs").replace(/workspace/, "w`orkspace");
+  await refusedEverywhere(f, stdio("pwsh", ["-c", `node ${path}`]), /code that names a place inside the workspace/, false);
+});
+
 /* Mutation: in commandLine (src/mcp-launch-shapes.ts), drop `words(read, how === "posix").join(" ")` from the texts kept;
    every one of these is then saved. */
 test("a workspace name split by shell quotes or escapes is read whole: work\"sp\"ace, 'wo'rk, w\\ork", async (t) => {
@@ -278,7 +285,7 @@ test("a workspace name split by shell quotes or escapes is read whole: work\"sp\
    which on Windows expands a short name). Short names are off on some drives, so the alias is made as a link named like
    one (WORKSP~1 -> workspace), which realpathSync.native resolves the same way; a real short name is tried as well when
    the drive has one. Mutation: in inWorkspace (src/integrations/default-shell.ts), drop the `realFolder` comparison; the
-   unit checks and the guard checks then go red. */
+   first unit check then goes red (and, run on their own, the guard checks allow the file and the code through the alias). */
 test("a workspace reached by a short name or other alias is still the workspace", async (t) => {
   const f = await fixture(t);
   const alias = join(f.root, "WORKSP~1");
