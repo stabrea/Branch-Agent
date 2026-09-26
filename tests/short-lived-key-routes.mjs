@@ -366,6 +366,7 @@ export const ROUTES = {
   "/api/autonomy/orders/:id/update": "owner POST",
   "/api/autonomy/procedures": "owner POST",
   "/api/autonomy/procedures/:id/pause": "owner POST",
+  "/api/autonomy/procedures/:id/propose": "owner POST",
   "/api/autonomy/procedures/:id/remove": "owner POST",
   "/api/autonomy/procedures/:id/resume": "owner POST",
   "/api/autonomy/procedures/:id/run": "owner POST",

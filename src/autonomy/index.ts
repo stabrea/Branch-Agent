@@ -223,7 +223,8 @@ export class Autonomy {
   private apply(entry: LedgerEntry): unknown {
     if (entry.kind === "schedule") return this.scheduleFrom(entry.payload);
     if (entry.kind === "order") return this.orders.create(entry.payload.order);
-    if (entry.kind === "procedure") return this.procedures.create(entry.payload.procedure);
+    // A change the owner proposed to a kept procedure names it; a new one does not.
+    if (entry.kind === "procedure") return entry.payload.procedureId === undefined ? this.procedures.create(entry.payload.procedure) : this.procedures.applyChange(entry.payload);
     if (entry.kind === "instruction") return this.instructions.add(entry.payload);
     return undefined;
   }
