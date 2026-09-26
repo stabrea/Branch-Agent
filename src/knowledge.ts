@@ -14,6 +14,7 @@ import { outsideRecipeRefusal, outsideTask, scopeOf } from "./tool-gate.js"; // 
 import { executeTracedTool, type ToolSource } from "./tool-trace.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import { SpecialistStyleSchema, styleShape, styledPermissions, type SpecialistStyle } from "./specialist-styles.js";
+import { insideModelCall } from "./task-scope.js"; // Q250
 
 export const CheckSchema = z
   .object({ path: z.string().min(1).max(500), expected: z.string().max(32768) })
@@ -241,7 +242,7 @@ export class Knowledge {
       const result = await executeTracedTool(
         this.registry,
         this.store,
-        { ...unwalled, ...scopeOf(this.runtime, step.tool, step.args, context, checks[index]!), readFirstExempt: true }, // Q250
+        { ...unwalled, ...scopeOf(this.runtime, step.tool, step.args, context, checks[index]!), readFirstExempt: !insideModelCall() }, // Q250: held when a model's own call replays it
         step.tool,
         step.args,
         { ...source, index },
