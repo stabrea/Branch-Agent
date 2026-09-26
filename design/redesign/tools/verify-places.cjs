@@ -150,9 +150,11 @@ async function ideas(page) {
   const rows = await page.locator('[data-act="prompt-use"]').count();
   check("saved prompts: one row per prompt the engine keeps (GET /api/prompts)", rows === Math.min(3, saved.length) && rows > 0, String(rows));
   const recipe = (await get("state")).procedures.find((p) => p.data?.definition?.name === "Find last month's invoices");
-  const row = page.locator(`[data-act="flow"][data-id="${recipe.id}"]`);
+  // The row's Open button opens the recipe (as the prototype draws it, round 4); the row shows its name and status.
+  const open = page.locator(`[data-act="flow"][data-id="${recipe.id}"]`);
+  const row = page.locator(".prow", { has: open });
   check("procedures: the row shows the recipe's own name and status", (await row.textContent()).includes("Find last month's invoices") && (await row.textContent()).includes(recipe.data.status));
-  await row.locator("b").click();
+  await open.click();
   await page.waitForSelector(".dlg .flow-row", { timeout: 5000 });
   const steps = await page.locator(".dlg .flow-row input").evaluateAll((els) => els.map((e) => e.value));
   check("procedures (flow): the row opens the recipe with its real steps", steps.length === 2 && steps[0].startsWith("memory.search") && steps[1].startsWith("files.list"), steps.join(" | "));

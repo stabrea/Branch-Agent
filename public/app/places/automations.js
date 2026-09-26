@@ -75,6 +75,13 @@ function initDrag() {
   document.addEventListener("dragend", () => { dragged = null; document.querySelectorAll(".dragging15,.over15").forEach((x) => x.classList.remove("dragging15", "over15")); });
 }
 
+/* A saved recipe: its name, how many steps and the engine's status. Open shows its steps (flow-editor.js); running a recipe
+   calls its tools directly, which is not started from the window, so Run now stays greyed under its own name. */
+function procedureRow(p) {
+  const steps = Array.isArray(p.data?.definition?.steps) ? p.data.definition.steps.length : 0;
+  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(p.data?.definition?.name ?? '')}</b><small>${esc([`${steps} steps`, p.data?.status].filter(Boolean).join(' · '))}</small></span><button class="btn sm" type="button" data-act="proc-run" data-id="${esc(p.id)}">Run now</button><button class="btn sm" type="button" data-act="flow" data-id="${esc(p.id)}">Open</button></div>`;
+}
+
 export function draw() {
   const tab = S.tabs.automations || "scheduled";
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
@@ -96,7 +103,7 @@ export function draw() {
   } else if (tab === "procedures") {
     html += `<p class="hint" data-css="margin:4px 0 8px">Saved step-by-step routines, including ones a Trunk learned by watching you.</p>
     <div class="acts" data-css="margin:6px 0"><button class="btn" type="button" data-act="teach-start" ${E.trunks.length ? "" : "disabled"}>${ic('play', 's')}Show a Trunk how, once</button></div>
-    <div class="rows" data-css="margin-top:8px">${procedures.length ? procedures.map((p, i) => `<div class="prow" data-act="flow" data-id="${esc(p.id)}">${av({}, 34)}<span class="grow"><b>${esc(p.data?.definition?.name ?? '')}</b><small>${esc(p.data?.status ?? '')}</small></span><button class="btn sm" type="button" data-act="toast">Run now</button></div>`).join('') : ''}</div>
+    <div class="rows" data-css="margin-top:8px">${procedures.map(procedureRow).join('')}</div>
   <div class="sec"><h2>Your saved prompts</h2><p class="hint" data-css="margin:0 0 8px">Things you ask for often. Each has its own command that works in the window, on the phone, in the terminal and in chat apps.</p><div class="rows">${(prompts?.prompts ?? []).slice(0, 3).map(p => `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"></path></svg></span><span class="grow"><b>${esc(p.title ?? '')}${p.command ? ` <code>/${esc(p.command)}</code>` : ''}</b><small>${esc([p.group, String(p.body ?? '').slice(0, 40)].filter(Boolean).join(' · '))}</small></span><button class="btn sm" type="button" data-act="prompt-use" data-v="${esc(p.id ?? '')}">Use</button></div>`).join('')}</div><div class="acts" data-css="margin-top:10px"><button class="btn" type="button" data-act="prompt-new">${ic('plus', 's')}New prompt</button></div></div>`;
 
   } else if (tab === "triggers") {
@@ -155,10 +162,18 @@ function checkinsTile(hb) {
   const history = (hb?.heartbeat?.state?.history ?? []).slice(-5).reverse();
   return `<div class="tile"><div class="th"><b>Check in on its own</b><span class="pill ${on ? "ok" : "idle"} ml"><i></i>${on ? "On" : "Off"}</span></div><p>Branch looks at the list below every so often and speaks up only when there's news. It's HEARTBEAT.md, in plain words.</p>
     <div class="ctl"><b>How often</b><span class="right"><span class="seg" role="group" aria-label="How often">${seg("hb-every", 15, "Every 15 min", every === "15")}${seg("hb-every", 30, "Every 30 min", every === "30")}${seg("hb-every", 60, "Every hour", every === "60")}${seg("hb-every", "off", "Off", every === "off")}</span></span><small>Quiet background work: no news, no message.</small></div>
-    <div class="ctl"><b>Which hours</b><span class="right"><span class="seg" role="group" aria-label="Which hours">${hours ? seg("hb-hours", "kept", `${esc(hhmm(hours.from))} – ${esc(hhmm(hours.to))}`, true) : ""}${seg("hb-hours", "always", "Always", !hours)}${seg("hb-work", "work", "Work hours", false)}</span></span><small>Outside these hours it waits.</small></div>
+    <div class="ctl"><b>Which hours</b><span class="right"><span class="seg" role="group" aria-label="Which hours">${hours ? seg("hb-hours", "kept", `${esc(hhmm(hours.from))} – ${esc(hhmm(hours.to))}`, true) : ""}${seg("hb-hours", "always", "Always", !hours)}<button type="button" aria-pressed="false" data-act="seg">Work hours</button></span></span><small>Outside these hours it waits.</small></div>
     <div class="ctl"><b>Quiet on weekends</b><input class="sw" type="checkbox" id="hb-wk" aria-label="Quiet on weekends" data-sw="hb-wk"><small>It still tells you if a Trunk is stuck.</small></div>
     <div class="sec"><h2>What it checks</h2><div class="rows">${linesOf(hb).map((c, i) => `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"></path></svg></span><span class="grow"><b data-css="font-weight:500">${esc(c)}</b></span><button class="icon-btn" type="button" aria-label="Remove" data-act="hb-rm" data-i="${i}" data-css="width:28px;height:28px"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>`).join("")}</div><form class="nl" data-form="hb" data-css="margin-top:8px"><input class="inp" id="hb-in" placeholder="Add something to check: &quot;a reply from the landlord&quot;" aria-label="Add something to check"><button class="btn" type="submit">Add</button></form></div>
-    <div class="sec"><h2>Last check-ins</h2><ol class="tl">${history.map((h) => `<li class="${h.outcome === "failed" ? "" : "ok"}"><span>${esc(h.outcome)}<small>${esc(h.reason ?? "")}</small></span><time>${esc(new Date(h.startedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</time></li>`).join("")}</ol></div></div>`;
+    <div class="sec"><h2>Last check-ins</h2><ol class="tl">${history.map((h) => `<li class="${h.outcome === "failed" ? "" : "ok"}"><span>${esc(h.outcome)}<small>${esc(h.reason ?? "")}</small></span><time>${esc(new Date(h.startedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</time></li>`).join("")}</ol></div></div>${gateTiles(hb)}`;
+}
+
+/* Each job whose check script waits for the owner's yes (GET /api/heartbeat schedules, gate.approved false): the job and
+   the exact program. Allow and Not now stay greyed: a yes lets a program on this computer run before every turn, which is
+   for separate review (POST /api/schedules/<id>/gate). */
+function gateTiles(hb) {
+  const waiting = (hb?.schedules ?? []).filter((s) => s.gate && !s.gate.approved);
+  return waiting.map((s) => `<div class="tile" data-css="margin-top:14px"><div class="th"><b>A check script wants your yes</b><span class="pill work ml"><i></i>Needs you</span></div><p>“${esc(s.prompt)}” wants to run <code>${esc([s.gate.executable, ...(s.gate.args ?? [])].join(" "))}</code> before it starts.</p><div class="acts"><button class="btn pri sm" type="button" data-act="gate-yes" data-id="${esc(s.id)}">Allow</button><button class="btn ghost sm" type="button" data-act="gate-no" data-id="${esc(s.id)}">Not now</button></div></div>`).join("");
 }
 
 async function saveHeartbeat(change, switchOn) {
