@@ -7,6 +7,7 @@ import {
   type Achievement, type AchievementFacts,
 } from "./achievements.js";
 import { inFrench } from "./achievements-fr.js";
+import { inGerman } from "./achievements-de.js";
 
 /**
  * phase2/delight: the playful extras — a pet in the acorn's corner, achievements, and your own
@@ -130,9 +131,13 @@ function evaluate(store: DelightStore, owner: string, saved: Progress): Evaluate
   }
   return { newly, facts, caughtUp };
 }
-/** mac7/residuals: the window's language for the achievements' own words ("fr", or English for anything else). */
-export type AchievementLanguage = "en" | "fr";
-const worded = (a: Achievement, language: AchievementLanguage): Achievement => (language === "fr" ? { ...a, ...inFrench(a) } : a);
+/** mac7/residuals: the window's language for the achievements' own words ("fr", "de", or English for anything else). */
+export const achievementLanguages = ["en", "fr", "de"] as const;
+export type AchievementLanguage = (typeof achievementLanguages)[number];
+const worded = (a: Achievement, language: AchievementLanguage): Achievement =>
+  (language === "fr" ? { ...a, ...inFrench(a) } : language === "de" ? { ...a, ...inGerman(a) } : a);
+const achievementLanguage = (asked: string | null): AchievementLanguage =>
+  achievementLanguages.find((code) => code === asked) ?? "en";
 /** One achievement as the window may see it. The higher the tier, the less a locked one gives away. */
 function shown(a: Achievement, saved: Progress, facts: AchievementFacts): Record<string, unknown> {
   const got = saved.got[a.id];
@@ -253,7 +258,7 @@ export async function delightRoute(app: DelightApp, method: string, path: string
   // Somebody else only learns that there is nothing here for them, never an error in their window.
   if (path === "/api/delight" && method === "GET") return ownerHere(store) ? delightSummary(store, owner) : { available: false };
   if (!ownerHere(store)) throw new DelightError(403, "Only the owner can see or change these, in the app window.");
-  if (path === "/api/delight/achievements" && method === "GET") return achievementsView(store, owner, language === "fr" ? "fr" : "en");
+  if (path === "/api/delight/achievements" && method === "GET") return achievementsView(store, owner, achievementLanguage(language));
   if (method !== "POST") throw new DelightError(405, "Use POST to change this.");
   const body = await readBody();
   if (path === "/api/delight/settings") return { settings: saveDelightSettings(store, owner, body) };
