@@ -886,3 +886,28 @@ test("when the fewest messages a fold could keep take several requests, a task t
   assert.deepEqual(events(app, run, "model.fallback"), []);
   assert.equal(app.runtime.models.health.get(localId)?.consecutiveFailures ?? 0, 0, "running out of tokens is not the connection's failure");
 });
+
+test("a fallback that runs out of the task's tokens while it writes the fold ends the task out of tokens, and is neither marked nor passed over", async (t) => {
+  const plan = scripted("chatgpt", () => { throw new ProviderHttpError(503); }), backup = scripted("scripted");
+  const local = shortKeepsToCeiling("ollama-like");
+  const app = await fixture(t, [planSol(plan), unknown(backup, "backup")], noRetries);
+  const localId = localConnection(app, local, 8192, { active: false });
+  app.runtime.models.configure(app.runtime.owner, { activePreset: "chatgpt-gpt-5.6-sol", fallbackOrder: [localId, "backup"] });
+  const sessionId = app.store.createSession(app.runtime.owner);
+  // About 14,000 tokens: under where the plan route folds, past what the model on this computer holds, so the task
+  // moves there and that model writes the fold. The budget pays for the plan route's refused request (about 15,300)
+  // and one summary request (about 6,000) with the whole reply ceiling, not for the next.
+  earlierTurns(app, sessionId, 14, () => 1000);
+  const run = await app.runtime.run({ prompt: "and now?", sessionId, ...tools, budget: { maxSteps: 60, maxTokens: 24000 } });
+  assert.equal(run.status, "budget_exceeded", run.output);
+  assert.match(run.output, /Token budget exhausted/);
+  assert.deepEqual(events(app, run, "model.fallback").map((move) => `${move.from} > ${move.to}`), [`chatgpt-gpt-5.6-sol > ${localId}`],
+    "the fallback was not passed over");
+  const asked = local.side.filter(isSummary);
+  assert.ok(asked.length > 0, "the fallback wrote part of the fold");
+  assert.deepEqual(asked.map((request) => request.maxTokens).filter((ceiling) => ceiling !== 2048), []);
+  assert.ok(events(app, run, "context.compacted")[0]?.readMessages > 0, "and what it wrote is kept");
+  assert.equal(app.runtime.models.health.get(localId)?.consecutiveFailures ?? 0, 0, "running out of tokens is not the fallback's failure");
+  assert.equal(app.runtime.models.coolingDown(localId), false);
+  assert.deepEqual([backup.main.length, backup.side.filter(isSummary).length], [0, 0], "and the next connection was never asked");
+});
