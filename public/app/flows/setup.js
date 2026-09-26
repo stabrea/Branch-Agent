@@ -15,6 +15,9 @@ import { logo } from "../core/logos.js";
 import { t, language, LANGUAGES } from "../../i18n.js";
 import { say } from "../core/words.js";
 import { canSpeak, chooseLanguage } from "../shell/language.js";
+import { openDlg, closeDlg } from "../core/ui.js";
+import { L, looks, lookEF, wornId, effMode, swatch, wear } from "../shell/look.js";
+import { W, D, bgChoice, sceneCards, pickScene, petCard, petChoices, petNow, pickPet } from "../shell/scene.js";
 import { toolsStep, initToolsStep } from "./setup-tools.js";
 
 const STEPS = ["window.flows.setup.step-welcome", "window.flows.setup.step-where", "layout.modelTabs", "window.flows.setup.step-yours", "window.flows.setup.step-trunks", "window.flows.setup.step-reach", "dashboard.filter.tools",
@@ -85,14 +88,29 @@ function models(o) {
   return `<h2 tabindex="-1">${t("window.flows.setup.models")}</h2><p>${t("window.flows.setup.found")}</p><div class="rows">${modelRows(o)}</div><div class="acts" data-css="margin-top:10px"><button class="btn sm" type="button" data-act="addacct">${ic("plus", "s")}${t("window.flows.setup.add-account")}</button><button class="btn sm" type="button" data-act="ob-test">${t("window.flows.setup.say-hello")}</button></div><div id="ob-test-out">${testOut(o)}</div>`;
 }
 
-/* Auto lets workspace changes go ahead and keeps a standing yes per website (src/conversation-mode.ts), which loosens
-   the default Ask first, so it has its own act name and stays greyed until it is reviewed. */
+/* Make it yours. Light or dark, then a small gallery drawn with Settings › Appearance's own pieces: every theme as its
+   swatch (worn through POST /api/look, shell/look.js), the painted scenes as stills (which one is this window's, with
+   the engine's background switch, shell/scene.js) and the pet (POST /api/delight/settings). Each applies at once, behind
+   setup, and is drawn from what was saved. Until the engine's themes have been read, the gallery is left out.
+   How much it asks saves what new conversations start on. Auto lets workspace changes go ahead and keeps a standing
+   yes per website (src/conversation-mode.ts), so it is weighed by the engine: anything looser than what is saved is
+   refused until the owner says yes in a confirm that shows the engine's words, and Lockdown refuses it outright. */
+function lookGallery() {
+  if (!L.cat) return "";
+  const mode = effMode(), worn = wornId(), scene = bgChoice() === "painted" ? W.scene : null, kind = petNow();
+  const themes = looks().map(([id, name]) => `<button type="button" class="ob-th15" data-act="ob15-skin" data-v="${esc(id)}" ${pressed(worn === id)} aria-label="${esc(name)}">${swatch(lookEF(id, mode))}<b>${esc(name)}</b></button>`).join("");
+  const strip = (title, cls, cards) => `<div class="ob-q15"><b>${title}</b><div class="ob-strip15 ${cls}" data-scroll>${cards}</div></div>`;
+  return strip(t("look.theme"), "ob-themes15", themes) + strip(t("window.settings.appearance.painted-scenes"), "ob-scenes15", sceneCards("ob15-scene", (v) => v === scene))
+    + (D.settings ? strip(t("window.settings.appearance.the-pet"), "ob-pets15", petChoices().map(([v, l]) => petCard(v, l, kind, "ob15-pet")).join("")) : "");
+}
+
 function yours(o) {
   const look = document.documentElement.dataset.theme || "system";
   const looks = [["system", mac() ? t("window.flows.setup.match-mac") : t("window.flows.setup.match-windows")], ["light", t("look.mode.light")], ["dark", t("look.mode.dark")]];
   const asks = [["auto", "spark", t("look.season.auto"), t("window.chat.mode.auto-hint")], ["ask", "shield", t("mode.ask"), t("window.chat.mode.ask-hint")], ["plan", "list15", t("mode.plan"), t("window.chat.mode.plan-hint")]];
   return `<h2 tabindex="-1">${t("window.flows.setup.step-yours")}</h2><p>${t("window.flows.setup.yours-lede")}</p>
     <div class="ob-q15"><b>${t("window.flows.setup.looks")}</b><div class="ob-pick15">${looks.map(([v, l]) => `<button type="button" class="ob-card15 look-${v}" data-act="ob15" data-k="look" data-v="${v}" ${pressed(look === v)}><span class="ob-sw15"><i></i><i></i><i></i></span>${l}</button>`).join("")}</div></div>
+    ${lookGallery()}
     <div class="ob-q15"><b>${t("window.flows.setup.asks")}</b><div class="ob-pick15 col15x">${asks.map(([v, i, l, s]) => `<button type="button" class="ob-row15" data-act="${v === "auto" ? "ob15-auto" : "ob15"}" data-k="asks" data-v="${v}" ${pressed(o.asks === v)}><span class="ico-tile">${ic(i, "s")}</span><span><b>${l}</b><small>${s}</small></span></button>`).join("")}</div><p class="hint" data-css="margin:6px 0 0">${t("window.flows.setup.full-off")}</p></div>`;
 }
 
@@ -171,7 +189,7 @@ function draw() {
      starts at its heading. */
   const sameStep = !fresh && el.dataset.step === String(o.i);
   const keptArt = sameStep ? [...el.querySelectorAll("video, img.pose11")] : [];
-  const scrolled = sameStep ? [...el.querySelectorAll(".ob-main, .ob-body, [data-scroll]")].map((n) => n.scrollTop) : [];
+  const scrolled = sameStep ? [...el.querySelectorAll(".ob-main, .ob-body, [data-scroll]")].map((n) => [n.scrollTop, n.scrollLeft]) : [];
   const pressed = sameStep ? document.activeElement : null;
   const pressedKey = pressed && el.contains(pressed) ? [pressed.id, pressed.dataset?.act, pressed.dataset?.k, pressed.dataset?.v, pressed.dataset?.i] : null;
   el.innerHTML = frame(o);
@@ -181,7 +199,9 @@ function draw() {
     const at = fresh11.findIndex((n) => n.tagName === old.tagName && n.getAttribute("src") === old.getAttribute("src"));
     if (at >= 0) { fresh11[at].replaceWith(old); fresh11.splice(at, 1); }
   }
-  [...el.querySelectorAll(".ob-main, .ob-body, [data-scroll]")].forEach((n, i) => { if (scrolled[i] != null) n.scrollTop = scrolled[i]; });
+  [...el.querySelectorAll(".ob-main, .ob-body, [data-scroll]")].forEach((n, i) => { if (scrolled[i]) [n.scrollTop, n.scrollLeft] = scrolled[i]; });
+  /* A new step's rows that scroll sideways open with the picked card in the middle. */
+  if (!sameStep) el.querySelectorAll("[data-scroll] > [aria-pressed='true']").forEach((b) => { b.parentElement.scrollLeft = b.offsetLeft - (b.parentElement.clientWidth - b.offsetWidth) / 2; });
   applyCss(el);
   greyOut(el);
   if (!fresh && !sameStep) el.querySelector("h2")?.focus({ preventScroll: true });
@@ -338,10 +358,44 @@ async function test() {
   if (S.ob === o) draw();
 }
 
-async function saveAsks(v) {
+/* What new conversations start on, sent first without the owner's yes to loosening. When the engine says the choice
+   makes Branch less careful, its words are shown in a confirm and only "Yes, make it less careful" there sends it
+   again with confirmLoosening; any other refusal (Lockdown's among them) is shown as the engine says it. The choice
+   shown is then read back from the engine. */
+const ASKS = ["auto", "ask", "plan"];
+async function saveAsks(v, confirmLoosening = false) {
   const o = S.ob;
-  try { await api("conversation-mode/settings", { newConversation: v }); o.asks = v; } catch (error) { toast(error.message); }
-  draw();
+  if (!o || !ASKS.includes(v)) return;
+  try {
+    await api("conversation-mode/settings", { newConversation: v, ...(confirmLoosening ? { confirmLoosening: true } : {}) });
+  } catch (error) {
+    if (!confirmLoosening && /less careful/.test(error.message)) { askLoosening(v, error.message); return; }
+    toast(error.message);
+  }
+  try { const mode = await api("conversation-mode/settings"); o.asks = ASKS.includes(mode.settings?.newConversation) ? mode.settings.newConversation : "ask"; } catch (error) { toast(error.message); }
+  if (S.ob === o) draw();
+}
+function askLoosening(v, words) {
+  openDlg({ title: t("window.flows.setup.asks"), body: `<p data-css="margin:0">${esc(words)}</p>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("mode.cancel")}</button><button class="btn pri" type="button" data-act="ob15-loosen" data-v="${esc(v)}">${t("settings-kit.confirm")}</button>` });
+}
+
+/* A theme, a painted scene or the pet picked in Make it yours: saved the way Settings › Appearance saves it, the window
+   behind setup drawn again in it, then setup from what was saved. */
+async function pickLook(kind, v) {
+  if (kind === "skin") await wear(v);
+  else if (kind === "scene") await pickScene(v);
+  else await pickPet(v);
+  renderNow();
+  if (S.ob) draw();
+}
+function initYours() {
+  markLive(["ob15-auto", "ob15-loosen", "ob15-skin", "ob15-scene", "ob15-pet"]);
+  on("ob15-auto", () => saveAsks("auto"));
+  on("ob15-loosen", (el) => { closeDlg(); saveAsks(el.dataset.v, true); });
+  on("ob15-skin", (el) => pickLook("skin", el.dataset.v));
+  on("ob15-scene", (el) => pickLook("scene", el.dataset.v));
+  on("ob15-pet", (el) => pickLook("pet", el.dataset.v));
 }
 
 /* The language picked at the top of Welcome: saved the way Settings › Appearance saves it (the engine's look and this
@@ -382,6 +436,7 @@ export function init() {
      after the first draw, or another window): setup is drawn again in the words now in force. */
   document.addEventListener("branch-language", () => { if (S.ob) draw(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.ob && !document.querySelector(".scrim")) close(); });
+  initYours();
 }
 
 /* Start before the box is ticked: the box and its line light up and shake once, and the keyboard lands on the box, so the

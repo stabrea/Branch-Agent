@@ -3466,6 +3466,24 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .signin-form .inp{width:100%;height:40px;box-sizing:border-box}
 .signin-form .btn{justify-self:stretch;justify-content:center;text-align:center}
 
+/* area: setup make it yours — the themes, painted scenes and pets as rows that scroll sideways, and setup worn as glass
+   over the painted scene while a background is on (the window it covers is set aside), so a scene picked shows behind it */
+.ob-strip15{position:relative;display:flex;gap:8px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;padding:3px 3px 10px;margin:0 -3px;scrollbar-width:thin}
+.ob-strip15>*{flex:none;scroll-snap-align:start}
+.ob-th15{display:grid;gap:6px;width:104px;padding:5px;border-radius:12px;border:1px solid var(--line);background:var(--raise);text-align:left;transition:border-color .15s,box-shadow .15s}
+.ob-th15 .sw6{height:52px;border-radius:8px}
+.ob-th15 b{font-size:11.5px;font-weight:600;padding:0 3px 1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ob-th15:hover{border-color:var(--line-2)}
+.ob-th15[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint)}
+.ob-scenes15 .scene-c12{width:136px}
+.ob-scenes15 .scene-c12 b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ob-pets15 .pet-c12{width:92px}
+.app.has-bg>.ob9{background:color-mix(in srgb,var(--bg) calc(80% - var(--see,25%)),transparent);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.app.has-bg>.ob9 .ob-rail{background:color-mix(in srgb,var(--side) calc(90% - var(--see,25%)),transparent)}
+.app.has-bg>.ob9 .ob-foot{background:transparent}
+.app.has-bg:has(>.ob9)>:is(.titlebar,.body,.statusbar,.focus-exit){opacity:0}
+@media (prefers-reduced-motion:reduce){.ob-th15{transition:none}.ob-strip15{scroll-behavior:auto}}
+
 /* area: setup polish 2 — the pairing dialog's Link and Code rows, the achievement bell, the Trunk templates' faces */
 .pair-qr15{flex-wrap:nowrap}
 @media (max-width:480px){.pair-qr15{flex-wrap:wrap}}
