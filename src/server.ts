@@ -1695,7 +1695,8 @@ async function api(
     // name of their own: nothing they do reaches the owner's folder or the owner's memory.
     return runToolChecksSafely(app, AbortSignal.timeout(120000));
   if (request.method === "GET" && path === "/api/policy")
-    return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(),
+    // Q259: the owner's approval rules (paths, commands, limits) are theirs; a household person is sent none of them.
+    return { policy: app.store.profiles.isOwner() ? readPolicy(app.store, app.runtime.owner) : null, presets: policyPresets(),
       // Q257: a household person is shown only their own tasks' questions (the Inbox and the chat card read this).
       waiting: app.runtime.approvals.waiting().filter((asked) => mayAnswerHere(app.store, asked))
         .map((asked) => ({ ...asked, ...helperMark(app, asked.runId) })) };
@@ -1858,10 +1859,12 @@ async function api(
     return (await import("./trace-report.js")).traceReport(app.store, app.traceExport.settings(), run.id);
   }
   // "Look inside" a task: rounds, tool calls, plan, verdicts and steering in one answer.
+  // Q259: this, /steps and /trajectory are open to a household person at the window, so each finds only a task
+  // filed under whoever is there (profiles.scope()); the owner's tasks read as not found, as on /trace and /timeline.
   const inspectMatch = /^\/api\/runs\/([a-f0-9-]{36})\/inspect$/.exec(path);
   if (request.method === "GET" && inspectMatch) {
     const run = app.store.run(inspectMatch[1]!);
-    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     // A tool call's raw arguments are read back off the assistant message, which the runtime never
     // scrubbed; nothing leaves here carrying a saved password or key.
     return app.runtime.hideSecrets(inspectRun(app.store, run.id, await trajectoryOptions(app, run.id)));
@@ -1870,9 +1873,9 @@ async function api(
   const stepsMatch = /^\/api\/runs\/([a-f0-9-]{36})\/steps$/.exec(path);
   if (request.method === "GET" && stepsMatch) {
     const run = app.store.run(stepsMatch[1]!);
-    // Household profiles are refused this route (src/household-routes.ts). If one is ever let in, this check must
-    // follow who is at the window (profiles.scope(), as the activity list does since #324), not runtime.owner.
-    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    // Q259: household profiles are not refused this route (a GET a short-lived key may read), so whose task it is
+    // follows who is at the window (profiles.scope(), as the activity list does since #324 and /trace does).
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     // Tool inputs are read back off the conversation, and helpers' words and questions too: nothing leaves with a secret.
     return app.runtime.hideSecrets(await stepsOf(app, run.id));
   }
@@ -1880,6 +1883,9 @@ async function api(
   // conversation of its own, so the two can be read side by side.
   const replay = /^\/api\/runs\/([a-f0-9-]{36})\/replay$/.exec(path);
   if (request.method === "POST" && replay) {
+    // Q259: the task done again runs in the owner's name (not through runForCurrentPerson), so it is the owner's alone:
+    // a household person at the window may not do the owner's task again, nor their own as the owner.
+    app.store.profiles.requireOwner("Doing a task again");
     const run = app.store.run(replay[1]!);
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
     const done = await replayRun(app.runtime, app.store, run.id);
@@ -1890,7 +1896,7 @@ async function api(
   const trajectory = /^\/api\/runs\/([a-f0-9-]{36})\/trajectory$/.exec(path);
   if (request.method === "GET" && trajectory) {
     const run = app.store.run(trajectory[1]!);
-    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     return app.runtime.hideSecrets(buildTrajectory(app.store, run.id, await trajectoryOptions(app, run.id)));
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
@@ -4261,8 +4267,11 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   if (sessionExport && request.method === "GET"
       && new URL(request.url ?? "/", "http://local").searchParams.get("format") === "markdown") {
     const sessionId = sessionExport[1]!;
-    if (!app.store.ownsSession(app.runtime.owner, sessionId)) throw new HttpError(404, "Conversation not found");
-    const view = app.store.sessionView(app.runtime.owner, sessionId) as { createdAt?: string; title?: string };
+    // Q259: conversations belong to whoever's profile is switched on (as the JSON export in sessionApi reads them),
+    // so a household person saves only their own; the owner's reads exactly like one that is not there.
+    const scope = app.store.profiles.scope();
+    if (!app.store.ownsSession(scope, sessionId)) throw new HttpError(404, "Conversation not found");
+    const view = app.store.sessionView(scope, sessionId) as { createdAt?: string; title?: string };
     const markdown = conversationMarkdown({ sessionId, ...(view.createdAt ? { createdAt: view.createdAt } : {}), ...(view.title ? { title: view.title } : {}) },
       app.store.messages(sessionId));
     response.writeHead(200, {
