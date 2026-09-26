@@ -40,7 +40,13 @@ const requiredTables = [
  */
 const appendOnlyTables = ["self_development_contracts"] as const;
 const appendOnly = (table: string): boolean => (appendOnlyTables as readonly string[]).includes(table);
-export const backupTables = [...requiredTables, ...flyTables, ...appendOnlyTables, ...wikiTables] as const;
+/**
+ * Pass 17: which messages are left out of what the model sees, and the names and models of a
+ * conversation's paths. An archive from before them may leave them out. Without the first, a
+ * restore would send a message the owner left out to the model again.
+ */
+const conversationTables = ["session_left_out", "conversation_paths"] as const;
+export const backupTables = [...requiredTables, ...flyTables, ...appendOnlyTables, ...wikiTables, ...conversationTables] as const;
 const RowSchema = z.record(z.string().regex(/^[a-z_]+$/), z.union([z.string(), z.number(), z.null()]));
 const TablesSchema = z.object({
   ...Object.fromEntries(requiredTables.map((table) => [table, z.array(RowSchema)])) as Record<(typeof requiredTables)[number], z.ZodArray<typeof RowSchema>>,
@@ -48,6 +54,7 @@ const TablesSchema = z.object({
   ...Object.fromEntries(appendOnlyTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof appendOnlyTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
   // The wiki's pages and their history (src/wiki.ts). A backup from before the wiki has none.
   ...Object.fromEntries(wikiTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof wikiTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
+  ...Object.fromEntries(conversationTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof conversationTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
 }).strict();
 export const BackupArchiveSchema = z.object({
   format: z.literal("branch-agent-backup"),

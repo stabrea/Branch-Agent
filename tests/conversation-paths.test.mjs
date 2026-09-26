@@ -85,6 +85,20 @@ test("a path from your own message stops just before it and hands the words back
   assert.equal(tree[2].branchPointMessageId, asked[0].messageId);
 });
 
+/* Clearing old conversations (src/retention.ts) is how a conversation is removed for good. */
+test("a path and the conversation it came off can each be cleared away; what is left keeps its own paths", async (t) => {
+  const f = await fixture(t);
+  const sid = await twoTurns(f);
+  const reply = (await f.messages(sid)).find((m) => m.role === "assistant");
+  const a = (await f.call(`sessions/${sid}/branch`, { messageId: reply.messageId, name: "A", preset: null })).body;
+  const b = (await f.call(`sessions/${a.sessionId}/branch`, { messageId: (await f.messages(a.sessionId)).at(-1).messageId, name: "B", preset: null })).body;
+  const owner = f.app.runtime.owner;
+  assert.equal(f.app.store.forgetSession(owner, a.sessionId).discarded, true, "a path in the middle can go");
+  assert.deepEqual((await f.call(`sessions/${b.sessionId}/paths`)).body.paths.map((p) => p.name), ["B"], "its own path now stands alone");
+  assert.equal(f.app.store.forgetSession(owner, sid).discarded, true, "and so can the original");
+  assert.equal((await f.call(`sessions/${sid}/paths`)).status, 404);
+});
+
 test("an approval is one decision on every path: a branch never gets its own copy to answer", async (t) => {
   const f = await fixture(t);
   const first = await f.app.runtime.run({ prompt: "hello" });
@@ -164,6 +178,22 @@ test("read marks: a new reply is unread until opened, can be marked unread again
   assert.deepEqual([after.read, after.unread], [[], []]);
   assert.ok(after.since >= before.since, "everything up to now is read");
   assert.equal((await f.call("read-marks", { inbox: "not a key", unread: false })).status, 400);
+});
+
+test("a backup keeps what was left out of context and the paths' names, so a restore never sends it again", async (t) => {
+  const f = await fixture(t);
+  const sid = await twoTurns(f);
+  const first = (await f.messages(sid)).find((m) => m.content === "first question");
+  await f.call(`sessions/${sid}/left-out`, { messageId: first.messageId, out: true });
+  const reply = (await f.messages(sid)).find((m) => m.role === "assistant");
+  await f.call(`sessions/${sid}/branch`, { messageId: reply.messageId, name: "Kept", preset: null });
+  const archive = f.app.store.backup("test");
+  const root = await mkdtemp(join(tmpdir(), "branch-paths-restore-"));
+  const fresh = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted([]) });
+  t.after(async () => { await fresh.close().catch(() => undefined); await discardTemp(root); });
+  fresh.store.restore(JSON.parse(JSON.stringify(archive)));
+  assert.deepEqual(fresh.store.workingMessages(sid).rows.map((r) => r.message.content).filter((c) => c === "first question"), [], "still left out after a restore");
+  assert.deepEqual(fresh.store.paths.list(fresh.runtime.owner, sid).paths.map((p) => p.name), [null, "Kept"]);
 });
 
 test("an upgraded install starts with its old conversations read", async (t) => {

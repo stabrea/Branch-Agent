@@ -372,6 +372,8 @@ export class Store {
       this.db.prepare("DELETE FROM session_left_out WHERE session_id=?").run(sessionId);
       this.readMarks.forgetSession(sessionId);
       this.paths.forgetSession(sessionId);
+      // Pass 17: a path, or the conversation paths came off, can be thrown away; what came off it stands alone.
+      this.db.prepare("DELETE FROM session_branches WHERE session_id=? OR parent_session_id=?").run(sessionId, sessionId);
       this.db.prepare("DELETE FROM session_summaries WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM session_work WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM sessions WHERE id=?").run(sessionId);
