@@ -40,9 +40,10 @@ const when = (t) => {
   return today ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString([], { weekday: "short" });
 };
 
+/* A helper's question (parentRunId) is answered in its task's Activity › Helpers, never counted here (FEATURES17C §4). */
 function waitingCount() {
   const a = E.state?.attention;
-  return (Array.isArray(a) ? a.length : a?.count ?? 0) + (E.state?.trunkWaiting?.length ?? 0);
+  return (Array.isArray(a) ? a.filter((w) => !w.parentRunId).length : a?.count ?? 0) + (E.state?.trunkWaiting?.length ?? 0);
 }
 
 /* A conversation with a task still going (E.state.runs) reads Working in its row, as the conversation header does. */

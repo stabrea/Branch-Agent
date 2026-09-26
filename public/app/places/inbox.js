@@ -167,7 +167,8 @@ async function answerInstall(el) {
 export async function after() {
   const tab = S.tabs.inbox || "needs";
   let changed = false;
-  const fresh = (await api("policy").catch(sayOnce)).waiting ?? [];
+  // A helper's question (parentRunId) is answered in its task's Activity › Helpers, not here (FEATURES17C §4).
+  const fresh = ((await api("policy").catch(sayOnce)).waiting ?? []).filter((q) => !q.parentRunId);
   const key = (list) => list.map((q) => q.sessionId + q.fingerprint).join();
   if (key(fresh) !== key(asks)) { asks = fresh; changed = true; }
   if (tab === "needs") {

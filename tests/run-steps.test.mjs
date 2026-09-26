@@ -127,6 +127,27 @@ test("helpers: the tasks a task started, named, with the question each waits on;
   assert.deepEqual(later.waiting, [], "nothing waits any more");
 });
 
+test("a helper's question names the task that started it, in /api/policy and /api/state; the owner's own does not", async (t) => {
+  const { app, call } = await fixture(t);
+  savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
+  const own = await app.runtime.run({ prompt: "write mine.txt" });
+  assert.equal(own.status, "needs_input", "control: the owner's own task stopped to ask");
+  const parent = app.store.createRun(app.runtime.owner, "compare the invoice");
+  const context = app.runtime.context({ runId: parent.id });
+  const child = await app.runtime.delegate("write helper.txt", context, [...context.permissions], "", { agent: "mode:code" });
+  assert.equal(child.status, "needs_input", "control: the helper stopped to ask");
+  // The learning passes mark their rows "learning", which names no task: never read as a helper's parent.
+  const learning = app.store.createRun(app.runtime.owner, "Learning: a pass");
+  app.store.event(learning.id, "run.started", { parentRunId: "learning", source: "learning" });
+  app.store.finish(learning.id, "needs_input", "Keep this?");
+  const waiting = (await call("policy")).body.waiting;
+  assert.deepEqual(waiting.map((q) => [q.runId, q.parentRunId ?? null]).sort(), [[child.id, parent.id], [own.id, null]].sort());
+  const attention = (await call("state")).body.attention;
+  assert.equal(attention.find((a) => a.runId === child.id)?.parentRunId, parent.id, "the helper's waiting task is marked");
+  assert.ok(attention.some((a) => a.runId === own.id) && attention.find((a) => a.runId === own.id).parentRunId === undefined, "the owner's own is not");
+  assert.ok(attention.some((a) => a.runId === learning.id) && attention.find((a) => a.runId === learning.id).parentRunId === undefined, "nor a learning row");
+});
+
 test("a no to a helper's question stops the helper, and nothing is started in its conversation", async (t) => {
   const { app, call } = await fixture(t);
   savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
