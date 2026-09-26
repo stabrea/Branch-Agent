@@ -40,6 +40,16 @@ export async function screenshot(page: Page, options: z.infer<typeof ScreenshotS
   } finally { await style?.evaluate(node => (node as unknown as Element).remove()).catch(() => undefined); }
 }
 
+/**
+ * live-stage: one frame of the page for somebody watching the task, as a small JPEG. Password boxes are covered with
+ * Playwright's mask, which is drawn outside the page and so still applies where the page's own rules refuse an added
+ * style (a strict style-src); the page itself is not changed. Never a full-page picture: what the tab shows now.
+ */
+export async function liveFrame(page: Page): Promise<Buffer> {
+  return page.screenshot({ type: 'jpeg', quality: 60, timeout: 4000, animations: 'allow', caret: 'initial',
+    mask: [page.locator('input[type="password" i]')], maskColor: '#000' });
+}
+
 export async function waitFor(page: Page, options: z.infer<typeof WaitSchema>): Promise<{ waitedFor: string; url: string }> {
   const timeout = options.timeoutMs;
   if (options.text) { await page.getByText(options.text).first().waitFor({ state: 'visible', timeout }); }
