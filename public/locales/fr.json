@@ -3555,6 +3555,7 @@
   "pair.waiting.computer": "En attente de l'autre ordinateur…",
   "pair.onlyHere": "Pour l'instant, Branch ici ne répond que sur cet ordinateur lui-même, donc un autre ordinateur ou un téléphone ne peut pas le joindre. Ouvrez-le d'abord à votre réseau privé, puis revenez pour une nouvelle invitation.",
   "pair.onlyHere.open": "Ouvrir Ordinateur et navigateur",
+  "pair.onlyHere.tailscale": "L'ouvrir à Tailscale",
   "strip.kind.computer": "Ordinateur",
   "strip.here": "Cet ordinateur",
   "strip.status.working": "Au travail",

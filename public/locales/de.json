@@ -3554,6 +3554,7 @@
   "pair.waiting.computer": "Wartet auf den anderen Computer …",
   "pair.onlyHere": "Gerade antwortet Branch hier nur auf diesem Computer selbst, also kann ein anderer Computer oder ein Handy es nicht erreichen. Öffne es zuerst für dein privates Netz und komm dann für eine neue Einladung zurück.",
   "pair.onlyHere.open": "Computer & Browser öffnen",
+  "pair.onlyHere.tailscale": "Für Tailscale öffnen",
   "strip.kind.computer": "Computer",
   "strip.here": "Dieser Computer",
   "strip.status.working": "Arbeitet",
