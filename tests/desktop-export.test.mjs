@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { discardTemp } from './temp-dir.mjs';
 import { _electron } from 'playwright';
 import { saveConversationExport, saveMemoryExport, saveMemoryLinesExport } from '../dist/desktop/conversation-export.js';
+import { exportedMemoryLines } from '../dist/memory-export.js';
+import { createBranch } from '../dist/index.js';
 import { connected, desktopOptions, onboarded, send, taskDone } from './fixtures/desktop-options.mjs';
 
 const archive = { format: 'branch-agent-conversation', version: 1, exportedAt: '2026-09-15T00:00:00.000Z',
@@ -75,11 +77,31 @@ test('native memory lines export checks every line before choosing a file and wr
   assert.equal(dialogs, 2);
 });
 
+/* The desktop's check must take a real owner's export as it is: facts saved the ordinary way (the memory tool, with a
+   subject, detail and kind, and one carrying every optional field), not only facts that came in through the import. */
+test('the engine\'s own JSON Lines export passes the desktop check unchanged', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'branch-memory-lines-real-'));
+  const provider = { name: 'scripted', async complete() { return { content: 'Done.', toolCalls: [] }; } };
+  const app = await createBranch({ workspace: join(root, 'workspace'), dataDir: join(root, 'data'), provider });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const owner = app.runtime.owner;
+  const run = app.store.createRun(owner, 'remember these');
+  const context = app.runtime.context({ runId: run.id });
+  await app.registry.execute('memory.put', { text: 'Ada likes tea', source: 'chat', entity: 'Ada', attribute: 'drink', kind: 'preference' }, context);
+  await app.registry.execute('memory.put', { text: 'A plain fact', source: 'chat' }, context);
+  const later = new Date(Date.now() + 86400000).toISOString();
+  app.store.save('memory', owner, '11111111-2222-4333-8444-555555555555', { text: 'Every field', source: 'owner', sourceRunId: run.id,
+    originRunId: run.id, validFrom: new Date().toISOString(), validTo: null, scope: 'shared', project: 'home', promoted: true, tags: ['kept'], expiresAt: later });
+  const text = app.memory.transfer.export(owner);
+  assert.equal(text.trim().split('\n').length, 3, text);
+  assert.equal(exportedMemoryLines(text), text, 'what the desktop writes is exactly what the browser downloads');
+});
+
 /* Redesign: the old window exported from Conversation history (Ctrl+K) and Memory's own buttons, through
    window.branchDesktop. The new window exports a conversation from its menu (the prototype's "Export conversation")
-   and memory from Library › Memory's menu ("Save a full archive"). The guarded IPC, the refused other window and the
-   blanket download blocker are checked first, from the page, so they still run while the window's own export does not
-   reach them (a listed window bug: it saves with <a download>, which the desktop's download blocker drops). */
+   and memory from Library › Memory's menu ("Save a full archive", and "Export what it remembers" as JSON Lines). The
+   guarded IPC, the refused other window and the blanket download blocker are checked first, from the page; then each
+   export is pressed in the window and must reach the guarded IPC, since a <a download> is dropped by the blocker. */
 async function launchWithDialog(name) {
   const { home, options } = await desktopOptions(), path = join(home, name);
   const electron = await _electron.launch(options);
