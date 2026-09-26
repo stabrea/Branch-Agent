@@ -61,6 +61,8 @@ import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFi
 import { TryToolSchema, toolForms, tryToolByHand } from "./playground.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import { exportTemplate, importTemplate } from "./templates.js";
+import { agentSections, agentSummary, exportAgent } from "./agent-export.js"; // p17: whole-agent export from the window
+import { applyPiiGuard } from "./pii.js"; // p17: memory leaves with personal details masked
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 // Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
 import { handlesRecordingPath, recordingApi, startEventLoopWatch } from "./run-recording-api.js";
@@ -550,6 +552,8 @@ async function staticFile(
   return true;
 }
 const OnboardingSchema = z.object({ done: z.boolean(), completedAt: z.string().optional() }).strict();
+/** p17: which parts of the assistant go into the one file. */
+const AgentExportSchema = z.object({ sections: z.array(z.enum(agentSections)).min(1).max(agentSections.length) }).strict();
 function onboardingState(app: Branch): { done: boolean } {
   const saved = OnboardingSchema.safeParse(app.store.get("settings", app.runtime.owner, "onboarding")?.data ?? {});
   return { done: saved.success ? saved.data.done : false };
@@ -1676,6 +1680,17 @@ async function api(
   if (hookEnable && request.method === "POST") return app.hooks.enable(hookEnable[1]!);
   const template = /^\/api\/templates\/(specialist|procedure)\/([a-f0-9-]{36})$/.exec(path);
   if (template && request.method === "GET") return exportTemplate(app.store, app.runtime.owner, template[1] as "specialist" | "procedure", template[2]!);
+  // p17 (whole-agent export from the window): what each part holds, then the one file. The owner's alone; a
+  // short-lived key is refused the POST by the fail-closed rule, and memory always leaves with personal details masked.
+  if (path === "/api/agent-export") {
+    app.store.profiles.requireOwner("Taking the whole assistant with you");
+    if (request.method === "GET") return { sections: agentSummary(app.store, app.runtime.owner) };
+    if (request.method !== "POST") throw new HttpError(405, "Use GET or POST");
+    const { sections } = AgentExportSchema.parse(await readBody(request));
+    const { bytes, manifest } = exportAgent(app.store, app.runtime.owner, app.version, {
+      sections, memory: sections.includes("memory"), redact: (text) => applyPiiGuard(text, "mask").text });
+    return { manifest, data: bytes.toString("base64") };
+  }
   if (request.method === "POST" && path === "/api/templates/import") return importTemplate(app.knowledge, app.runtime.context(), await readBody(request, 256 * 1024));
   if (request.method === "POST" && path === "/api/receipts/verify") {
     const body = z.object({ runId: z.string().min(1).max(64), data: z.record(z.string(), z.unknown()) }).strict().parse(await readBody(request));

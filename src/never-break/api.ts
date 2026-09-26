@@ -11,7 +11,7 @@ import {
   saveGatewayConfig, type DryRun, type GatewayConfig,
 } from "./gateway-config.js";
 import { readState } from "./gateway-state.js";
-import { lastActivation } from "./activation.js";
+import { lastActivation, recentActivations } from "./activation.js";
 import { runAsNode } from "../child-env.js";
 
 /**
@@ -59,6 +59,9 @@ export async function neverBreakApi(dataDir: string, request: IncomingMessage, p
   // alone: a short-lived key is refused it (src/short-lived-keys.ts), and so is a household person
   // (src/household-routes.ts), before this is reached.
   if (request.method === "GET" && path === "/api/never-break/last-update") return { last: lastActivation(dataDir, thisStart) };
+  // p17: the journal of updates tried, kept or rolled back, for Settings › Gateway › Never break. The owner's alone,
+  // like last-update: a short-lived key and a household person are refused it before this is reached.
+  if (request.method === "GET" && path === "/api/never-break/journal") return { entries: recentActivations(dataDir) };
   if (request.method !== "POST") throw new NeverBreakApiError(405, "Use GET or POST here.");
   if (path === "/api/never-break") {
     const body = z.object({ mode: FeatureModeSchema }).strict().safeParse(await readBody(request));

@@ -54,6 +54,8 @@ export const ROUTES = {
   "/api/action": "task POST",
   "/api/activity": "look",
   "/api/alive": "look",
+  // p17: what each part of the assistant holds is looking; the whole-agent file is the owner's.
+  "/api/agent-export": "owner POST",
   "/api/agents": "prefix",
   "/api/agents/": "prefix",
   "/api/agents/discover": "look",
@@ -734,6 +736,7 @@ export const ROUTES = {
   "/api/never-break": "owner POST",
   "/api/never-break/": "prefix",
   "/api/never-break/last-update": "secret-read", // Q55: what the owner's last update did is the owner's alone
+  "/api/never-break/journal": "secret-read", // p17: every update tried, kept or rolled back, the owner's alone too
   "/api/never-break/proposal/accept": "owner POST",
   "/api/never-break/proposal/discard": "owner POST",
   "/api/never-break/rollback": "owner POST", // rolls back the last accepted gateway change: the owner's alone

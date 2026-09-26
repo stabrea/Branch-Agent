@@ -161,6 +161,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/comfort\/update-readiness$/,
   // Q55: what the owner's last update did, and which versions it went between.
   /^\/api\/never-break\/last-update$/,
+  // p17: the journal of every update tried, kept or rolled back, the same facts over time.
+  /^\/api\/never-break\/journal$/,
   // FQ-collaboration.unified-search: one query across every conversation, saved workflow and the
   // record of what the assistant was allowed to do is a wider window than any one of those
   // searches gives alone, so it stays the owner's the way the workflows and audit routes it reads do.
