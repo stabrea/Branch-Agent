@@ -11,7 +11,9 @@
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { esc } from "../core/dom.js";
 import { toast } from "../core/ui.js";
+import { t } from "../../i18n.js";
 
 const OPENED = "branch-opened";
 const opened = {
@@ -26,10 +28,10 @@ export function showLock(pinSet = true) {
   app.classList.add("locked-b17");
   const el = document.createElement("div");
   el.className = "lockscreen";
-  const field = pinSet ? `<input class="inp" id="pin-unlock-b17" type="password" inputmode="numeric" maxlength="8" autocomplete="off" aria-label="PIN">` : "";
-  el.innerHTML = `<div class="inner"><span class="mark mark-full lock-mark" aria-hidden="true"></span><h2>Branch is locked</h2>
-    <form class="pinbox" id="unlock-b17" aria-label="Enter your PIN">${field}<button class="btn pri" type="submit">Unlock</button></form>
-    ${pinSet ? `<p class="hint">Five wrong tries wait five minutes.</p>` : ""}</div>`;
+  const field = pinSet ? `<input class="inp" id="pin-unlock-b17" type="password" inputmode="numeric" maxlength="8" autocomplete="off" aria-label="${esc(t("household.pinFact"))}">` : "";
+  el.innerHTML = `<div class="inner"><span class="mark mark-full lock-mark" aria-hidden="true"></span><h2>${esc(t("phone.lock.title"))}</h2>
+    <form class="pinbox" id="unlock-b17" aria-label="${esc(t("window.applock.enter-your-pin"))}">${field}<button class="btn pri" type="submit">${esc(t("phone.lock.unlock"))}</button></form>
+    ${pinSet ? `<p class="hint">${esc(t("window.applock.five-wrong-tries"))}</p>` : ""}</div>`;
   app.appendChild(el);
   (el.querySelector("#pin-unlock-b17") ?? el.querySelector("button")).focus();
   el.querySelector("#unlock-b17").addEventListener("submit", (e) => { e.preventDefault(); unlock(el); });

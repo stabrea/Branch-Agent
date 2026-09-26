@@ -12,6 +12,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { toast, openDlg, closeDlg, $ } from "../core/ui.js";
+import { t } from "../../i18n.js";
 
 const L = { lock: null };
 
@@ -31,16 +32,16 @@ const quietMinutes = (lock) => (lock?.idleMinutes > 0 ? lock.idleMinutes : 15);
 
 export function applockRow() {
   const lock = L.lock, cur = current(lock), n = quietMinutes(lock);
-  const sub = cur === "off" ? "Anyone at this computer can open Branch." : cur === "quiet" ? `Locks after ${n} quiet minutes; your PIN opens it.`
-    : cur === "pin" ? "Asks for your PIN every time it opens." : "";
-  const opts = [["off", "Off"], ["quiet", `After ${n} min`], ["pin", "Always"]];
-  const seg = `<span class="seg" role="group" aria-label="App lock">${opts.map(([v, l]) => `<button type="button" aria-pressed="${cur === v}" data-act="applockb17" data-v="${esc(v)}">${esc(l)}</button>`).join("")}</span>`;
-  const change = lock?.pinSet ? '<button class="btn sm" type="button" data-act="applockchgb17">Change</button>' : "";
-  return `<div class="ctl"><b>App lock</b><span class="right applock-b17">${seg}${change}</span><small>${esc(sub)}</small></div>`;
+  const sub = cur === "off" ? t("window.applock.anyone-can-open") : cur === "quiet" ? t("window.applock.locks-after", { count: n })
+    : cur === "pin" ? t("window.applock.asks-every-open") : "";
+  const opts = [["off", t("accounts.switch.off")], ["quiet", t("window.applock.after-min", { count: n })], ["pin", t("window.places.automations.always")]];
+  const seg = `<span class="seg" role="group" aria-label="${esc(t("window.settings.p17-permissions.app-lock"))}">${opts.map(([v, l]) => `<button type="button" aria-pressed="${cur === v}" data-act="applockb17" data-v="${esc(v)}">${esc(l)}</button>`).join("")}</span>`;
+  const change = lock?.pinSet ? `<button class="btn sm" type="button" data-act="applockchgb17">${esc(t("window.settings.voice.change"))}</button>` : "";
+  return `<div class="ctl"><b>${esc(t("window.settings.p17-permissions.app-lock"))}</b><span class="right applock-b17">${seg}${change}</span><small>${esc(sub)}</small></div>`;
 }
 
 const field = (id, label, hint = "") => `<div class="field"><label for="${id}">${esc(label)}</label><input class="inp" id="${id}" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>${hint ? `<p class="hint" data-css="margin:0">${esc(hint)}</p>` : ""}`;
-const foot = (act, label, v = "") => `<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="${act}" data-v="${esc(v)}">${esc(label)}</button>`;
+const foot = (act, label, v = "") => `<button class="btn ghost" type="button" data-act="dlg-close">${esc(t("mode.cancel"))}</button><button class="btn pri" type="button" data-act="${act}" data-v="${esc(v)}">${esc(label)}</button>`;
 /* Reads a field and empties it at once, so the PIN lives only as long as the request that carries it. */
 function take(box) {
   const value = box?.value ?? "";
@@ -51,8 +52,8 @@ function take(box) {
 function choose(el) {
   const want = el.dataset.v, lock = L.lock;
   if (!lock || want === current(lock)) return;
-  if (want === "off") return openDlg({ title: "App lock", body: field("pin-cur-b17", "PIN", "Five wrong tries wait five minutes."), foot: foot("applockoffb17", "Remove") });
-  if (!lock.pinSet) return openDlg({ title: "App lock", body: field("pin-new-b17", "PIN", "Four to eight digits, kept on this computer."), foot: foot("applocksetb17", "Save", want) });
+  if (want === "off") return openDlg({ title: t("window.settings.p17-permissions.app-lock"), body: field("pin-cur-b17", t("household.pinFact"), t("window.applock.five-wrong-tries")), foot: foot("applockoffb17", t("accounts.action.remove")) });
+  if (!lock.pinSet) return openDlg({ title: t("window.settings.p17-permissions.app-lock"), body: field("pin-new-b17", t("household.pinFact"), t("window.applock.four-to-eight")), foot: foot("applocksetb17", t("action.save"), want) });
   saveMode(want);
 }
 
@@ -61,7 +62,7 @@ async function saveMode(want) {
   const next = { idleMinutes: want === "quiet" ? quietMinutes(lock) : lock.idleMinutes, secretsWhileLocked: lock.secretsWhileLocked, lockOnOpen: want === "pin" };
   try { await api("lock/settings", next); } catch (error) { toast(error.message); return; }
   await load();
-  toast(want === "pin" ? "Branch asks for your PIN every time it opens." : `Branch locks after ${next.idleMinutes} quiet minutes.`);
+  toast(want === "pin" ? t("window.applock.toast-always") : t("window.applock.toast-quiet", { count: next.idleMinutes }));
 }
 
 async function setPin(el) {
@@ -82,12 +83,12 @@ async function removePin() {
   } catch (error) { toast(error.message); return; }
   closeDlg();
   await load();
-  toast("App lock off.");
+  toast(t("window.applock.toast-off"));
 }
 
 function openChange() {
-  openDlg({ title: "App lock", body: field("pin-cur-b17", "The owner’s PIN", "Five wrong tries wait five minutes.") + field("pin-new-b17", "PIN", "Four to eight digits, kept on this computer."),
-    foot: foot("applockchgokb17", "Save") });
+  openDlg({ title: t("window.settings.p17-permissions.app-lock"), body: field("pin-cur-b17", t("window.applock.owners-pin"), t("window.applock.five-wrong-tries")) + field("pin-new-b17", t("household.pinFact"), t("window.applock.four-to-eight")),
+    foot: foot("applockchgokb17", t("action.save")) });
 }
 async function changePin() {
   const current = take($("#pin-cur-b17")), pin = take($("#pin-new-b17"));
