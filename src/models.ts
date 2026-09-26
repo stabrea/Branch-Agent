@@ -7,6 +7,7 @@ import { RequestCounter } from "./dashboards.js";
 import { fallbackEligible } from "./provider-retry.js";
 import { effortFor } from "./knobs/apply.js"; // R17-S12
 import { thinkingLevels } from "./thinking-levels.js"; // phase2/accounts
+import { noModelPreset } from "./no-model.js";
 
 export const reasoningEfforts = ["low", "medium", "high"] as const;
 export type ReasoningEffort = (typeof reasoningEfforts)[number];
@@ -89,20 +90,30 @@ export class ModelRouter {
    * and the usage ledger already keeps the lasting record.
    */
   readonly requests = new RequestCounter();
+  /** Answers while no connection is set up: never listed, it refuses every request in plain words (src/no-model.ts). */
+  private readonly none = noModelPreset();
   constructor(
     private readonly store: Store,
+    /** The connections set up so far; none at all is allowed, and then every request is refused until one is added. */
     presets: ModelPreset[],
     /** Clock used for cooldowns; tests may replace it. */
     public now: () => number = Date.now,
   ) {
-    if (!presets.length) throw new Error("At least one model preset is required");
     for (const preset of presets) this.register(preset);
   }
   get presets(): ReadonlyMap<string, ModelPreset> {
     return this.registry;
   }
+  /** Whether any model has been set up. Without one, `default` is the stand-in that refuses. */
+  get configured(): boolean {
+    return this.registry.size > 0;
+  }
   get default(): ModelPreset {
-    return this.registry.values().next().value as ModelPreset;
+    return (this.registry.values().next().value as ModelPreset | undefined) ?? this.none;
+  }
+  /** The preset with this id, or the stand-in when it is the one answering, so a status line names "No model yet". */
+  find(id: string): ModelPreset | undefined {
+    return this.registry.get(id) ?? (id === this.default.id ? this.default : undefined);
   }
   /**
    * mac6/accounts: set by src/accounts/service.ts. Every connection registered passes through it, so
@@ -115,17 +126,15 @@ export class ModelRouter {
     if (this.registry.size >= 32 && !this.registry.has(preset.id)) throw new Error("At most 32 model presets");
     this.registry.set(preset.id, this.presetHook ? this.presetHook(preset) : preset);
   }
-  /** Removes exactly one preset by name. The last one cannot be removed: something must answer. */
+  /** Removes exactly one preset by name. Removing the last one leaves no model set up, which is said plainly. */
   remove(id: string): boolean {
     if (!this.registry.has(id)) return false;
-    if (this.registry.size === 1) throw new Error("At least one model connection must remain");
     this.cooldowns.delete(id);
     return this.registry.delete(id);
   }
   /** Removes presets whose id starts with the prefix; the first remaining preset becomes the default. */
   unregister(prefix: string): string[] {
     const removed = [...this.registry.keys()].filter(id => id.startsWith(prefix));
-    if (removed.length === this.registry.size) throw new Error("At least one model preset must remain");
     for (const id of removed) { this.registry.delete(id); this.cooldowns.delete(id); }
     return removed;
   }

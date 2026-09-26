@@ -12,6 +12,7 @@ import { chips, loadChips, initChips, startMode } from "./chips.js";
 import { drawPane, initPane } from "./pane.js";
 import { attached, takePending, initPlus, loadWho, whoHere, forgetWho } from "./plus.js";
 import { recBar, initRec } from "./rec.js";
+import { noModelRow } from "./nomodel.js";
 import { binding } from "../shell/keys.js";
 import { checkpointRows, initCheckpoints } from "./checkpoints.js";
 import { selfCard, loadSelfChange, initSelfChange } from "./selfchange.js";
@@ -130,7 +131,7 @@ function emptyChat() {
 
 function composer() {
   const draft = S.drafts[C.sessionId ?? "new"] ?? "";
-  return `<div class="dock"><div id="attached">${attached()}</div>${queueRow()}${dockRow()}${steerChip()}<form class="composer" id="composer" data-form="composer">
+  return `<div class="dock"><div id="attached">${attached()}</div>${noModelRow()}${queueRow()}${dockRow()}${steerChip()}<form class="composer" id="composer" data-form="composer">
     <button class="c-btn" type="button" aria-label="${t("window.chat.composer.plus")}" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="${t("window.chat.composer.tools-label")}" data-tip="${t("dashboard.filter.tools")}" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
     ${dictating() ? dictRow() : ""}<textarea id="prompt" rows="1" placeholder="${t("window.chat.composer.message")}" aria-label="${t("window.chat.composer.message")}"${dictating() ? " hidden" : ""}>${esc(draft)}</textarea>
     ${chips()}

@@ -35,6 +35,7 @@ import { refusedHosts } from "./integrations/desktop-config.js";
 import { draftFromRuns, testSkill } from "./skill-authoring.js";
 import { suggestSkills } from "./skill-suggest.js";
 import { healthReport, startedCleanly } from "./health.js";
+import { noModelWords } from "./no-model.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
@@ -572,6 +573,7 @@ function onboardingState(app: Branch): { done: boolean } {
 async function testModel(app: Branch, body: unknown): Promise<unknown> {
   const { preset } = z.object({ preset: z.string().min(1).max(64).nullable().optional() }).strict().parse(body);
   const owner = app.runtime.owner;
+  if (!preset && !app.runtime.models.configured) throw new HttpError(400, noModelWords);
   const chosen = preset ? app.runtime.models.presets.get(preset) : app.runtime.models.plan(owner, "").candidates[0];
   if (!chosen) throw new HttpError(400, "That model is not configured");
   const started = Date.now();
@@ -811,7 +813,9 @@ function state(app: Branch): unknown {
   return {
     collab: collabState(app),
     provider: app.runtime.provider.name,
-    activeModel: app.runtime.models.plan(owner, "").choice,
+    // No model set up: nothing is named as answering, and the window shows these words with the way to set one up.
+    activeModel: app.runtime.models.configured ? app.runtime.models.plan(owner, "").choice : null,
+    modelNeeded: app.runtime.models.configured ? null : noModelWords,
     onboarding: onboardingState(app),
     attention: attention(app),
     // mac7/residuals (integration): a Trunk's message whose task stopped to ask; its card offers Answer and Not now. The owner's alone.
