@@ -67,10 +67,17 @@ function readingSection() {
   return `<div class="sec"><h2>Reading</h2>${segAct("Conversation width", "Wide uses more of a big screen.", [["comfortable", "Comfortable"], ["wide", "Wide"], ["full", "Full"]], p.conversationWidth, "widthset")}${segAct("Text size", "Changes every screen.", [["small", "Small"], ["medium", "Regular"], ["large", "Large"]], p.textSize, "size")}</div>`;
 }
 
+/* The pets the engine keeps (petKinds) that this window can draw (shell/scene.js), as the prototype's gallery names
+   them; the prototype's picture pets are not in the engine's list. The row of buttons stays hidden, as there (after the
+   gallery, so the first control for each pet is the one you can see). */
+const PIXEL_PETS = [["squirrel", "Squirrel", "Pixel squirrel"], ["owl", "Owl", "Pixel owl"], ["hedgehog", "Hedgehog", "Pixel hedgehog"]];
 function petSection() {
   const pets = D.settings?.pets, kind = pets?.on ? pets.kind : "none";
+  const row = segAct("Pet", "It walks along the foot of the list. Click it for a tip; it speaks up by itself only when a Trunk needs you.", [["none", "None"], ...PIXEL_PETS.map(([v, l]) => [v, l])], kind, "petset").replace('<div class="ctl">', '<div class="ctl" data-css="display:none">');
+  const cards = [["none", "None"], ...PIXEL_PETS.map(([v, , l]) => [v, l])].map(([v, l]) => `<button type="button" class="pet-c12" data-act="petset" data-v="${v}" ${pressed(kind === v)}><span class="pet-px12">${v === "none" ? "—" : ic("spark", "s")}</span><b>${esc(l)}</b></button>`).join("");
   const where = pets?.on ? segAct("Where it walks", "It keeps out of the way of your messages wherever it is.", [["side", "The list"], ["status", "Status bar"], ["dock", "By the message box", "petwhere15-dock"]], W.petWhere, "petwhere15") : "";
-  return `<div class="sec"><h2>The pet</h2>${segAct("Pet", "It walks along the foot of the list. Click it for a tip; it speaks up by itself only when a Trunk needs you.", [["none", "None"], ["squirrel", "Squirrel"], ["owl", "Owl"], ["hedgehog", "Hedgehog"]], kind, "petset")}${where}</div>`;
+  const name = pets ? `<div class="ctl"><b>Name</b><span class="right"><input class="inp" id="pet-name" value="${esc(pets.name ?? "")}" aria-label="Pet name" maxlength="20" data-sw="set" data-css="width:140px"></span><small>Pat it for a tip.</small></div>` : "";
+  return `<div class="sec"><h2>The pet</h2><div class="pets12">${cards}</div>${row}${where}${name}</div>`;
 }
 
 /* Each switch names a part of the window the engine keeps in preferences.hidden. */
@@ -78,7 +85,7 @@ const HIDES = [["h-usage", "usage", "The usage ring"], ["h-gateway", "gateway", 
 function shownSection() {
   const hidden = prefs().hidden ?? [];
   const rows = HIDES.map(([id, k, l]) => `<div class="ctl"><b>${l}</b><input class="sw" type="checkbox" id="${id}" ${hidden.includes(k) ? "" : "checked"} aria-label="${l}" data-sw="hide" data-k="${k}"><small>${k === "statusbar" ? "Lockdown's banner and Stop while a task runs can never be hidden." : "Right-click it anywhere to hide it too."}</small></div>`).join("");
-  return `<div class="sec"><h2>What's shown</h2>${rows}
+  return `<div class="sec"><h2>What’s shown</h2>${rows}
     <div class="ctl"><b>Keep things still</b><input class="sw" type="checkbox" id="a-still" aria-label="Keep things still" data-sw="still"><small>Stops the pet walking, the working ring, the logo's float and the background moving.</small></div>
     <div class="ctl"><b>Scenery behind the list</b><input class="sw" type="checkbox" id="a-scenery" aria-label="Scenery behind the list" data-sw="scenery"><small>A small pixel oak at the foot of the list.</small></div></div>
   <div class="sec"><h2>Language</h2><div class="ctl"><b>Language</b><span class="right"><select class="inp" id="lang" data-sw="lang" aria-label="Language"><option>English</option><option>Français</option><option>Español</option><option>Deutsch</option><option>Yorùbá</option></select></span><small>Dates and numbers follow it too.</small></div></div>`;
@@ -143,6 +150,7 @@ export function init() {
   document.addEventListener("change", (e) => {
     const t = e.target;
     if (t.id === "bg-file6") { if (t.files?.[0]) pickOwn(t.files[0]); return; }
+    if (t.id === "pet-name") { saveDelight({ pets: { name: t.value } }).then(() => renderNow()); return; }
     const row = HIDES.find(([id]) => id === t.id);
     if (!row) return;
     const k = row[1], hidden = (prefs().hidden ?? []).filter((x) => x !== k);
@@ -172,6 +180,7 @@ export const live = {
   "bg-remove": true,
   "bg-remove-yes": true,
   "sw:bg-file6": true,
+  "sw:pet-name": true,
   "sw:h-usage": true,
   "sw:h-gateway": true,
   "sw:h-pet": true,
