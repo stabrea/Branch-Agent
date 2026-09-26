@@ -8,6 +8,9 @@ import { AvatarSchema, settleAvatar } from "./avatar.js";
 import { TrunkLookSchema } from "./look.js"; // phase2/shell
 import { StartsInSchema } from "./starts-in.js"; // Q44
 
+/** The painted characters a Trunk can wear (the window's Look tab). */
+export const trunkCharacters = ["sorrel", "skein", "nib"] as const;
+
 /**
  * R17-001 (T-01): the Trunk record. A Trunk is a named, long-lived agent that belongs to the owner.
  * It is not a household person (src/people/, src/profiles.ts) and not a specialist (a reusable set
@@ -40,6 +43,11 @@ export const TrunkSchema = TrunkCreateSchema.extend({
    * record older builds check strictly.
    */
   chosenColour: z.string().regex(/^#[0-9a-f]{6}$/i, "Choose a colour such as #1f5139").transform((value) => value.toLowerCase()).nullable().optional(),
+  /**
+   * Pass 17: the painted character it wears in place of the pebble (a still and loops the window draws from
+   * /art/agents/<id>/), or null for the classic pebble. Kept outside `look` for the same reason as `chosenColour`.
+   */
+  character: z.enum(trunkCharacters).nullable().optional(),
   /** The model preset it answers with; empty follows the conversation, then the owner's default. */
   model: z.string().trim().max(64).default(""),
   reasoning: z.enum(reasoningEfforts).nullable().default(null),

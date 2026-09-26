@@ -59,7 +59,7 @@ const NoticedSchema = z.object({
   leaves: z.array(z.string()).max(800).default([]),
   seasons: z.array(z.string()).max(4).default([]),
   pages: z.array(z.string()).max(60).default([]),
-  pets: z.array(z.string()).max(8).default([]),
+  pets: z.array(z.string()).max(petKinds.length).default([]),
   pats: z.number().int().min(0).default(0),
   backgrounds: z.array(z.string()).max(4).default([]),
   flags: z.array(z.string()).max(40).default([]),

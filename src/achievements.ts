@@ -29,9 +29,12 @@ export interface Achievement {
 type Draft = Omit<Achievement, "tier"> & { days: number };
 
 /** What the window may report having seen. Everything else is refused. */
-export const petKinds = ["squirrel", "owl", "hedgehog", "fox", "robin", "rabbit", "snail", "fawn"] as const;
+export const petKinds = ["squirrel", "owl", "hedgehog", "fox", "robin", "rabbit", "snail", "fawn",
+  // pass 17: the picture pets the window draws from /art/pets (a still and a walk loop each)
+  "redpanda", "pangolin", "quokka", "acornling", "goatkid", "piglet"] as const;
 export const petNames: Record<(typeof petKinds)[number], string> = {
   squirrel: "Squirrel", owl: "Owl", hedgehog: "Hedgehog", fox: "Fox", robin: "Robin", rabbit: "Rabbit", snail: "Snail", fawn: "Deer fawn",
+  redpanda: "Red panda", pangolin: "Pangolin", quokka: "Quokka", acornling: "Acorn sprite", goatkid: "Goat kid", piglet: "Teacup piglet",
 };
 export const seasons = ["spring", "summer", "autumn", "winter"] as const;
 export const backgroundKinds = ["picture", "video", "animation", "3d"] as const;
