@@ -105,6 +105,12 @@ test("Q52 a real task that writes a file: the result names it, proven, and the A
   assert.equal(result.ownChange, null);
   assert.equal((await call(`/api/runs/${finished.id}/result`.replace(finished.id, "00000000-0000-0000-0000-000000000000"))).status, 404);
 
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 }, reducedMotion: "reduce" });

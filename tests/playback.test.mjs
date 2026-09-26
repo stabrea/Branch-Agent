@@ -53,6 +53,12 @@ const playersAfter = (page) => page.evaluate(() => [...document.querySelectorAll
 test("an attached sound file gets a playable chip on the message box, and it can be taken off again", async (t) => {
   const { app, root } = await fixture(t);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });

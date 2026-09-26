@@ -32,6 +32,12 @@ async function windowWithBranch(t) {
   closing.push(() => app.close());
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   closing.push(() => server.close());
+  const call = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   closing.push(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });

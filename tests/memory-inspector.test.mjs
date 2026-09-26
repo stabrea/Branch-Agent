@@ -260,6 +260,12 @@ test("Q54 the memory list shows what was recorded about a fact, and opens the co
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
     provider: { name: "scripted", async complete() { return steps.shift() ?? { content: "Done.", toolCalls: [] }; } } });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const run = await app.runtime.run({ prompt: "remember that I drink tea" });
   const browser = await chromium.launch({ headless: true });

@@ -97,6 +97,12 @@ test.skip("the Files browser opens a workspace video, and clicking a comment's t
 
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); });
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));

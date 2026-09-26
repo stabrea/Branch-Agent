@@ -136,6 +136,12 @@ test("Q51 the task list shows the one that waits for you; the busy count and oth
 
 test("Q51 the Activity pane reads the state in words, with no moving bar for a task that waits", async (t) => {
   const { server, asking } = await branch(t);
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 }, reducedMotion: "reduce" });
@@ -417,6 +423,12 @@ test.skip("Q58 a queued task reads its place as a plain number, in English and i
   app.runtime.followUp(working.sessionId, "Then file them");
   app.runtime.followUp(working.sessionId, "Then back them up");
   app.runtime.activeSessions.delete(working.sessionId);
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage();

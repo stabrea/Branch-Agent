@@ -25,6 +25,12 @@ async function setUp(t, name) {
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), snapshotGit: null,
     provider: { name: "scripted", async complete(request) { return { content: `done ${request.messages.at(-1).content}`, toolCalls: [] }; } } });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });

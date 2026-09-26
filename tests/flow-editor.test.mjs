@@ -24,6 +24,12 @@ async function fixture(t) {
     provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } },
   });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     await browser.close(); await server.close(); await app.close();
@@ -36,11 +42,6 @@ async function fixture(t) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  if (await page.locator("#first-run").isVisible()) {
-    /* "Try it without an account" finishes first run in one click. */
-    await page.getByRole("button", { name: /Try it without an account/ }).click();
-    await page.locator("#first-run").waitFor({ state: "hidden" });
-  }
   await openPlace(page, "procedures");
   await page.locator("#flow-editor").waitFor({ state: "visible" });
   return { app, page, server, errors };

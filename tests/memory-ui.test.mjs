@@ -38,6 +38,12 @@ async function fixture(t, seed = true) {
   const app = await createBranch({ workspace: join(root, 'workspace'), dataDir: join(root, 'data'), provider });
   if (seed) await app.runtime.executeTool('memory.put', { text: 'Juniper meeting Monday', source: 'Original note' });
   const server = await startServer(app, { dataDir: join(root, 'data'), port: 0 });
+  const httpCall = (path, body) => fetch(new URL(path, server.url), {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((response) => response.json());
+  await httpCall("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ acceptDownloads: true, viewport: { width: 1440, height: 1000 } });
