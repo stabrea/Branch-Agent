@@ -11,9 +11,12 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
 import { qr } from "../core/qr.js";
+import { t } from "../../i18n.js";
 
 let vals = {};
-const FAMILY = { core: "Popular", chat: "Work chat · webhook" };
+const FAMILY = { core: "window.flows.chw.popular", chat: "window.flows.chw.work-chat" };
+/* The steps are named in English in the code (BODIES, the checks below); these are the words each one shows. */
+const STEP_WORD = { Create: "action.create", Paste: "window.flows.chw.paste", Check: "safety.scan.run", Pair: "pair.step.pair", Save: "action.save" };
 
 const inputs = (c) => [...(c.fields ?? []).map((f) => ({ key: f.name, what: f.what, optional: f.optional, secret: false })),
   ...(c.paste ?? []).map((f) => ({ key: f.secret, what: f.what, optional: f.optional, secret: true }))];
@@ -24,37 +27,37 @@ function stepsOf(c) {
 }
 
 function create(c) {
-  const how = c.create?.how || (c.steps ?? []).join(" ") || "Make the bot or app on the service first.";
-  const open = c.create?.url ? `<a class="btn pri sm" href="${esc(c.create.url)}" target="_blank" rel="noopener">${ic("globe", "s")}Open ${esc(c.name)}${c.create.prefilled ? " with Branch’s settings filled in" : ""}</a>` : "";
-  const app = c.app?.download ? `<a class="btn ghost sm" href="${esc(c.app.download)}" target="_blank" rel="noopener">Get the ${esc(c.app.name || c.name)} app</a>` : "";
-  const code = c.codes?.create ? `<div class="chw-qr12">${qr(c.codes.create, 148)}<small>Or scan to do this on your phone</small></div>` : "";
+  const how = c.create?.how || (c.steps ?? []).join(" ") || t("window.flows.chw.make-first");
+  const open = c.create?.url ? `<a class="btn pri sm" href="${esc(c.create.url)}" target="_blank" rel="noopener">${ic("globe", "s")}${c.create.prefilled ? t("window.flows.chw.open-filled", { name: esc(c.name) }) : t("window.flows.chw.open", { name: esc(c.name) })}</a>` : "";
+  const app = c.app?.download ? `<a class="btn ghost sm" href="${esc(c.app.download)}" target="_blank" rel="noopener">${t("window.flows.chw.get-app", { name: esc(c.app.name || c.name) })}</a>` : "";
+  const code = c.codes?.create ? `<div class="chw-qr12">${qr(c.codes.create, 148)}<small>${t("window.flows.chw.scan")}</small></div>` : "";
   return `<div class="chw-create12"><div><p>${esc(how)}</p>${c.steps?.length ? `<ol class="steps-list">${c.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>` : ""}<div class="acts">${open}${app}</div></div>${code}</div>`;
 }
 
 function paste(c) {
-  const rows = inputs(c).map((f) => `<label class="fld chf12"><span>${esc(f.what)}</span><span class="chf-in12"><input class="inp" data-sw="chf" data-chf="${esc(f.key)}" type="${f.secret ? "password" : "text"}" value="${f.secret ? "" : esc(vals[f.key] ?? "")}" autocomplete="off" spellcheck="false" placeholder="${f.secret ? "Paste it here" : ""}">${f.secret ? `<button type="button" class="icon-btn" data-act="chf-eye" data-k="${esc(f.key)}" aria-label="Show or hide">${ic("eye", "s")}</button>` : ""}</span></label>`).join("");
-  return `<p data-css="margin:0 0 6px">Paste what ${esc(c.name)} gave you. Secrets go straight into your password manager; Branch shows only the last four characters afterwards.</p>${rows || '<p class="hint">Nothing to paste for this one.</p>'}`;
+  const rows = inputs(c).map((f) => `<label class="fld chf12"><span>${esc(f.what)}</span><span class="chf-in12"><input class="inp" data-sw="chf" data-chf="${esc(f.key)}" type="${f.secret ? "password" : "text"}" value="${f.secret ? "" : esc(vals[f.key] ?? "")}" autocomplete="off" spellcheck="false" placeholder="${f.secret ? t("pair.join.link.hint") : ""}">${f.secret ? `<button type="button" class="icon-btn" data-act="chf-eye" data-k="${esc(f.key)}" aria-label="${t("window.flows.chw.show-hide")}">${ic("eye", "s")}</button>` : ""}</span></label>`).join("");
+  return `<p data-css="margin:0 0 6px">${t("window.flows.chw.paste-what", { name: esc(c.name) })}</p>${rows || `<p class="hint">${t("window.flows.chw.nothing")}</p>`}`;
 }
 
 function check(c, w) {
   if (!c.hasCheck && !w.result && !w.error) return `<p class="hint12">${esc(c.noCheck)}</p>`;
-  if (w.error) return `<div class="status"><span class="sdot bad"></span><div><b>${esc(c.name)} did not accept it</b><p>${esc(w.error)}</p></div></div>`;
-  if (!w.result) return `<div class="chw-ok12 run12"><span class="spin12"></span><span><b>Checking with ${esc(c.name)}…</b><small>A read-only request, nothing is sent to anyone.</small></span></div>`;
-  const said = w.result.botName ? `Found the bot: @${w.result.botName}` : w.result.checkNote || "The service accepted the details.";
-  return `<div class="chw-ok12">${ic("check", "s")}<span><b>It answers.</b><small>${esc(said)}</small></span></div>`;
+  if (w.error) return `<div class="status"><span class="sdot bad"></span><div><b>${t("window.flows.chw.not-accepted", { name: esc(c.name) })}</b><p>${esc(w.error)}</p></div></div>`;
+  if (!w.result) return `<div class="chw-ok12 run12"><span class="spin12"></span><span><b>${t("window.flows.chw.checking", { name: esc(c.name) })}</b><small>${t("window.flows.chw.read-only")}</small></span></div>`;
+  const said = w.result.botName ? t("window.flows.chw.found-bot", { name: w.result.botName }) : w.result.checkNote || t("window.flows.chw.accepted");
+  return `<div class="chw-ok12">${ic("check", "s")}<span><b>${t("window.flows.chw.answers")}</b><small>${esc(said)}</small></span></div>`;
 }
 
 function pair(c, w) {
-  return `<p data-css="margin:0 0 10px">${esc(c.pairing)}</p><div class="code12">${[0, 1, 2, 3, 4, 5].map((i) => `<input inputmode="numeric" maxlength="1" data-sw="code" data-code="${i}" value="${esc(w.code[i] ?? "")}" aria-label="Digit ${i + 1}">`).join("")}</div>${w.error ? `<p class="hint" role="alert">${esc(w.error)}</p>` : '<p class="hint">The code works once, for ten minutes, and only for the person who sent the message.</p>'}`;
+  return `<p data-css="margin:0 0 10px">${esc(c.pairing)}</p><div class="code12">${[0, 1, 2, 3, 4, 5].map((i) => `<input inputmode="numeric" maxlength="1" data-sw="code" data-code="${i}" value="${esc(w.code[i] ?? "")}" aria-label="${t("window.flows.chw.digit", { n: i + 1 })}">`).join("")}</div>${w.error ? `<p class="hint" role="alert">${esc(w.error)}</p>` : `<p class="hint">${t("window.flows.chw.code-once")}</p>`}`;
 }
 
 function save(c) {
-  const who = [...E.trunks.map((t) => t.name), "Branch"].map((n, i, all) => `<button type="button" data-act="chw-who" aria-pressed="${i === all.length - 1}">${esc(n)}</button>`).join("");
-  const may = ["Only me", "People I approve", "Anyone in my workspace"].map((l, i) => `<button type="button" aria-pressed="${i === 0}" data-act="chw-may">${l}</button>`).join("");
-  const tg = c.id === "telegram" ? `<div class="tg15"><div class="ctl"><b>Keep forum topics apart</b><input class="sw" type="checkbox" id="tg-topics15" aria-label="Keep forum topics apart" data-sw="set"><small>Each topic in a group becomes its own conversation.</small></div><div class="ctl"><b>Photos and files reach the task</b><input class="sw" type="checkbox" id="tg-media15" aria-label="Photos and files reach the task" data-sw="set"><small>What you send in Telegram is handed to the Trunk as material.</small></div></div>` : "";
-  return `<div class="chw-ok12">${ic("check", "s")}<span><b>${esc(c.name)} is ready</b><small>Choose who answers there and who may use it, then save.</small></span></div>
-    <div class="fld"><span>Who answers in ${esc(c.name)}</span><span class="seg">${who}</span></div>
-    <div class="ctl"><b>Who may message it</b><span class="right"><span class="seg" role="group" aria-label="Who may message it">${may}</span></span><small>Everyone else gets no answer.</small></div>${tg}`;
+  const who = [...E.trunks.map((tr) => tr.name), "Branch"].map((n, i, all) => `<button type="button" data-act="chw-who" aria-pressed="${i === all.length - 1}">${esc(n)}</button>`).join("");
+  const may = [t("window.flows.chw.only-me"), t("window.flows.chw.approved"), t("window.flows.chw.workspace")].map((l, i) => `<button type="button" aria-pressed="${i === 0}" data-act="chw-may">${l}</button>`).join("");
+  const tg = c.id === "telegram" ? `<div class="tg15"><div class="ctl"><b>${t("window.flows.chw.topics")}</b><input class="sw" type="checkbox" id="tg-topics15" aria-label="${t("window.flows.chw.topics")}" data-sw="set"><small>${t("window.flows.chw.topics-hint")}</small></div><div class="ctl"><b>${t("window.flows.chw.media")}</b><input class="sw" type="checkbox" id="tg-media15" aria-label="${t("window.flows.chw.media")}" data-sw="set"><small>${t("window.flows.chw.media-hint")}</small></div></div>` : "";
+  return `<div class="chw-ok12">${ic("check", "s")}<span><b>${t("window.flows.chw.ready", { name: esc(c.name) })}</b><small>${t("window.flows.chw.choose")}</small></span></div>
+    <div class="fld"><span>${t("window.flows.chw.who-answers", { name: esc(c.name) })}</span><span class="seg">${who}</span></div>
+    <div class="ctl"><b>${t("window.flows.chw.who-may")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.flows.chw.who-may")}">${may}</span></span><small>${t("window.flows.chw.no-answer")}</small></div>${tg}`;
 }
 
 const BODIES = { Create: create, Paste: paste, Check: check, Pair: pair, Save: save };
@@ -63,12 +66,12 @@ function draw() {
   const w = S.chw, c = w?.recipe;
   if (!c) return;
   const steps = stepsOf(c), cur = steps[Math.min(w.step, steps.length - 1)];
-  const dots = `<div class="chw-steps12">${steps.map((s, i) => `<span class="${i < w.step ? "done" : i === w.step ? "now" : ""}"><em>${i < w.step ? "✓" : i + 1}</em>${s}</span>`).join("")}</div>`;
+  const dots = `<div class="chw-steps12">${steps.map((s, i) => `<span class="${i < w.step ? "done" : i === w.step ? "now" : ""}"><em>${i < w.step ? "✓" : i + 1}</em>${t(STEP_WORD[s])}</span>`).join("")}</div>`;
   const canNext = cur === "Paste" ? filled(c) : cur === "Check" ? !!w.result || (!c.hasCheck && !w.error) : cur === "Pair" ? /^\d{6}$/.test(w.code) : true;
-  const back = w.step ? '<button class="btn ghost" type="button" data-act="chw-back">Back</button>' : '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button>';
-  const next = cur === "Save" ? '<button class="btn pri" type="button" data-act="chw-save">Save</button>' : `<button class="btn pri" type="button" data-act="chw-next" ${canNext ? "" : "disabled"}>${cur === "Pair" ? "Approve" : "Continue"}</button>`;
-  const head = `<div class="chw-head12">${logo(c.id, c.name, 40)}<span><b>${esc(c.name)}</b><small>${FAMILY[c.family] ?? "More apps"}${c.app?.name ? " · " + esc(c.app.name) : ""}</small></span></div>`;
-  openDlg({ title: `${w.connected ? "Manage" : "Set up"} ${c.name}`, wide: true, body: `${head}${dots}<div class="chw-body12">${BODIES[cur](c, w)}</div>`, foot: back + next });
+  const back = w.step ? `<button class="btn ghost" type="button" data-act="chw-back">${t("action.back")}</button>` : `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button>`;
+  const next = cur === "Save" ? `<button class="btn pri" type="button" data-act="chw-save">${t("action.save")}</button>` : `<button class="btn pri" type="button" data-act="chw-next" ${canNext ? "" : "disabled"}>${cur === "Pair" ? t("action.approve") : t("window.flows.chw.continue")}</button>`;
+  const head = `<div class="chw-head12">${logo(c.id, c.name, 40)}<span><b>${esc(c.name)}</b><small>${t(FAMILY[c.family] ?? "window.flows.chw.more-apps")}${c.app?.name ? " · " + esc(c.app.name) : ""}</small></span></div>`;
+  openDlg({ title: w.connected ? t("window.flows.chw.manage", { name: c.name }) : t("window.flows.chw.set-up", { name: c.name }), wide: true, body: `${head}${dots}<div class="chw-body12">${BODIES[cur](c, w)}</div>`, foot: back + next });
   if (cur === "Pair") setTimeout(() => $('.code12 input[value=""]')?.focus(), 30);
 }
 
@@ -118,24 +121,24 @@ async function finish() {
   vals = {};
   closeDlg();
   await refresh().catch(() => {});
-  toast(`${name} is connected. Messages there reach Branch.`);
+  toast(t("window.flows.chw.connected", { name }));
 }
 
 function onInput(e) {
-  const t = e.target, w = S.chw;
+  const el = e.target, w = S.chw;
   if (!w) return;
-  if (t.dataset.chf) {
-    vals[t.dataset.chf] = t.value;
+  if (el.dataset.chf) {
+    vals[el.dataset.chf] = el.value;
     const btn = $('.dlg [data-act="chw-next"]');
     if (btn) btn.disabled = !filled(w.recipe);
   }
-  if (t.dataset.code != null) {
+  if (el.dataset.code != null) {
     const boxes = [...document.querySelectorAll(".code12 input")];
-    t.value = t.value.replace(/\D/g, "").slice(-1);
+    el.value = el.value.replace(/\D/g, "").slice(-1);
     w.code = boxes.map((x) => x.value).join("");
     const btn = $('.dlg [data-act="chw-next"]');
     if (btn) btn.disabled = !/^\d{6}$/.test(w.code);
-    if (t.value) boxes[+t.dataset.code + 1]?.focus();
+    if (el.value) boxes[+el.dataset.code + 1]?.focus();
   }
 }
 

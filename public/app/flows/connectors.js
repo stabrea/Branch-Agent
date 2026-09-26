@@ -13,33 +13,34 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
 import { showTool } from "../places/customize.js";
+import { t } from "../../i18n.js";
 
 const prov = (act, v, icon, name, sub) => `<button class="prov" type="button" data-act="${act}" data-v="${v}">${icon}<b>${name}</b><small>${sub}</small></button>`;
 const tile = (name) => `<span class="ico-tile">${ic(name, "s")}</span>`;
 
 function connectorCatalog() {
-  openDlg({ title: "Add a connector", wide: true,
-    body: '<div class="aa-list12"><p class="empty">Nothing matches. Add your own server below.</p></div>',
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn" type="button" data-act="t9-own">Add your own server</button>' });
+  openDlg({ title: t("window.flows.conn.add-connector"), wide: true,
+    body: `<div class="aa-list12"><p class="empty">${t("window.flows.conn.nothing")}</p></div>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn" type="button" data-act="t9-own">${t("window.flows.conn.own")}</button>` });
 }
 
 function ownServer() {
-  const how = ["A command on this computer", "A web address"].map((o) => `<button type="button" data-act="seg" aria-pressed="false">${o}</button>`).join("");
-  openDlg({ title: "Add your own MCP server",
-    body: `<div class="fld"><span>How it runs</span><span class="seg">${how}</span></div><label class="fld"><span>Name</span><input class="inp" id="mcp-name"></label><label class="fld"><span>Command or address</span><input class="inp code6" id="mcp-cmd" data-css="height:34px"></label><label class="fld"><span>Secrets it needs</span><input class="inp" id="mcp-secrets"></label><div id="mcp-test"></div>`,
-    foot: '<button class="btn" type="button" data-act="mcp-test">Test it</button><button class="btn pri" type="button" data-act="mcp-save">Add server</button>' });
+  const how = [t("window.flows.conn.command"), t("window.flows.conn.web")].map((o) => `<button type="button" data-act="seg" aria-pressed="false">${o}</button>`).join("");
+  openDlg({ title: t("window.flows.conn.own-mcp"),
+    body: `<div class="fld"><span>${t("window.flows.conn.how")}</span><span class="seg">${how}</span></div><label class="fld"><span>${t("accounts.field.name")}</span><input class="inp" id="mcp-name"></label><label class="fld"><span>${t("window.flows.conn.cmd")}</span><input class="inp code6" id="mcp-cmd" data-css="height:34px"></label><label class="fld"><span>${t("window.flows.conn.secrets")}</span><input class="inp" id="mcp-secrets"></label><div id="mcp-test"></div>`,
+    foot: `<button class="btn" type="button" data-act="mcp-test">${t("window.flows.conn.test")}</button><button class="btn pri" type="button" data-act="mcp-save">${t("window.flows.conn.add-server")}</button>` });
 }
 
 function addSkill() {
-  openDlg({ title: "Add a skill",
-    body: `<div class="provs">${prov("sk-lib", "lib", tile("book"), "From the skill library", "Ready-made skills, checked by KeepOak.")}${prov("sk-src", "file", tile("doc"), "From a file", "A SKILL.md, or a folder with one.")}${prov("sk-git", "git", logo("github", "GitHub", 32), "From GitHub", "Paste the address of a repository.")}${prov("sk-write", "write", tile("spark"), "Write one with Branch", "Say what it should do; Branch drafts SKILL.md.")}</div><input type="file" id="sk-file" accept=".md,text/markdown,text/plain" hidden>`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button>' });
+  openDlg({ title: t("window.flows.conn.add-skill"),
+    body: `<div class="provs">${prov("sk-lib", "lib", tile("book"), t("window.flows.conn.library"), t("window.flows.conn.library-hint"))}${prov("sk-src", "file", tile("doc"), t("window.flows.conn.file"), t("window.flows.conn.file-hint"))}${prov("sk-git", "git", logo("github", "GitHub", 32), t("window.flows.conn.github"), t("window.flows.conn.github-hint"))}${prov("sk-write", "write", tile("spark"), t("window.flows.conn.write"), t("window.flows.conn.write-hint"))}</div><input type="file" id="sk-file" accept=".md,text/markdown,text/plain" hidden>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button>` });
 }
 
 function connectAgent() {
-  openDlg({ title: "Connect another agent",
-    body: `<div class="provs">${prov("ag-add", "card", tile("globe"), "An agent with an A2A card", "Paste its address. Branch reads what it can do.")}${prov("ag-pair", "pair", tile("monitor"), "Branch on another computer", "Pair → Let it in → Name it → What it may do, with a check code.")}${prov("ag-ko", "ko", tile("layers"), "An agent on your KeepOak computer", "Hermes Agent, OpenClaw or another Branch.")}</div>`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button>' });
+  openDlg({ title: t("window.chat.beside.connect-agent"),
+    body: `<div class="provs">${prov("ag-add", "card", tile("globe"), t("window.flows.conn.a2a"), t("window.flows.conn.a2a-hint"))}${prov("ag-pair", "pair", tile("monitor"), t("window.flows.conn.other-branch"), t("window.flows.conn.other-branch-hint"))}${prov("ag-ko", "ko", tile("layers"), t("window.flows.conn.keepoak"), t("window.flows.conn.keepoak-hint"))}</div>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button>` });
 }
 
 /* The SKILL.md is sent as it is; the engine checks it, scans it and answers with the installed skill or its reason. */
@@ -51,7 +52,7 @@ async function installFile(file) {
     await refresh();
     showTool("skills", skill.id);
     renderNow();
-    toast("Skill added.");
+    toast(t("window.flows.conn.skill-added"));
   } catch (error) { toast(error.message); }
 }
 

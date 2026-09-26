@@ -7,23 +7,25 @@ import { app, closePop, closeDlg } from "../core/ui.js";
 import { S } from "../core/state.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 const chat = () => { S.view = "chat"; };
+/* Each stop's title and words are keys, drawn in the language in force. */
 const TOUR = [
-  { sel: ".list", prep: chat, title: "Your Trunks are contacts", text: "Each Trunk is an assistant with one job. Message it like a teammate. A moving ring means it’s working; a dot means it needs you." },
-  { sel: ".ask", prep: chat, title: "It asks before it acts", text: "Anything that sends, deletes, spends or installs waits for your yes: Send it, Always allow, or Don’t. The Inbox collects them all." },
-  { sel: '[data-act="modelmenu2"]', prep: chat, title: "Model and thinking", text: "GPT-6 Sol, Opus 5.5 or the model on this computer, and how long it thinks. The choices change with the model." },
-  { sel: '[data-act="modemenu2"]', prep: chat, title: "How much it may do", text: "Auto, Ask first, Plan first or Full access, per conversation. Shift+Tab switches; Lockdown stops everything." },
-  { sel: '[data-act="plusmenu"]', prep: chat, title: "Everything else is in +", text: "Attach files, @mention a Trunk, use a skill, go Temporary, have it ask questions first, or choose who answers." },
-  { sel: "#pane", title: "The side panel", text: "Activity, Plan, Files and Memory beside the conversation. Drag its edge to any width; double-click to reset. The browser and computer open full size instead." },
-  { sel: '[data-act="gwpop"]', title: "The gateway", text: "Keeps your Trunks running when Branch is closed, and starts Branch again if it ever stops." },
-  { sel: ".side-nav", title: "Five places", text: "Overview at a glance, Inbox for what needs you, Automations for work on its own, Library for what it remembers and made, Customize for Trunks, skills and chat apps." },
-  { sel: "#side-q", title: "Find anything", text: "Ctrl K opens every conversation, place, setting and command." },
-  { sel: '[aria-label="Settings"][data-act="view"]', title: "Settings, your way", text: "Regular, Advanced or Technical: just the essentials, or every file, port and raw key." },
-  { sel: ".lm-grid12", prep: () => { S.view = "settings"; S.setPage = "local"; }, title: "Models on this computer", text: "Branch looks at your memory and graphics card and only offers what fits. One click installs it; it runs free and private." },
-  { sel: ".ch-wrap12", prep: () => { S.view = "customize"; S.tabs.customize = "channels"; }, title: "Every chat app", text: "55 of them, each with its real recipe: make the bot, paste what it gives you, Branch checks it, you approve a six-digit code, save." },
-  { sel: ".titlebar [data-act=\"side-toggle\"]", prep: chat, title: "Your layout", text: "Ctrl B hides the list. Drag any edge: narrow the list to icons, widen the side panel, or give the computer more room. Double-click an edge to reset." },
-  { sel: null, prep: chat, title: "That’s Branch", text: "Explore freely." },
+  { sel: ".list", prep: chat, title: "window.flows.tour.contacts", text: "window.flows.tour.contacts-text" },
+  { sel: ".ask", prep: chat, title: "window.flows.tour.asks", text: "window.flows.tour.asks-text" },
+  { sel: '[data-act="modelmenu2"]', prep: chat, title: "window.flows.tour.model", text: "window.flows.tour.model-text" },
+  { sel: '[data-act="modemenu2"]', prep: chat, title: "window.flows.tour.may-do", text: "window.flows.tour.may-do-text" },
+  { sel: '[data-act="plusmenu"]', prep: chat, title: "window.flows.tour.plus", text: "window.flows.tour.plus-text" },
+  { sel: "#pane", title: "window.flows.tour.pane", text: "window.flows.tour.pane-text" },
+  { sel: '[data-act="gwpop"]', title: "window.flows.tour.gateway", text: "window.flows.tour.gateway-text" },
+  { sel: ".side-nav", title: "window.flows.tour.places", text: "window.flows.tour.places-text" },
+  { sel: "#side-q", title: "comfort.field.palette", text: "window.flows.tour.find-text" },
+  { sel: '[data-act="view"][data-v="settings"]', title: "window.flows.tour.settings", text: "window.flows.tour.settings-text" },
+  { sel: ".lm-grid12", prep: () => { S.view = "settings"; S.setPage = "local"; }, title: "field.local-models-switch", text: "window.flows.tour.local-text" },
+  { sel: ".ch-wrap12", prep: () => { S.view = "customize"; S.tabs.customize = "channels"; }, title: "window.flows.tour.apps", text: "window.flows.tour.apps-text" },
+  { sel: ".titlebar [data-act=\"side-toggle\"]", prep: chat, title: "window.flows.tour.layout", text: "window.flows.tour.layout-text" },
+  { sel: null, prep: chat, title: "window.flows.tour.end", text: "window.flows.tour.end-text" },
 ];
 
 const T = { on: false, i: 0, dir: 1 };
@@ -55,7 +57,7 @@ function layer() {
   if (!el) {
     el = document.createElement("div");
     el.className = "tour-layer";
-    el.innerHTML = '<div class="tour-spot"></div><div class="tour-card" role="dialog" aria-live="polite" aria-label="Tour"></div>';
+    el.innerHTML = `<div class="tour-spot"></div><div class="tour-card" role="dialog" aria-live="polite" aria-label="${t("window.flows.tour.label")}"></div>`;
     app().appendChild(el);
   }
   return el;
@@ -64,7 +66,7 @@ function layer() {
 function cardHtml(st) {
   const last = T.i === TOUR.length - 1;
   const pose = last ? "yay" : T.i === 0 ? "wave" : "point";
-  return `<img class="pose11 tour-pt11" src="/art/branch-${pose}.webp" alt="" loading="lazy" decoding="async" draggable="false"><span class="n">${T.i + 1} of ${TOUR.length}</span><b>${esc(st.title)}</b><p>${esc(st.text)}</p><div class="tour-dots" aria-hidden="true">${TOUR.map((_, j) => `<i class="${j === T.i ? "on" : ""}"></i>`).join("")}</div><div class="acts">${T.i > 0 ? '<button class="btn ghost sm" type="button" data-act="tour-back">Back</button>' : ""}<span class="tb-grow"></span><button class="btn ghost sm" type="button" data-act="tour-end">${last ? "Close" : "Skip the tour"}</button>${last ? "" : '<button class="btn pri sm" type="button" data-act="tour-next">Next</button>'}</div>`;
+  return `<img class="pose11 tour-pt11" src="/art/branch-${pose}.webp" alt="" loading="lazy" decoding="async" draggable="false"><span class="n">${t("window.find.count", { at: T.i + 1, total: TOUR.length })}</span><b>${esc(t(st.title))}</b><p>${esc(t(st.text))}</p><div class="tour-dots" aria-hidden="true">${TOUR.map((_, j) => `<i class="${j === T.i ? "on" : ""}"></i>`).join("")}</div><div class="acts">${T.i > 0 ? `<button class="btn ghost sm" type="button" data-act="tour-back">${t("action.back")}</button>` : ""}<span class="tb-grow"></span><button class="btn ghost sm" type="button" data-act="tour-end">${last ? t("delight.ach.close") : t("window.flows.tour.skip")}</button>${last ? "" : `<button class="btn pri sm" type="button" data-act="tour-next">${t("action.next")}</button>`}</div>`;
 }
 
 function place() {

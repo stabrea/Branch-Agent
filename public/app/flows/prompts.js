@@ -11,9 +11,9 @@ import { markLive } from "../core/features.js";
 import { t } from "../../i18n.js";
 
 function newPrompt() {
-  openDlg({ title: "New saved prompt",
-    body: '<label class="fld"><span>Name</span><input class="inp" id="pr-name"></label><label class="fld"><span>Command</span><input class="inp" id="pr-cmd" maxlength="32"></label><label class="fld"><span>What to ask</span><textarea class="inp" id="pr-text" rows="3"></textarea></label><p class="hint" id="pr-blanks"></p>',
-    foot: '<button class="btn ghost" type="button" data-act="prompt-try">Try on two models</button><button class="btn pri" type="button" data-act="prompt-save">Save</button>' });
+  openDlg({ title: t("window.flows.prompt.title"),
+    body: `<label class="fld"><span>${t("accounts.field.name")}</span><input class="inp" id="pr-name"></label><label class="fld"><span>${t("commands.dashboard.label")}</span><input class="inp" id="pr-cmd" maxlength="32"></label><label class="fld"><span>${t("window.flows.flow.what-ask")}</span><textarea class="inp" id="pr-text" rows="3"></textarea></label><p class="hint" id="pr-blanks"></p>`,
+    foot: `<button class="btn ghost" type="button" data-act="prompt-try">${t("window.flows.prompt.try")}</button><button class="btn pri" type="button" data-act="prompt-save">${t("action.save")}</button>` });
 }
 
 async function savePrompt() {
@@ -22,7 +22,7 @@ async function savePrompt() {
     const saved = await api("prompts", { title, command, body });
     closeDlg();
     document.dispatchEvent(new Event("branch-prompts")); // the "/" menu reads its list again (chat/messages.js)
-    toast(`Saved. Type /${saved.command || command} anywhere.`);
+    toast(t("window.flows.prompt.saved", { command: saved.command || command }));
   } catch (error) { toast(error.message); }
 }
 

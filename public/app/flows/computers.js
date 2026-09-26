@@ -9,33 +9,34 @@ import { openDlg, closePop, ic } from "../core/ui.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { startPairing, stopPairing } from "./pair.js";
+import { t } from "../../i18n.js";
 
-const TABS = [["network", "On your network"], ["code", "With a code"], ["phone", "Your phone"]];
+const TABS = [["network", "window.flows.comp.network"], ["code", "window.flows.comp.code"], ["phone", "studio.tab.phone"]];
 /* The prototype's note under the tabs (addComputer): what pairing leads to. */
-const AFTER = '<div class="status" data-css="margin-top:4px"><span class="sdot"></span><div><b>What happens after pairing</b><p>The other computer’s Trunks show in the switcher. You can send it tasks, and it asks you before doing anything. Unpair any time from Settings › Computer.</p></div></div>';
+const AFTER = () => `<div class="status" data-css="margin-top:4px"><span class="sdot"></span><div><b>${t("window.flows.comp.after")}</b><p>${t("window.flows.comp.after-hint")}</p></div></div>`;
 
 function addDialog(tab, body, foot = "") {
-  const tabs = `<div class="tabs" data-css="margin:0">${TABS.map(([k, l]) => `<button class="tab" type="button" aria-selected="${tab === k}" data-act="ac-tab" data-v="${k}">${l}</button>`).join("")}</div>`;
-  return openDlg({ title: "Add a computer or phone", body: `${tabs}${body}${AFTER}`, foot });
+  const tabs = `<div class="tabs" data-css="margin:0">${TABS.map(([k, l]) => `<button class="tab" type="button" aria-selected="${tab === k}" data-act="ac-tab" data-v="${k}">${t(l)}</button>`).join("")}</div>`;
+  return openDlg({ title: t("window.flows.comp.add-or-phone"), body: `${tabs}${body}${AFTER()}`, foot });
 }
 
 function addComputer(tab) {
   closePop();
   if (tab === "code") return startPairing("code", ({ body, foot }) => addDialog("code", body, foot));
   stopPairing();
-  const body = tab === "phone" ? '<p data-css="margin:0">Scan with the Branch app on your phone.</p><button class="btn" type="button" data-act="pair">Show the phone code</button>' : "";
+  const body = tab === "phone" ? `<p data-css="margin:0">${t("window.flows.comp.scan")}</p><button class="btn" type="button" data-act="pair">${t("window.flows.comp.show-code")}</button>` : "";
   addDialog(tab, body);
 }
 
-const KINDS = [["sandbox", "shield", "A new private computer on this PC", "A sealed Windows box."], ["pair", "monitor", "Another computer with Branch", "A PC, a Mac or a Linux box. Pair it once with a six-digit code."], ["cloud", "globe", "A KeepOak cloud computer", "Always on, works while this PC sleeps. Billed by KeepOak."], ["remote", "key", "A computer over remote desktop or SSH", "Proposal: for a machine that can’t run Branch itself."]];
+const KINDS = [["sandbox", "shield", "window.flows.comp.sandbox", "window.flows.comp.sandbox-hint"], ["pair", "monitor", "window.flows.comp.pair", "window.flows.comp.pair-hint"], ["cloud", "globe", "window.flows.comp.cloud", "window.flows.comp.cloud-hint"], ["remote", "key", "window.flows.comp.remote", "window.flows.comp.remote-hint"]];
 /* Only pairing is real here; the other kinds are drawn greyed, one by one. */
-const OFF = ' disabled aria-disabled="true" data-tip="Coming soon"';
+const OFF = () => ` disabled aria-disabled="true" data-tip="${t("window.flows.coming-soon")}"`;
 
 function addKind() {
   closePop();
-  openDlg({ title: "Add a computer",
-    body: `<div class="provs">${KINDS.map(([v, i, n, s]) => `<button class="prov${v === "pair" ? "" : " soon"}" type="button" data-act="comp-add-go" data-v="${v}"${v === "pair" ? "" : OFF}><span class="ico-tile">${ic(i, "s")}</span><b>${n}</b><small>${s}</small></button>`).join("")}</div>`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button>' });
+  openDlg({ title: t("window.flows.comp.add"),
+    body: `<div class="provs">${KINDS.map(([v, i, n, s]) => `<button class="prov${v === "pair" ? "" : " soon"}" type="button" data-act="comp-add-go" data-v="${v}"${v === "pair" ? "" : OFF()}><span class="ico-tile">${ic(i, "s")}</span><b>${t(n)}</b><small>${t(s)}</small></button>`).join("")}</div>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button>` });
 }
 
 export function init() {
