@@ -10,6 +10,7 @@ import { api } from "../core/api.js";
 import { on, run } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { initPause } from "./pause.js";
+import { LOOKS17, look17 } from "../core/art17.js";
 
 export const COLOURS = ["#2F8C86", "#D8612A", "#8A5AA8", "#5E8C4A", "#4F6FA8", "#C9982E", "#B84A6B", "#56616B"];
 /* The prototype draws five shapes; the engine names seven (src/trunks/look.ts). Shape i is saved as SHAPE_NAMES[i]. */
@@ -25,7 +26,7 @@ export const TEMPLATES = [["Inbox Manager", "Clears your inbox and drafts replie
 const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v ?? "")) ? String(v).toLowerCase() : null);
 export const lookOf = (t) => ({ ...LOOK, ...(t?.look ?? {}) });
 /* What av() draws from: the engine keeps the colour as chosenColour and the emoji inside look. */
-export const face = (t) => ({ name: t?.name, color: hex(t?.chosenColour), emoji: lookOf(t).face === "emoji" ? lookOf(t).emoji : "", paused: !!t?.paused });
+export const face = (t) => ({ name: t?.name, color: hex(t?.chosenColour), emoji: lookOf(t).face === "emoji" ? lookOf(t).emoji : "", paused: !!t?.paused, character: t?.character ?? null });
 const trunkById = (id) => E.trunks.find((t) => t.id === id);
 const trunkOfChat = (sid = S.chat) => E.trunks.find((t) => t.chatSessionId === sid);
 let rooms = [];
@@ -65,6 +66,27 @@ function lookTab(d) {
     <div class="field"><label>Eyes</label><span class="seg">${eyes}</span></div>`;
 }
 
+/* Pass 17: the Look tab starts with the characters (core/art17.js), as the prototype's does; hovering one plays its idle
+   loop. The engine keeps the choice (POST /api/trunks/{id} character; null is the classic pebble), saved at once. */
+function lookPicker(t) {
+  const cur = t.character ?? "classic";
+  const pebble = `<button type="button" class="look-c12" data-act="look-set" data-id="${esc(t.id)}" data-v="classic" aria-pressed="${cur === "classic"}"><span class="peb-demo12">${av({ ...face(t), character: null }, 56)}</span><b>Classic pebble</b></button>`;
+  const cards = LOOKS17.map((l) => `<button type="button" class="look-c12 new17e" data-act="look-set" data-id="${esc(t.id)}" data-v="${l.id}" aria-pressed="${cur === l.id}"><img src="${l.still}" alt="" loading="lazy" draggable="false" data-hov="${l.states.idle}"><b>${esc(l.name)}</b></button>`).join("");
+  return `<div class="sec"><h2>How it looks</h2><p class="hint" data-css="margin:0 0 8px">It moves by itself: thinking, searching, reading, working, waiting for you, celebrating, resting. You never pick an animation; it follows what the Trunk is doing.</p>
+    <div class="looks12">${pebble}${cards}</div></div>`;
+}
+async function setCharacter(el) {
+  const t = trunkById(el.dataset.id), v = el.dataset.v;
+  if (!t) return;
+  if (ed) keepFields();
+  try {
+    await api(`trunks/${encodeURIComponent(t.id)}`, { character: v === "classic" ? null : v });
+    await refresh();
+    if (ed?.id === t.id) drawEditor();
+    toast(v === "classic" ? "Back to the classic pebble." : `${t.name} looks like ${look17(v)?.name} now.`);
+  } catch (error) { toast(error.message); }
+}
+
 function emojiRow(t) {
   const cur = face(t).emoji;
   return `<div class="emo15"><b>Or an emoji face</b><div class="emo-row15" role="radiogroup" aria-label="Emoji face">${EMOJI.map((e) => `<button type="button" role="radio" aria-checked="${cur === e}" data-act="emo15" data-v="${e}">${e}</button>`).join("")}${cur ? '<button type="button" class="emo-x15" data-act="emo15" data-v="">None</button>' : ""}</div></div>`;
@@ -81,9 +103,9 @@ function mayTab() {
 function drawEditor() {
   const t = trunkById(ed.id);
   if (!t) { closeDlg(); ed = null; return; }
-  const d = ed.d, prev = { name: d.name, color: d.colour, emoji: face(t).emoji };
+  const d = ed.d, prev = { name: d.name, color: d.colour, emoji: face(t).emoji, character: face(t).character };
   const tabs = [["look", "Look"], ["may", "What it may do"]].map(([k, l]) => `<button class="tab" role="tab" type="button" aria-selected="${ed.tab === k}" data-act="st-tab" data-v="${k}">${l}</button>`).join("");
-  const body = ed.tab === "look" ? emojiRow(t) + lookTab(d) : mayTab();
+  const body = ed.tab === "look" ? lookPicker(t) + emojiRow(t) + lookTab(d) : mayTab();
   openDlg({ title: `Edit ${t.name}`, wide: true,
     body: `<div class="editor"><div class="big">${av(prev, 84)}<button class="btn sm" type="button" data-act="st-shuffle">Shuffle</button></div><div data-css="display:grid;gap:14px;min-width:0"><div class="tabs" data-css="margin:0" role="tablist">${tabs}</div>${body}</div></div>`,
     foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="st-save">Save</button>' });
@@ -312,6 +334,8 @@ export function init() {
   on("st-shuffle", () => shuffle());
   on("st-save", () => saveEditor());
   on("emo15", (el) => setEmoji(el.dataset.v));
+  on("look-set", (el) => setCharacter(el));
+  markLive(["look-set"]);
   on("pin", () => pinChat());
   on("rename", () => renameDlg());
   on("rename-save", (el) => renameSave(el));

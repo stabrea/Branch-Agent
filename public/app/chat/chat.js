@@ -32,6 +32,7 @@ import { pathBar, pathMarks, loadPaths, initBranches } from "./branches.js"; // 
 import { outClass, outBadge, initLeaveOut } from "./leaveout.js";
 import { initMore } from "./more.js";
 import { initDiagram } from "./diagram.js";
+import { agentWin, initAgent17 } from "./agent17.js"; // pass 17: a Trunk's character beside the conversation
 import { helpersChip } from "./helpers.js"; // pass 17: the helpers chip, steering and the model-switch note
 import { steerChip, steeredNotes, initSteer } from "./steer.js";
 import { droppedNote, initSwitched } from "./switched.js";
@@ -120,7 +121,7 @@ export const sendingPrompt = () => (C.sending && !C.sessionId ? C.prompt : null)
 
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
-  return `${narrowHead}${recBar()}${teachBar(C.sessionId)}${findBar()}${pinsBar()}${pathBar(C.sessionId)}${besideWrap(`<div class="scroll" id="scroll">${goalStrip(C.sessionId)}<div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}`;
+  return `${narrowHead}${recBar()}${teachBar(C.sessionId)}${findBar()}${pinsBar()}${pathBar(C.sessionId)}${besideWrap(`<div class="scroll" id="scroll">${goalStrip(C.sessionId)}<div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}${agentWin(C.sessionId, C.sending)}`;
 }
 export function after(main) {
   /* Newest at the bottom stays in view only while the reader is at the bottom; someone reading back keeps their place. */
@@ -402,6 +403,7 @@ async function follow(id) {
 }
 
 export function init() {
+  initAgent17();
   initChips();
   initPane();
   initPlus();
