@@ -12,6 +12,41 @@ import { closeSettings, openPlace } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
+/* The new window: the person button at the foot of the list says whose profile the window is on. Switching from the
+   window (the person menu's people, data-act "switchto") is Coming soon, so the engine switches here: before the window
+   opens, and then back while it is open. */
+const onSam = (app) => {
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+};
+test("the person button says whose profile it is, and says the owner again once switched back", async (t) => {
+  const { settingsWindow } = await import("./settings-window.mjs");
+  const { app, page, errors, call } = await settingsWindow(t, { name: "profile-badge", before: onSam });
+  await page.locator(".owner .who14", { hasText: "Sam" }).waitFor({ timeout: 15000 });
+  assert.equal((await page.locator(".owner .me").innerText()).trim(), "S");
+  await call("/api/profiles/switch", { profileId: null });
+  assert.equal(app.store.profiles.isOwner(), true);
+  await page.waitForFunction(() => !/Sam/.test(document.querySelector(".owner .who14")?.textContent ?? ""), undefined, { timeout: 15000 });
+  assert.deepEqual(errors, []);
+});
+
+/* On somebody else's profile the window never asks for the owner's chat apps or locker, however long Settings is open. */
+test("on somebody else's profile the window does not ask for the owner's chat apps or locker", async (t) => {
+  const { settingsWindow, openSettingsPage } = await import("./settings-window.mjs");
+  const { app, page, errors, call } = await settingsWindow(t, { name: "profile-badge", before: onSam });
+  assert.equal(app.store.profiles.isOwner(), false, "the window is on Sam's profile");
+  const asked = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/^\/api\/(channels|channel-setup|secrets)(\/|$)/.test(path)) asked.push(path);
+  });
+  for (const one of ["gateway", "secrets", "general"]) await openSettingsPage(page, one);
+  await page.waitForTimeout(7000);
+  assert.deepEqual(asked, [], "the window asked for the owner's chat apps and locker");
+  assert.deepEqual(errors, [], "an expected refusal surfaced as a page error");
+  await call("/api/profiles/switch", { profileId: null });
+});
+
 const shots = process.env.BRANCH_TEST_SHOTS; // headless screenshots, only when a folder is named
 
 async function fixture(t, everything) {
@@ -43,7 +78,9 @@ async function fixture(t, everything) {
 
 for (const everything of [false, true]) {
   const layout = everything ? "full" : "calm";
-  test(`${layout} window: the title bar says whose profile it is, and switches back`, async (t) => {
+  // Redesign: Coming soon (switchto, the person menu's way back), checked at fc541c24; the title-bar badge is replaced by
+  // the person button, re-pointed above.
+  test.skip(`${layout} window: the title bar says whose profile it is, and switches back`, async (t) => {
     const f = await fixture(t, everything);
     const badge = f.page.locator("#profile-badge");
     assert.equal(await badge.isVisible(), false, "nothing shows while the window is the owner's");
@@ -59,7 +96,8 @@ for (const everything of [false, true]) {
   });
 }
 
-test("with the owner's PIN set, the title bar's way back asks for it", async (t) => {
+// Redesign: Coming soon (switchto, the person menu's way back), checked at fc541c24.
+test.skip("with the owner's PIN set, the title bar's way back asks for it", async (t) => {
   const f = await fixture(t, false);
   await f.call("/api/profiles/owner-pin", { pin: "9753" });
   await f.call("/api/profiles/switch", { profileId: f.sam.id, pin: "2468" });
@@ -77,7 +115,9 @@ test("with the owner's PIN set, the title bar's way back asks for it", async (t)
   assert.equal(f.app.store.profiles.isOwner(), true);
 });
 
-test("on somebody else's profile the window stops asking for the owner's chat apps, and asks again once back", async (t) => {
+// Redesign: replaced by the new window (no chat-app card loads by itself in Settings; not asking on somebody else's
+// profile is re-pointed above).
+test.skip("on somebody else's profile the window stops asking for the owner's chat apps, and asks again once back", async (t) => {
   const f = await fixture(t, false);
   const asked = [];
   f.page.on("request", (request) => {
