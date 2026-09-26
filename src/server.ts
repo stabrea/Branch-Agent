@@ -1697,7 +1697,9 @@ async function api(
       code: z.string().max(12).optional(),
       // Dogfood A6/B6: the window's own cards ask for the task to be settled (carried on, or its wait ended).
       // Scripts, the terminal and phones send their next message themselves, as before.
-      carryOn: z.boolean().optional() }).strict().parse(await readBody(request));
+      carryOn: z.boolean().optional(),
+      // Redesign: "Always allow for <Trunk>": the Trunk the standing yes is kept for; it must be the Trunk that asked.
+      trunk: z.string().min(1).max(100).optional() }).strict().parse(await readBody(request));
     // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
     if (input.remember === "always" && startedWithShortLivedKey())
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
@@ -1714,7 +1716,7 @@ async function api(
     // mac7/r17-g: a code typed with the answer is checked first; a wrong one is said plainly.
     if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
       throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
-    const answered = app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
+    const answered = app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint, undefined, input.trunk);
     if (asked && input.carryOn) return { ...answered, task: await settleAsked(app, asked, input.decision) };
     return answered;
   }

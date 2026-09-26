@@ -204,6 +204,8 @@ export interface FollowUp { id: string; prompt: string; createdAt: string; short
 export const scriptAskFirstHold = "In Ask first, every script is asked about on its own";
 /** Q59: Ask first and Plan keep no standing yes, so "Yes, always" is not an answer there (src/approvals.ts `noStanding`). */
 export const noStandingRefusal = "Ask first and Plan first never keep a yes for good. Answer it just now, or for this conversation.";
+/** Redesign: "Always allow for <Trunk>" answered for a Trunk other than the one whose work asked. */
+export const notThatTrunkRefusal = "That question did not come from that Trunk's work, so a yes for that Trunk cannot be kept for it. Answer it just this once instead.";
 /** FQ-execution.browser: the answer to "always" for a call that named nothing a rule could be kept for. */
 export const unkeyedAlwaysRefusal = "This request does not say what it is targeting, so a standing yes would cover every "
   + "request of its kind. Answer it for this conversation or just this once instead";
@@ -2814,10 +2816,10 @@ ${run.output.slice(0, 6000)}`;
     if (locked) return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: locked };
     // mac2/leak-guard: an address carrying a key or password is asked about even where rules allow it.
     const policy = this.policy(source, context.runId);
-    const whole = this.leakGuard.tighten(evaluatePolicy(policy, { tool, target, readOnly, resource }), args);
+    const whole = this.leakGuard.tighten(evaluatePolicy(policy, { tool, target, readOnly, resource, trunk: context.trunk }), args);
     // mac7/multi-target: and each of them weighed by the rules; the strictest answer wins, and a refusal names it.
     const spread = every && judgeTargets(policy,
-      { tool, permission, callTarget: target, args, resourceOf: (text) => this.registry.resourceOf(tool, text, args) }, every);
+      { tool, permission, callTarget: target, args, resourceOf: (text) => this.registry.resourceOf(tool, text, args), trunk: context.trunk }, every);
     if (spread?.decision === "deny" && spread.target)
       return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: targetRefusal(label, spread.target) };
     const targeted = spread && stricterThan(spread.decision, whole.decision) ? { ...whole, decision: spread.decision, rule: spread.rule } : whole;
@@ -3205,6 +3207,7 @@ ${run.output.slice(0, 6000)}`;
     const noAlways = this.registry.noStandingTarget(about.tool, target) ? { noAlways: true } : {}; // Q76
     const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(), ...files, ...noStanding, ...noAlways,
+      ...(context.trunk ? { trunk: context.trunk } : {}),
       ...(about.sandbox ? { sandbox: about.sandbox } : {}),
       ...(about.kind ? { kind: about.kind } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
@@ -3256,6 +3259,8 @@ ${run.output.slice(0, 6000)}`;
      * from.
      */
     answeredOn?: string,
+    /** Redesign: "Always allow for <Trunk>": keep the standing yes for this Trunk alone (it must be the Trunk that asked). */
+    forTrunk?: string,
   ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null; standingNote?: string } {
     // With a fingerprint the answer lands on that exact request, whichever of the questions this
     // conversation is waiting on it is; without one, on the oldest, which is the only one when
@@ -3269,6 +3274,8 @@ ${run.output.slice(0, 6000)}`;
     // at the window (a household profile) answers just now or for the conversation; setting Branch up is the owner's.
     if (remember === "always" && !mayGiveStandingYes(this.store)) throw new Error(ownersStandingYes);
     if (remember === "always" && waiting.noStanding) throw new Error(noStandingRefusal); // Q59
+    // Redesign: "Always allow for <Trunk>" is kept for that Trunk only, and only when that Trunk's work is what asked.
+    if (forTrunk !== undefined && waiting.trunk !== forTrunk) throw new Error(notThatTrunkRefusal);
     if (remember === "always" && lockdownActive(this.store, this.owner)) throw new Error(lockdownStandingYes); // unhold-approvals
     // FQ-execution.browser: checked before anything is kept, so a refused "always" leaves the question waiting.
     if (remember === "always" && this.registry.noStandingTarget(waiting.tool, waiting.target)) throw new Error(unkeyedAlwaysRefusal);
@@ -3294,7 +3301,11 @@ ${run.output.slice(0, 6000)}`;
     if (waiting.tool === projectTestsTool && decision === "allow" && remember === "never")
       this.approvals.grantOnce(sessionId, waiting.tool, waiting.target);
     // Q215: with the rules full, an "always" that nothing less careful could make room for holds for this conversation only, and says so.
-    const kept = remember === "always" ? keepPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" }).kept : true;
+    // Mac mini's review of #285: a standing yes to a Trunk's question is kept for that Trunk even when the answer did not
+    // name it (an older client), so it is never wider than the card said. A standing no is kept for everyone.
+    const keptFor = forTrunk ?? waiting.trunk;
+    const scoped = remember === "always" && decision === "allow" && keptFor !== undefined ? { trunk: keptFor } : {};
+    const kept = remember === "always" ? keepPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always", ...scoped }).kept : true;
     if (!kept) remember = "session";
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
