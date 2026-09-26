@@ -9,18 +9,29 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
+import { saveDelightSettings } from "../dist/delight.js";
 import { startServer } from "../dist/server.js";
 
-async function fixture(t, width) {
+/* Redesign: the new window celebrates what the engine has earned and not yet celebrated (shell/celebrate.js, GET
+   /api/delight/achievements "fresh"), 1:1 with prototype.html: Bronze and Silver arrive as the small note (.ach-toast,
+   a pill under the title bar's middle that leaves by itself), Gold and up as the big card with confetti (.ach-big,
+   "Nice" closes it). The old top-right glass medal card, its copper eyebrow and click-to-dismiss are replaced by it.
+   Each case earns the achievement in the engine, switched on, before the window opens. */
+const EARNED = { Bronze: "tool:all:1", Silver: "noticed:theme:light:night-owl:1", Gold: "noticed:themes:20" };
+async function fixture(t, width, tiers = []) {
   const root = await mkdtemp(join(tmpdir(), "branch-medal-card-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const owner = app.runtime.owner;
+  saveDelightSettings(app.store, owner, { achievements: { on: true } });
+  const got = Object.fromEntries(tiers.map((tier) => [EARNED[tier], "2026-09-25"]));
+  app.store.save("settings", owner, "delight-achievements", { got, fresh: tiers.map((tier) => EARNED[tier]) });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   await fetch(new URL("/api/onboarding", server.url), {
     method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }),
   });
-  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: "reduce" });
+  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: "reduce", serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
@@ -28,9 +39,57 @@ async function fixture(t, width) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
-  return { page, errors };
+  const fresh = async () => (await (await fetch(new URL("/api/delight/achievements", server.url), { headers: { authorization: `Bearer ${server.token}` } })).json()).fresh.map((a) => a.id);
+  return { page, errors, fresh };
 }
 
+/* The note as a person meets it: what it covers in the title bar, whether it is inside the window, its words. */
+const note = (page) => page.evaluate(() => {
+  const el = document.querySelector(".ach-toast"), box = el.getBoundingClientRect();
+  const overlaps = (r) => r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top;
+  const controls = [...document.querySelectorAll(".titlebar :is(button, a, input, [role=status], .who b)")]
+    .filter((node) => node.getClientRects().length && getComputedStyle(node).visibility !== "hidden")
+    .filter((node) => overlaps(node.getBoundingClientRect())).map((node) => node.dataset.act || node.getAttribute("aria-label") || node.className || node.tagName);
+  const cut = [...el.querySelectorAll("span, b")].some((node) => node.scrollWidth > node.clientWidth + 1);
+  return { covered: controls, inWindow: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight,
+    text: el.innerText, cut, role: el.getAttribute("role") };
+});
+
+for (const width of [1440, 860, 400]) {
+  test(`DG-014 at ${width} px a Bronze achievement is the small note, read out, covering none of the title bar`, async (t) => {
+    const { page, errors, fresh } = await fixture(t, width, ["Bronze"]);
+    await page.locator(".ach-toast").waitFor({ timeout: 20000 });
+    const seen = await note(page);
+    assert.deepEqual(seen.covered, [], "it covers none of the title bar's buttons");
+    assert.equal(seen.inWindow, true, "inside the window");
+    assert.match(seen.text, /Achievement unlocked · 1 tool used · Bronze/, "its name and its tier");
+    assert.equal(seen.cut, false, "the achievement's name is not cut short");
+    assert.equal(seen.role, "status", "still read out when it arrives");
+    assert.equal(await page.locator(".ach-big").count(), 0, "a Bronze is not a party");
+    let left = await fresh();
+    for (let i = 0; i < 20 && left.includes("tool:all:1"); i++) { await page.waitForTimeout(250); left = await fresh(); }
+    assert.equal(left.includes("tool:all:1"), false, "the engine is told, so it never shows again");
+    assert.deepEqual(errors, []);
+  });
+}
+
+test("DG-014 a Silver is the same note, and Gold still gets its party instead", async (t) => {
+  const { page, errors } = await fixture(t, 1440, ["Silver"]);
+  await page.locator(".ach-toast").waitFor({ timeout: 20000 });
+  const seen = await note(page);
+  assert.match(seen.text, /Night Owl by daylight · Silver/);
+  assert.deepEqual(seen.covered, []);
+  assert.deepEqual(errors, []);
+  const gold = await fixture(t, 1440, ["Gold"]);
+  await gold.page.locator(".ach-big .card", { hasText: "20 themes tried" }).waitFor({ timeout: 20000 })
+    .catch(() => assert.fail("Gold keeps its party card"));
+  assert.equal(await gold.page.locator(".ach-toast").count(), 0, "a Gold is not the small note");
+  await gold.page.getByRole("button", { name: "Nice", exact: true }).click();
+  await gold.page.locator(".ach-big").waitFor({ state: "detached" });
+  assert.deepEqual(gold.errors, []);
+});
+
+/* The old window's preview and measures, for the skipped bodies below. */
 const celebrate = (page, tier) => page.evaluate(async (rank) => (await import("/delight-achievements.js")).preview(rank), tier);
 
 const measure = (page) => page.evaluate(() => {
@@ -56,8 +115,10 @@ const measure = (page) => page.evaluate(() => {
   };
 });
 
+// Redesign: replaced by the new window (prototype.html's .ach-toast: a centred pill under the title bar that leaves by
+// itself, not the top-right glass medal card with a copper eyebrow; the live tests above check the rest).
 for (const width of [1440, 860, 400]) {
-  test(`DG-014 at ${width} px a Bronze achievement is the top-right medal card with its tier eyebrow, under the top bar`, async (t) => {
+  test.skip(`DG-014 at ${width} px a Bronze achievement is the top-right medal card with its tier eyebrow, under the top bar`, async (t) => {
     const { page, errors } = await fixture(t, width);
     await celebrate(page, "Bronze");
     await page.locator("#ach-note").waitFor();
@@ -81,7 +142,9 @@ for (const width of [1440, 860, 400]) {
   });
 }
 
-test("DG-014 a Silver is the same card, and Gold still gets its party instead", async (t) => {
+// Redesign: replaced by the new window (prototype.html's .ach-toast: a centred pill under the title bar that leaves by
+// itself, not the top-right glass medal card with a copper eyebrow; the live tests above check the rest).
+test.skip("DG-014 a Silver is the same card, and Gold still gets its party instead", async (t) => {
   const { page, errors } = await fixture(t, 1440);
   await celebrate(page, "Silver");
   await page.locator("#ach-note").waitFor();
