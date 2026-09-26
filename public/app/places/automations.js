@@ -9,6 +9,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
 import { propCard, initScheduleCard } from "./schedule-card.js";
+import { ordersSection, onItsOwnSection, hooksSection, readAutomations17, initAutomations17 } from "./automations17.js";
 
 let heartbeat = null;
 let board = null;
@@ -106,7 +107,7 @@ export function draw() {
     html += `<p class="hint" data-css="margin:4px 0 8px">Work a Trunk does on a schedule.</p>
     <form class="nl" data-form="nl"><input class="inp" id="nl-in" placeholder="Describe it: &quot;every weekday at 8, check my inbox for invoices&quot;" aria-label="Describe a new automation"><button class="btn pri" type="submit" data-act="nl-add">Add</button></form>${propCard()}
     <div class="rows" data-css="margin-top:8px">${schedules.length ? schedules.map((s, i) => `<div class="prow">${av({id: s.id}, 34)}<span class="grow"><b>${esc(String(s.data?.prompt ?? '').split('\n')[0].slice(0, 80))}</b><small>${esc(s.data?.dueAt ? new Date(s.data.dueAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '')}</small></span><button class="btn sm" type="button" data-act="sched-run" data-id="${esc(s.id || '')}">Run now</button></div>`).join('') : ''}</div>
-  <div class="sec ideas15"><div class="sec-h15"><h2>Ideas</h2><button type="button" class="link15" data-act="ideas15">See all ${IDEAS.length}</button></div><div class="idea-row15">${IDEAS.slice(0, 3).map(ideaCard).join('')}</div></div>`;
+  <div class="sec ideas15"><div class="sec-h15"><h2>Ideas</h2><button type="button" class="link15" data-act="ideas15">See all ${IDEAS.length}</button></div><div class="idea-row15">${IDEAS.slice(0, 3).map(ideaCard).join('')}</div></div>${ordersSection()}${onItsOwnSection()}`;
 
   } else if (tab === "procedures") {
     html += `<p class="hint" data-css="margin:4px 0 8px">Saved step-by-step routines, including ones a Trunk learned by watching you.</p>
@@ -117,7 +118,7 @@ export function draw() {
   } else if (tab === "triggers") {
     html += `<p class="hint" data-css="margin:4px 0 8px">Work that starts when something happens.</p>
     <form class="nl" data-form="nl"><input class="inp soon" id="nl-in" placeholder="Describe it: &quot;when a PDF lands in Downloads, summarise it&quot;" aria-label="Describe a new automation" disabled aria-disabled="true" data-tip="Coming soon"><button class="btn pri soon" type="submit" disabled aria-disabled="true" data-tip="Coming soon">Add</button></form>
-    <div class="rows" data-css="margin-top:8px">${triggers.length ? triggers.map((t, i) => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(t.name ?? '')}</b><small>${esc(t.prompt ?? '')}</small></span><input class="sw" type="checkbox" id="auto-triggers-${i}" data-sw="trigger" data-id="${esc(t.id || '')}" ${t.enabled ? 'checked=""' : ''} aria-label="${esc(t.name ?? '')} on or off"></div>`).join('') : ''}</div>`;
+    <div class="rows" data-css="margin-top:8px">${triggers.length ? triggers.map((t, i) => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(t.name ?? '')}</b><small>${esc(t.prompt ?? '')}</small></span><input class="sw" type="checkbox" id="auto-triggers-${i}" data-sw="trigger" data-id="${esc(t.id || '')}" ${t.enabled ? 'checked=""' : ''} aria-label="${esc(t.name ?? '')} on or off"></div>`).join('') : ''}</div>${hooksSection()}`;
 
     markLive(triggers.map((_, i) => `sw:auto-triggers-${i}`));
   } else if (tab === "checkins") {
@@ -132,6 +133,9 @@ export function draw() {
 
 export async function after() {
   const tab = S.tabs.automations || "scheduled";
+  const p17 = await readAutomations17(tab);
+  if (p17.error) toast(p17.error.message);
+  if (p17.changed) renderNow();
 
   if (tab === "checkins") {
     const fresh = await api("heartbeat").catch(() => null);
@@ -197,6 +201,7 @@ async function saveHeartbeat(change, switchOn) {
 }
 
 export function init() {
+  initAutomations17();
   markLive(["sw:hb-in", "ptab", "hb-every", "hb-hours", "hb-rm", "sched-run", "bmove15", "bto15", "ideas15", "idea15"]);
   on("bmove15", (el) => {
     const card = cardOf(el.dataset.id);
