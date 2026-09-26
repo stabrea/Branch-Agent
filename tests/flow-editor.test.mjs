@@ -46,7 +46,8 @@ async function fixture(t) {
   return { app, page, server, errors };
 }
 
-test("F1 a step is added, the picture redraws, and the flow saves through the same shape", async (t) => {
+test.skip("F1 a step is added, the picture redraws, and the flow saves through the same shape", async (t) => {
+  // Redesign: Coming soon (flow-add, flow-save), checked at fc541c24. The flow editor is Automations › Procedures › a row (data-act="flow"); its "Add a step" and "Save" are drawn aria-disabled, class soon.
   const { app, page, errors } = await fixture(t);
   await page.locator("#editor-name").fill("Morning tidy-up");
   await page.locator("#editor-description").fill("What to do first thing");
@@ -71,7 +72,8 @@ test("F1 a step is added, the picture redraws, and the flow saves through the sa
   assert.deepEqual(errors, []);
 });
 
-test("F1 a second step is added, moved and taken out again", async (t) => {
+test.skip("F1 a second step is added, moved and taken out again", async (t) => {
+  // Redesign: Coming soon (flow-add, flow-mv, flow-rm, flow-save), checked at fc541c24.
   const { app, page, errors } = await fixture(t);
   await page.locator("#editor-name").fill("Two steps");
   for (const [kind, box, value] of [["prompt", "prompt", "First"], ["approval", "question", "May I?"]]) {
@@ -102,7 +104,8 @@ test("F1 a second step is added, moved and taken out again", async (t) => {
   assert.deepEqual(errors, []);
 });
 
-test("F2 the timeline under the picture says where each step has got to", async (t) => {
+test.skip("F2 the timeline under the picture says where each step has got to", async (t) => {
+  // Redesign: Coming soon (flow-run), checked at fc541c24. The procedure dialog's Run is greyed and has no timeline yet.
   const { app, page, errors } = await fixture(t);
   /* A flow saved by the app itself, so the editor is opening something that already exists. */
   app.flows.save({ name: "Two things", description: "",
@@ -131,7 +134,8 @@ test("F2 the timeline under the picture says where each step has got to", async 
   assert.deepEqual(errors, []);
 });
 
-test("F3 the rhythm picker says in plain words what it would do", async (t) => {
+test.skip("F3 the rhythm picker says in plain words what it would do", async (t) => {
+  // Redesign: Coming soon (nl-add), checked at fc541c24. A rhythm is given in words in Automations › Scheduled ("Describe it", prototype.html), whose Add is greyed; the old rhythm picker is replaced by that box.
   const { page, errors } = await fixture(t);
   const said = async (rhythm, time) => {
     await page.locator("#repeat-every").selectOption(rhythm);
