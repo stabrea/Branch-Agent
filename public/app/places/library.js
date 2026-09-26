@@ -163,6 +163,8 @@ async function exportMemory(el) {
     if (el.dataset.v !== "archive") {
       const response = await fetch("/api/memory/export?format=jsonl", { cache: "no-store", headers: token.get() ? { authorization: "Bearer " + token.get() } : {} });
       if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || String(response.status));
+      /* The desktop app drops every download: there the lines go to the Save dialog through its guarded export. */
+      if (typeof window.branchDesktop?.exportMemoryLines === "function") { await window.branchDesktop.exportMemoryLines(await response.text()); return; }
       const name = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "";
       save(await response.blob(), name);
       return;

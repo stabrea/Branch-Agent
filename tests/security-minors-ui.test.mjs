@@ -94,6 +94,47 @@ test("Allow all leaves out a question with no fingerprint, and every yes it send
   assert.deepEqual(errors, []);
 });
 
+/* Library › Memory's "Export what it remembers" (JSON Lines). In a browser it is a download of the engine's own file; in
+   the desktop app (window.branchDesktop stood in here: the real preload and IPC are tests/desktop-export.test.mjs) the
+   same lines go to the guarded export, because the desktop drops every download.
+   Mutation: in public/app/places/library.js drop the `exportMemoryLines` branch → the stand-in is handed nothing. */
+test("Export what it remembers downloads in a browser and goes to the desktop's guarded export in the app", async (t) => {
+  const { page, post, errors, signIn } = await signedIn(t);
+  const fact = { id: "5c2e1b7a-3d4f-4a6b-9c8d-7e6f5a4b3c2d", data: { text: "Security minors fact" } };
+  assert.equal((await post("/api/memory/import", { jsonl: JSON.stringify(fact) })).status, 200);
+  const openMemoryMenu = async () => {
+    await page.locator('#side [data-act="view"][data-v="library"]').first().click();
+    await page.locator('[data-act="ptab"][data-place="library"][data-v="memory"]').first().click();
+    await page.getByRole("button", { name: "More for memory", exact: true }).click();
+  };
+  await signIn();
+  await openMemoryMenu();
+  const download = page.waitForEvent("download", { timeout: 30000 });
+  await page.locator('.pop [data-act="memexp15"]:not([data-v])').click();
+  const file = await download;
+  assert.equal(file.suggestedFilename(), "memory.jsonl");
+  const downloaded = await readFile(await file.path(), "utf8");
+  assert.match(downloaded, /Security minors fact/);
+  // The desktop app: a stand-in for its preload records what the window hands over, and no download starts.
+  await page.addInitScript(() => {
+    window.__handed = [];
+    window.branchDesktop = Object.freeze({ exportMemoryLines: async (text) => { window.__handed.push(text); return { saved: true }; } });
+  });
+  await page.reload();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  let downloads = 0;
+  page.on("download", () => { downloads++; });
+  await openMemoryMenu();
+  await page.locator('.pop [data-act="memexp15"]:not([data-v])').click();
+  await page.waitForFunction(() => window.__handed.length > 0, undefined, { timeout: 15000 });
+  const handed = await page.evaluate(() => window.__handed);
+  assert.equal(handed.length, 1);
+  assert.equal(handed[0], downloaded, "the desktop is handed the engine's own lines, exactly");
+  await page.waitForTimeout(500);
+  assert.equal(downloads, 0, "no download is started in the desktop app");
+  assert.deepEqual(errors, []);
+});
+
 /* Mutations: in src/desktop-app-ask.ts, set AppAskSettingsSchema's default back to false (the engine reads it as off);
    in public/app/settings/pages/computer.js, draw #c-ask without its `checked` (the window no longer shows the engine's on). */
 test("Ask before opening an app it hasn't used shows on when never saved, and off once the owner turned it off", async (t) => {

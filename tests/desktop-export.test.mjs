@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { discardTemp } from './temp-dir.mjs';
 import { _electron } from 'playwright';
-import { saveConversationExport, saveMemoryExport } from '../dist/desktop/conversation-export.js';
+import { saveConversationExport, saveMemoryExport, saveMemoryLinesExport } from '../dist/desktop/conversation-export.js';
 import { connected, desktopOptions, onboarded, send, taskDone } from './fixtures/desktop-options.mjs';
 
 const archive = { format: 'branch-agent-conversation', version: 1, exportedAt: '2026-09-15T00:00:00.000Z',
@@ -42,6 +42,37 @@ test('native memory export validates archive and raw UTF8 size before opening th
   await assert.rejects(stat(path), { code: 'ENOENT' });
   assert.deepEqual(await saveMemoryExport(JSON.stringify(memoryArchive), choose), { saved: true });
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), memoryArchive);
+});
+
+/* rw4: Library › Memory's "Export what it remembers" (JSON Lines), saved through the same guarded export. */
+const memoryLines = [
+  { id: 'memory-line-1', data: { text: 'First saved fact', source: 'Fixture', sourceRunId: '' }, createdAt: archive.exportedAt, updatedAt: archive.exportedAt, revision: 1 },
+  { id: 'memory-line-2', data: { text: 'Second saved fact', source: 'Fixture', sourceRunId: '' }, createdAt: archive.exportedAt, updatedAt: archive.exportedAt, revision: 2 },
+].map((line) => JSON.stringify(line)).join('\n') + '\n';
+
+/* Mutation: in src/desktop/conversation-export.ts saveMemoryLinesExport, write `input` instead of
+   `exportedMemoryLines(input)` → a bad line reaches the Save dialog and is written. */
+test('native memory lines export checks every line before choosing a file and writes only the facts it read', async t => {
+  const scratch = join(tmpdir(), 'Codex-session-files'); await mkdir(scratch, { recursive: true });
+  const root = await mkdtemp(join(scratch, 'branch-memory-lines-')), path = join(root, 'memory.jsonl');
+  t.after(() => discardTemp(root));
+  let dialogs = 0; const choose = async () => { dialogs++; return path; };
+  const bad = [
+    { lines: memoryLines },                                  // not text
+    `${memoryLines}{broken\n`,                               // one line that is not JSON
+    `${memoryLines}${JSON.stringify({ id: 'x', path })}\n`,   // one line that is not a saved fact
+    JSON.stringify(memoryArchive),                           // the full archive, not lines
+    `${memoryLines}${'x'.repeat(17 * 1024 * 1024)}`,         // over 16 MiB
+  ];
+  for (const value of bad) await assert.rejects(saveMemoryLinesExport(value, choose));
+  assert.equal(dialogs, 0, 'nothing that failed the check reached the Save dialog');
+  assert.deepEqual(await saveMemoryLinesExport(memoryLines, async () => undefined), { saved: false });
+  await assert.rejects(stat(path), { code: 'ENOENT' });
+  assert.deepEqual(await saveMemoryLinesExport(memoryLines.replaceAll('\n', '\r\n'), choose), { saved: true });
+  assert.equal(await readFile(path, 'utf8'), memoryLines, 'the facts as read back, one per line');
+  assert.deepEqual(await saveMemoryLinesExport('', choose), { saved: true }, 'no facts is an empty file');
+  assert.equal(await readFile(path, 'utf8'), '');
+  assert.equal(dialogs, 2);
 });
 
 /* Redesign: the old window exported from Conversation history (Ctrl+K) and Memory's own buttons, through
@@ -87,6 +118,8 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     assert.notEqual(invalid, 'allowed');
     const invalidMemory = await page.evaluate(() => window.branchDesktop.exportMemory('{}').then(() => 'allowed', error => error.message));
     assert.notEqual(invalidMemory, 'allowed');
+    const invalidLines = await page.evaluate(() => window.branchDesktop.exportMemoryLines('{"id":"x"}\n').then(() => 'allowed', error => error.message));
+    assert.notEqual(invalidLines, 'allowed');
     assert.equal((await dialogsShown(electron)).length, 0);
     assert.equal(await downloadBlocked(electron), true);
     await rejectOtherWindow(electron, page.url());
@@ -133,6 +166,39 @@ test('native memory export from Library uses guarded IPC', { timeout: 360000 }, 
   } finally { await electron.close(); }
 });
 
+/* rw4: "Export what it remembers" (JSON Lines) goes through the same guarded export, to a .jsonl file.
+   Mutation: in public/app/places/library.js drop the `exportMemoryLines` branch → the download is dropped, no dialog. */
+test('native memory lines export from Library uses guarded IPC', { timeout: 360000 }, async () => {
+  const { electron, page, path } = await launchWithDialog('exported-memory.jsonl');
+  try {
+    await page.evaluate(async () => {
+      const jsonl = JSON.stringify({ id: '7c2a4d3f-9e5b-4a6c-8b1d-3e4f5a6b7c8d', data: { text: 'Native exported lines' } });
+      const response = await fetch('/api/memory/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonl }) });
+      if (!response.ok) throw new Error(`import: ${response.status}`);
+    });
+    await page.reload();
+    await connected(page);
+    await page.locator('#side [data-act="view"][data-v="library"]').click();
+    await page.locator('[data-act="ptab"][data-place="library"][data-v="memory"][aria-selected="true"]').waitFor();
+    await page.locator('.memst15').filter({ hasText: /\b1 of \d+ remembered/ }).waitFor();
+    await page.getByRole('button', { name: 'More for memory', exact: true }).click();
+    await page.locator('.pop [data-act="memexp15"]:not([data-v])').click();
+    await windowAskedForFile(electron, 'Library › Memory, "Export what it remembers"');
+    let text = '';
+    for (let waited = 0; waited < 10000 && !text.endsWith('\n'); waited += 100) {
+      text = await readFile(path, 'utf8').catch(() => '');
+      if (!text.endsWith('\n')) await new Promise((done) => setTimeout(done, 100));
+    }
+    const lines = text.trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].data.text, 'Native exported lines');
+    const [shown] = await dialogsShown(electron);
+    assert.equal(shown.defaultPath, 'memory.jsonl');
+    assert.deepEqual(shown.filters[0].extensions, ['jsonl']);
+    assert.equal(await downloadBlocked(electron), true);
+  } finally { await electron.close(); }
+});
+
 async function downloadBlocked(electron) {
   return electron.evaluate(({ BrowserWindow }) => {
     let blocked = false;
@@ -154,6 +220,8 @@ async function rejectOtherWindow(electron, url) {
     assert.match(result, /access denied/);
     const memory = await other.evaluate(text => window.branchDesktop.exportMemory(text).then(() => 'allowed', error => error.message), JSON.stringify(memoryArchive));
     assert.match(memory, /access denied/);
+    const lines = await other.evaluate(text => window.branchDesktop.exportMemoryLines(text).then(() => 'allowed', error => error.message), memoryLines);
+    assert.match(lines, /access denied/);
   } finally { await electron.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.destroy(), id); }
 }
 
