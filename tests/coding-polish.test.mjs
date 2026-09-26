@@ -43,11 +43,12 @@ async function fixture(t, provider = scripted()) {
   return { app, root, workspace, put, on, context: (extra = {}) => ({ ...app.runtime.context({ runId: app.store.createRun(app.runtime.owner, "test").id }), ...extra }) };
 }
 
-test("every part ships off, its tools are left out, and the three-way switch loads or hides them", async (t) => {
+test("every part ships as the owner's rule says, its tools are left out while off, and the three-way switch loads or hides them", async (t) => {
   const { app } = await fixture(t);
-  // The owner's rule (ships on, 2026-09-26): the coding parts ship "when needed" (read-first and fewer-rounds are not
-  // part of this sweep); a damaged record reads as off; what "off" does is tested by switching every part off.
-  const ships = { "read-first": "off", "fewer-rounds": "off" };
+  // The owner's rule (ships on, 2026-09-26): the coding parts ship "when needed", read-first ships on (Q250, a stricter
+  // guard), fewer-rounds is not part of this sweep; a damaged record reads as off; what "off" does is tested by switching
+  // every part off.
+  const ships = { "read-first": "on", "fewer-rounds": "off" };
   for (const part of codingParts) assert.equal(app.coding.modes()[part], ships[part] ?? "when-needed", `${part} on a fresh install`);
   assert.equal(codingMode({ get: () => ({ data: { mode: "sideways" } }) }, "local", "notebooks"), "off", "a damaged record reads as off");
   for (const part of codingParts) app.coding.setMode(part, "off");

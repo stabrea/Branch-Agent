@@ -44,6 +44,7 @@ async function fixture(t, steps = [say("ok")], options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-approvals-"));
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
+  app.coding.setMode("read-first", "off"); // read-first ships on (Q250); these tests are about approvals, not reading first
   t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, workspace: join(root, "workspace") };
 }

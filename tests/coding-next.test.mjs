@@ -319,10 +319,12 @@ async function readFirstFixture(t, steps, mode = "on") {
 const fileText = async (workspace, name) => (await import("node:fs/promises")).readFile(join(workspace, name), "utf8");
 const edit = (find, replace) => call("files.edit", { path: "a.txt", find, replace });
 
-test("1 read-first ships off: an edit to an unread file goes through as before", async (t) => {
+// The owner's rule (Q250, 2026-09-26): read-first is a stricter guard, so it ships on; switched off, an edit goes through.
+test("1 read-first ships on, and switched off an edit to an unread file goes through as before", async (t) => {
   const { codingMode } = await import("../dist/coding/settings.js");
   const { app, workspace } = await readFirstFixture(t, [edit("one", "two"), say("done")], "off");
-  assert.equal(codingMode({ get: () => undefined }, "local", "read-first"), "off");
+  assert.equal(codingMode({ get: () => undefined }, "local", "read-first"), "on", "on for a fresh install");
+  assert.equal(codingMode({ get: () => ({ data: { mode: "sideways" } }) }, "local", "read-first"), "off", "a damaged record reads as off");
   const run = await app.runtime.run({ prompt: "change it" });
   assert.equal(toolMessages(app, run)[0].ok, true);
   assert.equal(await fileText(workspace, "a.txt"), "two\n");
