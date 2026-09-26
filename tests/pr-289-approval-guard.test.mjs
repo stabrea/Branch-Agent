@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 
-async function fixture(t) {
+async function fixture(t, { failing } = {}) {
   const root = await mkdtemp(join(tmpdir(), "pr-289-"));
   let turn = 0;
   const provider = { name: "scripted", complete: async (request) => {
@@ -29,45 +29,53 @@ async function fixture(t) {
   const sent = [];
   app.channels.mergeWindowMs = 0;
   await app.channels.attach({ id: "chat", kind: "fake", botName: () => "Branch", async start() {}, async stop() {},
-    async send(_chatId, text) { sent.push(text); return String(sent.length); } }, { activation: "always", pairing: true, allowlist: ["owner"] });
+    async send(_chatId, text) { if (failing?.(text)) throw new Error("the chat app is down"); sent.push(text); return String(sent.length); } }, { activation: "always", pairing: true, allowlist: ["owner"] });
   const message = (text, id) => ({ channel: "chat", chatId: "c1", chatKind: "direct", senderId: "owner", senderName: "Sam", text, addressed: true, messageId: id });
   return { app, sent, message };
 }
 
-test("(a) shown question no longer waits, different one waits: y re-shows the waiting one", async (t) => {
+test("(a) the shown question answered in the window, a different one waiting alone: y answers nothing and shows it", async (t) => {
   const { app, sent, message } = await fixture(t);
-  // Set up conversation and add two approvals.
   savePolicy(app.store, app.runtime.owner, { preset: "custom", rules: [] });
   await app.channels.handle(message("hello", "m0"));
   const sessionId = app.store.runs(app.runtime.owner)[0].sessionId;
-  // Create two approvals: one shown to chat, one not.
   const fp1 = "f" + "1".repeat(31), fp2 = "f" + "2".repeat(31);
-  app.runtime.approvals.ask({ runId: "run-1", sessionId, tool: "files.read", target: "file1.txt",
-    label: "files.read file1.txt", question: "May it read file1.txt?", source: "owner", remember: "session",
+  app.runtime.approvals.ask({ runId: "run-1", sessionId, tool: "files.read", target: "README.md",
+    label: "files.read README.md", question: "May it read README.md?", source: "owner", remember: "session",
     askedAt: new Date().toISOString(), fingerprint: fp1 });
-  // Simulate the question being shown to the chat by triggering askInChat.
-  const msgObj = message("", "m1");
-  await app.channels["askInChat"](msgObj, "May it read file1.txt?", sessionId);
-  const shownCount = sent.filter((text) => /file1\.txt/.test(text)).length;
-  assert.ok(shownCount > 0, "first question should be shown to chat");
-  // Approve the first question (remove it from waiting).
-  app.runtime.approve(sessionId, "allow", "session", fp1, "chat");
-  // Add a second question that was never shown.
-  app.runtime.approvals.ask({ runId: "run-2", sessionId, tool: "network.site", target: "example.com",
-    label: "network.site example.com", question: "May it open example.com?", source: "owner", remember: "session",
+  await app.channels["askInChat"](message("", "m1"), "May it read README.md?", sessionId);
+  assert.ok(sent.some((text) => /README\.md/.test(text)), "the chat was shown README.md");
+  // The owner answers it in the window; then a different request, one a chat may approve, waits alone.
+  app.runtime.approve(sessionId, "allow", "session", fp1);
+  app.runtime.approvals.ask({ runId: "run-2", sessionId, tool: "files.read", target: "SECRET.md",
+    label: "files.read SECRET.md", question: "May it read SECRET.md?", source: "owner", remember: "session",
     askedAt: new Date().toISOString(), fingerprint: fp2 });
-  const beforeY = sent.length;
-  // Chat sends bare "y" (trying to answer file1.txt, which is no longer waiting).
+  const before = sent.length;
   await app.channels.handle(message("y", "m2"));
-  const afterY = sent.slice(beforeY);
-  // Should be told the question is no longer waiting.
-  const gotRefusal = afterY.some((text) => /no longer waiting|question is no longer/.test(text));
-  assert.ok(gotRefusal, "chat should be told the shown question is no longer waiting");
-  // Should be shown the new waiting question.
-  const shownSite = afterY.some((text) => /example\.com/.test(text));
-  assert.ok(shownSite, "chat should be shown the waiting question");
-  // network.site should still be waiting.
-  assert.deepEqual(app.runtime.waitingApprovals(sessionId).map((q) => q.tool), ["network.site"]);
+  const after = sent.slice(before);
+  assert.deepEqual(app.runtime.waitingApprovals(sessionId).map((q) => q.target), ["SECRET.md"], "the unseen request is not approved");
+  assert.ok(after.some((text) => /no longer waiting/.test(text)), "the chat is told its question no longer waits");
+  assert.ok(after.some((text) => /SECRET\.md/.test(text)), "and is shown the one waiting now");
+  // Now it has seen it, its next yes answers it.
+  await app.channels.handle(message("y", "m3"));
+  assert.equal(app.runtime.waitingApprovals(sessionId).length, 0, "the question it was shown is answered");
+});
+
+test("(b) a question whose send failed was never shown, so a y does not answer it", async (t) => {
+  const { app, sent, message } = await fixture(t, { failing: (text) => /SECRET\.md/.test(text) && !globalThis.__chatBack });
+  savePolicy(app.store, app.runtime.owner, { preset: "custom", rules: [] });
+  await app.channels.handle(message("hello", "m0"));
+  const sessionId = app.store.runs(app.runtime.owner)[0].sessionId;
+  app.runtime.approvals.ask({ runId: "run-1", sessionId, tool: "files.read", target: "SECRET.md",
+    label: "files.read SECRET.md", question: "May it read SECRET.md?", source: "owner", remember: "session",
+    askedAt: new Date().toISOString(), fingerprint: "f" + "3".repeat(31) });
+  await app.channels["askInChat"](message("", "m1"), "May it read SECRET.md?", sessionId);
+  assert.ok(!sent.some((text) => /SECRET\.md/.test(text)), "the question never reached the chat");
+  t.after(() => { delete globalThis.__chatBack; });
+  globalThis.__chatBack = true;
+  await app.channels.handle(message("y", "m2"));
+  assert.deepEqual(app.runtime.waitingApprovals(sessionId).map((q) => q.target), ["SECRET.md"], "a y about nothing it saw answers nothing");
+  // The failed question stays in the delivery queue under its own key, and goes out when the chat app is back.
 });
 
 test("(c) nothing recorded, one waiting: y re-shows instead of answering", async (t) => {
@@ -92,7 +100,7 @@ test("(c) nothing recorded, one waiting: y re-shows instead of answering", async
   assert.deepEqual(left.length, 0, "question shown in previous step should be answered");
 });
 
-test("(d) rooms behavior: only one waiting with no fingerprint, no shown: re-show", async (t) => {
+test("(d) a question with no fingerprint: with nothing shown a y shows it; with two waiting it is refused", async (t) => {
   const { app, message } = await fixture(t);
   savePolicy(app.store, app.runtime.owner, { preset: "custom", rules: [] });
   await app.channels.handle(message("hello", "m0"));

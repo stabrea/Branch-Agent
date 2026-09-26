@@ -496,18 +496,23 @@ export class ChannelRouter {
     const sessionId = this.sessionFor(channel, chatId);
     const waiting = sessionId ? this.runtime.waitingApprovals(sessionId) : [];
     if (!sessionId || !waiting.length) return null;
-    // PR #289: record what was shown to this chat, find the question it answers.
+    // mac7/chat-allowlist (integration review): a yes from the chat only answers a question about
+    // what every chat may already do. Anything one of the owner's lines granted is approved in the
+    // window, unless that same line is one the owner switched on for this person (mac7/chat-approvals).
+    // PR #289: a "y" with no code answers only the question this chat was shown (askInChat puts the newest) while it
+    // still waits. A chat that was shown nothing, or whose question no longer waits, is shown the one waiting now
+    // instead of answering it; with several waiting and none of them the one shown, it is refused in words.
     const shown = this.shownInChat.get(`${channel}\u0000${chatId}`);
     const named = read.fingerprint || shown;
     const asked = named ? waiting.find((one) => one.fingerprint === named) : undefined;
-    // PR #289: if shown fingerprint no longer waits, re-show the waiting question (or refuse if multiple).
+    // PR #289: the question shown was answered elsewhere or timed out, so a "y" is not about anything waiting now.
     if (named && !asked && shown && !read.fingerprint) {
       if (waiting.length === 1) {
         return { decision: "show-waiting-question", tool: "", refusal: shownQuestionEnded, sessionId };
       }
       return { decision: "in-window", tool: "", refusal: severalWaitingInChat };
     }
-    // PR #289: if nothing was shown to this chat and only one waits, re-show instead of answering.
+    // PR #289: nothing was shown to this chat (or it restarted since), so the one waiting is shown before any yes.
     if (!asked && !shown && waiting.length === 1) {
       return { decision: "show-waiting-question", tool: "", refusal: "", sessionId };
     }
@@ -521,7 +526,7 @@ export class ChannelRouter {
     const mayApprove = !asked || chatMayApprove(this.runtime.registry.permissionOf(asked.tool), this.chatApprovals(channel, from));
     if (read.decision === "allow" && asked && !mayApprove)
       return { decision: "in-window", tool: asked.tool, refusal: approveInWindow(asked.label || asked.tool) };
-    // PR #289: the yes lands on the exact question vetted above.
+    // PR #289 second review: the yes lands on exactly the question vetted above, so it still answers while another waits.
     const result = this.runtime.approve(sessionId, read.decision, read.remember, asked.fingerprint ?? (read.fingerprint || undefined), channel);
     return { decision: result.decision, tool: result.tool };
   }
@@ -541,8 +546,9 @@ export class ChannelRouter {
 
   /**
    * Puts a paused task's question to the chat, with buttons where the channel has them and the
-   * words "reply y / a / n" where it has not. Records what was shown only after the guard passes
-   * and the send succeeds. PR #289: avoids approving an unshown question.
+   * words "reply y / a / n" where it has not. Sent directly rather than through the waiting line,
+   * because the waiting line only knows how to send plain words. PR #289: the question counts as shown
+   * to this chat only once the guard let it through and it was sent.
    */
   private async askInChat(message: InboundMessage, question: string, sessionId: string): Promise<void> {
     const adapter = this.adapters.get(message.channel)?.adapter;
@@ -550,22 +556,24 @@ export class ChannelRouter {
     const waiting = this.runtime.waitingApprovals(sessionId).at(-1);
     const checked = await this.outboundGuard(question);
     if (checked.blocked) return;
+    // In a group anybody paired may press the button, so a standing yes is only offered one to one.
+    // mac7/chat-approvals (integration review): a chat is never offered "Yes always", because a chat
+    // may never give one — offering it is offering a button whose only answer is a refusal.
     const canAlways = false;
+    // mac7/chat-allowlist (integration review): a question about something one of the owner's lines
+    // granted is answered in the window, so the chat is not offered a Yes it cannot give — only No,
+    // with the sentence saying where the yes belongs. mac7/chat-approvals: unless the owner switched
+    // that line on for this person on this app, in which case the Yes is theirs to press.
     const mayApprove = !waiting
       || chatMayApprove(this.runtime.registry.permissionOf(waiting.tool), this.chatApprovals(message.channel, message));
     const buttons = approvalButtons(waiting?.fingerprint ?? "", canAlways && mayApprove)
       .filter((button) => mayApprove || button.value.startsWith("n"));
     const text = mayApprove ? checked.text : `${checked.text}\n\n${approveInWindow(waiting?.label || waiting?.tool || "that")}`;
-    // PR #289: record shownInChat only after send succeeds.
-    const key = `${message.channel}\u0000${message.chatId}`;
-    if (adapter.sendButtons) {
-      await adapter.sendButtons(message.chatId, text, buttons, message.messageId).catch(() => undefined);
-      if (waiting?.fingerprint) this.shownInChat.set(key, waiting.fingerprint);
-      return;
-    }
-    await this.deliver(message.channel, message.chatId, `${text}\n\n${mayApprove ? approvalFallbackNote : "Reply n for no."}`,
-      `ask:${waiting?.runId ?? message.messageId}`, message.messageId).catch(() => undefined);
-    if (waiting?.fingerprint) this.shownInChat.set(key, waiting.fingerprint);
+    const sent = adapter.sendButtons
+      ? await adapter.sendButtons(message.chatId, text, buttons, message.messageId).then(() => true, () => false)
+      : await this.deliver(message.channel, message.chatId, `${text}\n\n${mayApprove ? approvalFallbackNote : "Reply n for no."}`,
+        `ask:${waiting?.runId ?? message.messageId}`, message.messageId).then((done) => Boolean(done.messageId), () => false);
+    if (sent && waiting?.fingerprint) this.shownInChat.set(`${message.channel}\u0000${message.chatId}`, waiting.fingerprint);
   }
 
   private async answer(message: InboundMessage): Promise<Outcome> {
