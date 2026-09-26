@@ -13,6 +13,7 @@ import { logo } from "../../core/logos.js";
 import { ctl } from "../parts.js";
 import { A, loadAccounts, ownerOnly } from "../../flows/account.js";
 import { L, loadLocal, gb, DOWNLOAD_ICON } from "./local.js";
+import { sections17, init17 } from "../p17-models.js";
 
 const TABS = [["connections", "Connections"], ["defaults", "Defaults"], ["local", "On this computer"], ["second", "Second opinion"], ["media", "Media"]];
 let tab = "connections";
@@ -57,7 +58,7 @@ export function draw() {
   let html = `<h1>Models</h1><p class="lede">Which models answer, and where they run.</p><div class="tabs" role="tablist">${TABS.map(([id, l]) => `<button class="tab" role="tab" type="button" aria-selected="${tab === id}" data-act="mtab" data-v="${id}">${l}</button>`).join("")}</div>${BODIES[tab]()}`;
   if (lv >= 1) html += advanced();
   if (lv >= 2) html += TECHNICAL;
-  return html;
+  return html + sections17(lv, tab);
 }
 
 /* ---------- Get another model ---------- */
@@ -124,6 +125,7 @@ async function saveSteps(box) {
 }
 
 export function init() {
+  init17();
   loadAccounts();
   loadLocal();
   loadKnobs();
@@ -154,7 +156,7 @@ const sw = (id, b, small) => `<div class="ctl"><b>${b}</b><input class="sw" type
 const presetNames = () => (E.state?.models?.presets ?? []).map((p) => esc(p.name));
 const advanced = () => `<div class="sec x15-sec"><h2>Budgets</h2>${row("Most steps in one task", steps(), "It stops and asks when it gets there.")}${row("Spend cap per task", num("Spend cap per task", "USD"), "Only for accounts that bill per use.")}${row("Sub-tasks at once", seg("Sub-tasks at once", ["1", "3", "5"]), "Parts of a big task that can run side by side.")}</div>`
   + `<div class="sec x15-sec"><h2>Models for smaller jobs</h2>${row("Sub-tasks and side jobs", seg("Sub-tasks and side jobs", ["Same model", ...presetNames()]), "Titles, summaries and searches inside a task.")}${sw("f15-pick-the-model-per-task", "Pick the model per task", "Easy tasks go to a quick model, hard ones to the best you have.")}${row("Planning model", seg("Planning model", ["Same model", ...presetNames()]), "Writes the plan in Plan first.")}${sw("f15-mix-models-on-hard-questions", "Mix models on hard questions", "Asks two and merges the best of each. Off until you choose: it doubles the cost.")}</div>`
-  + `<div class="sec x15-sec"><h2>Compare models</h2>${row("Model arena", '<span class="right"><button class="btn sm" type="button" data-act="soon">Open the arena</button></span>', "The same task to two models, you pick the better. Ratings build up over time.")}${row("Test suites", '<span class="right"><button class="btn sm" type="button" data-act="soon">See history</button></span>', "Your own tasks with a check for each, with history.")}</div>`;
+  + `<div class="sec x15-sec"><h2>Compare models</h2>${row("Model arena", '<span class="right"><button class="btn sm" type="button" data-act="soon">Open the arena</button></span>', "The same task to two models, you pick the better. Ratings build up over time.")}${row("Test suites", '<span class="right"><button class="btn sm" type="button" data-act="compareb17">See history</button></span>', "Your own tasks with a check for each, with history.")}</div>`;
 
 const TECHNICAL = `<div class="sec x15-sec"><h2>Retries and timeouts</h2>${row("Retries when a service fails", num("Retries when a service fails", ""))}${row("Wait for the first word", num("Wait for the first word", "s"), "Then it tries the next account.")}${row("Model rounds per step", num("Model rounds per step", ""))}${row("Tool and command timeout", num("Tool and command timeout", "s"))}${row("Largest tool answer kept whole", num("Largest tool answer kept whole", "KB"), "Bigger answers are saved to a file and summarised.")}</div>`
   + `<div class="sec x15-sec"><h2>Per connection</h2>${row("Thinking effort", seg("Thinking effort", ["Low", "Medium", "High"]), "For the connection in use; others keep their own.")}${row("Service tier", seg("Service tier", ["Standard", "Priority", "Flex"]), "Priority costs more; flex is cheaper and slower.")}${sw("f15-slow-down-near-a-rate-limit", "Slow down near a rate limit", "Spreads requests out instead of hitting the wall.")}${sw("f15-keep-claude-s-cache-warm", "Keep Claude’s cache warm", "A tiny request every 4 minutes during long tasks, so repeats cost less.")}${row("OpenRouter picks", seg("OpenRouter picks", ["Cheapest", "Fastest", "Only ones I list"]), "Which provider serves an OpenRouter model.")}${sw("f15-fewer-rounds", "Fewer rounds", "Groups tool calls that don’t depend on each other.")}</div>`;
