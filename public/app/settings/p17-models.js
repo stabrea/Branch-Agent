@@ -1,7 +1,8 @@
 /* Settings › Models, pass 17 (prototype patch17b), from the engine:
    Compare models (Test suites › See history): the suites are GET /api/evaluation/suites; the table is the newest run
    of the chosen suite for each model choice, from GET /api/evaluation/history?suite=<id>; Run again is
-   POST /api/evaluation/compare { suite, presets } over the connections set up (it needs two; it runs read-only).
+   POST /api/evaluation/compare { suite, presets } over the connections set up, mixtures left out (GET
+   /api/model-savings connections; it needs two, runs read-only and spends on each).
    The engine keeps no answer per task, so "side by side" stays greyed.
    What it saved: the current conversation's rounds (GET /api/model-savings/rounds?session=<id>), shown as the share of
    what was sent that the service's cache served. The engine keeps no before-and-after figures, so none are drawn.
@@ -9,7 +10,7 @@
    The model arena stays greyed: starting a round spends on two models, its switch ships off and the design has no
    question to ask them. */
 import { esc, render } from "../core/dom.js";
-import { S, E } from "../core/state.js";
+import { S } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -31,7 +32,8 @@ export function sections17(lv, tab) {
 }
 
 /* ---------- compare models ---------- */
-const presets = () => E.state?.models?.presets ?? [];
+/* The connections set up, without mixtures (GET /api/model-savings leaves those out). */
+const presets = () => C.savings?.connections ?? [];
 const nameOf = (id) => presets().find((p) => p.id === id)?.name ?? id;
 const time = (ms) => { const s = Math.round((ms ?? 0) / 1000); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} m ${String(s % 60).padStart(2, "0")} s`; };
 function newestPerModel() {
@@ -51,6 +53,7 @@ async function readRuns() {
 }
 async function openCompare() {
   try {
+    C.savings = await api("model-savings");
     C.suites = (await api("evaluation/suites")).suites ?? [];
     if (!C.suites.some((s) => s.id === C.suite)) C.suite = C.suites[0]?.id ?? null;
     await readRuns();

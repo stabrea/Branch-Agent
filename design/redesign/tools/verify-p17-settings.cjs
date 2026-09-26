@@ -3,7 +3,7 @@
    Run it only against a throwaway engine, seeded and started as design/redesign/tools/seed-p17-settings.mjs says
    (two offline model connections, moving in pointed at a made-up home), then:
      PORT=<port> TOKEN=<hex> node design/redesign/tools/verify-p17-settings.cjs
-   It puts back what it changed (the emergency stop is let go through the API at the end). */
+   It puts back what it changed (the emergency stop it presses through the API is let go the same way). */
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
 const { pathToFileURL } = require("node:url");
 const { resolve } = require("node:path");
@@ -174,16 +174,14 @@ async function flip(page, pageId, id, engine) {
   }
 }
 
-/* Advanced › What it can do, and Share a Trunk opening the same export. */
+/* Advanced › What it can do. */
 async function advanced(page) {
   await openPage(page, "advanced");
   await flip(page, "advanced", "f15-read-links-you-paste", async () => onMode((await api("web-pages")).settings.mode));
   await flip(page, "advanced", "f15-smart-home", async () => onMode((await api("personal")).modes["home-control"]));
   check("deep research stays greyed", await greyed(page.locator("#f15-deep-research-reports")));
-  await page.locator('.set-col [data-act="exportb17"]').click();
-  await settle(page, 1000);
-  check("share a Trunk opens the whole-agent export", (await dlg(page).getAttribute("aria-label")) === "Take everything with you");
-  await closeDlg(page);
+  // The whole-agent file holds no Trunks, so Share a Trunk is not pointed at it.
+  check("share a Trunk stays greyed", await greyed(page.locator('.set-col .ctl:has(b:text-is("Share a Trunk")) button')));
 }
 
 /* Gateway › Never break: the journal is the engine's. */
@@ -212,18 +210,19 @@ async function auditRecord(page) {
   await closeDlg(page);
 }
 
-/* Held back for review: the app lock, the password manager and letting the stop go. Then the stop itself. */
-async function heldAndStop(page) {
+/* Held back for review: the app lock, the password manager and the emergency stop, pressed and let go. The stop's row
+   still follows the engine: pressed through the API, it offers "Let them resume", which stays greyed too. */
+async function heldBack(page) {
   await openPage(page, "secrets");
   check("password manager stays greyed", await greyed(page.locator('[data-act="vaultb17"]')));
   check("a row with no readout yet stays greyed", await greyed(page.locator('[data-act="demob17-soon"][data-k="keys"]')));
   await openPage(page, "permissions");
   check("app lock stays greyed", await greyed(page.locator('[data-act="applockb17"]')));
-  await page.locator('[data-act="estopb17"]').click();
-  await dlg(page).locator('[data-act="estopgob17"]').click();
-  await settle(page, 1500);
-  check("emergency stop: the engine holds everything", (await api("safety-extras")).stop.everything === true);
-  check("emergency stop: letting go stays greyed", await greyed(page.locator('[data-act="estoprelb17"]')));
+  check("emergency stop: pressing it stays greyed", await greyed(page.locator('[data-act="estopb17"]')));
+  await api("safety-extras/stop", { everything: true });
+  await openPage(page, "general");
+  await openPage(page, "permissions");
+  check("emergency stop: the row follows the engine, and letting go stays greyed", await greyed(page.locator('[data-act="estoprelb17"]')));
   await api("safety-extras/stop/release", {});
 }
 
@@ -240,7 +239,7 @@ async function heldAndStop(page) {
     await page.getByRole("button", { name: "Connect" }).click();
     await page.locator("#main").waitFor();
     await settle(page, 1500);
-    for (const step of [ruleTester, firewall, whyIsThisSet, moveIn, exportAll, compare, advanced, journal, auditRecord, heldAndStop]) {
+    for (const step of [ruleTester, firewall, whyIsThisSet, moveIn, exportAll, compare, advanced, journal, auditRecord, heldBack]) {
       try { await step(page); } catch (e) { check(`${step.name} finished`, false, e.message); await closeDlg(page).catch(() => {}); }
     }
   } catch (e) { check("script finished", false, e.message); }

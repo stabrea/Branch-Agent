@@ -5,17 +5,19 @@
    Why is this set?: every setting whose value differs from how Branch ships (GET /api/settings-kit), each with the
    engine's own words (GET /api/settings-kit/why/<key>.<field>); Put back is POST /api/settings-kit/apply with that one
    field's shipped value and never confirmLoosening, so the engine itself refuses a put-back that loosens anything.
-   Emergency stop: POST /api/safety-extras/stop { everything: true }, read back from GET /api/safety-extras.
+   Emergency stop: drawn from GET /api/safety-extras. Pressing it and letting it go both stay greyed for review: the
+   engine lets it go only through POST /api/safety-extras/stop/release, which loosens it, so a live Stop would be a
+   one-way door in the window.
    Every change to what Branch may reach: the engine's record (GET /api/audit), and Export as CSV saves
    GET /api/audit/export.csv.
-   Security-held, greyed: the two switches here (one loosens approvals, one hides keys), the app lock (a PIN) and
-   letting the emergency stop go (it loosens a stop); the rows under "Guards that are always on" have no readout yet. */
+   Security-held, greyed: the two switches here (one loosens approvals, one hides keys), the app lock (a PIN) and the
+   emergency stop; the rows under "Guards that are always on" have no readout yet. */
 import { esc, render } from "../core/dom.js";
 import { api, token } from "../core/api.js";
 import { onDemo17 } from "../places/demo17.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
-import { toast, openDlg, closeDlg, dialog, $ } from "../core/ui.js";
+import { toast, openDlg, dialog, $ } from "../core/ui.js";
 import { sw15, seg15 } from "./rows15.js";
 import { demos17, demo17, row17, sec17, pill17 } from "./rows17.js";
 
@@ -123,17 +125,6 @@ async function putBack(el) {
   render();
 }
 
-/* ---------- Emergency stop ---------- */
-function stopDlg() {
-  openDlg({ title: "Stop everything?", body: '<p class="lead-b17">Every task on every computer stops at once and is held. Scheduled work waits. Nothing is lost.</p>',
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn bad" type="button" data-act="estopgob17">Stop everything</button>' });
-}
-async function stop() {
-  try { await api("safety-extras/stop", { everything: true }); } catch (error) { toast(error.message); return; }
-  closeDlg();
-  await load17();
-}
-
 /* ---------- the record of every widening or narrowing ---------- */
 async function openAudit() {
   const { entries } = await api("audit?limit=100");
@@ -165,13 +156,11 @@ export function init17() {
   on("fwtestb17", () => testFw());
   on("whyb17", () => openWhy());
   on("whyputb17", (el) => putBack(el));
-  on("estopb17", () => stopDlg());
-  on("estopgob17", () => stop());
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     if (e.target?.id === "rule-in-b17") { e.preventDefault(); runRule(); }
     if (e.target?.id === "fw-in-b17") { e.preventDefault(); testFw(); }
   });
-  markLive(["ruletestb17", "rulerunb17", "rulepickb17", "fwb17", "fwtestb17", "whyb17", "whyputb17", "estopb17", "estopgob17", "sw:rule-in-b17", "sw:fw-in-b17"]);
+  markLive(["ruletestb17", "rulerunb17", "rulepickb17", "fwb17", "fwtestb17", "whyb17", "whyputb17", "sw:rule-in-b17", "sw:fw-in-b17"]);
   load17();
 }
