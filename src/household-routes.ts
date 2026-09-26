@@ -96,6 +96,7 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/knowledge/attach"),
     own("/api/knowledge/export"),
     own("/api/knowledge/graph"),
+    own("/api/knowledge/graph/names"), // p17: the names a map mentions most, a read like the one above
     own("/api/knowledge/import"),
     own("/api/knowledge/manage"),
     own("/api/knowledge/map"),

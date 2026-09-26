@@ -290,6 +290,7 @@ import { decisionsFromRules } from "./tool-categories.js";
 // the waiting line for tasks, days off and quiet hours, and the household's profiles.
 import { collabApi, collabState, notCollab, runForCurrentPerson } from "./collab-server.js";
 import { shareHtml, RedactionSchema } from "./conversation-share.js";
+import { askSpreadsheet } from "./data-ask.js"; // p17: Ask a spreadsheet
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 const actionSchema = z
@@ -1180,6 +1181,11 @@ async function api(
   }
   if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  // p17: "Ask a spreadsheet" in Library › Documents, one read-only question over one of the owner's spreadsheets.
+  if (path === "/api/data/ask" && request.method === "POST") {
+    app.store.profiles.requireOwner("Asking a spreadsheet");
+    return askSpreadsheet({ documents: app.documents.list(app.runtime.owner), tables: app.dataTables }, await readBody(request));
+  }
   // FQ-collaboration: a comment pinned to a moment in a media file (video today), so it can be
   // reopened at the same position later.
   if (path.startsWith("/api/media-comments")) return mediaCommentsApi(app, request, path);
