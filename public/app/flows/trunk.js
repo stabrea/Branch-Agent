@@ -4,7 +4,7 @@
    What it may do (the permission switches) stays greyed: loosening a Trunk is not done from here. */
 
 import { $, esc, onRender } from "../core/dom.js";
-import { openDlg, closeDlg, closePop, toast, ic, av, mi, COLOURS, SHAPES, SHAPE_NAMES, hex, faceOf } from "../core/ui.js";
+import { openDlg, closeDlg, closePop, toast, ic, av, mi, COLOURS, SHAPES, SHAPE_NAMES, hex, faceOf, dialog } from "../core/ui.js";
 import { S, E, refresh, activeId } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on, run } from "../core/actions.js";
@@ -329,7 +329,7 @@ export function init() {
   on("new-trunk", () => newTrunk());
   on("edit", (el) => editTrunk(el.dataset.id));
   on("st-tab", (el) => { keepFields(); ed.tab = el.dataset.v; drawEditor(); });
-  computersChanged(() => { if (ed?.tab === "its17d") drawEditor(); });
+  computersChanged(() => { if (ed?.tab === "its17d" && dialog()?.querySelector(".editor")) drawEditor(); }); // only while the editor is open
   on("st-colour", (el) => { keepFields(); ed.d.colour = hex(el.dataset.v); drawEditor(); });
   on("st-shape", (el) => { keepFields(); ed.d.shape = SHAPE_NAMES[+el.dataset.v] ?? null; drawEditor(); });
   on("st-anim", (el) => { keepFields(); ed.d.motion = el.dataset.v; drawEditor(); });

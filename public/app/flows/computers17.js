@@ -119,6 +119,7 @@ function pickState(sid) {
 }
 /** The chip beside the computer's name at the top of the full-size view; drawn once the engine has said. */
 export function pickChip(sid) {
+  if (E.profiles?.isOwner === false) return ""; // the owner's computers are the owner's (GET /api/devices refuses anyone else)
   const st = pickState(sid);
   if (!st) { if (!C.picks.has(sid)) { C.picks.set(sid, null); loadPick(sid); } return ""; }
   const one = computerOf(st.using);

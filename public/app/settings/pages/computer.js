@@ -23,7 +23,6 @@ import { t } from "../../../i18n.js";
 import { trunkRow17, settingsCloudOffer, loadAll as loadComputers17 } from "../../flows/computers17.js"; // pass 17 part D §9, §1
 import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
 import { computer17 } from "../p17-more.js";
-import { trunkRow17, settingsCloudOffer, loadAll as loadComputers17 } from "../../flows/computers17.js"; // pass 17 part D §9, §1
 
 const D = { coding: null, notes: null, prs: null, devices: null, desktop: null, wall: null, reach: null, appAsk: null };
 const onMode = (mode) => (mode ? mode !== "off" : false);
