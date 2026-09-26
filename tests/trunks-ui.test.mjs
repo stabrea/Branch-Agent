@@ -1,27 +1,37 @@
 /**
- * R17-A: the Trunks screens (redesign): features ported to new window architecture.
+ * R17-A: the Trunks screens, opened the way a person opens them, at 400 px wide, in a headless
+ * browser against a scratch workspace. Every word is behind a key with real French.
  */
 import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { discardTemp } from "./temp-dir.mjs";
+import { openPlace } from "./places.mjs";
+import { brain } from "./trunks-helpers.mjs";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
 
-// Redesign: replaced by the new window (prototype.html has no translation compliance checks for new window's structure)
+// Redesign: public/trunks.js, public/locales/trunks.*, public/index.html deleted; moved to new window public/app/**
 test.skip("every word on the Trunks screens has English and real French, and no colour is written down", () => {
-  // The old window's public/trunks.js translation checks no longer apply.
-  // The new window's modules are checked by no-hardcoded-english.test.mjs.
+  // The old window's public/trunks.js translation compliance checks no longer apply. Translation is checked by no-hardcoded-english.test.mjs for public/app/**.
 });
 
-// Redesign: replaced by the new window (New Trunk create flow moved to different UI in public/app/flows/trunk.js and public/app/shell/shell.js's new-trunk action)
+// Redesign: customize:specialists place (#trunks-switch-trunks, #rail-target-name) moved to new window architecture
 test.skip("renaming the active Trunk updates the shell target immediately", () => {
-  // The rename feature exists in the new window's Edit Trunk menu but requires new selectors and flow.
-  // Integration: window lacks the "rail-target-name" element; rename updates happen through API/event system instead.
+  // The rename feature exists in new window (Edit Trunk… menu in flows/trunk.js).
+  // The old #rail-target-name element and customize:specialists place do not exist. Window lacks these selectors.
 });
 
-// Redesign: replaced by the new window (prototype.html has no old Customize › Trunks card; Trunks managed through public/app/places/customize.js)
+// Redesign: old Trunks UI (#trunks-card, #trunks-create, #trunks-rail, #trunks-room, #trunks-mentions) replaced by new window architecture
 test.skip("the card, the three-field create, Edit Trunk, a room, the roster and @ in the message box, with nothing scrolling sideways", () => {
-  // The old window's Trunks card and create/edit UI are replaced. The features exist in the new window:
-  // - New Trunk: public/app/flows/trunk.js, accessed via Shell's new-trunk action
-  // - Edit Trunk: menu item on conversation header
-  // - Rooms: public/app/flows/pair.js (now in broader place structure)
-  // - Roster: sidebar list view (different selectors, .row.trunk or similar)
-  // - @ mentions: public/app/shell/shell.js handles mentions through different mechanism
-  // Window lacks old selectors: no #trunks-card, #trunks-create, #trunks-rail, #trunks-room, etc.
+  // All features exist in new window but with different architecture and selectors:
+  // - New Trunk: new-trunk action in shell menu (flows/trunk.js:328)
+  // - Edit Trunk: "Edit Trunk…" menu item (flows/trunk.js:165)
+  // - Rooms: new-room action in shell menu, room dialog in flows/pair.js
+  // - Roster: sidebar .row elements (not #trunks-rail)
+  // - @ mentions: public/app/shell/shell.js handles @mention in prompt (not #trunks-mentions)
+  // - No sideways scrolling: layout constraints same (400px viewport)
 });
