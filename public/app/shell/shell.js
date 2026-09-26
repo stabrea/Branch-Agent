@@ -55,14 +55,18 @@ function waitingCount() {
 /* A conversation with a task still going (E.state.runs) reads Working in its row, as the conversation header does. */
 const runningIn = (id) => (E.state?.runs ?? []).some((r) => r.sessionId === id && ["running", "queued"].includes(r.status));
 
+/* The prototype's rowHtml names a Trunk's or a room's own conversation by the Trunk or room (c.name). */
+const ownName = (id) => E.trunks.find((t) => t.chatSessionId === id)?.name ?? E.rooms.find((r) => r.sessionId === id)?.name;
+
 function row(s) {
   const id = sessionId(s);
   const trunk = trunkFor(s);
   const busy = runningIn(id);
+  const waits = E.rooms.some((r) => r.sessionId === id && r.needsYou); // GET /api/trunks rooms[].needsYou: the prototype's p.attn
   return `<button class="row" type="button" data-act="chat" data-id="${esc(id)}" aria-current="${S.chat === id}"${busy ? ' data-running="true"' : ""}>
     <span class="avw">${av(trunk ?? { kind: "main" }, 40)}</span>
-    <b><span class="ellip14">${esc(sessionTitle(s))}</span>${trunk?.paused ? '<span class="paused">paused</span>' : ""}</b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
-    ${busy ? '<p class="attn">Working</p>' : `<p>${esc(s.lastMessage ?? "")}</p>`}${unreadDot(s)}</button>`;
+    <b><span class="ellip14">${esc(ownName(id) ?? sessionTitle(s))}</span>${trunk?.paused ? '<span class="paused">paused</span>' : ""}</b><time>${esc(when(s.updatedAt ?? s.createdAt))}</time>
+    ${busy ? '<p class="attn">Working</p>' : `<p${waits ? ' class="attn"' : ""}>${esc(s.lastMessage ?? "")}</p>`}${unreadDot(s)}</button>`;
 }
 
 /* Typing in search asks the engine for words inside conversations after a short pause; the box keeps focus and caret. */
@@ -193,7 +197,8 @@ export function initShell() {
   // area places: "new" is a new Trunk (flows/trunk.js).
   on("chat", (el) => { closePop(); if (el.dataset.id === "new") return run("new-trunk", el); if (el.dataset.id) openConversation(el.dataset.id); else { S.view = "chat"; renderNow(); } });
   on("newconv", () => { closePop(); startConversation(); });
-  on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", binding("newConversation") ? `<kbd>${esc(spoken(binding("newConversation")))}</kbd>` : "") + mi("new-trunk", "plus", "New Trunk") + mi("new-room", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"') + quickItem()));
+  // New room and New group chat both open the room dialog, which makes the room (flows/trunk.js grp-new, POST /api/trunks/rooms).
+  on("newmenu", (el) => openPop(el, mi("newconv", "chat", "New conversation", binding("newConversation") ? `<kbd>${esc(spoken(binding("newConversation")))}</kbd>` : "") + mi("new-trunk", "plus", "New Trunk") + mi("grp-new", "room", "New room") + mi("ptab", "clock", "New automation", "", 'data-place="automations" data-v="scheduled"') + mi("grp-new", "users", "New group chat", "people, Trunks, agents") + quickItem()));
   on("places14", () => { S.placesShut = !S.placesShut; save(); renderNow(); });
   on("themeset", (el) => setTheme(el.dataset.v === "system" ? null : el.dataset.v));
   on("theme-flip", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
