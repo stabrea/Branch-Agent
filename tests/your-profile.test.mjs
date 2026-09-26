@@ -89,6 +89,11 @@ test("a picture goes through the engine: only real PNG, JPEG, WebP or GIF bytes,
 test("a household person edits only their own profile, never the owner's or anybody else's", async (t) => {
   const f = await served(t);
   await f.toSam();
+  // Reading: their own profile and everybody's picture for the tiles; never the owner's profile with its time zone.
+  assert.equal((await f.call("GET", `/api/profiles/${f.sam.id}/about`)).body.name, "Sam");
+  assert.equal((await f.call("GET", "/api/profiles/owner/picture")).status, 200);
+  assert.equal((await f.call("GET", `/api/profiles/${f.kim.id}/picture`)).status, 200);
+  assert.equal((await f.call("GET", "/api/profiles/owner/about")).body.error, householdRefusal);
   // The owner's: the household sentence, at the one place src/server.ts answers it.
   for (const path of ["/api/profiles/owner/about", "/api/profiles/owner/picture", "/api/profiles/owner/picture/remove"]) {
     const answer = await f.call("POST", path, { name: "Mallory", picture: PNG });

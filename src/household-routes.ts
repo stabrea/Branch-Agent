@@ -254,7 +254,12 @@ const read = (path: string, why: string): HouseholdRead => ({
 export const householdReads: readonly HouseholdRead[] = [
   // What the window reads as it opens.
   read("/api/state", "the window's snapshot, narrowed to the person's own records (Q258, src/household-state.ts)"),
-  read("/api/profiles", "who is on this computer and who is at the window: names only, the way back to the owner"),
+  read("/api/profiles", "who is on this computer and who is at the window: names and faces only, the way back to the owner"),
+  // your-profile: each person's own profile to edit, and everybody's picture for their tile (the owner's time zone,
+  // in /api/profiles/owner/about, is left out).
+  read("/api/profiles/:id/about", "one person's name and face; only that person may change them (src/person-about.ts)"),
+  read("/api/profiles/:id/picture", "one person's picture, for their tile"),
+  read("/api/profiles/owner/picture", "the owner's picture, for the owner's tile"),
   read("/api/lock", "whether Branch is locked, which the lock screen needs while nothing else answers"),
   read("/api/look", "the window's look and language"),
   read("/api/events/stream", "live events, following who is at the window (#339)"),
