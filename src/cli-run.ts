@@ -9,6 +9,7 @@ import { allowTestsRefusal } from "./coding/project-tests.js";
 import { allowTestsIdleNote } from "./code-change.js"; // mac7/smoke-fixes (B6)
 import type { ImagePart } from "./contracts.js";
 import { unkeyedAlwaysRefusal } from "./runtime.js";
+import { lockdownActive } from "./lockdown.js";
 
 /**
  * `branch run` for scripts: what the flags mean, what comes out (a JSON Lines event stream with
@@ -261,6 +262,9 @@ export function answerFromCommand(runtime: Runtime, id: string, answer: string):
   // The CLI path cannot offer "just this once" like an attended UI can, so refuse and ask the user
   // to run the task again where they can choose the right scope.
   if (noAlways) throw new Error(`${unkeyedAlwaysRefusal}. Run the task again and choose your answer when it asks.`);
+  // unhold-approvals: this answer is kept for good, and a rule written into Lockdown's list is lost when it ends.
+  if (lockdownActive(runtime.store, runtime.owner))
+    throw new Error("Lockdown is on, so a yes cannot be kept for good. Answer it in the app window, just now or for this conversation.");
   // The question carried the fingerprint of the exact bytes it was put for, so the answer given
   // here is bound to them: a task that asks for something different next time asks again.
   const fingerprint = String(asked.data.fingerprint ?? "");

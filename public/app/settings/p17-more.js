@@ -1,8 +1,10 @@
 /* Pass 17's rows on the smaller Settings pages (prototype patch17b), each at its own level:
    Gateway › Never break opens the journal of updates tried, kept or rolled back (GET /api/never-break/journal);
    "Try a bad change" would break the running engine on purpose, so it stays greyed. Saved sign-ins › the password
-   manager is chosen where the sign-ins are kept (security-held, greyed), shown pressed from the engine's own list of
-   services. Every other row here has no readout in the window yet, so it is drawn and greyed. */
+   manager is shown pressed from the engine's own list of services (GET /api/credentials/settings; the engine calls
+   1Password "1password") and chosen in pages/secrets.js. Windows Credential Manager is not a service the engine can
+   ask, so that one choice is drawn and greyed. Every other row here has no readout in the window yet, so it is drawn
+   and greyed. */
 import { esc } from "../core/dom.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
@@ -30,11 +32,14 @@ async function openJournal() {
 
 /* ---------- Saved sign-ins ---------- */
 const VAULT = { bitwarden: "Bitwarden fills sign-ins; Branch never sees them.", onepassword: "1Password fills sign-ins; Branch never sees them.", windows: "Windows Credential Manager, on this computer only." };
+/** The prototype's choice for each service the engine knows, and back. */
+export const VAULT_SERVICE = { bitwarden: "bitwarden", onepassword: "1password" };
 export function secrets17(lv, services) {
   if (lv < 1) return "";
-  const cur = ["bitwarden", "onepassword", "windows"].find((v) => (services ?? []).includes(v)) ?? null;
-  return sec17(t("window.settings.p17-more.where-passwords-come-from"), seg15(t("window.settings.p17-more.password-manager"), cur ? say(VAULT[cur]) : "", [["bitwarden", t("vault-autofill.service.bitwarden")], ["onepassword", t("vault-autofill.service.1password")], ["windows", "Windows"]], cur, "vaultb17")
-    + demos17(["keys", "locker", "tokens"]));
+  const cur = Object.keys(VAULT_SERVICE).find((v) => (services ?? []).includes(VAULT_SERVICE[v])) ?? null;
+  const seg = seg15(t("window.settings.p17-more.password-manager"), cur ? say(VAULT[cur]) : "", [["bitwarden", t("vault-autofill.service.bitwarden")], ["onepassword", t("vault-autofill.service.1password")], ["windows", "Windows"]], cur, "vaultb17")
+    .replace('data-act="vaultb17" data-v="windows"', 'data-act="vaultwinb17" data-v="windows"'); // no engine service: greyed
+  return sec17(t("window.settings.p17-more.where-passwords-come-from"), seg + demos17(["keys", "locker", "tokens"]));
 }
 
 /* ---------- the rest, by page ---------- */

@@ -375,6 +375,11 @@ export interface RunOptions {
 }
 /** Q182: why only the owner gives a standing yes. */
 export const ownersStandingYes = "A standing yes is the owner's to give. Answer this just now, or for this conversation.";
+/**
+ * unhold-approvals: while Lockdown is on the saved rules are Lockdown's own, and it puts the owner's back when it ends,
+ * so a standing yes kept now would do nothing and then be lost. It is refused, and the question keeps waiting.
+ */
+export const lockdownStandingYes = "Lockdown is on, so a yes cannot be kept for good. Answer this just now, or for this conversation.";
 /** Q182: whether a standing yes may be given here: by the owner at the window, never with a short-lived key (NAS 68eb8b2). */
 export const mayGiveStandingYes = (store: Store): boolean => store.profiles.isOwner() && !startedWithShortLivedKey();
 
@@ -2961,6 +2966,8 @@ ${run.output.slice(0, 6000)}`;
     // Q182 (NAS 68eb8b2): a flow carried on by a key or away from the owner takes its question's "always" as
     // "for this conversation": it may carry on, but never writes a standing rule into the owner's policy.
     if (remember === "always" && !mayGiveStandingYes(this.store)) remember = "session";
+    // unhold-approvals: under Lockdown the same holds, since a rule written into Lockdown's list is lost when it ends.
+    if (remember === "always" && lockdownActive(this.store, this.owner)) remember = "session";
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     if (remember === "always" && this.registry.noStandingTarget(about.tool, about.target)) throw new Error(unkeyedAlwaysRefusal);
@@ -3260,6 +3267,7 @@ ${run.output.slice(0, 6000)}`;
     // at the window (a household profile) answers just now or for the conversation; setting Branch up is the owner's.
     if (remember === "always" && !mayGiveStandingYes(this.store)) throw new Error(ownersStandingYes);
     if (remember === "always" && waiting.noStanding) throw new Error(noStandingRefusal); // Q59
+    if (remember === "always" && lockdownActive(this.store, this.owner)) throw new Error(lockdownStandingYes); // unhold-approvals
     // FQ-execution.browser: checked before anything is kept, so a refused "always" leaves the question waiting.
     if (remember === "always" && this.registry.noStandingTarget(waiting.tool, waiting.target)) throw new Error(unkeyedAlwaysRefusal);
     // An answer that names a request must land on that request and no other. The only way to get

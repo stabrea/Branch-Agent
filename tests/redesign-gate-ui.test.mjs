@@ -1,7 +1,7 @@
 /**
  * Redesign merge gate (design/redesign/CONTRACT.md): in the new window, sign in with the session token, send a message
  * and see the reply stream in, and answer the approval card: the action's own verb lets it go ahead once, "Don't allow"
- * refuses it, and "Always allow" stays greyed out until a standing yes can be kept for one Trunk. A scripted model;
+ * refuses it, and "Always allow" keeps the owner's standing rule where the engine keeps one (never in Ask first). A scripted model;
  * nothing reaches a provider.
  */
 import test from "node:test";
@@ -19,6 +19,7 @@ import { startServer } from "../dist/server.js";
 const onboarded = (server) => fetch(new URL("/api/onboarding", server.url), { method: "POST",
   headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
 import { readPolicy, savePolicy } from "../dist/policy.js";
+import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 
 const scripted = { name: "scripted", async complete(request) {
   const last = request.messages.at(-1);
@@ -30,12 +31,13 @@ const scripted = { name: "scripted", async complete(request) {
   return { content: "Hello from Branch.", toolCalls: [] };
 } };
 
-async function signedIn(t) {
+async function signedIn(t, mode = null) {
   const root = await mkdtemp(join(tmpdir(), "branch-redesign-gate-"));
   const workspace = join(root, "workspace");
   const app = await createBranch({ workspace, dataDir: join(root, "data"), provider: scripted });
   const policy = readPolicy(app.store, app.runtime.owner);
   savePolicy(app.store, app.runtime.owner, { ...policy, rules: [{ tool: "files.write", decision: "ask" }, ...policy.rules] });
+  if (mode) saveConversationModeSettings(app.store, app.runtime.owner, mode);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   await onboarded(server);
   const browser = await chromium.launch({ headless: true });
@@ -45,7 +47,7 @@ async function signedIn(t) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  return { page, workspace };
+  return { page, workspace, app };
 }
 async function send(page, text) {
   await page.locator("#prompt").fill(text);
@@ -59,18 +61,30 @@ test("sign in, send a message, and the reply shows in the conversation", async (
   assert.match(await page.locator("#conversation").innerText(), /say hello/, "the message sent is in the conversation");
 });
 
-test("the approval card: the verb lets it go ahead once, Always allow is greyed out", async (t) => {
+test("the approval card: the verb lets it go ahead once; Ask first offers no Always allow", async (t) => {
   const { page, workspace } = await signedIn(t);
   await send(page, "write the note");
   const card = page.locator("#live-ask");
   await card.waitFor({ state: "visible", timeout: 30000 });
-  const always = card.getByRole("button", { name: "Always allow", exact: true });
-  assert.equal(await always.getAttribute("aria-disabled"), "true", "Always allow waits for Trunk-scoped rules");
+  // A new conversation starts in Ask first, which keeps no standing yes (Q59), so the card does not offer one.
+  assert.equal(await card.getByRole("button", { name: "Always allow", exact: true }).count(), 0, "no standing yes in Ask first");
   assert.equal(existsSync(join(workspace, "note.txt")), false, "nothing is written before the answer");
   await card.locator(".btn.pri").click();
   await page.locator("#conversation").getByText("Written.").waitFor({ timeout: 30000 });
   assert.equal(await readFile(join(workspace, "note.txt"), "utf8"), "hello");
   assert.equal(await page.locator("#live-ask").count(), 0, "the card is gone once answered");
+});
+
+test("the approval card: Always allow, where the engine keeps one, writes the owner's standing rule and goes ahead", async (t) => {
+  const { page, workspace, app } = await signedIn(t, { newConversation: "follow" });
+  await send(page, "write the note");
+  const card = page.locator("#live-ask");
+  await card.waitFor({ state: "visible", timeout: 30000 });
+  await card.getByRole("button", { name: "Always allow", exact: true }).click();
+  await page.locator("#conversation").getByText("Written.").waitFor({ timeout: 30000 });
+  assert.equal(await readFile(join(workspace, "note.txt"), "utf8"), "hello");
+  const kept = readPolicy(app.store, app.runtime.owner).rules.find((rule) => rule.tool === "files.write" && rule.decision === "allow");
+  assert.ok(kept, "the engine kept the standing yes as a rule of the owner's");
 });
 
 test("the approval card: Don't allow refuses it and nothing is written", async (t) => {

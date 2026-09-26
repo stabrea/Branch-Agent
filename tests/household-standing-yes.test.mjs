@@ -80,14 +80,15 @@ test("a household window is not offered Yes, always; the owner's window is", asy
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   if (await page.locator("#first-run").isVisible()) await page.locator("#first-run-done").click().catch(() => undefined);
-  const mine = await ask("owner.txt"); assert.ok(mine.includes("Yes, always"), `control: the owner is offered a standing yes: ${mine}`);
+  // The redesigned window's card: the tool's verb (once), "Always allow" (the standing yes) and "Don't allow".
+  const mine = await ask("owner.txt"); assert.ok(mine.includes("Always allow"), `control: the owner is offered a standing yes: ${mine}`);
   app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
   await page.reload();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  await page.waitForFunction(() => document.documentElement.dataset.household === "on", null, { timeout: 10000 });
+  // The redesigned window reads who is here (GET /api/profiles) with its first state, before it draws anything.
   const offered = await ask("sam.txt");
-  assert.ok(offered.includes("Yes, just now"), `Sam can still say yes: ${offered}`);
-  assert.equal(offered.includes("Yes, always"), false, `Sam is not offered a standing yes: ${offered}`);
+  assert.ok(offered.includes("Change it"), `Sam can still say yes: ${offered}`);
+  assert.equal(offered.includes("Always allow"), false, `Sam is not offered a standing yes: ${offered}`);
   assert.deepEqual(errors, []);
 });
 
