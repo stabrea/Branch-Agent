@@ -125,9 +125,9 @@ test("U2 at 400 px nothing scrolls sideways and the page fits", async (t) => {
   const raw = await page.evaluate(() => document.querySelector(".set-col").innerText.match(/\{[a-z]+\}/g));
   assert.equal(raw, null, "no {placeholder} is ever shown");
   await keyNowhere(page, KEY);
-  // The language is drawn in Settings › Appearance but greyed out (French: the skipped test below).
+  // The language picker in Settings › Appearance is live, offering only languages that really work (English, Français).
   await page.locator('[data-act="setpage"][data-v="appearance"]').click();
-  assert.equal(await page.locator("#lang").getAttribute("aria-disabled"), "true");
+  assert.notEqual(await page.locator("#lang").getAttribute("aria-disabled"), "true");
   assert.deepEqual(errors, []);
 });
 
