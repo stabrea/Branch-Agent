@@ -1,10 +1,12 @@
 /* The achievement celebration (design doc 7): when the engine has an achievement earned and not yet celebrated
    (GET /api/delight/achievements "fresh", only while achievements are on and not kept quiet), Bronze and Silver get a
    small note for seven seconds and Gold and up the big card with confetti. Each one shown is told to the engine
-   (POST /api/delight/told) so it never shows again; "Nice" closes the card. Looked at after a redraw, at most every 10 s. */
+   (POST /api/delight/told) so it never shows again; "Nice" closes the card. Looked at after a redraw (the engine's
+   events redraw the window) and every 15 s while achievements are on, at most every 10 s; never while they are off. */
 
 import { $, esc, applyCss, onRender } from "../core/dom.js";
 import { E } from "../core/state.js";
+import { D, followDelight } from "./scene.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { app, toast } from "../core/ui.js";
@@ -46,9 +48,18 @@ function show(a) {
 }
 
 /* One at a time, the highest tier first; the rest wait for the next look. */
-let later = null;
+let later = null, ticker = null;
+const wanted = () => !!D.settings?.achievements?.on && !D.settings.achievements.quiet;
+/* The light timer runs only while achievements are on and not kept quiet. */
+function syncTicker() {
+  const want = E.loaded && wanted() && !refused;
+  if (want && !ticker) ticker = setInterval(check, 15000);
+  else if (!want && ticker) { clearInterval(ticker); ticker = null; }
+  if (!want) { clearTimeout(later); later = null; }
+  return want;
+}
 async function check() {
-  if (!E.loaded || busy || refused) return;
+  if (!syncTicker() || busy) return;
   const wait = 10000 - (Date.now() - last);
   if (wait > 0) { clearTimeout(later); later = setTimeout(check, wait); return; }
   last = Date.now();
@@ -57,11 +68,12 @@ async function check() {
     const view = await api("delight/achievements");
     const next = (view.on ? view.fresh ?? [] : []).slice().sort((a, b) => TIERS.indexOf(b.tier) - TIERS.indexOf(a.tier))[0];
     if (next) { show(next); await api("delight/told", { ids: [next.id] }); }
-  } catch (error) { refused = true; toast(error.message); } finally { busy = false; }
+  } catch (error) { refused = true; syncTicker(); toast(error.message); } finally { busy = false; }
 }
 
 export function initCelebrate() {
   markLive(["ach-close"]);
   on("ach-close", () => $(".ach-big")?.remove());
-  onRender(check);
+  /* After a refresh the switches are read again first, so a look never goes out on switches that were just turned off. */
+  onRender(() => { followDelight().then(check); });
 }

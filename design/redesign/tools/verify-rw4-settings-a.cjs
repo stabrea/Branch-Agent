@@ -4,8 +4,7 @@
    the model presets). Run it only against a throwaway engine: it adds and removes a test profile and changes voice,
    pet, notification and calendar settings.
      BRANCH_DATA_DIR=<fresh dir> BRANCH_PORT=<port> node dist/cli.js start
-     PORT=<port> TOKEN=<hex> node design/redesign/tools/verify-rw4-settings-a.cjs
-   "System voice" is not clicked: On or Auto can open this computer's microphone. */
+     PORT=<port> TOKEN=<hex> node design/redesign/tools/verify-rw4-settings-a.cjs */
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
 
 const PORT = process.env.PORT, TOKEN = process.env.TOKEN;
@@ -79,10 +78,7 @@ async function voice(page) {
   wake = (await api("voice/wake")).settings.mode;
   check("f15-wake-word off", wake === "off", `mode=${wake}`);
 
-  await click(page, '[data-act="auto-read"][data-v="true"]');
-  check("auto-read Yes", (await api("voice/settings")).autoReadAloud === true);
-  await click(page, '[data-act="auto-read"][data-v="false"]');
-  check("auto-read No", (await api("voice/settings")).autoReadAloud === false);
+  for (const t of ["System voice", "Keep audio on this computer", "Read replies aloud"]) check(`not drawn (not in the design): ${t}`, (await page.locator(`.ctl > b:text-is("${t}")`).count()) === 0);
 
   const s = await api("voice/settings");
   const minutes = await page.locator('input[aria-label="Max duration"]').inputValue();

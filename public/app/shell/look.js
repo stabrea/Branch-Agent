@@ -8,6 +8,7 @@ import { renderNow } from "../core/dom.js";
 import { E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { toast } from "../core/ui.js";
+import { noticed } from "./scene.js";
 
 const KEY = "branch-looks";
 export const BASE = "slate";
@@ -102,22 +103,42 @@ function loadLocal() {
   L.accent = isHex(saved.accent) ? saved.accent.toUpperCase() : null;
 }
 
-/* Once the engine has let the window in: its theme and the catalogue, and light or dark from its preferences. */
+/* Light or dark from the engine's preferences. */
+function applyMode() {
+  const prefs = E.state?.preferences;
+  if (!prefs) return;
+  if (prefs.followSystem) delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = prefs.appearance === "daylight" ? "light" : "dark";
+}
+
+/* Once the engine has let the window in: its theme and the catalogue, and light or dark from its preferences. After
+   that, the look is read again whenever the window refreshes (a new E.state: the engine's events refresh it) and when
+   the window comes back into view, so a theme changed in the terminal (`branch theme`) reaches an open window. The
+   engine sends no event of its own for the look. */
+let seenState = null;
 export async function loadLook() {
-  if (L.asked || !E.loaded) return;
+  if (!E.loaded) return;
+  if (L.asked) { if (E.state !== seenState) rereadLook(); return; }
   L.asked = true;
+  seenState = E.state;
   loadLocal();
   try {
     [L.look, L.cat] = await Promise.all([api("look"), import("/theme-catalogue.js")]);
   } catch (error) { toast(error.message); }
-  const prefs = E.state?.preferences;
-  if (prefs) {
-    if (prefs.followSystem) delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = prefs.appearance === "daylight" ? "light" : "dark";
-  }
+  applyMode();
   applyLook();
   renderNow();
 }
+async function rereadLook() {
+  seenState = E.state;
+  const was = JSON.stringify(L.look), mode = document.documentElement.dataset.theme;
+  try { L.look = await api("look"); } catch (error) { toast(error.message); return; }
+  applyMode();
+  if (JSON.stringify(L.look) === was && document.documentElement.dataset.theme === mode) return;
+  applyLook();
+  renderNow();
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && L.asked) rereadLook(); });
 
 /* Picks a look: a catalogue theme goes to the engine; one of yours is worn by this window. */
 export async function wear(id) {
@@ -129,11 +150,14 @@ export async function wear(id) {
   } catch (error) { toast(error.message); }
   applyLook();
 }
-/* POST /api/preferences replaces the whole record, so every change is laid over what the engine last said. */
+/* POST /api/preferences replaces the whole record, so every change is laid over what the engine last said. Turning on
+   "follow the computer's light or dark" is told to the engine's achievements (the "follow-system" flag). */
 export async function savePrefs(change) {
   const prefs = E.state?.preferences;
   if (!prefs) return;
-  try { E.state.preferences = await api("preferences", { ...prefs, ...change }); } catch (error) { toast(error.message); }
+  const follows = change.followSystem === true && !prefs.followSystem;
+  try { E.state.preferences = await api("preferences", { ...prefs, ...change }); } catch (error) { toast(error.message); return; }
+  if (follows) await noticed({ what: "flag", flag: "follow-system" });
 }
 export async function setContrast(on) {
   try { L.look = await api("look", { contrast: on ? "more" : "standard" }); } catch (error) { toast(error.message); }

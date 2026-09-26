@@ -80,6 +80,7 @@ const close = () => { F.step = null; draw(); };
 /* Practice first: the old window's demo door, which finishes the first run with the engine (POST /api/onboarding). */
 async function practice() {
   try { await api("onboarding", { done: true }); } catch (error) { toast(error.message); return; }
+  toast("Practice mode: examples only until you choose a model.");
   go(3);
 }
 
