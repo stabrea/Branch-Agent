@@ -36,7 +36,7 @@ const here = () => (loopback(P.invite.link) ? `<p class="hint" data-css="margin:
 function phoneBody() {
   const code = spaced(P.invite.code);
   return `<div class="qr-wrap">${qr(P.invite.qr, 176)}<ol class="steps-list"><li>Open the Branch app on your phone.</li><li>Tap <b>Pair with a computer</b>.</li><li>Point the camera at this code.</li></ol></div>
-    <div class="alt12"><b>No camera?</b> Type this on the phone instead: <code>${esc(new URL(P.invite.link).host)}</code> and the code <code>${esc(code)}</code></div>${clock()}${here()}<p class="hint pair-wait" role="status" data-css="margin:0"></p>`;
+    <div class="alt12"><b>No camera?</b> Type this on the phone instead: <code>${esc(P.invite.link)}</code> and the code <code>${esc(code)}</code></div>${clock()}${here()}<p class="hint pair-wait" role="status" data-css="margin:0"></p>`;
 }
 function computerBody(waiting) {
   const command = `branch node pair "${P.invite.link}" ${P.invite.code}`;
@@ -136,7 +136,7 @@ async function decide(approve) {
   for (const listener of onPaired) listener();
   if (!approve) toast(t("pair.refused"));
   else if (PHONES.includes(r.platform)) toast("Paired. The phone is on this computer’s list of devices.");
-  else toast(`Paired with ${r.name}. Its Trunks show in the switcher.`);
+  else toast(t("pair.paired", { name: r.name }));
 }
 
 async function switchOn() {

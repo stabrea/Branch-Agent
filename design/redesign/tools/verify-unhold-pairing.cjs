@@ -1,7 +1,7 @@
 // Verifies the pairing and device controls made live on claude/unhold-pairing, against a FRESH engine (Devices off):
 // each control is clicked in the real window and the change is read back from GET /api/devices. The phone and the
 // other computer are scripted stand-ins: an Ed25519 key made here answers the invitation over the engine's own open
-// pairing door (POST /api/devices/pair), with the number read off the dialog, exactly as a device would.
+// pairing door (POST /api/devices/pair), with the link and number read off the dialog, exactly as a device would.
 //   BRANCH_DATA_DIR=<fresh dir> BRANCH_WORKSPACE=<fresh dir> BRANCH_PORT=<port> node dist/cli.js start
 // Run: PORT=<port> TOKEN=<session token> node design/redesign/tools/verify-unhold-pairing.cjs
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
@@ -28,10 +28,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(fn, ms = 10000) { const end = Date.now() + ms; for (;;) { const v = await fn().catch(() => null); if (v) return v; if (Date.now() > end) return v; await wait(150); } }
 
 /* A stand-in device: its own key, answering the invitation the dialog shows, with no session key at all. */
-async function standIn(page, name, platform, codeSelector) {
+/* Everything it sends is read off the dialog (the link carries the invitation's id); nothing comes from the owner's API. */
+async function standIn(page, name, platform, codeSelector, linkSelector) {
   const key = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).toString("base64");
   const code = (await page.locator(codeSelector).first().innerText()).replace(/\D/g, "");
-  const offer = (await api("devices")).invitation?.id;
+  const offer = /offer=([a-f0-9]{32})/.exec(await page.locator(linkSelector).first().innerText())?.[1];
   const answer = await call("devices/pair", { offer, code, name, platform, publicKey: key }, null);
   if (answer.status !== 200) throw new Error(`the stand-in ${name} could not answer: ${answer.status} ${answer.body.error ?? ""}`);
   return answer.body.requestId;
@@ -68,7 +69,7 @@ async function pairComputer(page, stamp) {
   const shown = (await page.locator(".dlg .ko-code").innerText()).replace(/\D/g, "");
   check("comp-add-go (pair)", /^\d{6}$/.test(shown) && (await page.locator(".dlg .pair-cmd15").innerText()).includes(view.invitation.id), "the dialog shows the six-digit number and the link of the invitation GET /api/devices has on offer");
   const name = `Studio ${stamp}`;
-  const requestId = await standIn(page, name, "linux", ".dlg .ko-code");
+  const requestId = await standIn(page, name, "linux", ".dlg .ko-code", ".dlg .pair-cmd15");
   await page.locator('.dlg [data-act="pair-letin"]').waitFor({ timeout: 8000 });
   const waiting = (await api("devices")).requests.find((r) => r.id === requestId);
   const text = await page.locator(".dlg-b").innerText();
@@ -93,7 +94,7 @@ async function refuseFromCodeTab(page, stamp) {
   await page.locator(".dlg .ko-code").waitFor();
   check("ac-tab (With a code)", !!(await api("devices")).invitation, "switching to the tab made an invitation (GET /api/devices)");
   const name = `Stranger ${stamp}`;
-  const requestId = await standIn(page, name, "win32", ".dlg .ko-code");
+  const requestId = await standIn(page, name, "win32", ".dlg .ko-code", ".dlg .pair-cmd15");
   await page.locator('.dlg [data-act="pair-refuse"]').waitFor({ timeout: 8000 });
   await page.locator('.dlg [data-act="pair-refuse"]').click();
   await wait(500);
@@ -121,7 +122,7 @@ async function phone(page, stamp) {
   check("closing the dialog cancels", await until(async () => (await api("devices")).invitation === null), "GET /api/devices has no invitation after the close button");
   await open();
   const name = `Phone ${stamp}`;
-  await standIn(page, name, "ios", ".dlg .alt12 code:nth-of-type(2)");
+  await standIn(page, name, "ios", ".dlg .alt12 code:nth-of-type(2)", ".dlg .alt12 code:nth-of-type(1)");
   await page.locator('.dlg [data-act="ph-paired-dlg"]').click();
   await page.locator('.dlg [data-act="pair-letin"]').waitFor({ timeout: 4000 });
   check("ph-paired-dlg", true, "the phone's waiting request is shown at once");
