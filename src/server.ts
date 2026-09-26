@@ -109,6 +109,7 @@ import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-
 // mac2/fly-core-2: the learning core's owner routes.
 import { handlesLearningCorePath, learningCoreApi, LearningCoreApiError } from "./fly-core-api.js";
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
+import { conversationPathsApi, conversationPathsRoute, readMarksPath } from "./conversation-paths-api.js";
 import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
@@ -1145,8 +1146,14 @@ async function api(
     });
   // A phone-sized list of conversations. It goes through the same door and needs the same key as
   // everything else, so a paired phone can pick up what was started at the computer.
-  if (request.method === "GET" && path === "/api/sessions")
-    return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
+  if (request.method === "GET" && path === "/api/sessions") {
+    const scope = app.store.profiles.scope();
+    const recent = app.store.recentSessions(scope, Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
+    // Pass 17: whether each has something the person has not seen (src/read-marks.ts).
+    return { ...recent, sessions: recent.sessions.map((s) => ({ ...s, unread: app.store.readMarks.unread(scope, s.sessionId) })) };
+  }
+  // Pass 17: named paths of a conversation, leaving a message out of context, and read marks.
+  if (conversationPathsRoute.test(path) || path === readMarksPath) return conversationPathsApi(app, request, path, () => readBody(request));
   // Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
   if (path === "/api/goals" || path === "/api/goal-undo/settings" || /^\/api\/sessions\/[a-f0-9-]{36}\/(goal|rewind|unrevert)$/.test(path))
     return goalUndoApi(app, request, path);

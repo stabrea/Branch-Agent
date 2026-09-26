@@ -501,6 +501,7 @@ export const ROUTES = {
   "/api/reach/usb/remove": "owner POST",
   "/api/reach/usb/rules": "owner POST",
   "/api/reach/video/settings": "owner POST",
+  "/api/read-marks": "other POST", // pass 17: which conversations and Inbox items were seen; never answers anything
   // ---- end of the r17-i block ----
   // ---- r17-h: flows and boards (src/flows-boards/api.ts); reading is looking, every change is the owner's ----
   "/api/flows-boards": "look",
@@ -950,16 +951,19 @@ export const ROUTES = {
   "/api/sessions": "look",
   "/api/sessions/": "prefix",
   "/api/sessions/:id": "look",
+  "/api/sessions/:id/branch": "other POST", // pass 17: a named path of the conversation, copied like duplicate
   "/api/sessions/:id/context": "look",
   "/api/sessions/:id/cost": "look", // DG-101: what the conversation probably cost, for the line under the box
   "/api/sessions/:id/discard": "other POST",
   "/api/sessions/:id/duplicate": "other POST",
   "/api/sessions/:id/export": "look",
   "/api/sessions/:id/followups": "task POST",
+  "/api/sessions/:id/left-out": "other POST", // pass 17: kept in the conversation, never sent to the model
   "/api/sessions/:id/goal": "task POST",
   "/api/sessions/:id/memory-policy": "owner POST",
   "/api/sessions/:id/merge-note": "other POST",
   "/api/sessions/:id/model": "task POST",
+  "/api/sessions/:id/paths": "look",
   "/api/sessions/:id/pins": "other POST",
   "/api/sessions/:id/rewind": "other POST",
   "/api/sessions/:id/share": "owner POST",
