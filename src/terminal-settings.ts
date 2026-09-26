@@ -24,7 +24,7 @@ const switchWord = (words: Words, value: string): string =>
 
 function appearance(words: Words, state: SettingsState): Row[] {
   const mode = { dark: words.t("look.mode.dark", "Dark"), light: words.t("look.mode.light", "Light"), follow: words.t("look.mode.follow", "Follow this computer") }[state.mode];
-  const language = state.look.language === "auto" ? words.t("terminal.settings.languageAuto", "Same as this computer") : state.look.language === "fr" ? "Français" : "English";
+  const language = state.look.language === "auto" ? words.t("terminal.settings.languageAuto", "Same as this computer") : state.look.language === "fr" ? "Français" : state.look.language === "es" ? "Español" : "English";
   const s = state.switches;
   return [
     { title: `${words.t("look.theme", "Theme")}: ${state.themeName}`, detail: words.t("terminal.settings.themeDetail", "All 44 themes, shared with the window. Enter shows them."), command: "/theme list" },

@@ -12,7 +12,7 @@ import { S, E, level } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 /* The pass-17 icons this panel draws, as patch17c.js draws them. */
 Object.assign(ICONS, {
@@ -78,7 +78,7 @@ export const everyStepItem = (runId) => (runId ? mi("tlopen17c", "tl17c", t("win
 const dur = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s` : `${s < 10 ? s.toFixed(1) : Math.round(s)} s`);
 const money = (n) => `$${n.toFixed(2)}`;
 const clock = (at) => { const d = new Date(at); return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }); };
-const nums = (n) => (typeof n === "number" ? n.toLocaleString() : "");
+const nums = (n) => (typeof n === "number" ? n.toLocaleString(language()) : "");
 
 /* Who took a step: a helper by its name, the owner as "You", everything else the conversation's Trunk or Branch. */
 function author() {

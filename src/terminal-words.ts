@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 
 /**
  * The words the terminal says, from the same language files the window reads
- * (`public/locales/*.json`). English is the source of truth; French answers the same keys and falls
+ * (`public/locales/*.json`). English is the source of truth; French and Spanish answer the same keys and falls
  * back to English wherever it does not, exactly as `public/i18n.js` does in the window.
  */
-export type Language = "en" | "fr";
+export type Language = "en" | "fr" | "es";
 export interface Words {
   language: Language;
   /** The word for a key, with {name} places filled in; the English given is the last fallback. */
