@@ -52,5 +52,16 @@ for (const f of files) {
     }
   });
 }
+// bugfix-9: the window's words now live in the locale files too (t()), so the words-only rules read every English
+// value there. Setup's describe-yourself hint keeps the prototype's placeholder, as setup.js did.
+const WORDS_ONLY = new Set(["prototype example name", "prototype example Trunk", "prototype example model",
+  "count written into words (use the engine's count or none)", "a time or count written in that the engine or window decides"]);
+const LOCALE_EXEMPT = { "window.flows.setup.describe-hint": ["prototype example name"] };
+for (const [key, value] of Object.entries(JSON.parse(readFileSync("public/locales/en.json", "utf8")))) {
+  for (const [re, why] of RULES) {
+    if (!WORDS_ONLY.has(why) || LOCALE_EXEMPT[key]?.includes(why)) continue;
+    if (re.test(`"${value}`)) { console.log(`public/locales/en.json ${key}: ${why}: ${`"${value}`.match(re)[0].trim()}`); bad++; }
+  }
+}
 console.log(bad ? `${bad} fake or forbidden thing(s)` : "fakes ok");
 process.exit(bad ? 1 : 0);
