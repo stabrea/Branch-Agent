@@ -86,11 +86,23 @@ function requireSelf(profiles: Profiles, who: string): void {
   if (profiles.isOwner() || profiles.active()?.id !== who) throw new Error("Only that person can change their own profile.");
 }
 
+/**
+ * Refuses a name somebody else here already goes by, whatever the case: two people with one name would make "Switch to"
+ * and "Back to" ambiguous at the keyboard. `who` is the one taking it ("owner", a profile id, or null for somebody new).
+ */
+export function refuseTakenName(app: Branch, name: string, who: string | null): void {
+  const wanted = name.trim().toLowerCase();
+  const owners = who === "owner" ? null : text(saved(app.store, app.runtime.owner, "owner").name);
+  const taken = owners?.toLowerCase() === wanted || app.store.profiles.list().some((p) => p.id !== who && p.name.toLowerCase() === wanted);
+  if (taken) throw new Error("Someone here already uses that name");
+}
+
 function saveAbout(app: Branch, who: string, input: unknown): About {
   const { store } = app, owner = app.runtime.owner, profiles = store.profiles;
   const value = who === "owner" ? OwnerAboutSchema.parse(input ?? {}) : PersonAboutSchema.parse(input ?? {});
   const before = aboutOf(app, who);
   const { name, ...rest } = value as z.infer<typeof OwnerAboutSchema>;
+  if (typeof name === "string" && name !== before.name) refuseTakenName(app, name, who);
   if (who !== "owner" && name !== undefined && name !== null && name !== before.name) profiles.rename(who, name);
   const next = { ...saved(store, owner, who), ...rest, ...(who === "owner" && name !== undefined ? { name } : {}) };
   if (next.face === "photo" && !faceOf(store, owner, who).picture) throw new Error("Add a photo first");

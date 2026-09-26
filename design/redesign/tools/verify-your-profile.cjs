@@ -119,6 +119,15 @@ async function everywhere(page) {
   await page.keyboard.press("Escape");
   await page.locator('#side .nav[data-v="overview"]').click();
   check("Overview: Who is using Branch shows Robin with the photo", await until(async () => (await page.locator("#main .tile .photo-yp img").count()) >= 1 && /Robin/.test(await page.locator("#main").innerText())));
+  await page.locator('#side .nav[data-v="automations"]').click();
+  await page.locator("#nl-in").fill("every day at 08:00 water the plants");
+  const asked = page.waitForResponse((r) => r.url().includes("/api/schedules/propose") && r.request().method() === "POST");
+  await page.locator('[data-act="nl-add"]').click();
+  const answer = await asked, sent = JSON.parse(answer.request().postData() ?? "{}"), got = await answer.json();
+  check("Automations: the window proposes a schedule in your time zone (POST /api/schedules/propose)", sent.timezone === "Asia/Tokyo", sent.timezone);
+  check("Automations: the engine's proposal is in it", got.proposal?.schedule?.timezone === "Asia/Tokyo" && /Asia\/Tokyo/.test(got.proposal?.words ?? ""), got.proposal?.words);
+  await page.locator('[data-act="ppno17d"]').waitFor();
+  await page.locator('[data-act="ppno17d"]').click();
   await page.locator('#side .nav[data-v="team"]').click();
   await page.locator('#main .tab[data-v="people"], #main [data-act="ptab"][data-v="people"]').first().click();
   check("Team › People: Robin, with the photo", await until(async () => (await page.locator("#main .t9-item .photo-yp img").count()) >= 1 && /Robin/.test(await page.locator("#main .t9-list").innerText())));

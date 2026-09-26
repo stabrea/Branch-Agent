@@ -54,6 +54,10 @@ test("the owner names themselves, picks a face and a time zone, and every tile r
   assert.equal(after.owner.name, "Robin");
   assert.deepEqual(after.owner.avatar, { face: "emoji", color: "#2f8c86", emoji: "🦊", picture: null });
   assert.equal((await f.call("GET", "/api/profiles/owner/about")).body.timezone, "Europe/Paris");
+  assert.equal(after.owner.timezone, "Europe/Paris", "the owner's own window is told the zone it proposes schedules in");
+  // Nobody here shares a name: not somebody new, and not the owner taking a person's.
+  assert.match((await f.call("POST", "/api/profiles", { name: "robin", pin: "1111" })).body.error, /already uses that name/);
+  assert.match((await f.call("POST", "/api/profiles/owner/about", { name: "SAM" })).body.error, /already uses that name/);
   // Schedules proposed without a time zone are proposed in the owner's.
   const proposed = await f.call("POST", "/api/schedules/propose", { edit: { prompt: "Water the plants", dailyAt: "08:00" } });
   assert.equal(proposed.status, 200, JSON.stringify(proposed.body));
@@ -88,7 +92,10 @@ test("a picture goes through the engine: only real PNG, JPEG, WebP or GIF bytes,
 
 test("a household person edits only their own profile, never the owner's or anybody else's", async (t) => {
   const f = await served(t);
+  assert.equal((await f.call("POST", "/api/profiles/owner/about", { name: "Robin", timezone: "Europe/Paris" })).status, 200);
   await f.toSam();
+  assert.equal((await f.call("GET", "/api/profiles")).body.owner.timezone, undefined, "a household window is not told the owner's time zone");
+  assert.match((await f.call("POST", `/api/profiles/${f.sam.id}/about`, { name: "ROBIN" })).body.error, /already uses that name/, "not the owner's name either");
   // Reading: their own profile and everybody's picture for the tiles; never the owner's profile with its time zone.
   assert.equal((await f.call("GET", `/api/profiles/${f.sam.id}/about`)).body.name, "Sam");
   assert.equal((await f.call("GET", "/api/profiles/owner/picture")).status, 200);
@@ -118,7 +125,7 @@ test("a household person edits only their own profile, never the owner's or anyb
   assert.equal(me.name, "Samira");
   assert.equal(me.avatar.face, "photo");
   assert.equal(list.active.name, "Samira");
-  assert.equal(list.owner.name, null, "the owner's profile is untouched");
+  assert.equal(list.owner.name, "Robin", "the owner's profile is untouched");
   assert.equal(list.profiles.find((p) => p.id === f.kim.id).name, "Kim");
   // The owner, switched back, may not change Samira's either.
   await f.back();

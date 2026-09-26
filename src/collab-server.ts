@@ -8,7 +8,7 @@ import { audit } from "./audit.js";
 import { labelTargets } from "./labels.js";
 import { PolicyRememberSchema } from "./policy.js";
 import { roleLabels } from "./profile-roles.js";
-import { aboutOf, faceOf, forgetAbout, personAboutApi } from "./person-about.js"; // your-profile
+import { aboutOf, faceOf, forgetAbout, personAboutApi, refuseTakenName } from "./person-about.js"; // your-profile
 import { ownerMember, publishGitPatch, reservedKinds } from "./collab-events.js";
 
 /**
@@ -200,7 +200,9 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
     const owner = app.runtime.owner;
     return { profiles: profiles.list().map((profile) => ({ ...profile, avatar: faceOf(app.store, owner, profile.id) })),
       active: profiles.active(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn(),
-      owner: { name: aboutOf(app, "owner").name, avatar: faceOf(app.store, owner, "owner") },
+      owner: { name: aboutOf(app, "owner").name, avatar: faceOf(app.store, owner, "owner"),
+        // The time zone the window proposes schedules in; only the owner's own window is told it.
+        ...(profiles.isOwner() ? { timezone: aboutOf(app, "owner").timezone } : {}) },
       // Batch 26 (wave 8): what each person may have Branch do, for the card beside their name.
       roles, roleLabels };
   }
@@ -210,6 +212,8 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
     // never left behind as an Adult by a second call that failed.
     const { role, ...person } = (await body() ?? {}) as { role?: unknown };
     const chosen = NewPersonRoleSchema.parse(role);
+    const named = (person as { name?: unknown }).name;
+    if (typeof named === "string") refuseTakenName(app, named, null); // your-profile: never the owner's own name either
     const made = profiles.create(person);
     if (chosen !== "adult") app.runtime.roles.save(made.id, { role: chosen });
     // unhold/people: who was added and as what is written down; the PIN never is.
