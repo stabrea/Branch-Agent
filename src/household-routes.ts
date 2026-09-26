@@ -234,6 +234,19 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
 const householdViews: readonly RegExp[] = [/^\/api\/voice\/wake$/, /^\/api\/voice\/dictation(\/|$)/];
 
 /**
+ * Q259: reads a short-lived key may make that a household person may not. The pairing link hands out a code saved in
+ * the owner's settings (reading it saves one) for another install to add this one; pairing is the owner's, as the
+ * rest of this file says. The morning brief's preview is gathered from the owner's schedules, stopped tasks, documents,
+ * watched pages and reminders, and the research reports are the owner's; neither has a part that is the person's.
+ */
+const householdRefusedReads: readonly RegExp[] = [/^\/api\/agents\/pairing$/, /^\/api\/brief$/, /^\/api\/research$/];
+
+/** Q259: true when a household person at the window is refused this read, though a short-lived key may make it. */
+export function householdRefusedRead(method: string | undefined, path: string): boolean {
+  return (method ?? "GET") === "GET" && householdRefusedReads.some((pattern) => pattern.test(path));
+}
+
+/**
  * True when a household person at the window may send this, whatever a short-lived key may. A GET
  * listed above as a person's own (the household's signed events) is theirs to read, though a
  * short-lived key is still refused it (src/short-lived-keys.ts, ownerOnlyReads).
