@@ -3244,3 +3244,27 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
   .test-b17{flex-wrap:wrap}
   .test-b17 .btn{flex:1}
 }
+||||||| parent of 36b5c146 (feat(window): pass 17 settings rows and their words, with a stand-in for the shared demo rows)
+||||||| parent of 896078de (feat(window): pass 17 settings rows and their words, with a stand-in for the shared demo rows)
+/* area: p17 settings (prototype patch17b: rule tester, network sentences, why is this set, move in, compare, savings) */
+.lead-b17{margin:0;color:var(--ink-2);font-size:13.5px;line-height:1.5}
+.why-b17 .grow{display:grid;gap:2px;min-width:0}
+.why-b17 small{font-size:12px;color:var(--ink-3);overflow-wrap:anywhere}
+.s3-b17{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:0}
+.opts-b17{display:grid;gap:8px}
+.opts-b17 .upd-o15[disabled]{opacity:.5;cursor:default}
+.chips-b17{display:flex;flex-wrap:wrap;gap:6px}
+.chip-b17{height:28px;padding:0 11px;border-radius:14px;border:1px solid var(--line-2);background:var(--raise);font-size:12.5px;color:var(--ink-2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip-b17:hover{color:var(--ink);border-color:var(--ink-3)}
+.tbl-b17{width:100%;border-collapse:collapse;font-size:13px}
+.tbl-b17 th{text-align:left;font-size:11.5px;font-weight:600;color:var(--ink-3);padding:6px 8px;border-bottom:1px solid var(--line-2)}
+.tbl-b17 td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl-b17 td:not(:first-child),.tbl-b17 th:not(:first-child){text-align:right;white-space:nowrap}
+.test-b17{display:flex;gap:8px;align-items:center}
+.test-b17 .inp{flex:1;min-width:0}
+.res-line-b17{display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border-radius:12px;background:var(--fill)}
+.res-line-b17 .pill{margin-left:0}
+.res-line-b17>span:last-child{display:grid;gap:2px}
+.res-line-b17 small{font-size:12px;color:var(--ink-3)}
+.fw-b17{margin:0;padding-left:20px;display:grid;gap:8px;font-size:13.5px;line-height:1.5}
+@media (max-width:640px){.s3-b17{grid-template-columns:minmax(0,1fr)}.test-b17{flex-wrap:wrap}.test-b17 .btn{flex:1}}

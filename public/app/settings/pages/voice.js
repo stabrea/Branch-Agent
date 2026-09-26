@@ -11,6 +11,7 @@ import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast } from "../../core/ui.js";
 import { ctl, ctlSeg } from "../parts.js";
+import { voice17 } from "../p17-more.js";
 
 const V = { settings: null, comfort: null, dictation: null, wake: null, voices: [] };
 
@@ -100,7 +101,7 @@ function liveConversations() {
 
 export function draw() {
   const lv = level();
-  return `<h1>Voice</h1><p class="lede">Talking to Branch. Voice stays on this computer.</p>${talking()}${speakingBack()}${lv >= 1 ? listeningMore() + liveConversations() : ""}`;
+  return `<h1>Voice</h1><p class="lede">Talking to Branch. Voice stays on this computer.</p>${talking()}${speakingBack()}${lv >= 1 ? listeningMore() + liveConversations() : ""}${voice17(lv)}`;
 }
 
 export function init() {

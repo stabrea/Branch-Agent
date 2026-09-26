@@ -7,6 +7,8 @@ import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast, ic } from "../../core/ui.js";
+import { secrets17 } from "../p17-more.js";
+import { level as level17 } from "../../core/state.js";
 
 const MASK = "••••••••";
 let vault = null;
@@ -42,5 +44,5 @@ function rows() {
 export function draw() {
   const bitwarden = credentials?.enabled && (credentials.services ?? []).includes("bitwarden");
   const status = bitwarden ? `<div class="status"><span class="sdot "></span><div><b>Bitwarden is connected</b><p>Branch asks Bitwarden to fill a sign-in; you approve each one the first time.</p></div></div>` : "";
-  return `<h1>Saved sign-ins</h1><p class="lede">Sign-ins Branch may fill for you. It never sees or stores the passwords.</p>${status}<div class="sec"><h2>Branch may fill</h2><div class="rows">${rows()}</div></div>`;
+  return `<h1>Saved sign-ins</h1><p class="lede">Sign-ins Branch may fill for you. It never sees or stores the passwords.</p>${status}<div class="sec"><h2>Branch may fill</h2><div class="rows">${rows()}</div></div>${secrets17(level17(), credentials?.services)}`;
 }

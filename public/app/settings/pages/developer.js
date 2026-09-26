@@ -9,6 +9,8 @@ import { toast } from "../../core/ui.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
+import { developer17 } from "../p17-more.js";
+import { level as level17 } from "../../core/state.js";
 
 const D = { ls: null, dbg: null, interop: null, counters: null, loop: null, comfort: null, tracing: null };
 const onMode = (mode) => (mode ? mode !== "off" : false);
@@ -55,7 +57,7 @@ export function draw() {
     + sw("Find Branch on other computers nearby", "Tools and models on your network.")
     + sw("Is Branch keeping up", "Warns when the engine stalls for more than 5 seconds.")
     + sw("Save task trajectories", "Every step as JSON Lines, for analysis."));
-  return html;
+  return html + developer17(level17());
 }
 
 async function loadAll() {

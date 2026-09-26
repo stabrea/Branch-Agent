@@ -8,6 +8,7 @@ import { markLive } from "../../core/features.js";
 import { ic, toast } from "../../core/ui.js";
 import { logo } from "../../core/logos.js";
 import { A, allAccounts, loadAccounts, ownerOnly } from "../../flows/account.js";
+import { accounts17 } from "../p17-more.js";
 
 /* Which accounts are ticked while "Select several" is on (window state), by pool and id; null when it is off. */
 let picked = null;
@@ -49,7 +50,7 @@ export function draw() {
   html += `<div class="sec"><h2>keepoak.com</h2><div class="ko-card"><span class="ko-mark" aria-hidden="true"></span><span class="grow"><b>Your keepoak.com account</b><small>Have a KeepOak computer or a team on keepoak.com? Connect it once.</small></span><span class="pill idle" title="Branch does not link to keepoak.com today">Proposal</span></div>`
     + `<ul class="may6"><li>${ic("check", "s")}Your KeepOak computer joins the computer switcher, with its agents.</li><li>${ic("check", "s")}Your theme, saved colours and season follow you between computers and keepoak.com.</li><li>${ic("check", "s")}Your team workspace: members, shared Trunks and what they’re running.</li><li>${ic("check", "s")}Conversations, memory and keys stay on each computer. Nothing else is shared.</li></ul>`
     + `<div class="acts"><button class="btn pri" type="button" data-act="ko-start">Connect your keepoak.com account</button></div></div>`;
-  return html;
+  return html + accounts17(lev);
 }
 
 async function moveUp(el) {

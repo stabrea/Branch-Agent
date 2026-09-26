@@ -10,6 +10,7 @@ import { markLive } from "../../core/features.js";
 import { render, esc } from "../../core/dom.js";
 import { toast, ic } from "../../core/ui.js";
 import { id15, sw15, code15, sec15 } from "../rows15.js";
+import { gateway17, initMore17 } from "../p17-more.js";
 
 let gwData = null;
 const D = { reach: null, personal: null };
@@ -42,6 +43,7 @@ async function answerProposal(use) {
 }
 
 export function init() {
+  initMore17();
   loadGateway();
   on("gw-mode", (el) => {
     const next = el.dataset.v;
@@ -127,5 +129,5 @@ export function draw() {
   if (lev >= 1) html += chatMore();
   if (lev >= 2) html += fromScripts();
   if (lev >= 1) html += chatEvenMore();
-  return html;
+  return html + gateway17(lev);
 }

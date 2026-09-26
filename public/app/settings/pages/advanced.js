@@ -6,6 +6,7 @@ import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast, openDlg } from "../../core/ui.js";
 import { seg15 } from "../rows15.js";
+import { sections17, init17, load17 } from "../p17-advanced.js";
 
 /* The engine's own values: show the thinking (GET/POST /api/knobs, reasoning card, merged), the activity log
    (GET/POST /api/diagnostics/log/settings, merged; a three-way switch, on unless "off", turned on as "when-needed"),
@@ -117,7 +118,7 @@ export function draw() {
     html += "</div>";
   }
 
-  return html;
+  return html + sections17(lv);
 }
 
 /* GET /api/logs answers lines of JSON (what the owner's tasks wrote down, keys and passwords taken out), not one JSON
@@ -137,6 +138,7 @@ async function openLogs() {
 }
 
 export function init() {
+  init17();
   on("adv-logs", () => openLogs());
   markLive(["adv-logs", "sw:ad-think", "sw:ad-log"]);
   document.addEventListener("change", async (e) => {
@@ -148,6 +150,6 @@ export function init() {
   loadAll();
 }
 
-export async function load() { await loadAll(); }
+export async function load() { await Promise.all([loadAll(), load17()]); }
 
 export const live = { "adv-logs": true };

@@ -7,6 +7,7 @@ import { render, esc } from "../../core/dom.js";
 import { api } from "../../core/api.js";
 import { toast, ic } from "../../core/ui.js";
 import { setLockdown } from "../../chat/approvals.js";
+import { sections17, init17, load17 } from "../p17-permissions.js";
 
 const HEAD = `<h1>Permissions</h1><p class="lede">What Trunks may do without asking you first.</p>`;
 
@@ -100,7 +101,7 @@ export function draw() {
   let html = HEAD + osSection() + BASE_SWITCHES + PINNED;
   if (lev >= 1) html += RULES;
   if (lev >= 2) html += ISOLATION;
-  return fill(html);
+  return fill(html) + sections17(lev);
 }
 
 export function init() {
@@ -118,8 +119,11 @@ export function init() {
     await load();
   });
   load();
+  init17();
 }
 
-export { load };
+/* Re-opening the page re-reads both halves. */
+const reload = () => Promise.all([load(), load17()]);
+export { reload as load };
 
 

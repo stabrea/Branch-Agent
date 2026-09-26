@@ -12,6 +12,8 @@ import { esc, renderNow } from "../../core/dom.js";
 import { statusBox } from "../parts.js";
 import { seg15 } from "../rows15.js";
 import { logo } from "../../core/logos.js";
+import { level } from "../../core/state.js";
+import { sections17, init17 } from "../p17-usage.js";
 
 let usage = null;
 let range = "30";
@@ -157,10 +159,11 @@ async function loadRetention() {
 }
 
 export function draw() {
-  return `<h1>Data &amp; usage</h1><p class="lede">What each connection has left, what Branch spent, what it keeps.</p>` + reportCard() + limitsSec() + spendSec() + keeping() + evalCard();
+  return `<h1>Data &amp; usage</h1><p class="lede">What each connection has left, what Branch spent, what it keeps.</p>` + reportCard() + limitsSec() + spendSec() + keeping() + evalCard() + sections17(level());
 }
 
 export function init() {
+  init17();
   loadUsage();
   loadSuites();
   loadGlance();
