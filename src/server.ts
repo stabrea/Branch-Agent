@@ -127,6 +127,8 @@ import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/
 import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
 import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
 import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
+import { safetyMode } from "./safety-extras/settings.js";
+import { runSteps } from "./run-steps.js"; // pass 17: Timeline and Helpers
 import { projectsApi, secretsApi } from "./owner-data-api.js";
 import { HttpError, readJsonBody as readBody } from "./server-http.js";
 import { handlesSourceRequestPath, sourceRequestsApi } from "./self-development-requests.js";
@@ -728,8 +730,10 @@ async function settleAsked(app: Branch, asked: { runId: string; sessionId: strin
   // Only the owner's own task, answered by the owner at the window: never a key's (it records source "owner" too,
   // and a carry-on would lose its key mark), a household person's, or one that came from elsewhere (NAS 618407c).
   const origin = runOrigin(app.store, run.id);
+  // Pass 17 (Helpers): nor a helper's. Its carry-on would start in the helper's conversation as a task of the owner's
+  // own, without the narrower reach the helper was given; its question is answered and the helper is settled instead.
   const owners = asked.source === "owner" && origin.source === "owner" && !origin.shortLivedKey && !origin.keyIds.length
-    && !origin.personProfileId && !origin.lentTo;
+    && !origin.personProfileId && !origin.lentTo && !origin.parentRunId;
   if (decision === "allow" && owners && app.store.profiles.isOwner() && !startedWithShortLivedKey()) {
     // NAS 06a9508: the carry-on reads as the owner saying yes, so with a plan waiting for the owner's own answer in
     // that conversation it would agree to the plan too. Then nothing carries on by itself: the task keeps waiting,
@@ -1762,6 +1766,14 @@ async function api(
     // A tool call's raw arguments are read back off the assistant message, which the runtime never
     // scrubbed; nothing leaves here carrying a saved password or key.
     return app.runtime.hideSecrets(inspectRun(app.store, run.id, await trajectoryOptions(app, run.id)));
+  }
+  // Pass 17 (Timeline, Helpers): one task's steps in order, its helpers, and its links in the activity chain.
+  const stepsMatch = /^\/api\/runs\/([a-f0-9-]{36})\/steps$/.exec(path);
+  if (request.method === "GET" && stepsMatch) {
+    const run = app.store.run(stepsMatch[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    // Tool inputs are read back off the conversation, and helpers' words and questions too: nothing leaves with a secret.
+    return app.runtime.hideSecrets(await stepsOf(app, run.id));
   }
   // Batch 26 (wave 8): "Do this again" — the same words, the same tools and the same model, in a
   // conversation of its own, so the two can be read side by side.
@@ -4260,6 +4272,23 @@ export async function trajectoryOptions(app: Branch, runId: string) {
       return { amount: estimate.amount, display: formatCost(estimate) };
     },
   };
+}
+/** Pass 17: what GET /api/runs/:id/steps reads — the prices, the questions waiting, the answers given, the chain. */
+async function stepsOf(app: Branch, runId: string) {
+  const owner = app.runtime.owner, run = app.store.run(runId)!;
+  const { price } = await trajectoryOptions(app, runId);
+  const helperName = (agent: string): string | null => {
+    if (agent.startsWith("mode:")) { try { return app.interop.modes.find(agent.slice(5)).name; } catch { return agent.slice(5); } }
+    const saved = app.store.get("specialists", owner, agent)?.data as { definition?: { name?: unknown }; name?: unknown } | undefined;
+    const name = saved?.definition?.name ?? saved?.name;
+    return typeof name === "string" && name ? name : agent;
+  };
+  return runSteps(app.store, runId, {
+    price, waiting: app.runtime.approvals.waiting(),
+    decided: app.store.audit.list(owner, { action: "approval.decided", from: run.createdAt, limit: 1000 }),
+    chain: { mode: safetyMode(app.store, owner, "activity-chain"), entries: app.safetyExtras.chain.forRun(owner, runId) },
+    thinkingOf: (id) => app.runtime.thinkingOf(id), helperName, cost: (id) => runCost(app, id),
+  });
 }
 /** What the metering export needs: the ledger, the workspace it may write into, and the prices. */
 function meteringDeps(app: Branch) {

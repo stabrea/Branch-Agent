@@ -1133,6 +1133,8 @@ ${run.output.slice(0, 6000)}`;
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
+      // Pass 17 (Helpers): which specialist or mode a helper works as, so the parent's Activity can name it.
+      ...(parent && context.agent ? { agent: context.agent } : {}),
       // bucket-18 (A0300): where the task came from, kept on the task so later work can read it.
       ...this.originMarks(options, context, parent),
       // What this task was allowed to reach, so "Do this again" can hand it the very same tools.
