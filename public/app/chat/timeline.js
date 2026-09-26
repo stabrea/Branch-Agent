@@ -54,7 +54,11 @@ export function stepsOf(runId) { return T.cache.get(runId)?.body ?? null; }
 export async function loadSteps(runId) {
   if (!runId) return null;
   const kept = T.cache.get(runId);
-  if (kept && (kept.busy || Date.now() - kept.at < 2000)) return kept.body;
+  if (kept && (kept.busy || Date.now() - kept.at < 2000)) {
+    // Asked again too soon: read once more when the two seconds are up, so the last draw never keeps an old answer.
+    if (!kept.busy && !kept.later) kept.later = setTimeout(() => loadSteps(runId), 2000 - (Date.now() - kept.at) + 10);
+    return kept.body;
+  }
   T.cache.set(runId, { at: Date.now(), body: kept?.body ?? null, busy: true });
   let body = kept?.body ?? null;
   try { body = await api(`runs/${encodeURIComponent(runId)}/steps`); } catch (error) { if (error.message !== kept?.said) toast(error.message); T.cache.set(runId, { at: Date.now(), body, said: error.message }); return body; }

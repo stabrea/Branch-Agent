@@ -208,6 +208,24 @@ async function lookInside(page, run) {
   await every.click();
   await page.locator('#pane .ptab[data-p="tl17c"][aria-selected="true"]').waitFor({ timeout: 10000 });
   check((await page.locator(".tlh17c b").textContent()) === (await api(`runs/${run.id}/steps`)).title, "Look inside › Every step opens the Timeline at that task");
+  // The reply's More menu has the same way in.
+  await page.locator('#pane .ptab[data-p="activity"]').click();
+  const reply = page.locator(`#conversation .b:has([data-act="inspect"][data-run="${run.id}"]) [data-act="more17c"]`).last();
+  await reply.dispatchEvent("click");
+  const row = page.locator('.pop [data-act="tlopen17c"]');
+  await row.waitFor({ state: "visible", timeout: 10000 });
+  check((await row.getAttribute("data-run")) === run.id && (await row.textContent()).includes("Every step behind this reply"), "More › Every step behind this reply names that task");
+  await row.click();
+  await page.locator('#pane .ptab[data-p="tl17c"][aria-selected="true"]').waitFor({ timeout: 10000 });
+  check(true, "More › Every step behind this reply opens the Timeline");
+  // DG-114, DG-118: closing the panel gives the keyboard back to the switch that opens it, by its close button or the keys.
+  await page.locator('#pane [data-act="pane"][data-p="close"]').click();
+  const onSwitch = () => page.evaluate(() => document.activeElement?.matches('[data-act="pane"][data-p="activity"]') ?? false);
+  check(await page.locator("#pane").isHidden() && await onSwitch(), "closing the panel puts focus back on its switch");
+  await page.keyboard.press("Control+Shift+K");
+  await page.locator("#pane").waitFor({ state: "visible", timeout: 5000 });
+  await page.keyboard.press("Control+Shift+K");
+  check(await page.locator("#pane").isHidden() && await onSwitch(), "closing it with Ctrl+Shift+K does the same");
 }
 
 /* 4: a second message on the other model, and the note where the switch happened. */

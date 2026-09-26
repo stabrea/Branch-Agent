@@ -108,6 +108,10 @@ async function loadPane() {
 function pressedNow() {
   for (const b of document.querySelectorAll('[data-act="pane"][data-p="activity"][aria-pressed]')) b.setAttribute("aria-pressed", String(!!S.pane && S.pane !== "browser"));
 }
+/* DG-114, DG-118: closing the panel (its close button or the shortcut) hands the keyboard back to the switch that opens it. */
+function focusSwitch() {
+  [...document.querySelectorAll('[data-act="pane"][data-p="activity"][aria-pressed]')].find((b) => b.offsetParent !== null)?.focus({ preventScroll: true });
+}
 
 export function initPane() {
   initStage();
@@ -119,9 +123,10 @@ export function initPane() {
     S.pane = p === "close" ? null : inHead && S.pane ? null : p;
     drawPane();
     pressedNow();
+    if (!S.pane) focusSwitch();
   });
   on("ptabp", (el) => { S.pane = el.dataset.p; drawPane(); });
   document.addEventListener("keydown", (e) => {
-    if (pressed(e, "sidePane")) { e.preventDefault(); S.pane = S.pane ? null : "activity"; drawPane(); pressedNow(); }
+    if (pressed(e, "sidePane")) { e.preventDefault(); S.pane = S.pane ? null : "activity"; drawPane(); pressedNow(); if (!S.pane) focusSwitch(); }
   });
 }

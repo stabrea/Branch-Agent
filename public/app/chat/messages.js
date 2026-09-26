@@ -17,8 +17,8 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { ic, av, mi, toast, openPop, closePop, openDlg, closeDlg } from "../core/ui.js";
 import { markLive } from "../core/features.js";
-import { moreButton } from "./more.js";
-import { loadSteps } from "./timeline.js"; // pass 17: Look inside gains "Every step" and the step count
+import { moreButton, addMoreItem } from "./more.js";
+import { loadSteps, everyStepItem } from "./timeline.js"; // pass 17: Look inside and More gain "Every step"
 
 const M = { sid: null, pins: [], followUps: [], room: null, spend: null, commands: null, slashI: 0, edit: null };
 /* What the conversation module hands over: its state, a way to send words, and a way to re-read a conversation. */
@@ -379,6 +379,7 @@ async function usePrompt(el) {
 
 export function initMessages(context) {
   X = context;
+  addMoreItem((m) => (m.role === "assistant" ? everyStepItem(runFor(m)?.id) : "")); // pass 17: More › Every step behind this reply
   markLive(["sw:rw-text", "sw:q15", "pin15", "pinjump15", "pinlist15", "u-edit", "rw-what", "rw-go", "undo", "inspect", "slash6-pick", "prompts-fill",
     "mention-pick", "queue15", "qup15", "qrm15", "roommenu", "spendmenu", "project"]);
   on("pin15", (el) => togglePin(el));
