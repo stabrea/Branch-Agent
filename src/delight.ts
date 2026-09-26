@@ -8,6 +8,7 @@ import {
 } from "./achievements.js";
 import { inFrench } from "./achievements-fr.js";
 import { inGerman } from "./achievements-de.js";
+import { inSpanish } from "./achievements-es.js";
 
 /**
  * phase2/delight: the playful extras — a pet in the acorn's corner, achievements, and your own
@@ -131,11 +132,12 @@ function evaluate(store: DelightStore, owner: string, saved: Progress): Evaluate
   }
   return { newly, facts, caughtUp };
 }
-/** mac7/residuals: the window's language for the achievements' own words ("fr", "de", or English for anything else). */
-export const achievementLanguages = ["en", "fr", "de"] as const;
+/** mac7/residuals: the window's language for the achievements' own words ("fr", "de", "es", or English for anything else). */
+export const achievementLanguages = ["en", "fr", "de", "es"] as const;
 export type AchievementLanguage = (typeof achievementLanguages)[number];
+const inLanguage: Record<Exclude<AchievementLanguage, "en">, (a: Achievement) => Partial<Achievement>> = { fr: inFrench, de: inGerman, es: inSpanish };
 const worded = (a: Achievement, language: AchievementLanguage): Achievement =>
-  (language === "fr" ? { ...a, ...inFrench(a) } : language === "de" ? { ...a, ...inGerman(a) } : a);
+  (language === "en" ? a : { ...a, ...inLanguage[language](a) });
 const achievementLanguage = (asked: string | null): AchievementLanguage =>
   achievementLanguages.find((code) => code === asked) ?? "en";
 /** One achievement as the window may see it. The higher the tier, the less a locked one gives away. */
