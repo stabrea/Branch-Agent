@@ -13,7 +13,7 @@ import { TERMINAL_ALIASES, TERMINAL_CLI_COMMANDS } from "./terminal-parity.js";
 import { MODEL_TABS, SETTINGS_PAGES, allHomes, homeOf, parseRoute, placeById, type Route } from "./terminal-places.js";
 import { settingsRows } from "./terminal-settings.js";
 import {
-  loadThemeCatalogue, lookLanguage, readLook, saveLook, saveLookMode, terminalSwitches, type LookMode,
+  loadThemeCatalogue, lookLanguage, readLook, saveLook, saveLookMode, terminalSwitches, type LookLanguage, type LookMode,
 } from "./terminal-theme.js";
 import { startTui } from "./terminal-tui.js";
 import { loadWords, type Words } from "./terminal-words.js";
@@ -107,7 +107,7 @@ async function themeCommand(app: Branch, args: string[], io: Io): Promise<void> 
   const { store } = app, owner = app.runtime.owner, word = args[0] ?? "list";
   if (["light", "dark", "follow"].includes(word)) saveLookMode(store, owner, word as LookMode | "follow");
   else if (word === "contrast") await saveLook(store, owner, { contrast: args[1] === "standard" || (!args[1] && readLook(store, owner).contrast === "more") ? "standard" : "more" });
-  else if (word === "language") await saveLook(store, owner, { language: (args[1] ?? "auto") as "auto" | "en" | "fr" | "es" });
+  else if (word === "language") await saveLook(store, owner, { language: (args[1] ?? "auto") as "auto" | LookLanguage });
   else if (word !== "list") await saveLook(store, owner, { theme: word });
   const look = readLook(store, owner), table = await loadThemeCatalogue();
   const saved = store.get("settings", owner, "preferences")?.data ?? {};
