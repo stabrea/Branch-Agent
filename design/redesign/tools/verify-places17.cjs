@@ -136,7 +136,8 @@ async function setup() {
   const stop = await post("adapt/stopped", { runId: handed.id, sessionId: handed.sessionId, what: "The September expense report", done: ["Read the statement"], nextStep: "Match the charges", said: "Models on this computer are switched off" });
   const order = (await post("autonomy/orders", { name: "Receipts in by the 3rd", authority: "Chase missing receipts", start: { kind: "manual" }, escalation: ["A receipt over 200"] })).order;
   await post("commands/run", { surface: "window", line: "/loop every 10m check the build", sessionId: handed.sessionId });
-  return { handed, stop, order };
+  const lib = await librarySetup();
+  return { handed, stop, order, lib };
 }
 
 /* ---------- Inbox ---------- */
@@ -251,7 +252,155 @@ async function automations(page, s) {
   await setLevel(page, "regular");
 }
 
-const STEPS = [inbox, automations];
+/* ---------- Library ---------- */
+const CSV = "date,payee,category,amount\n2026-09-02,Paper Co,Supplies,412\n2026-09-05,Air,Travel,612\n2026-09-09,Cafe,Meals,48.4\n2026-09-11,Rail,Travel,100\n";
+function writeWorkspace() {
+  const put = (file, text) => { fs.mkdirSync(path.dirname(path.join(WORKSPACE, file)), { recursive: true }); fs.writeFileSync(path.join(WORKSPACE, file), text); };
+  put("money/expenses.csv", CSV);
+  put("lease/lease-2025.md", "# Lease\n\n## Rent\n\nThe rent is 1420 a month.\n\n## Repairs\n\nThe tenant pays for repairs under 150.\n");
+  put("lease/lease-2026.md", "# Lease\n\n## Rent\n\nThe rent is 1480 a month.\n\n## Repairs\n\nThe tenant pays for repairs under 150.\n");
+  put("kb/one.md", "# Suppliers\n\nOakfield Supply quoted Brightline Paper prices. Oakfield Supply delivers to Harbour Office.\n");
+  put("kb/two.md", "# Travel\n\nOakfield Supply and Harbour Office share a loading dock near Harbour Office.\n");
+}
+async function librarySetup() {
+  if (!WORKSPACE) throw new Error("Set WORKSPACE to the engine's BRANCH_WORKSPACE folder.");
+  writeWorkspace();
+  const csv = await post("documents", { path: "money/expenses.csv" });
+  const older = await post("documents", { path: "lease/lease-2025.md" });
+  const newer = await post("documents", { path: "lease/lease-2026.md" });
+  await post("labels", { target: "document", targetId: csv.id, label: "money" });
+  const kb = await post("knowledge", { name: "Work", sources: [{ kind: "folder", path: "kb" }] });
+  await post("knowledge/reindex", { collection: kb.id });
+  await post("knowledge/map", { collection: kb.id });
+  const fact = await post("action", { tool: "memory.put", args: { text: "The late fee is 100", source: "Invoice" } });
+  await post("action", { tool: "memory.update", args: { id: fact.id, text: "The late fee is 120", source: "Invoice", expectedRevision: fact.revision } });
+  // A fact saved by a task: each hand-run tool is its own task in its own conversation, so this one taught one fact.
+  const paper = await post("action", { tool: "memory.put", args: { text: "Printer paper is bought every six weeks", source: "Supplier chat" } });
+  const taught = (await get("state")).runs.find((r) => r.id === paper.data.originRunId);
+  return { csv, older, newer, kb, fact, taught };
+}
+const rowsShown = (page) => page.locator(".dlg .demo-b17 .prow").count();
+
+async function documentsTools(page, s) {
+  const L = s.lib;
+  await act(page, "view", { v: "library" });
+  await act(page, "ptab", { place: "library", v: "documents" });
+  await page.click('[data-act="sqlb17"]');
+  await page.waitForSelector("#sql-q-b17", { timeout: 8000 });
+  check("sqlb17: offers only the library's spreadsheets from workspace files (GET /api/documents)", (await page.locator('.dlg [data-act="sqlfileb17"]').count()) === 1 && (await page.locator('.dlg [data-act="sqlfileb17"]').textContent()) === L.csv.name);
+  const sql = "SELECT category, SUM(amount) AS total FROM expenses GROUP BY category ORDER BY total DESC";
+  await page.fill("#sql-q-b17", sql);
+  await page.click('.dlg [data-act="sqlrunb17"]');
+  await page.waitForSelector(".dlg .tbl-b17 tbody tr", { timeout: 8000 });
+  const engine = await post("data/ask", { document: L.csv.id, sql });
+  const cells = await page.locator(".dlg .tbl-b17 tbody td:first-child").allTextContents();
+  check("sqlrunb17 (Run): the engine's rows (POST /api/data/ask)", JSON.stringify(cells) === JSON.stringify(engine.rows.map((r) => String(r[0]))), cells.join(", "));
+  check("sqlrunb17: a chart drawn from those rows, one bar each", (await page.locator(".dlg .chart-b17 rect").count()) === engine.rows.length);
+  check("sqlsaveb17 stays greyed (the report route keeps nothing)", await greyed(page, '.dlg [data-act="sqlsaveb17"]'));
+  await act(page, "dlg-close");
+
+  await page.click('[data-act="doccmpb17"]');
+  await page.waitForSelector(".dlg #doc-a-b17", { timeout: 8000 });
+  await page.selectOption("#doc-a-b17", L.older.id);
+  await page.selectOption("#doc-b-b17", L.newer.id);
+  await page.waitForSelector(".dlg .dif-b17", { timeout: 15000 });
+  const compared = await post("action", { tool: "documents.compare", args: { file: "lease/lease-2025.md", against: "lease/lease-2026.md" } });
+  check("doccmpb17 (Compare): one entry per change the engine found (documents.compare)", (await page.locator(".dlg .dif-b17").count()) === compared.changes.length, `${compared.changes.length} change(s)`);
+  check("doccmpb17: Save the comparison stays greyed", await greyed(page, '.dlg [data-act="docsaveb17"]'));
+  await page.click('.dlg [data-act="docmodeb17"][data-v="edit"]');
+  check("docmodeb17 (Edit exactly): the mode changes; Make the edit stays greyed", (await page.locator(".dlg h2").textContent()) === "Edit exactly" && await greyed(page, '.dlg [data-act="docsaveb17"][data-v="edit"]'));
+  await act(page, "dlg-close");
+
+  await setLevel(page, "advanced");
+  await act(page, "ptab", { place: "library", v: "documents" });
+  await page.waitForSelector('[data-act="labelb17"][data-v="money"]', { timeout: 8000 });
+  await page.click('[data-act="labelb17"][data-v="money"]');
+  const listed = await page.locator("#main .place .prow .grow b").allTextContents();
+  check("labelb17: only the documents carrying the label (GET /api/labels)", listed.includes(L.csv.name) && !listed.includes(L.older.name), listed.join(", "));
+  await page.click('[data-act="labelb17"][data-v="money"]');
+
+  await page.click('[data-act="dv15"][data-v="map"]');
+  await page.waitForSelector('[data-act="kgb17"]', { timeout: 10000 });
+  const names = (await post("knowledge/graph/names", { collection: L.kb.id })).names.map((n) => n.name);
+  const chips = await page.locator('[data-act="kgb17"]').allTextContents();
+  check("dv15 (Map) › Ask the map: the map's most-mentioned names (POST /api/knowledge/graph/names)", JSON.stringify(chips) === JSON.stringify(names), chips.join(", "));
+  await page.click(`[data-act="kgb17"][data-v="${names[0]}"]`);
+  await page.waitForSelector(".kgl-b17 li", { timeout: 8000 });
+  const links = (await post("knowledge/graph", { collection: L.kb.id, entity: names[0] })).links;
+  check("kgb17: what the documents say about it, one line per link (POST /api/knowledge/graph)", (await page.locator(".kgl-b17 li").count()) === links.length, `${links.length} link(s)`);
+  await page.click('[data-act="dv15"][data-v="list"]');
+}
+
+async function managing(page) {
+  for (const [k, route, key] of [["kbmanage", "knowledge", "collections"], ["sources", "asks/sources", "status"], ["pages", "asks/pages", "pages"]]) {
+    await page.click(`[data-act="demob17"][data-k="${k}"]`);
+    await page.waitForSelector(".dlg .demo-b17", { timeout: 8000, state: "attached" });
+    check(`demob17 ${k}: one row per engine item (GET /api/${route})`, (await rowsShown(page)) === (await get(route))[key].length);
+    await act(page, "dlg-close");
+  }
+  const off = await refusal("POST", "learn/tour", { subject: "code", of: "" });
+  await page.click('[data-act="demob17"][data-k="learnfolder"]');
+  check("demob17 learnfolder, switched off: the engine's refusal as it said it", off && (await toastText(page)) === off, off);
+  await post("learn/switch", { mode: "when-needed" });
+  await page.click('[data-act="demob17"][data-k="learnfolder"]');
+  await page.waitForSelector(".dlg .demo-b17", { timeout: 20000, state: "attached" });
+  const tour = await post("learn/tour", { subject: "code", of: "" });
+  check("demob17 learnfolder: one row per stop of the engine's tour (POST /api/learn/tour)", (await rowsShown(page)) === tour.steps.length, `${tour.steps.length} stops`);
+  await act(page, "dlg-close");
+}
+
+async function howItLearns(page, s) {
+  const L = s.lib;
+  await act(page, "ptab", { place: "library", v: "memory" });
+  await page.waitForSelector('[data-act="demob17"][data-k="learnlog"]', { timeout: 8000 });
+  for (const [k, route, key] of [["habits", "memory/learned", "noticed"], ["learnlog", "learning-more/journey?limit=50", "entries"]]) {
+    await page.click(`[data-act="demob17"][data-k="${k}"]`);
+    await page.waitForSelector(".dlg .demo-b17", { timeout: 8000, state: "attached" });
+    check(`demob17 ${k}: one row per engine item (GET /api/${route})`, (await rowsShown(page)) === (await get(route))[key].length);
+    await act(page, "dlg-close");
+  }
+  await page.click('[data-act="demob17"][data-k="factver"]');
+  await page.waitForSelector('.dlg [data-act="demodob17"][data-k="factver"]', { timeout: 8000 });
+  await page.click('.dlg [data-act="demodob17"][data-k="factver"]');
+  const back = await until("the earlier version put back", async () => { const m = (await get("state")).memory.find((x) => x.id === L.fact.id); return m?.data?.text === "The late fee is 100" && m; });
+  check("demodob17 factver (Put back the … version): the earlier words are the fact again (GET /api/state memory)", Boolean(back));
+
+  await page.click('[data-act="demob17"][data-k="forgetconv"]');
+  await page.waitForSelector(`.dlg [data-act="fconvb17"][data-v="${L.taught.sessionId}"]`, { timeout: 8000 });
+  await page.click(`.dlg [data-act="fconvb17"][data-v="${L.taught.sessionId}"]`);
+  const preview = await post("memory/forget/preview", { sessionId: L.taught.sessionId });
+  await page.waitForSelector('.dlg [data-act="demodob17"][data-k="forgetconv"]', { timeout: 8000 });
+  check("fconvb17: what that conversation taught (POST /api/memory/forget/preview)", (await rowsShown(page)) === preview.remove.length && preview.remove.length > 0, `${preview.remove.length} fact(s)`);
+  await page.click('.dlg [data-act="demodob17"][data-k="forgetconv"]');
+  await until("those facts forgotten", async () => !(await get("state")).memory.some((m) => preview.remove.some((r) => r.id === m.id)));
+  check("demodob17 forgetconv (Forget these …): gone from memory (GET /api/state memory)", true);
+
+  const before = (await get("memory/checkpoints")).checkpoints.length;
+  await page.click('[data-act="demob17"][data-k="memckpt"]');
+  await page.waitForSelector('.dlg [data-act="demodob17"][data-k="memckpt"]', { timeout: 8000 });
+  check("demob17 memckpt: one row per checkpoint (GET /api/memory/checkpoints)", (await rowsShown(page)) === before);
+  await page.click('.dlg [data-act="demodob17"][data-k="memckpt"]');
+  await until("a checkpoint made", async () => (await get("memory/checkpoints")).checkpoints.length === before + 1);
+  check("demodob17 memckpt (Make one now): a new checkpoint (GET /api/memory/checkpoints)", true);
+
+  const file = path.join(WORKSPACE, "import.jsonl");
+  const at = new Date().toISOString();
+  fs.writeFileSync(file, `${JSON.stringify({ id: "8d0f7a52-3b41-4c8e-9a7e-2f1c5b6d7e90", data: { text: "Imported from another computer", source: "Import" }, createdAt: at, updatedAt: at, revision: 1 })}\n`);
+  const chooser = page.waitForEvent("filechooser", { timeout: 8000 });
+  await page.click('[data-act="demob17"][data-k="memimport"]');
+  await (await chooser).setFiles(file);
+  await until("the imported fact", async () => (await get("state")).memory.some((m) => m.data?.text === "Imported from another computer"));
+  check("demob17 memimport (Choose a file): the file's fact is remembered (POST /api/memory/import, GET /api/state)", true);
+  await setLevel(page, "regular");
+}
+
+async function library(page, s) {
+  await documentsTools(page, s);
+  await managing(page);
+  await howItLearns(page, s);
+}
+
+const STEPS = [inbox, automations, library];
 
 async function run() {
   const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
