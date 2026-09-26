@@ -132,9 +132,8 @@ test("each card lists what the grant really allows, the owner's card changes the
   assert.deepEqual(f.errors, []);
 });
 
-// Adult / Child is drawn greyed on purpose: roles are in the security-held set the owner decides on (the redesign lead,
-// 2026-09-26). This comes back when the owner does.
-test.skip("a person's own card ticks only what Branch enforces and names their own Trunks", async (t) => {
+// Adult / Child is live since #353 (the owner, 2026-09-26: the held controls are built for real, through the engine's guards).
+test("a person's own card ticks only what Branch enforces and names their own Trunks", async (t) => {
   const f = await fixture(t);
   for (const part of ["trunks", "rooms"]) await f.call("/api/trunks/switch", { part, mode: "on" });
   const scout = (await f.call("/api/trunks", { name: "Scout" })).trunk;
