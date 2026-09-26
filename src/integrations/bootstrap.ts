@@ -294,11 +294,12 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     if (errors.length) throw new Error(`Failed to close ${errors.length} integration(s)`);
   };
   const config = await readConfig(path, env, channels);
-  // The owner's own servers start whether or not there is a launch file; their ids never take one of the file's.
+  // The owner's own servers start whether or not there is a launch file, after its network settings, and their ids
+  // never take one of the file's. The app closes them itself (OwnMcpServers.closeAll), so they are not counted here.
   const own = channels?.ownMcp;
-  if (own) { await own.startSaved(config?.mcp.map(server => McpConfigSchema.parse(server).id) ?? []); closers.push(() => own.closeAll()); }
-  if (!config) return { close, count: closers.length, hosted };
+  if (!config) { if (own) await own.startSaved([]); return { close, count: 0, hosted }; }
   if (config.web) channels?.web?.configure(config.web);
+  if (own) await own.startSaved(config.mcp.map(server => McpConfigSchema.parse(server).id));
   const policy = channels?.web?.policy;
   if (new Set(config.mcp.map(server => server.id)).size !== config.mcp.length)
     throw new Error('MCP server IDs must be unique');
