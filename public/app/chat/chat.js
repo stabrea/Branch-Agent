@@ -277,6 +277,9 @@ const HOOKS = {
   sendPlain: (text) => sendPlain(text),
   after: async () => { forgetWho(); await loadWho(); },
   followRoom: (info) => followRoom(info),
+  /* Answer aloud, for a message said to a Trunk in its own conversation: where the replies stood, then the new one. */
+  mark: () => replyMark(C.messages),
+  readAloud: (before) => readNewReply(before, C.messages),
 };
 
 async function sendPlain(prompt) {
@@ -312,11 +315,17 @@ async function sendPlain(prompt) {
 /* A room answers in the background (each member in its own conversation): its conversation is read again each second
    while the room is speaking (GET /api/trunks/rooms/<id> speaking), then once more. */
 async function followRoom(info) {
+  /* Answer aloud reads each member's reply as it arrives, while the person is in the room. */
+  let heard = C.sessionId === info.sessionId ? replyMark(C.messages) : null;
   C.sending = true;
   renderNow();
   for (let waited = 0; waited < 600; waited++) {
     const view = await readRoom(info);
     try { C.messages = (await api("sessions/" + encodeURIComponent(info.sessionId))).messages ?? C.messages; } catch { /* the next second tries again */ }
+    if (heard !== null && C.sessionId === info.sessionId && replyMark(C.messages) !== heard) {
+      readNewReply(heard, C.messages, (m) => replyWords(m, info));
+      heard = replyMark(C.messages);
+    }
     renderNow();
     if (!view?.speaking) break;
     await pause(1000);
