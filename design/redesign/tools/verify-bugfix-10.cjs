@@ -12,7 +12,8 @@
    1 Carry it on is refused while an answer is pending: the engine makes no copy (POST /api/sessions/search), and the
      answer lands in the conversation it was asked in, which stays the open one once the search is cleared;
    3 the model picker changes the model (GET /api/state, GET /api/sessions/<id>/model) and never the conversation shown,
-     and a menu closed while the choice is saved stays closed.
+     and a menu closed while the choice is saved stays closed;
+   2 again for a reply's More, whose buttons differ only by their message: the menu stays with its own reply's button.
    Test data: one imported conversation "Juniper verify source" on the fresh engine; on the scripted engine a seeded
    conversation "Juniper lifecycle source" and the presets "Default connection" and "Alternate connection".
    Playwright is the worktree's own (npm ci), not the installed app's. Nothing launches a desktop window. */
@@ -232,6 +233,23 @@ async function scripted(browser) {
     const said = (await call(`sessions/${source}`)).messages.slice(-2).map((m) => m.content);
     check("1 the answer landed in the conversation it was asked in (GET /api/sessions/<id>)", said[0] === "Keep working" && said[1] === "finished", said.join(" | "));
     check("1 and that conversation is the open one", (await current(page)) === source);
+
+    /* 2 again, for buttons told apart only by their message: each reply's More (data-act="more17c", data-mid). */
+    const mores = page.locator('#conversation [data-act="more17c"]');
+    check("2 the conversation has two replies with a More button", (await mores.count()) >= 2, String(await mores.count()));
+    const mid = await mores.last().getAttribute("data-mid");
+    const mine = `#conversation [data-act="more17c"][data-mid="${mid}"]`;
+    /* The reply's buttons show on hover or on focus (.msg-acts:focus-within): reached from the keyboard. */
+    await page.locator(mine).focus();
+    await page.keyboard.press("Enter");
+    await menu.waitFor({ state: "visible", timeout: 5000 });
+    check("2 a reply's More: a redraw replaced its button while its menu was open", await redraw(page, mine));
+    const expanded = await mores.evaluateAll((nodes) => nodes.filter((n) => n.getAttribute("aria-expanded") === "true").map((n) => n.dataset.mid));
+    check("2 a reply's More: only that reply's new button says it is open", expanded.length === 1 && expanded[0] === mid, expanded.join(","));
+    await page.locator(mine).focus();
+    await page.keyboard.press("Enter");
+    await wait(300);
+    check("2 a reply's More: pressing that reply's button again closes its menu", (await menu.count()) === 0);
   } catch (e) { release(); check("scripted engine checks finished", false, e.stack); }
   check("no page errors (scripted engine)", errors.length === 0, errors.join(" | "));
   await context.close();

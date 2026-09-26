@@ -79,10 +79,20 @@ function openerOf(anchor) {
   const same = (el) => el.dataset.v === v && el.dataset.id === id && el.getClientRects().length > 0;
   return [...document.querySelectorAll(`[data-act="${CSS.escape(act)}"]`)].find(same) ?? null;
 }
+/* The one visible button drawn with every data-* of the old one (a message's More also by its data-mid); when several
+   match, none is taken rather than a guess. */
+function drawnInPlaceOf(anchor) {
+  const { act } = anchor.dataset;
+  if (!act) return null;
+  const key = (el) => JSON.stringify(Object.entries(el.dataset).sort());
+  const want = key(anchor);
+  const found = [...document.querySelectorAll(`[data-act="${CSS.escape(act)}"]`)].filter((el) => key(el) === want && el.getClientRects().length > 0);
+  return found.length === 1 ? found[0] : null;
+}
 /* A redraw may replace the button an open popover came from: the one drawn in its place becomes its button, so it says
    it is open, and pressing it again closes the popover, as the prototype's does. */
 function liveAnchor() {
-  const again = popAnchor && !popAnchor.isConnected ? openerOf(popAnchor) : null;
+  const again = popAnchor && !popAnchor.isConnected ? drawnInPlaceOf(popAnchor) : null;
   if (again) { popAnchor = again; again.setAttribute("aria-expanded", "true"); }
   return popAnchor;
 }
