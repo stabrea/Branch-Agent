@@ -1,6 +1,6 @@
 // Q259 audit: as a household person at the window, GET every route in the short-lived key table (tests/short-lived-key-routes.mjs)
 // and look for the owner's seeded marker strings in each answer. Each ":id" is tried with the owner's task id and with the
-// owner's conversation id. Run from the repo root after `npx tsc -p .`: node design/redesign/tools/sweep-q259-household-gets.mjs
+// owner's conversation id, the seeded records' ids and a setting key. Run from the repo root after `npx tsc -p .`: node design/redesign/tools/sweep-q259-household-gets.mjs
 // It prints every route it asked, the ones whose answer to the owner carries a marker (with Sam's status), and any leak to Sam.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -42,9 +42,12 @@ const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
 // Left out: streams that never end, and anything about closing, removing or updating Branch or driving this computer.
 const skip = /remove-branch|uninstall|deployment|quit|restart|update|never-break|comfort|desktop|local-models|voice|dictation|linux-desktop|browser|events$|stream|live$|watch|\/sse|screen|vnc/;
 const paths = [];
-for (const [path, kind] of Object.entries(ROUTES)) {
+for (const [written, kind] of Object.entries(ROUTES)) {
+  // A few rows are written as patterns: a setting key, a device id, a request id.
+  const path = written.replace("[A-Za-z0-9_.:-]{3,160}", "policy.preset").replace("[a-f0-9]{16}", "0".repeat(16)).replace("[a-f0-9]{32}", "0".repeat(32));
   if (kind === "prefix" || kind.startsWith("pre-auth") || !path.startsWith("/api/") || skip.test(path)) continue;
-  if (path.includes(":id")) paths.push(path.replaceAll(":id", run.id), path.replaceAll(":id", run.sessionId));
+  // Each id the owner has: a task, a conversation, the seeded records by their names, and a setting key.
+  if (path.includes(":id")) for (const id of [run.id, run.sessionId, "zqmark-fact-id", "zqmark-schedules", "zqmark-webhooks", "policy.preset"]) paths.push(path.replaceAll(":id", id));
   else paths.push(path);
 }
 // The same routes with the query words that change what they answer.
