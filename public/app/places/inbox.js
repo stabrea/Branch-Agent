@@ -19,6 +19,8 @@ import { markLive } from "../core/features.js";
 import { openConversation } from "../chat/chat.js";
 import { recBar } from "../chat/rec.js";
 import { prowOpen, inboxMarkAll } from "../chat/unread.js"; // pass 17: unread dots and Mark all read
+import { adaptCards, laterTab, laterCount, receiptsSection, readInbox17, initInbox17 } from "./inbox17.js";
+import { initDemo17 } from "./demo17.js";
 
 let asks = [];
 let installs = [];
@@ -123,11 +125,11 @@ export function draw() {
   if (!E.state) return `<main class="main enter11" id="main"><div class="scroll"><div class="place"></div></div></main>`;
 
   const count = waitingCount();
-  const body = cutCards() + (tab === "needs" ? needsTab() : tab === "finished" ? finishedTab() : tab === "history" ? historyTab() : "");
+  const body = cutCards() + (tab === "needs" ? adaptCards() + needsTab() : tab === "finished" ? finishedTab() : tab === "history" ? historyTab() + receiptsSection() : tab === "later" ? laterTab() : "");
   let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div><div class="scroll"><div class="place">
     ${recBar()}
     <h1>Inbox</h1><p class="lede">Everything a Trunk is waiting on you for, what finished, and a record of what ran.</p>
-    <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === "needs" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="needs">Needs you<span class="n">${count}</span></button><button class="tab" role="tab" type="button" aria-selected="${tab === "finished" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="finished">Finished</button><button class="tab" role="tab" type="button" aria-selected="${tab === "history" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="history">History</button>${inboxMarkAll()}</div>`;
+    <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === "needs" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="needs">Needs you<span class="n">${count}</span></button><button class="tab" role="tab" type="button" aria-selected="${tab === "finished" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="finished">Finished</button><button class="tab" role="tab" type="button" aria-selected="${tab === "history" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="history">History</button><button class="tab" role="tab" type="button" aria-selected="${tab === "later" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="later">Later${laterCount() ? `<span class="n">${laterCount()}</span>` : ""}</button>${inboxMarkAll()}</div>`;
 
   html += body;
 
@@ -174,6 +176,9 @@ export async function after() {
     const waiting = await readInstalls();
     if (JSON.stringify(waiting) !== JSON.stringify(installs)) { installs = waiting; changed = true; }
   }
+  const p17 = await readInbox17(tab);
+  if (p17.error) sayOnce(p17.error);
+  if (p17.changed) changed = true;
   if (tab === "history" && !chain) {
     try { chain = (await api("safety-extras/activity/verify", {})).check; changed = true; } catch (error) { toast(error.message); chain = { ok: false }; }
   }
@@ -252,6 +257,8 @@ async function reviewChange(id) {
 }
 
 export function init() {
+  initDemo17();
+  initInbox17();
   // Allow on an install request (xdo) stays greyed for the security review; Don't (xdo-no) only declines.
   markLive(["ptab", "chat", "tmsg", "cutgo15", "cutno15", "verify15", "selfrev15", "replay", "rp", "compare", "xdo-no"]);
   on("replay", (el) => openReplay(el.dataset.id));

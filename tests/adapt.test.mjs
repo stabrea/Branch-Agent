@@ -415,3 +415,35 @@ test("merge-queue review: recording a stop and reading an offer are the owner's,
     await assert.rejects(adaptApi(deps, "POST", path, body), refused, `${path} refuses somebody else`);
   assert.equal(read, false, "nothing somebody else sent was even read");
 });
+
+/* ---------------------------------------------------------------- p17: "Leave it stopped" */
+
+// Mutation note: remove `&& !stop.leftAt` from AdaptStops.waiting() and the "no longer offered" assertion goes red;
+// replace the update in Adapt.leave with stops.forget and the "kept, still stopped" assertions go red.
+test("p17 leaving a stop keeps it, still stopped, and only takes it out of the waiting list", async () => {
+  const store = fakeStore();
+  const button = fakeButton();
+  const adapt = new Adapt({ store, owner: OWNER, oneButton: button });
+  const stop = adapt.record({ runId: "r", what: "the report", done: ["one"], nextStep: "two", said: "Ollama is not installed on this computer." });
+  const left = adapt.leave({ stopId: stop.id });
+  assert.ok(left.leftAt, "the time it was left is written down");
+  assert.equal(adapt.stops.waiting().length, 0, "no longer offered as waiting");
+  const kept = adapt.stops.get(stop.id);
+  assert.ok(kept, "kept, not deleted");
+  assert.equal(kept.carriedOnAt, null, "still stopped: it did not carry on");
+  assert.deepEqual(kept.done, ["one"]);
+  assert.equal(button.asked.plans + button.asked.presses.length, 0, "nothing was looked up, fetched or installed");
+  assert.throws(() => adapt.leave({ stopId: "no-such-stop" }), /no stopped task with that id/);
+  assert.throws(() => adapt.leave({}), /stopId/);
+});
+
+test("p17 /api/adapt/leave is the owner's, and refused to every short-lived key", async () => {
+  const { adaptApi } = await import("../dist/adapt/api.js");
+  assert.ok(offLimitsToShortLivedKeys("POST", "/api/adapt/leave"));
+  assert.equal(ROUTES["/api/adapt/leave"], "owner POST");
+  const refused = new Error("Only the owner can use /adapt.");
+  let read = false;
+  const deps = { store: null, owner: OWNER, requireOwner: () => { throw refused; } };
+  await assert.rejects(adaptApi(deps, "POST", "/api/adapt/leave", async () => { read = true; return {}; }), refused);
+  assert.equal(read, false, "nothing somebody else sent was even read");
+});

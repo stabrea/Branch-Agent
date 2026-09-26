@@ -3,9 +3,8 @@
    stages them as suggestions with POST /api/memory/tidy, and each is applied or left through
    POST /api/memory/proposals/<id>/accept|reject), and a menu to export what is remembered (GET /api/memory/export),
    see the archive and put a fact back (GET /api/memory/archive, POST /api/memory/archive/<id>/restore).
-   Documents: the engine's document library (GET /api/documents). Its Map stays greyed: the engine's map
-   (POST /api/knowledge/graph) reads a knowledge base from one named thing in it, and no route lists those things or
-   ties them to the documents listed here, so there is nowhere to start it from. */
+   Documents: the engine's document library (GET /api/documents), shown as a list or as the Map, where the engine's map
+   of names is asked (library17.js, with pass 17's spreadsheet, compare, labels and "How it learns"). */
 
 import { esc, renderNow } from "../core/dom.js";
 import { S, E, refresh, level } from "../core/state.js";
@@ -13,6 +12,7 @@ import { ic, mi, toast, openPop, closePop, openDlg, dialog } from "../core/ui.js
 import { markLive } from "../core/features.js";
 import { api, token } from "../core/api.js";
 import { on } from "../core/actions.js";
+import { workSection, labelled, mapSection, manageSection, learnSection, readLibrary17, initLibrary17 } from "./library17.js";
 
 function tabBar(tabs, place, current) {
   return `<div class="tabs" role="tablist">${tabs.map(([id, label, count]) =>
@@ -57,10 +57,12 @@ function documentsTab() {
   const view = [["list", "list15", "List"], ["map", "map15", "Map"]].map(([k, i, l]) => `<button type="button" aria-pressed="${docView === k}" data-act="dv15" data-v="${k}">${ic(i, "s")}${l}</button>`).join("");
   let html = `<div class="acts docacts15" data-css="margin:6px 0"><button class="btn" type="button" data-act="toast" data-msg="Opens a blank document.">
       ${ic('file', 's')}Write a new document</button><span class="seg dv15" role="group" aria-label="Show documents as">${view}</span></div>`;
-  html += docsList.map((d) => `<div class="prow"><span class="fi">${esc((d.name || '').split('.').pop() || 'txt')}</span>
+  html += workSection();
+  /* The Map view shows what the map says about a name in place of the list, as the prototype's Map does. */
+  if (docView !== "map") html += labelled(docsList).map((d) => `<div class="prow"><span class="fi">${esc((d.name || '').split('.').pop() || 'txt')}</span>
         <span class="grow"><b>${esc(d.name)}</b><small>${esc(when(d.updatedAt))}</small></span>
         <button class="btn sm" type="button" data-act="toast" data-msg="Opens in its own app.">Open</button></div>`).join('');
-  return html;
+  return html + mapSection(docView) + manageSection();
 }
 const when = (iso) => (iso ? new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
 
@@ -82,7 +84,7 @@ export function draw() {
     <h1>Library</h1><p class="lede">What your Trunks remember, the documents they read, and everything they made.</p>
     ${tabBar(tabs, "library", tab)}<div class="rows">`;
 
-  if (tab === "memory") html += memoryTab(mem);
+  if (tab === "memory") html += memoryTab(mem) + learnSection();
   else if (tab === "documents") html += documentsTab();
   else if (tab === "made") {
     html += artsList.map((a) => `<div class="prow"><span class="fi">${esc((a.name || '').split('.').pop() || 'bin')}</span>
@@ -102,6 +104,9 @@ export async function after() {
     try { fresh = await api("memory/tidy"); } catch (error) { tidyFailed = true; toast(error.message); return; }
     if (JSON.stringify(fresh) !== JSON.stringify(findings)) { findings = fresh; renderNow(); }
   } else if (tab === "documents") {
+    const p17 = await readLibrary17(tab, docView);
+    if (p17.error) toast(p17.error.message);
+    if (p17.changed) renderNow();
     /* The engine answers {documents: [...]} with its settings beside the list; only the list is drawn. */
     if (docsFailed) return;
     let fresh = [];
@@ -190,7 +195,10 @@ function memoryMenu(el) {
 }
 
 export function init() {
-  markLive(["ptab", "forget", "tidy15", "tidydo15", "memmore15", "memexp15", "memarch15"]);
+  markLive(["ptab", "forget", "tidy15", "tidydo15", "memmore15", "memexp15", "memarch15", "dv15"]);
+  /* List or Map: which way the documents are shown (window state); the Map asks the engine's map (library17.js). */
+  on("dv15", (el) => { docView = el.dataset.v === "map" ? "map" : "list"; renderNow(); });
+  initLibrary17();
   /* One memory, by its id, through the engine's own memory.delete (POST /api/action); nothing else is forgotten. */
   on("forget", async (el) => {
     const id = el.dataset.id;

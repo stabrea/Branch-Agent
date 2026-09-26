@@ -47,6 +47,7 @@ export const ROUTES = {
   "/api/adapt": "look",
   "/api/adapt/": "prefix",
   "/api/adapt/go": "owner POST",
+  "/api/adapt/leave": "owner POST", // p17: "Leave it stopped" keeps the stop, no longer offered
   "/api/adapt/plan": "owner POST",
   "/api/adapt/stopped": "owner POST",
   "/api/adapt/switch": "owner POST",
@@ -156,6 +157,7 @@ export const ROUTES = {
   "/api/dashboard/automations": "owner POST",
   "/api/dashboard/restart": "owner POST",
   "/api/dashboard/settings": "owner POST",
+  "/api/data/ask": "owner POST", // p17: Ask a spreadsheet opens a file in the owner's workspace
   "/api/deferred": "look",
   "/api/deferred/settle": "task POST",
   // phase2/delight: somebody else is told only that there is nothing here for them; the achievements
@@ -590,6 +592,7 @@ export const ROUTES = {
   "/api/knowledge/export": "other POST",
   "/api/knowledge/extras": "look",
   "/api/knowledge/graph": "other POST",
+  "/api/knowledge/graph/names": "other POST", // p17: Ask the map's starting names
   "/api/knowledge/import": "other POST",
   "/api/knowledge/manage": "other POST",
   "/api/knowledge/map": "other POST",
