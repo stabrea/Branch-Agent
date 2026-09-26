@@ -12,6 +12,8 @@ import { markLive } from "../../core/features.js";
 import { on } from "../../core/actions.js";
 import { toast, ic } from "../../core/ui.js";
 import { seg15 } from "../rows15.js";
+import { self17 } from "../p17-more.js";
+import { level as level17 } from "../../core/state.js";
 
 const D = { history: [], names: {}, gw: null, policy: null, comfort: null };
 
@@ -110,5 +112,5 @@ export function draw() {
   html += policySection();
   html += neverDiesSection();
   html += timelineSection();
-  return html;
+  return html + self17(level17());
 }

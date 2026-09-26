@@ -9,6 +9,7 @@ import { markLive } from "../../core/features.js";
 import { esc, render } from "../../core/dom.js";
 import { av, toast, ic } from "../../core/ui.js";
 import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
+import { computer17 } from "../p17-more.js";
 
 const D = { coding: null, notes: null, prs: null, devices: null };
 const onMode = (mode) => (mode ? mode !== "off" : false);
@@ -129,5 +130,5 @@ export function draw() {
   if (lev >= 1) html += browserMore() + code();
   if (lev >= 2) html += codeTechnical();
   if (lev >= 1) html += computerMore();
-  return html;
+  return html + computer17(lev);
 }

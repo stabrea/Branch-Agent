@@ -12,6 +12,8 @@ import { L, lookOf, lookEF, wornId, effMode, more, swatch, looks, savePrefs } fr
 import { ACCENTS } from "../../shell/themes.js";
 import { D, W, SCENES, loadDelight, saveDelight, saveWindow, showsBackground, bgChoice, drawBackground } from "../../shell/scene.js";
 import { OWN, LIMITS, kindOf, keep, forget } from "../../shell/ownbg.js";
+import { appearance17 } from "../p17-more.js";
+import { level as level17 } from "../../core/state.js";
 
 const pressed = (on) => `aria-pressed="${!!on}"`;
 const segAct = (title, sub, opts, cur, act) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l, a]) => `<button type="button" ${pressed(v === cur)} data-act="${a ?? act}" data-v="${v}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
@@ -94,7 +96,7 @@ function shownSection() {
 export function draw() {
   return `<h1>Appearance</h1><p class="lede">How Branch looks on this computer. Changes show as you pick.</p>
   <div class="sec"><h2>Light or dark</h2><div class="mirrors">${mirror("light")}${mirror("dark")}<button class="mirror" type="button" data-act="themeset" data-v="system" ${pressed(!document.documentElement.dataset.theme)}><span class="mm" data-css="grid-template-columns:1fr 1fr"><span data-css="background:#F8FAFB"></span><span data-css="background:#11161A"></span></span><b>Match this computer</b></button></div></div>
-  ${themeSection()}${agentsSection()}${backgroundSection()}${readingSection()}${petSection()}${shownSection()}`;
+  ${themeSection()}${agentsSection()}${backgroundSection()}${readingSection()}${petSection()}${shownSection()}${appearance17(level17())}`;
 }
 
 async function savePrefsAndDraw(change) {

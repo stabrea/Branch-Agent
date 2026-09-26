@@ -6,6 +6,8 @@ import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast, openDlg } from "../../core/ui.js";
 import { seg15 } from "../rows15.js";
+import { sections17, init17, load17 } from "../p17-advanced.js";
+import { init17 as initMoving17 } from "../p17-usage.js";
 
 /* The engine's own values: show the thinking (GET/POST /api/knobs, reasoning card, merged), the activity log
    (GET/POST /api/diagnostics/log/settings, merged; a three-way switch, on unless "off", turned on as "when-needed"),
@@ -98,7 +100,7 @@ export function draw() {
     html += "<div class=\"ctl\"><b>Follow-up tasks</b><input class=\"sw\" type=\"checkbox\" id=\"f15-follow-up-tasks\" aria-label=\"Follow-up tasks\" data-sw=\"set\"><small>A Trunk can leave itself a task for later, shown in the Board.</small></div>";
     html += "<div class=\"ctl\"><b>Standing orders</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">See " + esc(D.orders?.length ?? "") + "</button></span><small>Named programmes a Trunk keeps running; ESCALATE pauses one and asks you.</small></div>";
     html += "<div class=\"ctl\"><b>“From now on” for a specialist</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">Add one</button></span><small>A standing instruction kept by one specialist.</small></div>";
-    html += "<div class=\"ctl\"><b>Share a Trunk</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">Export…</button></span><small>Through Git, as a skill bundle, or exported with memory details removed.</small></div>";
+    html += "<div class=\"ctl\"><b>Share a Trunk</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"exportb17\">Export…</button></span><small>Through Git, as a skill bundle, or exported with memory details removed.</small></div>";
     html += "<div class=\"ctl\"><b>Custom modes</b><span class=\"right\"><code class=\"code15\">.branch/modes.json</code></span><small>Your own modes; one can hand the work back when it’s done.</small></div>";
     html += "<div class=\"ctl\"><b>Agent marketplace</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">Browse</button></span><small>Trunks others made, each with a fingerprint you can check.</small></div>";
     html += "</div>";
@@ -117,7 +119,7 @@ export function draw() {
     html += "</div>";
   }
 
-  return html;
+  return html + sections17(lv);
 }
 
 /* GET /api/logs answers lines of JSON (what the owner's tasks wrote down, keys and passwords taken out), not one JSON
@@ -137,6 +139,8 @@ async function openLogs() {
 }
 
 export function init() {
+  init17();
+  initMoving17();
   on("adv-logs", () => openLogs());
   markLive(["adv-logs", "sw:ad-think", "sw:ad-log"]);
   document.addEventListener("change", async (e) => {
@@ -148,6 +152,6 @@ export function init() {
   loadAll();
 }
 
-export async function load() { await loadAll(); }
+export async function load() { await Promise.all([loadAll(), load17()]); }
 
 export const live = { "adv-logs": true };

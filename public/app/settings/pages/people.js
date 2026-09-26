@@ -11,6 +11,8 @@ import { on, has } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast } from "../../core/ui.js";
 import { E } from "../../core/state.js";
+import { people17 } from "../p17-more.js";
+import { level as level17 } from "../../core/state.js";
 
 /* The prototype's words for the engine's seven kinds (src/tool-categories.ts), in the prototype's order. */
 const KINDS = [["read", "Look things up"], ["browse", "Use web pages"], ["files", "Write files"], ["commands", "Run commands"], ["message", "Send messages"], ["spend", "Spend money"], ["settings", "Change how Branch is set up"]];
@@ -121,7 +123,7 @@ export function draw() {
   return `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p>
   ${peopleBody()}
   ${eachPerson()}
-  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">Groups</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">Signing in from other devices</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">What you share</button></div>`;
+  <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">Groups</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">Signing in from other devices</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">What you share</button></div>${people17(level17())}`;
 }
 
 export function load() { return loadProfiles(); }

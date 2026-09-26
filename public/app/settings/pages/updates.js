@@ -5,6 +5,7 @@ import { api } from "../../core/api.js";
 import { esc, render } from "../../core/dom.js";
 import { markLive } from "../../core/features.js";
 import { toast } from "../../core/ui.js";
+import { updates17 } from "../p17-more.js";
 
 let comfortData = null;
 
@@ -62,7 +63,7 @@ function draw() {
   html += "<div class=\"acts\"><button class=\"btn dz\" type=\"button\" id=\"dz-go\" data-act=\"uninstall\" disabled>Remove Branch and everything it installed</button></div>";
   html += "</div>";
 
-  return html;
+  return html + updates17(level());
 }
 
 export { draw };
