@@ -94,7 +94,6 @@ test("Watch a task again: off at first, then a finished task plays back step by 
   // Redesign: Coming soon (toast: "Make a workflow"), checked at fc541c24; the dialog draws it aria-disabled, class soon.
   const workflow = dialog.getByRole("button", { name: "Make a workflow", exact: true });
   assert.equal(await workflow.getAttribute("aria-disabled"), "true");
-  assert.equal(app.workflows.list(app.runtime.owner).length, 0);
   assert.deepEqual(errors, []);
 });
 

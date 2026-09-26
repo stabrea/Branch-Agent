@@ -41,6 +41,8 @@ async function fixture(t, parts, { width = 1440, height = 950 } = {}) {
   const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST",
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     .then((response) => response.json());
+  const callRaw = (path) => fetch(new URL(path, server.url), { headers: { authorization: `Bearer ${server.token}` } })
+    .then(async (response) => ({ status: response.status, body: await response.json().catch(() => ({})) }));
   await call("/api/onboarding", { done: true });
   await call("/api/conversation-mode/settings", { newConversation: "follow" });
   await call("/api/deployment/suggestion", { id: "updates", answer: "never" }).catch(() => undefined);
@@ -52,7 +54,7 @@ async function fixture(t, parts, { width = 1440, height = 950 } = {}) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await signIn(page, server);
-  return { app, call, page, errors, scout, ledger };
+  return { app, call, callRaw, page, errors, scout, ledger };
 }
 const send = async (page, text) => { await page.locator("#prompt").fill(text); await page.locator("#prompt").press("Enter"); };
 /* The reply is on screen before the window has finished that send (it reloads the conversation, then the state): the
@@ -223,28 +225,29 @@ test.skip("an idle open room refreshes when another participant shares an artifa
   assert.deepEqual(f.errors, []);
 });
 
-test.skip("the owner can revoke a person's access to an existing room", async (t) => {
-  // Redesign: replaced by the new window (the prototype sets a room's people once, in New room; it has no "Change who may enter" row).
+test("the owner can revoke a person's access to an existing room", async (t) => {
+  // Redesign: replaced by the new window (the prototype sets a room's people once, in New room; it has no "Change who may
+  // enter" row), so the owner's change goes through the engine's room route (POST /api/trunks/rooms/<id> {people}); what
+  // Sam may reach afterwards is checked from Sam's side, in the engine and in the window.
   const f = await fixture(t, ["conversations", "rooms"]);
   const sam = await f.call("/api/profiles", { name: "Sam", pin: "1234" });
   const room = (await f.call("/api/trunks/rooms", {
     name: "Private bench", members: [f.scout.id, f.ledger.id], people: [sam.id],
   })).room;
-  await openPlace(f.page, "customize:specialists");
-  await f.page.evaluate(async () => (await import("/trunks.js")).draw());
-  const roomRow = f.page.locator(".trunks-room-row").filter({ hasText: "Private bench" });
-  await roomRow.getByText("Change who may enter", { exact: true }).click();
-  const samAccess = roomRow.getByRole("checkbox", { name: "Sam" });
-  assert.equal(await samAccess.isChecked(), true);
-  await samAccess.uncheck();
-  await roomRow.getByRole("button", { name: "Save room access", exact: true }).click();
-  let view;
-  for (let attempt = 0; attempt < 80; attempt++) {
-    view = await f.call(`/api/trunks/rooms/${room.id}`);
-    if (!view.people.length) break;
-    await f.page.waitForTimeout(25);
-  }
-  assert.deepEqual(view.people, []);
+  assert.deepEqual((await f.call(`/api/trunks/rooms/${room.id}`)).people.map((one) => one.id ?? one), [sam.id]);
+  await f.call(`/api/trunks/rooms/${room.id}`, { people: [] });
+  assert.deepEqual((await f.call(`/api/trunks/rooms/${room.id}`)).people, []);
+
+  await f.call("/api/profiles/switch", { profileId: sam.id, pin: "1234" });
+  const refused = await f.callRaw(`/api/trunks/conversations/${room.sessionId}`);
+  assert.ok([400, 403].includes(refused.status), `the room is refused to Sam once access is revoked (${refused.status})`);
+  assert.doesNotMatch(JSON.stringify(refused.body), /Private bench/);
+  assert.equal(((await f.call("/api/trunks")).rooms ?? []).some((one) => one.id === room.id), false, "and it is not among Sam's rooms");
+  await f.page.reload();
+  await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  assert.equal(await f.page.locator(`#side .list [data-act="chat"][data-id="${room.sessionId}"]`).count(), 0, "nor in Sam's side list");
+  assert.doesNotMatch(await f.page.locator("#side").innerText(), /Private bench/);
+  await f.call("/api/profiles/switch", { profileId: null });
   assert.deepEqual(f.errors, []);
 });
 

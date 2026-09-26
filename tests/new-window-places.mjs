@@ -69,6 +69,3 @@ export async function attachFiles(page, files) {
   await page.locator('.pop [data-act="attach"]').click();
   await (await chooser).setFiles(files);
 }
-
-/** Whether a control is drawn greyed out ("Coming soon", contract rule 6). */
-export const isSoon = async (locator) => (await locator.getAttribute("aria-disabled")) === "true" && /\bsoon\b/.test(await locator.getAttribute("class") ?? "");
