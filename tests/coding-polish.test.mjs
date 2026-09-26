@@ -48,7 +48,7 @@ test("every part ships as the owner's rule says, its tools are left out while of
   // The owner's rule (ships on, 2026-09-26): the coding parts ship "when needed", read-first ships on (Q250, a stricter
   // guard), fewer-rounds is not part of this sweep; a damaged record reads as off; what "off" does is tested by switching
   // every part off.
-  const ships = { "read-first": "on", "fewer-rounds": "off" };
+  const ships = { "read-first": "on", "fewer-rounds": "off", worktrees: "off" }; // worktrees: heavy disk
   for (const part of codingParts) assert.equal(app.coding.modes()[part], ships[part] ?? "when-needed", `${part} on a fresh install`);
   assert.equal(codingMode({ get: () => ({ data: { mode: "sideways" } }) }, "local", "notebooks"), "off", "a damaged record reads as off");
   for (const part of codingParts) app.coding.setMode(part, "off");
@@ -383,7 +383,7 @@ test("R17-036: a forked conversation works in its own copy, and a helper's copy 
   app.store.message(app.store.createRun(app.runtime.owner, "hi").sessionId, { role: "user", content: "hi" });
   const first = app.store.runs(app.runtime.owner)[0];
   const messageId = app.runtime.store.sqlite.prepare("SELECT source_id FROM messages WHERE session_id=?").get(first.sessionId)?.source_id;
-  app.coding.setMode("worktrees", "off"); // ships "when needed" (the owner's rule, 2026-09-26); "off" is tested switched off
+  app.coding.setMode("worktrees", "off"); // ships off (heavy disk); switched off explicitly all the same
   await assert.rejects(app.coding.worktrees.fork({ sessionId: first.sessionId, messageId }, AbortSignal.timeout(30_000)), /switched off/);
   on("worktrees");
   const fork = await app.coding.worktrees.fork({ sessionId: first.sessionId, messageId }, AbortSignal.timeout(30_000));

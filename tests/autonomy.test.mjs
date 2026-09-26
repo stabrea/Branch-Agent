@@ -65,8 +65,10 @@ async function fixture(t) {
 
 test("every part ships off: no tools, no instructions, and changes are refused in one sentence", async (t) => {
   const { app, api, call, on, off } = await fixture(t);
-  // The owner's rule (ships on, 2026-09-26): every part ships "when needed"; what "off" does is tested by switching each off.
-  assert.deepEqual(Object.values((await api("/api/autonomy")).modes), autonomyParts.map(() => "when-needed"));
+  // The owner's rule (ships on, 2026-09-26): every part but session commands (it sends the conversation out) and
+  // procedures (steps run without a yes) ships "when needed"; what "off" does is tested by switching each off.
+  const shipsOff = ["session-commands", "procedures"];
+  assert.deepEqual(Object.values((await api("/api/autonomy")).modes), autonomyParts.map((part) => (shipsOff.includes(part) ? "off" : "when-needed")));
   await off(...autonomyParts);
   const { modes } = await api("/api/autonomy");
   assert.deepEqual(Object.values(modes), autonomyParts.map(() => "off"));
@@ -322,9 +324,7 @@ test("sub-goals are shown to every round and to the judge", async (t) => {
   const { app, on, off } = await fixture(t);
   const owner = app.runtime.owner, sessionId = randomUUID();
   addSubgoal(app.store, owner, sessionId, "the tests pass");
-  // The owner's rule (ships on, 2026-09-26): never saved, it reads as it ships; then "off" is tested by switching it off.
-  assert.match(goalWithSubgoals(app.store, owner, { sessionId, objective: "Ship it" }), /1\. the tests pass/);
-  await off("session-commands");
+  // Session commands ship off (the owner's rule: /handoff sends the conversation out), and never saved reads as off.
   assert.equal(goalWithSubgoals(app.store, owner, { sessionId, objective: "Ship it" }), "Ship it", "nothing while the part is off");
   await on("session-commands");
   assert.match(goalWithSubgoals(app.store, owner, { sessionId, objective: "Ship it" }), /Ship it\nIt is done only when every one of these is also true:\n1\. the tests pass/);
@@ -371,7 +371,7 @@ test("/subgoal needs a goal, /bg starts a separate conversation, and /handoff po
   assert.deepEqual(linked, [{ channel: "tg-main", chatId: "42", sessionId: first.sessionId }]);
   assert.match(sent[0][2], /carries on here/);
   assert.match((await command("/handoff discord", first.sessionId)).body.text, /No chat on discord/);
-  // The owner's rule (ships on, 2026-09-26): handing on ships "when needed", so the interop switch is switched off here.
+  // The owner's rule (ships on, 2026-09-26): handing on ships off; the interop switch is switched off explicitly all the same.
   await api("/api/interop/switch", { part: "handoff", mode: "off" });
   assert.match((await command("/handoff terminal", first.sessionId)).body.text, /switched off/, "the interop switch still decides");
 });

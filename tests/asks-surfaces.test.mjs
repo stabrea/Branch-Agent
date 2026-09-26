@@ -60,9 +60,7 @@ test("gateway: the healthiest labelled computer takes a task, and a down one is 
   await assert.rejects(nodes.ask({ prompt: "x", label: "tape" }), /No computer carries the label "tape"/);
   behaviour.attic = "down"; behaviour.desk = "down"; behaviour.gpu = "down";
   await assert.rejects(nodes.ask({ prompt: "x" }), /No computer could take the task: .*desk .*gpu .*attic|No computer could take the task/);
-  // The owner's rule (ships on, 2026-09-26): never saved, the part ships "when needed"; "off" is tested saved off.
-  await assert.rejects(new BranchNodes(memoryStore({}), "local", fetcher, async () => "k").ask({ prompt: "x" }), /No other computer running Branch has been added/);
-  const off = new BranchNodes(memoryStore({ nodes: "off" }), "local", fetcher, async () => "k");
+  const off = new BranchNodes(memoryStore({}), "local", fetcher, async () => "k");
   await assert.rejects(off.ask({ prompt: "x" }), /switched off/);
 });
 

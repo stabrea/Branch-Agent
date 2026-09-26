@@ -37,14 +37,11 @@ export const autonomyShipsOn: Partial<Record<AutonomyPart, AutonomyMode>> = {
   orders: "when-needed",
   // The owner's rule (ships on, 2026-09-26): /loop and /heartbeat start only when the owner types them, and every turn is bounded; none of (a)–(f).
   loops: "when-needed",
-  // The owner's rule (ships on, 2026-09-26): /subgoal, /bg and /handoff are the owner's own commands in their own conversation; none of (a)–(f).
-  "session-commands": "when-needed",
-  // The owner's rule (ships on, 2026-09-26): a procedure starts itself only if the owner made it and chose that level; the approval rules still hold; none of (a)–(f).
-  procedures: "when-needed",
   // The owner's rule (ships on, 2026-09-26): the readiness check only looks at PATH and secret names, never runs or reads a value; none of (a)–(f).
   readiness: "when-needed",
   // The owner's rule (ships on, 2026-09-26): a "from now on" instruction is kept only after the owner says yes; none of (a)–(f).
   instructions: "when-needed",
+  // Kept off, by the owner's rule (off for spending, sending, outside access, heavy disk): session-commands sends the conversation out (/handoff); procedures run steps without a yes at "auto".
 };
 
 /** What each part is, in the owner's words, for the card and for a refusal. */
