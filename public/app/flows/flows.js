@@ -11,6 +11,7 @@ import * as trunk from "./trunk.js";
 import * as flowEditor from "./flow-editor.js";
 import * as prompts from "./prompts.js";
 import * as computers from "./computers.js";
+import * as guides from "./guides.js";
 import { S, E } from "../core/state.js";
 import { onRender } from "../core/dom.js";
 
@@ -28,22 +29,28 @@ export function init() {
   flowEditor.init();
   prompts.init();
   computers.init();
+  guides.init();
   onRender(checkFirstRun);
 }
 
-/* Setup opens on the first draw until the engine says onboarding is done (GET /api/state onboarding). An automated test
-   marks it done through the engine (POST /api/onboarding {done: true}) before it opens the window. */
+/* Setup opens on the first draw while the engine says it is due (GET /api/state onboarding): not finished, not skipped,
+   tips and pop-ups on, and either not done (a real model's first answer ends the first run, src/onboarding.ts) or still
+   open where the person left it (a reload in the middle of setup goes back to it). It is decided in the same frame as that first draw, and until setup is drawn
+   over it the window shows only its plain background (#app.ob-due), so a reload goes straight to setup, at the step
+   the person was on, with no glimpse of the window first. An automated test marks it done through the engine
+   (POST /api/onboarding {done: true}) before it opens the window. */
+const legacySeen = () => { try { return !!localStorage.getItem("branch-setup-seen"); } catch (error) { return false; } }; // set by windows before setup was kept by the engine
+function setupDue() {
+  const p = E.state?.onboarding;
+  return !!p?.mine && (!p.done || p.step != null) && !p.finishedAt && !p.skipped && p.popups !== false && !legacySeen() && !S.ob && !/(^|[#&])(open|task)=/.test(location.hash);
+}
 function checkFirstRun() {
-  if (!firstRunChecked && E.state) {
-    firstRunChecked = true;
-    if (!E.state.onboarding?.done && !S.ob && !localStorage.getItem("branch-setup-seen")) {
-      setTimeout(() => {
-        if (!S.ob && !S.addAcct && !S.chw && S.view === "chat") {
-          setup.openSetup();
-        }
-      }, 700);
-    }
-  }
+  if (firstRunChecked || !E.state) return;
+  firstRunChecked = true;
+  if (!setupDue()) return;
+  const root = document.getElementById("app");
+  root?.classList.add("ob-due");
+  setup.openSetup(1, "resume").finally(() => root?.classList.remove("ob-due"));
 }
 
 export function openAddAcct(prov) {
