@@ -346,6 +346,23 @@ test("1 read-first on (Q250): a saved recipe's step and a manual action are not 
   assert.equal(await fileText(workspace, "a.txt"), "by hand\n");
 });
 
+test("1 read-first on (Q250): a recipe or workflow the model runs itself is held, so it is no way round the guard", async (t) => {
+  const recipeId = "0b1c2d3e-4f50-4617-8829-3a4b5c6d7e80", flowId = "1c2d3e4f-5061-4728-893a-4b5c6d7e8f90";
+  const write = { tool: "files.write", args: { path: "a.txt", content: "blind\n" } };
+  const { app, workspace } = await readFirstFixture(t, [
+    call("procedures.propose", { id: recipeId, name: "blind write", preconditions: [], steps: [{ ...write, expected: { path: "a.txt", bytes: 6 } }] }),
+    call("procedures.verify", { id: recipeId }),
+    call("workflows.create", { id: flowId, name: "blind write", steps: [{ name: "write", kind: "tool", ...write }] }),
+    call("workflows.run", { id: flowId }),
+    say("done")]);
+  const run = await app.runtime.run({ prompt: "change it" });
+  const answers = toolMessages(app, run);
+  assert.equal(answers[1].ok, false, JSON.stringify(answers[1]));
+  assert.match(answers[1].error, /read "a\.txt" with files\.read first/, "the recipe's step is held under the model's own task");
+  assert.match(JSON.stringify(answers[3]), /read \\"a\.txt\\" with files\.read first/, "and so is the workflow's step it started");
+  assert.equal(await fileText(workspace, "a.txt"), "one\n", "nothing was written round the guard");
+});
+
 test("1 read-first on: an unread file is refused, in a sentence that says to read it first", async (t) => {
   const { app, workspace } = await readFirstFixture(t, [
     edit("one", "two"),

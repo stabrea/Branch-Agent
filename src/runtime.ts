@@ -159,7 +159,7 @@ import { advisedPreload } from "./fly-core/apply.js";
 import { autonomyPrompt } from "./autonomy/hooks.js"; // r17-b
 import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
 import { walkCheck, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
-import { underTask } from "./task-scope.js"; // mac7/walk-rules
+import { insideModelCall, underModelCall, underTask } from "./task-scope.js"; // mac7/walk-rules, Q250
 import { posix, resolve as resolvePath } from "node:path"; // mac7/walk-rules
 import { finishSetupOnFirstAnswer } from "./onboarding.js"; // dogfood B7
 
@@ -776,8 +776,9 @@ export class Runtime {
     let status: Run["status"] = "completed";
     try {
       // --- mac5/manual-actions: never-break, Lockdown, folder trust, the rules and the sandbox wall.
-      // Q250: one call, its own task, so read-before-edit cannot hold it (ToolContext.readFirstExempt).
-      const scoped = { ...context, ...this.gateManual(run.id, name, args, context, options), readFirstExempt: true };
+      // Q250: one call, its own task, so read-before-edit cannot hold it (ToolContext.readFirstExempt), unless a
+      // model's own call started it (a workflow it ran): then it is held, so a model cannot write round the guard.
+      const scoped = { ...context, ...this.gateManual(run.id, name, args, context, options), readFirstExempt: !insideModelCall() };
       // --- end mac5/manual-actions ---
       result = this.hideSecrets(await this.registry.execute(name, args, scoped));
       this.store.event(run.id, "tool.completed", { name, result });
@@ -3468,7 +3469,7 @@ ${run.output.slice(0, 6000)}`;
       if (!validArgs) throw new Error("Invalid JSON tool arguments");
       // Scrubbing happens before the receipt is signed, so the recorded result and its proof match.
       // mac2/leak-guard: key-shaped values the locker never saw are hidden here too.
-      const result = this.hideSecrets(this.leakGuard.toolResult(context.runId, call.name, await this.asTrunk(context, () => this.registry.execute(call.name, args, scoped))));
+      const result = this.hideSecrets(this.leakGuard.toolResult(context.runId, call.name, await this.asTrunk(context, () => underModelCall(context.runId, () => this.registry.execute(call.name, args, scoped)))));
       const handedOver = this.noteDeferred(call, context, result);
       if (handedOver) return { ok: true, result: handedOver };
       this.noteApp(call, context, result);
