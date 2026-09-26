@@ -70,6 +70,25 @@ test("a task's window is watched as a JPEG frame with its password box covered, 
   assert.equal(await browser.watch("someone-else", "livestage"), null, "the same run under another owner is nothing");
 });
 
+test("a task working in the owner's own browser (browser.borrow) is never pictured", async (t) => {
+  const page = await site();
+  const browser = new BranchBrowser({ allowedOrigins: [page.origin] });
+  const port = 9431;
+  const owned = await chromium.launchPersistentContext("", { headless: true, args: [`--remote-debugging-port=${port}`] });
+  t.after(async () => { await browser.close(); await owned.close(); await page.close(); });
+  browser.store = { get: () => ({ data: { enabled: true, port, runId: "live-borrow", grantedAt: new Date().toISOString() } }), save: () => undefined };
+  const registry = new ToolRegistry();
+  registerBrowser(registry, browser);
+  const context = { owner: "local", workspace: ".", runId: "live-borrow", signal: new AbortController().signal,
+    budget: new Budget(), permissions: new Set(["browser.read", "browser.interact"]), depth: 0 };
+  await registry.execute("browser.borrow", { action: "borrow" }, context);
+  await registry.execute("browser.navigate", { url: `${page.origin}/` }, context);
+  const seen = await browser.watch("local", "live-borrow");
+  assert.equal(seen.borrowed, true);
+  assert.equal(seen.frame, null, "no frame of the owner's own browser");
+  assert.equal(seen.url, `${page.origin}/`, "only the address and title of Branch's own tab");
+});
+
 async function engine(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-live-stage-"));
   const provider = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };

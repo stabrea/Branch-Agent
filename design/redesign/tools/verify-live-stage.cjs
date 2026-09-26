@@ -15,6 +15,10 @@
    and the docked conversation (hide, show, drag its edge, steer the task from its box) work; Stop cancels the task
    (GET /api/runs/<id>); Team's Watch opens the live view; the Trunk computer chips, At once and the view's computer
    menu change GET /api/trunks/<id>/computers; and a household person is refused the owner's frames while they are live.
+   It CHANGES the engine, so run it on a throwaway one only: the approval policy is set to "Just do it inside my workspace"
+   (put back at the end with confirmLoosening), an "Always" yes is given for 127.0.0.1:<PAGE_PORT>, a Trunk "Verify
+   Stage" and a household profile "Sam" (PIN 2468) are made, the Trunk's computers are changed and put back, and the
+   light/dark switch is flipped twice.
    Screenshots go to SHOTS (default C:/Users/bishi/AppData/Local/Temp/claude-session-files/live-stage). */
 const http = require("node:http");
 const { createHash } = require("node:crypto");

@@ -571,8 +571,10 @@ export class BranchBrowser {
     try { entry = this.sessions.get(this.key({ owner, runId })); } catch { return null; } // no owner or run: nothing to watch
     const seen = entry?.session.watched();
     if (!entry || !seen) return null;
+    // A tab whose page is busy may not answer; its title is left empty after a second rather than holding up the view.
+    const titleOf = (tab: Page) => Promise.race([tab.title().catch(() => ''), new Promise<string>(done => { setTimeout(() => done(''), 1000).unref?.(); })]);
     const tabs = await Promise.all(seen.tabs.map(async (tab, index) =>
-      ({ url: tab.url(), title: await tab.title().catch(() => ''), active: index === seen.active })));
+      ({ url: tab.url(), title: await titleOf(tab), active: index === seen.active })));
     const borrowed = entry.session.isBorrowed();
     const frame = borrowed ? null : await liveFrame(seen.page).catch(() => null);
     return { url: seen.page.url(), title: tabs[seen.active]?.title ?? '', tabs, frame, borrowed };
