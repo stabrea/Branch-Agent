@@ -1,21 +1,30 @@
 /* Team: people, shared work, usage, rules (greyed until KeepOak connects).
    Live now: each task working on this computer (state.runs), under the person using Branch here (GET /api/profiles) and
    the Trunk whose conversation it is (its chatSessionId), else Branch's own assistant (state.identity). Watching, asking
-   to join and inviting stay greyed. */
+   to join and inviting stay greyed.
+   People: the prototype's peopleTab, the same list and card as Settings › People (settings/pages/people.js peopleBody,
+   from GET /api/profiles and the owner's sign-in card).
+   Signing in: the prototype's signinTab, drawn from the owner's sign-in card (GET /api/people/settings: settings.mode,
+   settings.chain, settings.sessionMinutes, waiting) and GET /api/profiles ownerPin; a profile always locks after five
+   wrong PINs (src/profiles.ts maximumPinAttempts). Every control there decides who may sign in, so all stay greyed for
+   separate review; the card is read when either tab is switched to or opened from Settings › People, and only the owner
+   may read it. */
 
-import { esc, renderNow } from "../core/dom.js";
+import { esc, render, renderNow } from "../core/dom.js";
 import { S, E } from "../core/state.js";
-import { ic, av, closePop } from "../core/ui.js";
+import { av, closePop } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { on } from "../core/actions.js";
 import { tabBar } from "./parts.js";
+import { ctl } from "../settings/parts.js";
+import { people, peopleBody, startPeople, loadSignin } from "../settings/pages/people.js";
 
 const tabs = [["live", "Live now"], ["people", "People"], ["groups", "Groups"],
   ["shared", "Shared"], ["agents", "Teams of specialists"], ["activity", "Activity"],
   ["usage", "Usage"], ["rules", "Rules"], ["signin", "Signing in"]];
 
 const EYE = `<svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>`;
-const personHere = () => E.profiles?.profiles?.find((p) => p.id === E.profiles.active)?.name || E.profiles?.roleLabels?.owner?.label || "";
+const personHere = () => E.profiles?.active?.name || E.profiles?.roleLabels?.owner?.label || "";
 const initials = (name) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
 const firstLine = (text) => String(text ?? "").split("\n")[0].slice(0, 80);
 
@@ -41,12 +50,39 @@ const liveRuns = () => E.state.runs?.filter((r) => r.status === "running" || r.s
 function liveTab() {
   return `<div class="runs6">${liveRuns().map(liveRow).join("")}</div>`;
 }
-/* Live now counts the tasks working here; People counts the rows its tab draws (the person using Branch here). */
-const counts = () => ({ live: liveRuns().length, people: personHere() ? 1 : 0 });
+/* Live now counts the tasks working here; People counts the rows its tab draws (everyone on this computer). */
+const counts = () => ({ live: liveRuns().length, people: people().length });
 
-function peopleTab() {
-  return `<div class="runs6"><div class="run6"><div class="run-h">${person()}</div></div></div>
-    <div class="acts" data-css="margin-top:12px"><button class="btn pri" type="button" data-act="team-invite">${ic("plus", "s")}Invite someone</button></div>`;
+let signin = null, signinFor = null;
+const STAY = [[60, "1 hour"], [480, "8 hours"], [10080, "A week"]];
+const PROVE = [["pin", "PIN"], ["passkey", "Passkey"], ["oidc", "An identity service"]];
+/* The prototype's segmented control, with the engine's value pressed; its act has no handler, so it is greyed. */
+const seg = (title, sub, opts, pressed, act) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l]) => `<button type="button" aria-pressed="${pressed(v)}" data-act="${act}" data-v="${esc(v)}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
+
+function waitingRows(waiting) {
+  if (!waiting?.length) return "";
+  const name = (id) => E.profiles?.profiles?.find((p) => p.id === id)?.name ?? "";
+  return `<div class="sec"><h2>Accounts linked by email</h2>${waiting.map((w) => `<div class="prow"><span class="grow"><b>${esc(w.email)}</b><small>Wants to link to ${esc(name(w.profileId))} · you confirm</small></span><button class="btn sm" type="button" data-act="si-link">Confirm</button></div>`).join("")}</div>`;
+}
+
+function signinTab() {
+  const s = signin?.settings;
+  if (!s) return "";
+  const locks = true; // a profile always locks after five wrong PINs (src/profiles.ts maximumPinAttempts)
+  return `${seg("Let people sign in from their own device", "They open this Branch’s address on their phone or computer. Ships off.", [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]], (v) => s.mode === v, "si-mode")}
+    ${seg("How they prove it’s them", "Everyone passes this check.", PROVE, (v) => (s.chain ?? []).includes(v), "si-chain")}${seg("Stay signed in for", "Then they sign in again.", STAY, (v) => s.sessionMinutes === v, "si-stay")}
+    ${ctl("si-lock", "Lock a profile after five wrong PINs", "For five minutes.", locks)}${ctl("si-owner", "Ask for my PIN when switching back to me", "Off by default.", Boolean(E.profiles?.ownerPin))}
+    ${waitingRows(signin.waiting)}`;
+}
+
+/* The owner's sign-in card, read once each time People or Signing in is opened; drawn again only when it changed. */
+export async function after() {
+  const tab = S.tabs.team || "live";
+  if (tab !== "people" && tab !== "signin") { signinFor = null; return; }
+  if (signinFor === tab) return;
+  signinFor = tab;
+  const fresh = await loadSignin();
+  if (JSON.stringify(fresh) !== JSON.stringify(signin)) { signin = fresh; render(); }
 }
 
 export function draw() {
@@ -60,7 +96,8 @@ export function draw() {
     ${tabBar(tabs.map(([id, label]) => [id, label, counts()[id] ?? 0]), "team", tab)}`;
 
   if (tab === "live") html += liveTab();
-  else if (tab === "people") html += peopleTab();
+  else if (tab === "people") html += peopleBody();
+  else if (tab === "signin") html += signinTab();
   else html += `<div class="runs6"></div>`;
 
   html += `</div></div></main>`;
@@ -69,6 +106,7 @@ export function draw() {
 
 export function init() {
   markLive(["ptab", "p-open-team"]);
+  startPeople();
   /* From Settings › People: opens one of the Team tabs. */
-  on("p-open-team", (el) => { S.view = "team"; S.tabs.team = el.dataset.v; closePop(); renderNow(); });
+  on("p-open-team", (el) => { S.view = "team"; S.tabs.team = el.dataset.v; signinFor = null; closePop(); renderNow(); });
 }

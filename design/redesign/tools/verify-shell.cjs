@@ -39,6 +39,9 @@ async function signIn(page) {
   await page.getByRole("button", { name: "Connect" }).click();
   await page.waitForSelector("#side .machine");
   await page.waitForTimeout(1200);
+  // A fresh engine opens on setup; it is closed with "Skip for now" as a person would, so onboarding stays not done for
+  // the first-run check below.
+  if (await page.isVisible(".ob9")) await page.click('.ob9 [data-act="ob-close"]');
 }
 async function openAppearance(page) {
   await page.click('#side [data-act="view"][data-v="settings"]');

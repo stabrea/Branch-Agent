@@ -29,8 +29,10 @@ export function init() {
   onRender(checkFirstRun);
 }
 
+/* Setup opens on the first draw until the engine says onboarding is done (GET /api/state onboarding). An automated test
+   marks it done through the engine (POST /api/onboarding {done: true}) before it opens the window. */
 function checkFirstRun() {
-  if (!firstRunChecked && E.state && !navigator.webdriver) {
+  if (!firstRunChecked && E.state) {
     firstRunChecked = true;
     if (!E.state.onboarding?.done && !S.ob && !localStorage.getItem("branch-setup-seen")) {
       setTimeout(() => {

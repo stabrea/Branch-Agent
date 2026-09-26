@@ -14,6 +14,10 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+
+/* Setup opens over a window whose onboarding is not done; these tests start past it, marked done through the engine. */
+const onboarded = (server) => fetch(new URL("/api/onboarding", server.url), { method: "POST",
+  headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
 import { readPolicy, savePolicy } from "../dist/policy.js";
 
 const scripted = { name: "scripted", async complete(request) {
@@ -33,6 +37,7 @@ async function signedIn(t) {
   const policy = readPolicy(app.store, app.runtime.owner);
   savePolicy(app.store, app.runtime.owner, { ...policy, rules: [{ tool: "files.write", decision: "ask" }, ...policy.rules] });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  await onboarded(server);
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1366, height: 900 }, serviceWorkers: "block" });
@@ -88,6 +93,7 @@ test("add an account in Settings › Accounts: the engine keeps it and the key n
   app.runtime.models.register({ id: "openai-work", name: "OpenAI", model: "gpt-5.5", catalogId: "openai", provider: { name: "openai-compatible", complete: answer } });
   app.runtime.models.configure(owner, { activePreset: "openai-work" });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  await onboarded(server);
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST",
@@ -126,6 +132,7 @@ test("Stop in Send's place stops the running task, and Send comes back", async (
   } };
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: waiting });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  await onboarded(server);
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1366, height: 900 }, serviceWorkers: "block" });

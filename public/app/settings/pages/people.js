@@ -1,38 +1,58 @@
 /* Settings › People, 1:1 with the prototype's card, from the engine's own list (GET /api/profiles): you, the owner,
    then everyone with a profile on this computer, each with the role and what the role lets them have Branch do
    (roles[].effective, roles[].categories). Picking a person to look at is window state. Switching person, roles,
-   one-time codes, signing out and removing somebody are security-sensitive, so they are drawn greyed for review. */
+   one-time codes, signing out and removing somebody are security-sensitive, so they are drawn greyed for review.
+   The same list and card are Team › People (places/team.js draws peopleBody()), both from the list the window holds
+   (E.profiles, the same GET /api/profiles, read again when this page opens). "Signed in on" names the devices each
+   person is signed in on now, from the owner's sign-in card (GET /api/people/settings people[].signedIn[].device). */
 import { esc, render } from "../../core/dom.js";
 import { api } from "../../core/api.js";
-import { on } from "../../core/actions.js";
+import { on, has } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast } from "../../core/ui.js";
+import { E } from "../../core/state.js";
 
 /* The prototype's words for the engine's seven kinds (src/tool-categories.ts), in the prototype's order. */
 const KINDS = [["read", "Look things up"], ["browse", "Use web pages"], ["files", "Write files"], ["commands", "Run commands"], ["message", "Send messages"], ["spend", "Spend money"], ["settings", "Change how Branch is set up"]];
 const OWNER = "owner";
 
-let data = null;
+/* The owner's sign-in card (GET /api/people/settings), or null until read; only the owner may read it. */
+let signin = null;
 /* Who is being looked at: as in the prototype, somebody other than you when there is anybody else. */
 let picked = null;
+const profiles = () => E.profiles;
+
+function pickDefault() {
+  const ids = (profiles()?.profiles ?? []).map((p) => p.id);
+  if (picked !== OWNER && !ids.includes(picked)) picked = ids[0] ?? OWNER;
+}
+
+/* The owner's sign-in card, shared with Team › Signing in. Answers what the engine said, or null when it refused. */
+export async function loadSignin() {
+  if (E.profiles && !E.profiles.isOwner) return signin;
+  try { signin = await api("people/settings"); } catch (error) { toast(error.message); }
+  return signin;
+}
 
 async function loadProfiles() {
-  try { data = await api("profiles"); } catch (error) { toast(error.message); }
-  const ids = (data?.profiles ?? []).map((p) => p.id);
-  if (picked !== OWNER && !ids.includes(picked)) picked = ids[0] ?? OWNER;
+  try { E.profiles = await api("profiles"); } catch (error) { toast(error.message); }
+  await loadSignin();
   render();
 }
 
-const label = (role) => data?.roleLabels?.[role]?.label ?? "";
-const roleOf = (id) => (data?.roles ?? []).find((r) => r.profileId === id);
+const label = (role) => profiles()?.roleLabels?.[role]?.label ?? "";
+const roleOf = (id) => (profiles()?.roles ?? []).find((r) => r.profileId === id);
 const initials = (name) => String(name ?? "").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
 /* Everyone on this computer: the owner first, then each profile the engine keeps. */
-function people() {
+export function people() {
+  const data = profiles();
   if (!data) return [];
   const owner = { id: OWNER, name: label(OWNER), role: OWNER, you: data.isOwner };
   return [owner, ...(data.profiles ?? []).map((p) => ({ id: p.id, name: p.name, role: roleOf(p.id)?.grant?.role ?? "adult", lastUsedAt: p.lastUsedAt, you: (data.active?.id ?? data.active) === p.id }))];
 }
+/* The devices a person is signed in on now, as the owner's sign-in card lists them. */
+const devices = (id) => [...new Set((signin?.people ?? []).find((x) => x.id === id)?.signedIn?.map((k) => k.device).filter(Boolean) ?? [])];
 
 const avatar = (p, size, font) => `<span class="tav6" data-css="--c:#56616B;width:${size}px;height:${size}px;font-size:${font}px">${esc(initials(p.name))}</span>`;
 /* The weekday within the last week, as the prototype writes it ("Sun"); the date before that. */
@@ -58,11 +78,12 @@ function mayRows(p) {
 }
 
 function facts(p) {
-  if (p.id === OWNER) return `<dt>Trunks</dt><dd>All</dd><dt>Projects</dt><dd>All</dd><dt>Daily allowance</dt><dd>No limit</dd><dt>PIN</dt><dd>${data.ownerPin ? "Set" : "—"}</dd>`;
+  if (p.id === OWNER) return `<dt>Trunks</dt><dd>All</dd><dt>Projects</dt><dd>All</dd><dt>Daily allowance</dt><dd>No limit</dd><dt>PIN</dt><dd>${profiles()?.ownerPin ? "Set" : "—"}</dd><dt>Signed in on</dt><dd>This computer</dd>`;
   const g = roleOf(p.id)?.effective ?? roleOf(p.id)?.grant ?? {};
   const projects = (g.projects ?? []).length ? g.projects.join(", ") : "All";
   const allowance = g.dailySpendLimit > 0 ? `$${g.dailySpendLimit} a day` : "No limit";
-  return `<dt>Projects</dt><dd>${esc(projects)}</dd><dt>Daily allowance</dt><dd>${esc(allowance)}</dd><dt>PIN</dt><dd>Set</dd>`;
+  const on = devices(p.id);
+  return `<dt>Projects</dt><dd>${esc(projects)}</dd><dt>Daily allowance</dt><dd>${esc(allowance)}</dd><dt>PIN</dt><dd>Set</dd>${on.length ? `<dt>Signed in on</dt><dd>${esc(on.join(", "))}</dd>` : ""}`;
 }
 
 function actions(p) {
@@ -88,21 +109,33 @@ function eachPerson() {
   return `<div class="sec"><h2>Each person</h2><div class="ctl"><b>Ask for a PIN when switching person</b>${pin}<small>Four to eight digits, kept on this computer. Five wrong tries lock the profile for five minutes.</small></div><div class="ctl"><b>Keep conversations separate</b>${own}<small>People can’t read each other’s conversations unless they share one.</small></div></div>`;
 }
 
-export function draw() {
+/* The prototype's peopleTab(): the list, the card of whoever is picked, and the hint. Settings › People and Team › People. */
+export function peopleBody() {
+  pickDefault();
   const all = people();
-  return `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p><div class="t10">
-    ${list(all)}${card(all.find((p) => p.id === picked))}</div>
-    <p class="hint">Separation on one computer, not separate accounts. Each person’s conversations and memory are their own.</p>
+  return `<div class="t10">${list(all)}${card(all.find((p) => p.id === picked))}</div>
+    <p class="hint">Separation on one computer, not separate accounts. Each person’s conversations and memory are their own.</p>`;
+}
+
+export function draw() {
+  return `<h1>People</h1><p class="lede">Everyone who uses Branch: on this computer, on their own devices, and your keepoak.com team. The same list as Team › People.</p>
+  ${peopleBody()}
   ${eachPerson()}
   <div class="acts" data-css="margin-top:12px"><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="groups">Groups</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="signin">Signing in from other devices</button><button class="btn ghost sm" type="button" data-act="p-open-team" data-v="shared">What you share</button></div>`;
 }
 
 export function load() { return loadProfiles(); }
 
-export function init() {
-  loadProfiles();
+/* Picking whom to look at, for both pages; registered once, by whichever starts first. */
+export function startPeople() {
+  if (has("p-sel")) return;
   on("p-sel", (el) => { picked = el.dataset.v; render(); });
   markLive(["p-sel"]);
+}
+
+export function init() {
+  loadProfiles();
+  startPeople();
 }
 
 export const live = { "p-sel": true };
