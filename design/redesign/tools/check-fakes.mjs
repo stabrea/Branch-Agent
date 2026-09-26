@@ -30,10 +30,15 @@ const toastWords = (line) => [...line.matchAll(/toast\((["'`])((?:(?!\1).)*)\1/g
 // The tour's own copy names the model families; setup's textarea keeps the prototype's placeholder hint.
 const EXEMPT = { "public/app/flows/tour.js": ["prototype example model"], "public/app/flows/setup.js": ["prototype example name"] };
 
+// The owner's decision: Branch has no demo or practice model; setup is how a model is chosen. Checked on every line,
+// comments included, so not even a note about one comes back.
+const NO_DEMO = /Offline demonstration|Practice mode|offline-demo-fixture/;
+
 let bad = 0;
 for (const f of files) {
   const rel = f.replaceAll("\\", "/");
   readFileSync(f, "utf8").split("\n").forEach((line, i) => {
+    if (NO_DEMO.test(line)) { console.log(`${rel}:${i + 1}: demo model in the window: ${line.match(NO_DEMO)[0]}`); bad++; }
     for (const [re, why] of RULES) {
       if (EXEMPT[rel]?.includes(why) || /^\s*(\/\/|\/\*|\*)/.test(line)) continue;
       // A state the line explains as true ("// state: <why>") is allowed; the reason is read in review.

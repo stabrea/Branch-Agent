@@ -23,8 +23,8 @@ const F = { step: null, pick: "", accounts: [], channels: [], gw: "off", upd: "o
 const hero = () => `<span class="mark mark-full hero-mark" aria-hidden="true"></span><h1>${t("window.flows.first.hi")}</h1><p class="lede">${t("window.flows.first.hi-lede")}</p><div class="acts"><button class="btn pri" type="button" data-act="fr-next">${t("window.flows.first.start")}</button><button class="btn ghost" type="button" data-act="fr-skip">${t("window.flows.first.skip")}</button></div>`;
 function think() {
   const ways = [["fr-way-computer", t("glance.local"), t("window.flows.first.private")], ["fr-way-chatgpt", t("window.flows.first.chatgpt"), t("window.flows.first.their-site")],
-    ["fr-way-claude", t("window.flows.first.claude"), t("window.flows.first.their-site")], ["fr-way", t("window.flows.first.practice"), t("window.flows.first.practice-hint")]];
-  return `<h1>${t("firstRun.title")}</h1><p class="lede">${t("window.flows.first.think-lede")}</p><div class="ways">${ways.map(([a, name, x]) => `<button class="way" type="button" data-act="${a}"><b>${name}</b><small>${x}</small></button>`).join("")}</div>`;
+    ["fr-way-claude", t("window.flows.first.claude"), t("window.flows.first.their-site")]];
+  return `<h1>${t("firstRun.title")}</h1><p class="lede">${t("window.flows.first.think-lede")}</p><div class="ways">${ways.map(([a, name, x]) => `<button class="way" type="button" data-act="${a}"><b>${name}</b><small>${x}</small></button>`).join("")}</div><div class="acts"><button class="btn ghost" type="button" data-act="fr-next">${t("window.flows.first.later")}</button></div>`;
 }
 function accounts() {
   const rows = F.accounts.map((a) => `<button class="way" type="button" data-act="fr-acc" data-v="${esc(a.pool)}"><span data-css="display:flex;align-items:center;gap:10px">${logo(a.pool, a.label, 26)}<b>${esc(a.label)}</b></span><small>${a.signedIn ? t("window.flows.first.signed-in") : t("window.flows.first.sign-in")}</small></button>`).join("");
@@ -79,13 +79,6 @@ export async function startFirst() {
 const go = (i) => { F.step = i === 2 ? 3 : i; draw(); };
 const close = () => { F.step = null; draw(); };
 
-/* Practice first: the old window's demo door, which finishes the first run with the engine (POST /api/onboarding). */
-async function practice() {
-  try { await api("onboarding", { done: true }); } catch (error) { toast(error.message); return; }
-  toast(t("window.flows.first.practice-toast"));
-  go(3);
-}
-
 /* The two recommendations: each is sent only when its switch differs from what the engine has. */
 async function recommend() {
   const gw = $("#fr-gw")?.checked, upd = $("#fr-upd")?.checked;
@@ -121,10 +114,9 @@ function dismissWelcome() {
 }
 
 export function init() {
-  markLive(["sw:fr-gw", "sw:fr-upd", "firstrun", "fr-next", "fr-skip", "fr-tour", "fr-way", "fr-recs", "fr-tmpl", "welcome-x"]);
+  markLive(["sw:fr-gw", "sw:fr-upd", "firstrun", "fr-next", "fr-skip", "fr-tour", "fr-recs", "fr-tmpl", "welcome-x"]);
   on("firstrun", () => startFirst());
   on("fr-next", () => go(F.step + 1));
-  on("fr-way", () => practice());
   on("fr-skip", () => close());
   on("fr-tour", () => { close(); run("tour"); });
   on("fr-recs", () => recommend());

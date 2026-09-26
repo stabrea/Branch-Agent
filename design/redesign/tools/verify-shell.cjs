@@ -198,9 +198,8 @@ async function firstRun(page) {
   check("firstrun", await page.isVisible(".first"), "the first run opens");
   await page.click('.first [data-act="fr-next"]');
   check("fr-next", await page.isVisible("text=How should Branch think?"), "next screen");
-  await page.click('.first [data-act="fr-way"]');
-  const done = await until(async () => (await api("state")).onboarding.done === true);
-  check("fr-way (practice)", !!done && !!(await page.waitForSelector("text=Connect your accounts", { timeout: 5000 }).catch(() => null)), "GET /api/state onboarding.done=true; goes on to the accounts the engine has");
+  await page.click('.first [data-act="fr-next"]');
+  check("fr-next (later)", !!(await page.waitForSelector("text=Connect your accounts", { timeout: 5000 }).catch(() => null)), "goes on to the accounts the engine has; there is no practice door");
   await page.click('.first [data-act="fr-next"]');
   await page.click('.first [data-act="fr-next"]');
   await page.check("#fr-gw");

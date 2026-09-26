@@ -123,7 +123,6 @@ export const FEATURES = {
   "fr-skip": "ready",
   "fr-tmpl": "ready",
   "fr-tour": "ready",
-  "fr-way": "ready",
   "g-all": "ready",
   "g-ans": "ready",
   "goal-fill": "ready",
