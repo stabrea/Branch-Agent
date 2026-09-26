@@ -8501,6 +8501,7 @@
   "window.shell.extras.close-anything": "Cerrar cualquier cosa",
   "window.shell.extras.combo-already-does-value": "{combo} ya hace «{value}».",
   "window.shell.extras.export-conversation": "Exportar la conversación",
+  "window.shell.extras.after-first-message": "Después del primer mensaje",
   "window.shell.extras.focus-mode": "Modo enfocado",
   "window.shell.extras.minimize": "Minimizar",
   "window.shell.extras.quit": "Salir",

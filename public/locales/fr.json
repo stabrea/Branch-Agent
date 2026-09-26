@@ -8502,6 +8502,7 @@
   "window.shell.extras.close-anything": "Tout fermer",
   "window.shell.extras.combo-already-does-value": "{combo} fait déjà « {value} ».",
   "window.shell.extras.export-conversation": "Exporter la conversation",
+  "window.shell.extras.after-first-message": "Après le premier message",
   "window.shell.extras.focus-mode": "Mode concentration",
   "window.shell.extras.minimize": "Réduire",
   "window.shell.extras.quit": "Quitter",

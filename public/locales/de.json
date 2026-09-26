@@ -8501,6 +8501,7 @@
   "window.shell.extras.close-anything": "Alles schließen",
   "window.shell.extras.combo-already-does-value": "{combo} macht schon „{value}“.",
   "window.shell.extras.export-conversation": "Unterhaltung exportieren",
+  "window.shell.extras.after-first-message": "Nach der ersten Nachricht",
   "window.shell.extras.focus-mode": "Fokusmodus",
   "window.shell.extras.minimize": "Minimieren",
   "window.shell.extras.quit": "Beenden",
