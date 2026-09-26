@@ -83,6 +83,9 @@ export function drawPane() {
   pane.innerHTML = `<div class="pane-h"><div class="ptabs" role="tablist">${[...TABS, ...extra].map(([id, l]) => `<button class="ptab" role="tab" type="button" aria-selected="${tab === id}" data-act="${tabAct(id)}" data-p="${id}" data-v="${id}">${l}</button>`).join("")}</div><button class="icon-btn" type="button" aria-label="Close the side panel" data-act="pane" data-p="close">${ic("x")}</button></div><div class="pane-b">${own ? own[2]() : BODY[tab]()}</div>`;
   applyCss(pane);
   greyOut(pane);
+  // The tab row scrolls when its tabs outgrow the card (pass 17 adds Timeline and Branches); keep the chosen one in view.
+  const tabs = pane.querySelector(".ptabs"), on = tabs?.querySelector('[aria-selected="true"]');
+  if (on && (on.offsetLeft + on.offsetWidth > tabs.scrollLeft + tabs.clientWidth || on.offsetLeft < tabs.scrollLeft)) tabs.scrollLeft = on.offsetLeft - 8;
   loadPane();
   if (tab === "terminal") loadWork(S.chat);
 }
