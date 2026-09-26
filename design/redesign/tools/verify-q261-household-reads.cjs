@@ -137,6 +137,14 @@ async function windowWorks({ samSid }) {
   const refused = [...reads.keys()].filter((key) => !key.startsWith("200 ") && !key.startsWith("401 "))
     .filter((key) => isListed(key.split(" ")[1]) && !ownRefusal(key.split(" ")[1]));
   check("no listed read was refused to Sam by the household rule", refused.length === 0, refused.join(", ").slice(0, 300));
+  /* Where the household window already showed the owner's refusal before Q261 (the same walk against origin/redesign/window
+     at fe000dbd): autonomy, flows and boards, the safety extras, chat apps, projects, settings-kit, calendar, reach and
+     others. Anywhere else, a refusal toast is new, and the page should draw without the owner's read instead. */
+  const before = new Set(["automations", "automations/tab0", "customize/tab1", "customize/tab3", "inbox", "inbox/tab2", "settings",
+    "settings/achievements", "settings/advanced", "settings/computer", "settings/developer", "settings/gateway", "settings/general",
+    "settings/instructions", "settings/notifications", "settings/permissions", "settings/secrets", "settings/self", "settings/usage"]);
+  const fresh = [...new Set(toasts.filter((one) => /belongs to the owner/.test(one.text) && !before.has(one.where)).map((one) => one.where))];
+  check("no new place shows the owner's refusal to Sam", fresh.length === 0, fresh.join(", "));
   const told = [...new Set(toasts.map((one) => `${one.where}: ${one.text}`))];
   console.log(`--- toasts shown to Sam (where: words) ---\n${told.join("\n") || "(none)"}`);
   await browser.close();
