@@ -35,7 +35,7 @@ export function closePop() {
   popEl = popAnchor = null;
 }
 export function openPop(anchor, html, opt = {}) {
-  const same = popAnchor === anchor;
+  const same = popAnchor === anchor, fresh = !popEl || (!same && !opt.force);
   closePop();
   hideTip();
   if (same && !opt.force) return;
@@ -51,6 +51,7 @@ export function openPop(anchor, html, opt = {}) {
   anchor.setAttribute("aria-expanded", "true");
   place(popEl, root.getBoundingClientRect(), anchor.getBoundingClientRect(), opt.right);
   offComposer(popEl, root.getBoundingClientRect(), anchor);
+  if (fresh) popEl.classList.add("in17"); /* pass 17: a popover that opens fresh eases in once; a redraw does not replay it */
   popEl.querySelector("button:not([aria-disabled='true']),input")?.focus({ preventScroll: true });
 }
 /* A click anywhere outside the open popover and its button closes it. */
@@ -85,10 +86,11 @@ let dlgEl = null;
 export const dialog = () => dlgEl;
 export function closeDlg() { dlgEl?.remove(); dlgEl = null; }
 export function openDlg({ title, body, foot = "", wide = false }) {
+  const fresh = !dlgEl;
   closePop();
   closeDlg();
   dlgEl = document.createElement("div");
-  dlgEl.className = "scrim";
+  dlgEl.className = fresh ? "scrim in17" : "scrim"; /* pass 17: a fresh dialog eases in once */
   dlgEl.innerHTML = `<div class="dlg ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="dlg-h"><h2>${esc(title)}</h2><button class="icon-btn" type="button" aria-label="Close" data-act="dlg-close">${ic("x")}</button></div><div class="dlg-b">${body}</div>${foot ? `<div class="dlg-f">${foot}</div>` : ""}</div>`;
   applyCss(dlgEl);
   greyOut(dlgEl);

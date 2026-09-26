@@ -33,9 +33,9 @@ export const isHex = (v) => /^#[0-9a-f]{6}$/i.test(v || "");
 /* The thirteen colours a person can pick, and the window's own (Branch Slate) in each mode. */
 export const EF = [["bg", "Background"], ["side", "Sidebar"], ["raise", "Cards and menus"], ["ink", "Text"], ["ink2", "Softer text"], ["ink3", "Faint text"], ["line", "Lines"], ["accent", "Accent: things that want you"], ["btn", "Buttons"], ["onBtn", "Button text"], ["ok", "Good"], ["warn", "Careful"], ["bad", "Problem"]];
 export const BRANCH_EF = {
-  light: { bg: "#F8FAFB", side: "#EFF3F5", raise: "#FFFFFF", ink: "#16212A", ink2: "#3F4C56", ink3: "#7A8791", line: "#DEE5E9", accent: "#D8612A", btn: "#16212A", onBtn: "#F8FAFB", ok: "#2F8F5B", warn: "#A86E12", bad: "#C2412D" },
-  dark: { bg: "#11161A", side: "#0C1013", raise: "#182026", ink: "#E8EEF2", ink2: "#B3BFC7", ink3: "#7D8A93", line: "#1F282E", accent: "#E7753F", btn: "#E8EEF2", onBtn: "#11161A", ok: "#5CC08A", warn: "#E0AF3B", bad: "#F0806C" },
-};
+  light: { bg: "#F6F8F9", side: "#EDF1F3", raise: "#FFFFFF", ink: "#141D24", ink2: "#3A4751", ink3: "#5F6C76", line: "#DFE5E9", accent: "#D8612A", btn: "#141D24", onBtn: "#F6F8F9", ok: "#2F8F5B", warn: "#A86E12", bad: "#C2412D" },
+  dark: { bg: "#0F1418", side: "#0B0F12", raise: "#161D22", ink: "#E6ECF0", ink2: "#AEBAC3", ink3: "#85929B", line: "#1D262C", accent: "#E7753F", btn: "#E6ECF0", onBtn: "#0F1418", ok: "#5CC08A", warn: "#E0AF3B", bad: "#F0806C" },
+}; /* pass 17's Slate: kept in step with the "pass 17 look" tokens in app.css */
 
 /* One catalogue theme, one mode, as those thirteen colours (the catalogue lists each side in TOKEN_NAMES order). */
 function themeEF(row, mode, more) {
@@ -89,6 +89,7 @@ export function applyLook() {
   const id = wornId(), mode = effMode();
   if (id === BASE && !L.accent && !more()) clearVars(); else setVars(withAccent(lookEF(id, mode), mode), mode);
   document.documentElement.dataset.palette = id;
+  document.documentElement.classList.toggle("contrast17", more()); /* More contrast keeps full-strength lines (app.css) */
 }
 
 export function saveLocal() {
