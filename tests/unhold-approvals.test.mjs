@@ -84,6 +84,33 @@ test("under Lockdown no rule is added or removed, so Lockdown's own ask-everythi
   assert.equal(rules()[0].match, "notes.txt", "the owner's own list comes back as it was");
 });
 
+/* Mutation: delete the unhold-approvals `lockdownActive` check in Runtime.approve (src/runtime.ts) → the yes is
+   written into Lockdown's own list, answered as "always", and lost when Lockdown ends. */
+test("under Lockdown Always is refused, nothing is written, and the question keeps waiting for a plainer yes", async (t) => {
+  const { app, call, rules } = await served(t);
+  assert.equal((await call("POST", "/api/lockdown", { on: true })).status, 200);
+  const lockdownRules = rules();
+  const q = seed(app);
+  const refused = await call("POST", "/api/policy/approve", always(q));
+  assert.equal(refused.status >= 400, true, `→ ${refused.status}`);
+  assert.match(refused.body.error, /Lockdown is on/);
+  assert.deepEqual(rules(), lockdownRules, "Lockdown's rule list is untouched");
+  assert.ok(app.runtime.approvals.questionFor(q.sessionId, q.fingerprint), "still waiting");
+  const once = await call("POST", "/api/policy/approve", { ...always(q), remember: "never" });
+  assert.equal(once.status, 200, "control: a yes just now still answers it under Lockdown");
+  assert.equal(once.body.remembered, "never");
+});
+
+/* Mutation: delete `requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId)` in src/server.ts, and have
+   `keyAnswerRefusal` return null → a key answers a question of a task it never started. */
+test("a short-lived key cannot answer a question of the owner's, even just now", async (t) => {
+  const { app, call, runKey } = await served(t);
+  const q = seed(app);
+  const refused = await call("POST", "/api/policy/approve", { ...always(q), remember: "never" }, runKey);
+  assert.equal(refused.status, 401);
+  assert.ok(app.runtime.approvals.questionFor(q.sessionId, q.fingerprint), "still waiting");
+});
+
 /* Mutation: delete the `input.remember === "always" && startedWithShortLivedKey()` check in src/server.ts → the
    refusal's words change to the runtime's, and with `mayGiveStandingYes` also returning true the rule is written. */
 test("a short-lived key cannot loosen, keep a standing yes, add or remove a rule, or change the password manager", async (t) => {
