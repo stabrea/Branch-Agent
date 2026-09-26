@@ -4,10 +4,12 @@
      PORT=<port> TOKEN=<hex> node design/redesign/tools/verify-bugfix-7.cjs
    Checks that need a model that answers in a set way (two different answers to the same words, a long answer, an answer
    held back, a file write that stops on a question, a restart) run on in-process engines with a scripted model, each in
-   its own temp folder on a free port. Stand-ins, all inside this script: the clipboard's refusal (writeText rejects) and
-   the selection copy (execCommand) are replaced in the page for the failure checks; nothing else is stubbed. Test data it
-   makes through the engine: conversations it sends, a Trunk named "Verify Trunk", a memory note, and (on the fresh
-   engine) the typed-commands switch, put back as it was. */
+   its own temp folder on a free port. Stand-ins, all inside this script: the scripted models, including two stand-in
+   connections registered in-process ("think-claude" as an anthropic provider, "think-local" as an ollama one, so the
+   engine gives each its thinking levels); the clipboard's refusal (writeText rejects) and the selection copy
+   (execCommand), replaced in the page for the failure checks. Test data: conversations it sends, a Trunk named "Verify
+   Trunk" (POST /api/trunks), a memory note written in-process with store.save (the window has no route that adds one),
+   and on the fresh engine the typed-commands switch, put back as it was. */
 const { mkdtempSync, rmSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
@@ -206,8 +208,8 @@ async function compare(browser) {
 }
 
 /* 4 (Copy), 6 (web-ui :140), 9 (a new reply redraws; Page Up), 10 (Branch from here), K5 (the model menu's thinking levels) and the
-   empty screen's Trunks: one engine whose model answers long, holds an answer back when asked, and has four stand-in
-   connections that each take a thinking level as their provider does. */
+   empty screen's Trunks: one engine whose model answers long, holds an answer back when asked, and has two stand-in
+   connections that take thinking levels as their providers do. */
 async function conversation(browser) {
   const long = Array.from({ length: 40 }, (_, i) => `Paragraph ${i + 1} of a long answer, with enough words to take a line.`).join("\n\n");
   let release = null;
