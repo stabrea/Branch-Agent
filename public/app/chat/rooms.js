@@ -74,8 +74,10 @@ async function sendToRoom(info, text, hooks) {
 }
 async function sayToTrunk(trunk, text, hooks) {
   await hooks.open(trunk.chatSessionId);
+  const before = hooks.mark();
   await api(`trunks/${encodeURIComponent(trunk.id)}/say`, { text });
   await hooks.open(trunk.chatSessionId);
+  hooks.readAloud(before);
 }
 async function chooseAndSend(trunk, sid, text, hooks) {
   if (sid) await api(`trunks/conversations/${encodeURIComponent(sid)}`, { trunkId: trunk.id });
