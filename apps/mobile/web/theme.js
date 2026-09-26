@@ -1,7 +1,7 @@
 /**
  * Puts the window's theme on the phone's own screens. The Branch window tells the app which of the
  * 44 themes and which mode it is showing; this writes that theme's finished colours onto the page,
- * under Branch's own token names with the window's own public/theme-bridge.js, and paints the oak behind.
+ * under Branch's own token names with the phone's copy of the window's theme bridge (web/theme-bridge.js), and paints the oak behind.
  */
 import { themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 
@@ -14,7 +14,7 @@ export function applyTheme(look = {}) {
   return { theme: theme[0], mode };
 }
 
-/** The oak, drawn by Branch's own public/grove.js; a phone without a canvas simply goes without. */
+/** The oak, drawn by the phone's copy of Branch's grove (web/grove.js); a phone without a canvas simply goes without. */
 export async function paintOak(mode) {
   try {
     const grove = await import("/grove.js");
