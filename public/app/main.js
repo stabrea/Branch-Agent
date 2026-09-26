@@ -8,7 +8,7 @@ import { $, onRender, render, renderNow, paint } from "./core/dom.js";
 import { S, E, loadSaved, refresh, activeId } from "./core/state.js";
 import { api, stream, link } from "./core/api.js";
 import { listen, on } from "./core/actions.js";
-import { listenTips, closePop, closeDlg, dialog } from "./core/ui.js";
+import { listenTips, closePop, closeDlg, dialog, toast } from "./core/ui.js";
 import { greyOut } from "./core/features.js";
 import { VIEWS } from "./views.js";
 import { drawShell, initShell, PLACE_VIEWS, placeHead, wide } from "./shell/shell.js";
@@ -16,7 +16,8 @@ import { showSignIn } from "./shell/signin.js";
 import { showLock, watchLock, initLock } from "./shell/applock.js";
 import { openConversation } from "./chat/chat.js";
 import { goHome } from "./chat/goto.js";
-import { initLanguage } from "../i18n.js";
+import { initLanguage, t } from "../i18n.js";
+import { autoUpdater } from "./shell/autoupdate.js";
 
 /* A place draws its own <main class="main" id="main">; inside the shell's #main that would be a second main and a second
    #main, so it becomes a <div> with the same classes and children (the styles are by class). */
@@ -122,6 +123,7 @@ async function connect(refusal = "") {
     queued = setTimeout(() => refresh().then(render, () => {}), 250);
   });
   watchPerson();
+  if (window.branchDesktop) autoUpdater({ desktop: window.branchDesktop, api, toast, ready: () => t("comfort.update.ready") }).look();
   followLink();
   addEventListener("hashchange", () => followLink());
 }
