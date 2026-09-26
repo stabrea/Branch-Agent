@@ -7,7 +7,7 @@
 
 import { $, esc, applyCss, renderNow } from "../core/dom.js";
 import { ic, openPop, closePop, mi, toast } from "../core/ui.js";
-import { S, refresh } from "../core/state.js";
+import { S, E, refresh } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -26,20 +26,32 @@ function menu() {
 
 /* Who answers the open conversation, as the engine said when it was opened; a room is chosen through its members instead. */
 const radio = (v, t, s, on) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${on}" data-act="who" data-v="${esc(v)}"><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(t)}</span>${s ? `<span class="mi-s">${s}</span>` : ""}</span></button>`;
+/* A Trunk is offered only while the engine lets one be chosen (its "conversations" part is not off). */
+const choosing = () => (E.trunkModes?.trunks ?? "on") !== "off" && (E.trunkModes?.conversations ?? "on") !== "off";
 function whoRows() {
   const w = Q.whoFor === S.chat ? Q.who : null;
   if (!S.chat || !w || (w.kind !== "plain" && w.kind !== "trunk")) return "";
   const now = w.trunk?.id ?? "";
   return '<hr><div class="ph">Who answers in this conversation</div>' + radio("", "Branch", "The assistant on this computer", now === "")
-    + (w.trunks ?? []).map((t) => radio(t.id, t.name, "", now === t.id)).join("");
+    + (choosing() ? w.trunks ?? [] : []).map((t) => radio(t.id, t.name, "", now === t.id)).join("");
 }
+
+/** What the engine said about the open conversation (GET /api/trunks/conversations/<id>), or null. */
+export const whoHere = () => (Q.whoFor === (S.chat ?? null) ? Q.who : null);
+/** Reads it again on the next loadWho (after a Trunk was chosen, or a room made). */
+export function forgetWho() { Q.whoFor = undefined; }
 
 /* After the conversation is drawn: ask the engine who answers it, once per conversation. With Trunks off it has no answer. */
 export async function loadWho() {
   const sid = S.chat ?? null;
   if (Q.whoFor === sid) return;
   Q.whoFor = sid;
-  Q.who = sid ? await api(`trunks/conversations/${encodeURIComponent(sid)}`).catch(() => null) : null;
+  Q.who = null;
+  const who = sid ? await api(`trunks/conversations/${encodeURIComponent(sid)}`).catch(() => null) : null;
+  if (Q.whoFor !== sid) return;
+  Q.who = who;
+  /* The replies are signed from it, so the conversation is drawn again once it is known. */
+  if (who && S.view === "chat") renderNow();
 }
 
 async function chooseWho(el) {
