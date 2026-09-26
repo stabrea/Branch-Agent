@@ -127,7 +127,8 @@ async function removePin(page) {
   await page.locator("#pin-cur-b17").fill(PIN2);
   await page.locator('[data-act="applockoffb17"]').click();
   await settle(page, 1200);
-  check("Off with the PIN removes it", (await lock()).pinSet === false);
+  const off = await lock();
+  check("Off with the PIN removes it, and Always with it", off.pinSet === false && off.lockOnOpen === false, JSON.stringify(off));
   check("Off says so in the prototype's words", (await toastText(page)).includes("App lock off."));
 }
 

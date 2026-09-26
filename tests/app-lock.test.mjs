@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { agentSections, openAgent } from "../dist/agent-export.js";
 
 /** Distinctive, so a search for it cannot hit an id, a time or a count by chance. */
 const PIN = "730461";
@@ -52,7 +53,7 @@ async function withPin(t) {
   return it;
 }
 
-// Mutation: make SessionLock.checkPin return early (accept any PIN) → the wrong PIN unlocks, red.
+// Mutation: in SessionLock.checkPin, make the hash comparison always true (accept any PIN) → the wrong PIN unlocks, red.
 test("a wrong PIN is refused, and the right one unlocks", async (t) => {
   const { call } = await withPin(t);
   assert.equal((await call("POST", "/api/lock")).body.locked, true);
@@ -69,7 +70,7 @@ test("a wrong PIN is refused, and the right one unlocks", async (t) => {
 });
 
 // Mutation: change `wrong % maximumUnlockTries !== 0` to `true` (never wait) → the sixth try is not 429, red.
-// Mutation: drop the `wait_until > now` check → the right PIN unlocks during the wait, red.
+// Mutation: make the `wait_until > now` check never hold → the right PIN unlocks during the wait, red.
 test("rate limiting: the fifth wrong try starts a wait that holds the right PIN too, grows, and outlives a restart", async (t) => {
   const it = await withPin(t);
   await it.call("POST", "/api/lock");
@@ -97,6 +98,7 @@ test("rate limiting: the fifth wrong try starts a wait that holds the right PIN 
 });
 
 // Mutation: delete the `lockedOut` check in src/server.ts → GET /api/state answers 200 while locked, red.
+// Mutation: delete both `if (refusedLocked()) return;` lines in the upgrade handler → the task socket opens (101), red.
 test("owner routes are refused while locked; only the lock's status and unlock are answered", async (t) => {
   const { call, server } = await withPin(t);
   const run = await call("POST", "/api/run", { prompt: "hello" });
@@ -118,6 +120,9 @@ test("owner routes are refused while locked; only the lock's status and unlock a
   assert.equal(status.body.pinSet, true);
   assert.equal((await call("GET", "/api/alive")).status, 200, "alive answers, for the update's self-test");
   assert.equal((await call("GET", "/api/health")).status, 200, "health answers, for the update's self-test");
+  // Closing loosens nothing: both closing routes reach their own checks (this computer's own key, and
+  // here no quit handler and no background engine), rather than the lock.
+  for (const path of ["/api/deployment/quit", "/api/deployment/close"]) assert.notEqual((await call("POST", path, {})).status, 423, path);
   // A task's socket is refused as well, once its key has passed.
   const upgrade = await new Promise((resolve, reject) => {
     const req = request(server.url + `/api/runs/${runId}/ws`, {
@@ -190,9 +195,21 @@ test("the PIN is absent from every answer, the record, the backup and the saved 
   texts.push(bad.text);
   texts.push((await call("POST", "/api/lock/pin", { pin: "4826", current: PIN })).text);
   texts.push((await call("POST", "/api/lock/pin", { pin: PIN, current: "4826" })).text);
-  for (const path of ["/api/lock", "/api/state", "/api/backup", "/api/audit", "/api/audit/export.csv", "/api/logs", "/api/diagnostics/log", "/api/settings-kit"])
-    texts.push((await call("GET", path)).text);
+  const exports = ["/api/lock", "/api/state", "/api/backup", "/api/audit", "/api/audit/export.csv", "/api/logs", "/api/diagnostics/log", "/api/settings-kit",
+    "/api/settings-kit/export", "/api/log/export", "/api/memory/export", "/api/usage/export.csv", "/api/prompts/export", "/api/skill-installs/export", "/api/knowledge/export"];
+  const answered = [];
+  for (const path of exports) {
+    const answer = await call("GET", path);
+    texts.push(answer.text);
+    if (answer.status === 200) answered.push(path);
+  }
+  for (const path of ["/api/backup", "/api/settings-kit/export", "/api/audit/export.csv", "/api/log/export", "/api/memory/export"])
+    assert.ok(answered.includes(path), `${path} answered, so its absence of the PIN means something`);
   texts.push((await call("POST", "/api/diagnostics/report", {})).text);
+  // The whole-assistant file (Settings › Export all), every part ticked, opened as the app opens it.
+  const whole = await call("POST", "/api/agent-export", { sections: [...agentSections] });
+  assert.equal(whole.status, 200, whole.text.slice(0, 200));
+  texts.push(JSON.stringify([...openAgent(Buffer.from(whole.body.data, "base64")).files]));
   texts.push(JSON.stringify(app.store.backup(app.version)));
   texts.push(JSON.stringify(app.store.sqlite.prepare("SELECT * FROM settings").all()));
   texts.push(JSON.stringify(app.store.sqlite.prepare("SELECT owner, salt, hex(pin_hash) AS h FROM app_lock_pin").all()));

@@ -1,6 +1,7 @@
 /* Settings › Permissions › App lock (prototype patch17b: Off, After 15 min, Always), from the engine:
    GET /api/lock says whether a PIN is set (never the PIN), the quiet minutes and lock-on-open.
-   Off removes the PIN: POST /api/lock/pin { pin: null, current }, which the engine refuses without the PIN set now.
+   Off removes the PIN: POST /api/lock/pin { pin: null, current }, which the engine refuses without the PIN set now, and
+   saves lock-on-open off (the quiet minutes stay: without a PIN they only close the locker, as before App lock).
    After 15 min and Always first set a PIN when none is set (POST /api/lock/pin { pin }), then save the lock's settings
    whole (POST /api/lock/settings replaces them: idleMinutes, secretsWhileLocked, lockOnOpen).
    Change asks for the PIN set now and a new one (POST /api/lock/pin { pin, current }).
@@ -73,7 +74,12 @@ async function setPin(el) {
 
 async function removePin() {
   const current = take($("#pin-cur-b17"));
-  try { await api("lock/pin", { pin: null, current }); } catch (error) { toast(error.message); return; }
+  const lock = L.lock;
+  try {
+    await api("lock/pin", { pin: null, current });
+    /* "Always" goes with the PIN. The quiet minutes stay: without a PIN they only close the locker, as before App lock. */
+    await api("lock/settings", { idleMinutes: lock.idleMinutes, secretsWhileLocked: lock.secretsWhileLocked, lockOnOpen: false });
+  } catch (error) { toast(error.message); return; }
   closeDlg();
   await load();
   toast("App lock off.");

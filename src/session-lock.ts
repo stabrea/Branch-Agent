@@ -56,10 +56,12 @@ const hashPin = (pin: string, salt: string): Buffer => scryptSync(pin, salt, 32,
 /**
  * What a locked Branch still answers while a PIN is set: its lock status and the unlock itself,
  * and — because Branch may start locked — that it is alive and well, and being asked by this
- * computer's own `branch quit` to close. The update's self-test opens the saved work and asks
- * `/api/health`; a locked answer there would fail every update.
+ * computer's own `branch quit` — or, on a Mac, the update — to close. The update's self-test opens the saved
+ * work and asks `/api/health`; a locked answer there would fail every update. Closing loosens nothing, and both
+ * closing routes still ask for this computer's own key from this computer (src/install/quit.ts, src/deployment-api.ts).
  */
-const openWhileLocked = new Set(["GET /api/lock", "POST /api/lock/unlock", "GET /api/alive", "GET /api/health", "POST /api/deployment/quit"]);
+const openWhileLocked = new Set(["GET /api/lock", "POST /api/lock/unlock", "GET /api/alive", "GET /api/health",
+  "POST /api/deployment/quit", "POST /api/deployment/close"]);
 
 /** Why an App lock request was refused, with the HTTP status src/server.ts answers it with. */
 export class AppLockRefusal extends Error {
