@@ -32,14 +32,13 @@ export const reachKey = (part: ReachPart): string => `reach-${part}`;
  * What each part is while nothing has been saved for it. A saved record that is damaged still reads as off.
  * Kept off, by the owner's rule: Trunks on other computers and the relay (each takes messages in from
  * outside, (a)); using apps in the background (it drives any app without the screen-and-keyboard switch,
- * which ships off, (d)); making videos (a paid video service beside the model provider, (b)); and sharing
- * the assistant through git (it sends the assistant somewhere new, (c)).
+ * which ships off, (d)); making videos (a paid video service beside the model provider, (b)); sharing
+ * the assistant through git (it sends the assistant somewhere new, (c)); and `branch send` (it sends
+ * messages into chat apps, and the owner's rule keeps sending off until the owner turns it on).
  */
 export const reachShipsOn: Partial<Record<ReachPart, ReachMode>> = {
   // The owner's rule (ships on, 2026-09-26): only the computers the owner added, through a fixed set of read views and two actions; nothing comes in; none of (a)–(f).
   machines: "when-needed",
-  // The owner's rule (ships on, 2026-09-26): `branch send` is the owner's own command with this computer's key, only to chats that already talk to Branch; none of (a)–(f).
-  send: "when-needed",
   // The owner's rule (ships on, 2026-09-26): pausing a chat app is the owner's alone and only quietens Branch; none of (a)–(f).
   "platform-pause": "when-needed",
   // The owner's rule (ships on, 2026-09-26): a bundle is looked at or brought in only when the owner asks, every skill arriving switched off; none of (a)–(f).
