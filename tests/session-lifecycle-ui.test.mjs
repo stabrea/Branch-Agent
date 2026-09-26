@@ -192,7 +192,9 @@ test('pending send blocks saved conversation switching, duplicate, and file impo
   } });
   await openConversation(f.page, f.sourceId); await ready(f.page);
   await f.page.locator('#prompt').fill('Keep working'); await f.page.locator('#send').click(); await started.promise;
-  assert.equal(await f.page.locator('#send').isDisabled(), true, 'Send is held while the answer is pending');
+  // The prototype (the lead, 2026-09-26): while a task works, an empty box shows Stop instead of Send, and Send is not
+  // disabled; a message typed then is queued through the engine's busy send.
+  await f.page.locator('#send[aria-label="Stop"][data-act="stop-run"]').waitFor({ timeout: 10000 });
   /* Redesign: the design lets a person move between conversations while one works (rows show "Working"), and has no
      import (replaced by the new window). Carrying the source on while its answer is pending is still refused: read now,
      asserted last. */

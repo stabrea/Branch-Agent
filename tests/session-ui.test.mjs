@@ -129,10 +129,17 @@ test('pending chat disables branching and conversation switching until its respo
   await openConversation(f.page, f.source.sessionId, 'Juniper checkpoint'); await readyConversation(f.page);
   await f.page.locator('#prompt').fill('Wait for fixture');
   await f.page.locator('#send').click(); await started.promise;
-  assert.equal(await f.page.locator('#send').isDisabled(), true, 'Send is held while the answer is pending');
+  // The prototype (the lead, 2026-09-26): while a task works, an empty box shows Stop instead of Send, and Send is not
+  // disabled; a message typed then is queued through the engine's busy send.
+  await f.page.locator('#send[aria-label="Stop"][data-act="stop-run"]').waitFor({ timeout: 10000 });
   await f.page.locator('#composer').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   await f.page.locator('#prompt').press('Enter');
   assert.equal(requests, 1, 'a pending send is never sent twice');
+  await f.page.locator('#prompt').fill('Then this too');
+  const queued = f.page.waitForRequest((r) => r.url().endsWith('/api/flows-boards/busy/send') && r.method() === 'POST', { timeout: 10000 });
+  await f.page.locator('#prompt').press('Enter');
+  await queued;
+  assert.equal(requests, 1, 'a message typed while it works is queued, not sent to the model at once');
   /* Read now, while the answer is pending; asserted last so the other checks still report. */
   const branchHeld = await branchButton(f.page, 'Juniper checkpoint').then(b => b.isDisabled({ timeout: 10000 })).catch(error => error.message);
   await row(f.page, other.sessionId).click();
