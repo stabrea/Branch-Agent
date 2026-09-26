@@ -403,6 +403,38 @@ test("a fallback that fails while the conversation is fitted to it is marked lik
   }
 });
 
+test("a side-job connection that fails for its own reasons while a fallback is fitted ends the task, and the fallback is not marked for it", async (t) => {
+  const plan = scripted("chatgpt", () => { throw new ProviderHttpError(503); }), local = scripted("ollama-like");
+  // A refusal with no status (a refused sign-in, say) is no reason to try another connection. Branch writes a failure
+  // with no status down itself, so it must be put down to the connection that failed and to no other.
+  const refused = "The sign-in to this connection was refused.";
+  const helper = writer("helper", () => { throw new Error(refused); });
+  const app = await fixture(t, [planSol(plan), unknown(helper, "helper")], noRetries);
+  const localId = localConnection(app, local, 8192, { active: false });
+  app.runtime.models.configure(app.runtime.owner, { activePreset: "chatgpt-gpt-5.6-sol", fallbackOrder: [localId] });
+  // The owner's side jobs go to a third connection, so it is asked for the summary that fits the conversation to the fallback.
+  saveKnobs(app.store, app.runtime.owner, "subtasks", { sideJobModel: "helper" });
+  const sessionId = app.store.createSession(app.runtime.owner);
+  // About 14,000 tokens: under where the plan route folds, past what the model on this computer holds.
+  earlierTurns(app, sessionId, 14, () => 1000);
+  const run = await app.runtime.run({ prompt: "and now?", sessionId, ...tools });
+  assert.equal(run.status, "failed", "the side-job connection's own failure ends the task, as it always has");
+  assert.equal(run.output, refused);
+  assert.deepEqual(events(app, run, "model.fallback").map((move) => `${move.from} > ${move.to}`), [`chatgpt-gpt-5.6-sol > ${localId}`]);
+  const kinds = app.store.events(run.id).map((event) => event.kind);
+  assert.ok(kinds.indexOf("context.compacting") > kinds.indexOf("model.fallback"), "the fold was for the fallback, after the move");
+  assert.deepEqual(events(app, run, "context.compacting").map((fold) => fold.writer), ["helper"], "and the side-job connection was asked to write it");
+  assert.equal(helper.side.filter(isSummary).length, 1);
+  assert.deepEqual([local.main.length, local.side.length], [0, 0], "the fallback was never asked anything");
+  assert.deepEqual(events(app, run, "context.compacted"), [], "nothing was folded");
+  assert.equal(app.runtime.models.health.get(localId).consecutiveFailures, 0, "the side-job connection's failure is not counted against the fallback");
+  assert.equal(app.runtime.models.coolingDown(localId), false, "and the fallback is not cooling down");
+  // Nor is it written into the side-job connection's own health here: the task's events record it.
+  assert.equal(app.runtime.models.health.get("helper").consecutiveFailures, 0);
+  assert.equal(app.runtime.models.coolingDown("helper"), false);
+  assert.equal(events(app, run, "model.failed").at(-1).error, refused);
+});
+
 test("a fallback that can't hold the conversation is passed over for a later one that can", async (t) => {
   const plan = scripted("chatgpt", () => { throw new ProviderHttpError(503); });
   const local = scripted("ollama-like"), backup = scripted("scripted");
