@@ -5,7 +5,7 @@ import { COMMANDS, type CatalogCommand, type Surface } from "./catalog.js";
 
 /**
  * The owner's three-way switch for the commands the shared table added (wave mac3, commands). It
- * ships off, and it never touches a command a surface already had:
+ * ships "when needed" (`commandsShipAs`), and it never touches a command a surface already had:
  *
  *   off          each surface keeps exactly the commands it had before; anything else typed with
  *                a slash is what it always was there (a message, or "I do not know that one")
@@ -25,9 +25,15 @@ export const CommandRunSchema = z.object({
   surface: z.enum(["window", "phone", "dashboard"]), line: z.string().trim().min(1).max(16000), sessionId: z.string().uuid().optional(),
 }).strict();
 
+// The owner's rule (ships on, 2026-09-26): each command keeps its level (look, start, owner) and owner ones are refused from a chat; none of (a)–(f).
+export const commandsShipAs: FeatureMode = "when-needed";
+
 type Reader = Pick<Store, "get">;
+/** The switch as saved; never saved is how it ships, and a saved record that cannot be read is off. */
 export function commandSettings(store: Reader, owner: string): CommandSettings {
-  const saved = CommandSettingsSchema.safeParse(store.get("settings", owner, settingKey)?.data ?? {});
+  const found = store.get("settings", owner, settingKey);
+  if (!found) return { mode: commandsShipAs };
+  const saved = CommandSettingsSchema.safeParse(found.data ?? {});
   return saved.success ? saved.data : CommandSettingsSchema.parse({});
 }
 export function saveCommandSettings(store: Store, owner: string, input: unknown): CommandSettings {
