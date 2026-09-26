@@ -4,7 +4,8 @@
    provider and nothing outside a temporary folder is touched. Build first (npx tsc -p .), then:
      node design/redesign/tools/verify-unhold-approvals.cjs
    Controls: Always allow on the approval card, Allow all in the Inbox, the rule list with Add a rule and Remove, the
-   second look switch (with the engine's loosening confirm and Lockdown's refusal), and the password manager. It also
+   second look switch (with the engine's loosening confirm and Lockdown's refusal), a "without asking" switch (Q257: its
+   loosening confirm, Cancel, and Lockdown), and the password manager (Q257: the chosen one first, the other kept). It also
    checks what stays greyed: Move up, Hold back keys, and Windows Credential Manager. */
 const { pathToFileURL } = require("node:url");
 const { resolve, join } = require("node:path");
@@ -158,6 +159,33 @@ async function secondLook(page) {
   check("Hold back keys found in answers stays greyed (the leak guard has no switch)", await greyed(page.locator("#f15-hold-back-keys-found-in-answers")));
 }
 
+/* Q257: a "without asking" switch that loosens is refused by the engine until the owner says yes in the dialog; Cancel
+   changes nothing, the dialog's own button sends confirmLoosening, and Lockdown refuses it in its own words. */
+async function kindSwitch(page) {
+  const decision = async () => (await api("approvals/categories")).categories.find((c) => c.id === "message").decision;
+  await api("approvals/categories", { message: "ask" });
+  const box = () => page.locator("#p-send");
+  await openSettings(page, "permissions");
+  check("without-asking switch: drawn off while messages ask", !(await box().isChecked()));
+  await box().check();
+  await dlg(page).waitFor({ timeout: 8000 });
+  check("without-asking switch on: the engine's loosening words are shown first", /less careful/.test(await dlg(page).innerText()) && (await decision()) === "ask");
+  await dlg(page).locator('[data-act="dlg-close"]').first().click();
+  await settle(page, 1000);
+  check("without-asking switch, cancelled: still asks, and the switch shows it", (await decision()) === "ask" && !(await box().isChecked()));
+  await box().check();
+  await dlg(page).waitFor({ timeout: 8000 });
+  await dlg(page).locator('[data-act="perm-loosen8"]').click();
+  await until("allow", async () => (await decision()) === "allow");
+  check("without-asking switch, confirmed: the engine lets messages through", (await decision()) === "allow");
+  await api("lockdown", { on: true });
+  await openSettings(page, "permissions");
+  await box().uncheck().catch(() => undefined);
+  await settle(page, 1200);
+  await api("lockdown", { on: false });
+  check("without-asking switch under Lockdown: nothing changed", (await decision()) === "allow");
+}
+
 /* The password manager: Bitwarden and 1Password through the engine; Windows greyed; the on/off switch untouched. */
 async function passwordManager(page) {
   await openSettings(page, "secrets");
@@ -203,7 +231,7 @@ async function passwordManager(page) {
     await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
     await settle(page, 1200);
     const ctx = { app, workspace };
-    for (const step of [alwaysAllow, allowAll, ruleList, secondLook, passwordManager]) {
+    for (const step of [alwaysAllow, allowAll, ruleList, secondLook, kindSwitch, passwordManager]) {
       try { await step(page, ctx); } catch (e) { check(`${step.name} finished`, false, e.message); }
       await closeSettings(page).catch(() => {});
     }
