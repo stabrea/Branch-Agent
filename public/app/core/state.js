@@ -72,7 +72,7 @@ export const roleLabel = (role) => {
   return words === key ? engine : words;
 };
 /* A project's name; the one the engine makes for everybody ("Default", src/projects.ts) is named in the window's language. */
-export const projectName = (p) => (p?.id === "default" && p.name === "Default" ? t("voice.default") : p?.name ?? "");
+export const projectName = (p) => (p?.id === "default" && p.name === "Default" ? t("look.badge.default") : p?.name ?? "");
 export const personHere = () => E.profiles?.active?.name || roleLabel("owner");
 /* Whether the one at the window is the owner, as the engine says (GET /api/profiles isOwner). Owner-only controls are drawn
    only then: not while the answer is missing, and never for a household person (they are not theirs to use, not "coming soon"). */
