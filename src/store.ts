@@ -455,10 +455,11 @@ export class Store {
       .get(owner, sessionId);
     return row ? this.toRun(row) : undefined;
   }
-  finish(id: string, status: RunStatus, output: string): Run {
+  finish(id: string, status: RunStatus, output: string, options: { mend?: boolean } = {}): Run {
     const run = this.run(id);
     if (!run) throw new Error("Run not found");
-    const added = this.reconcileMessages(run.sessionId, status);
+    // unhold-control: a run that wrote nothing into its conversation (a command pressed by hand) leaves the transcript alone.
+    const added = options.mend === false ? 0 : this.reconcileMessages(run.sessionId, status);
     if (added) this.event(id, "session.reconciled", { added, reason: status });
     // NAS 3fd7700: where the conversation stood when this task stopped to ask, so a yes carries it on only while
     // nothing else (a heartbeat's note, a Trunk routine's report) has been written there since.
