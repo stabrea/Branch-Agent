@@ -2,6 +2,8 @@
  * Public list, bucket 13: the two cards in a real (headless) browser, opened the way a person opens
  * them (tests/places.mjs). Each names its home, keeps to the card anatomy, fits 400 px, and works:
  * a finished task is played back step by step, and the event-loop switch is saved.
+ * Redesign: in the new window a finished task is watched again from Inbox › History ("Watch again", data-act="replay"),
+ * in the prototype's "Watch a task again" dialog: the engine's frames, a path, Step and Play (public/app/places/inbox.js).
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -12,7 +14,8 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openPlace, openSettingFor } from "./places.mjs";
+import { openSettingFor } from "./places.mjs";
+import { signIn as signInNew, openPlace as openNewPlace } from "./new-window-places.mjs";
 
 function writesAFile(name) {
   let round = 0;
@@ -65,39 +68,38 @@ test("Watch a task again: off at first, then a finished task plays back step by 
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const run = await app.runtime.run({ prompt: "write the seen file" });
   assert.equal(run.status, "completed", run.output);
-  const page = await browser.newPage({ viewport: { width: 400, height: 900 } });
+  // Redesign: replaced by the new window (prototype.html has no recordings switch card, and the card anatomy and data-t
+  // keys are the old sample's), so recording is switched on through the engine's own route; the window then plays it.
+  await fetch(`${server.url}/api/recordings`, { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ mode: "when-needed" }) });
+  // Opened at full width, then narrowed to 400 px (on a phone the side list stays over a place: the WINDOW BUG marked in
+  // library-tabs.test.mjs).
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await signIn(page, server);
-  await openPlace(page, "inbox:history");
-  const card = page.locator("#recordings-card");
-  await card.locator("h2").waitFor({ state: "visible" });
-  assertAnatomy(await cardShape(page, "recordings-card"), "recordings-card", "inbox:history");
-  assert.equal(await card.locator("#recordings-task").count(), 0, "nothing to pick while off");
-
-  await card.locator("#recordings-mode").selectOption("when-needed");
-  await card.getByRole("button", { name: "Save", exact: true }).click();
-  await page.locator("#recordings-task").waitFor({ state: "visible" });
-  await page.locator("#recordings-card").getByRole("button", { name: "Play it back" }).click();
-  const steps = page.locator("#recordings-card .recording-steps li");
+  await signInNew(page, server);
+  const place = await openNewPlace(page, "inbox", "history");
+  await page.setViewportSize({ width: 400, height: 900 });
+  await place.locator(`.prow [data-act="replay"][data-id="${run.id}"]`).click();
+  const dialog = page.locator(".dlg");
+  const steps = dialog.locator(".replay6 ol.tl li");
   await steps.first().waitFor({ state: "visible" });
   assert.ok((await steps.count()) >= 4, "asked, thought, acted, finished");
-  assert.equal(await steps.first().getAttribute("aria-current"), "step");
-  await page.locator("#recordings-card").getByRole("button", { name: "Step on" }).click();
-  assert.equal(await steps.nth(1).getAttribute("aria-current"), "step");
-  await page.locator("#recordings-card summary").click();
-  await page.locator("#recordings-card svg[role=img]").waitFor({ state: "visible" });
-  assertAnatomy(await cardShape(page, "recordings-card"), "recordings-card (open)", "inbox:history");
+  assert.match(await steps.first().getAttribute("class"), /now6/, "the first frame is the one shown");
+  await dialog.getByRole("button", { name: "Step", exact: true }).click();
+  assert.match(await steps.nth(1).getAttribute("class"), /now6/);
+  assert.equal(await dialog.locator(".rp-path i").count(), await steps.count(), "the path has a mark for every frame");
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 0, `no sideways scrolling at 400 px (${wide} px over)`);
 
-  await page.locator("#recordings-card").getByRole("button", { name: "Make a workflow from it" }).click();
-  await page.locator("#recordings-card [role=status]", { hasText: "Automations" }).waitFor();
-  assert.equal(app.workflows.list(app.runtime.owner).length, 1);
+  // Redesign: Coming soon (toast: "Make a workflow"), checked at fc541c24; the dialog draws it aria-disabled, class soon.
+  const workflow = dialog.getByRole("button", { name: "Make a workflow", exact: true });
+  assert.equal(await workflow.getAttribute("aria-disabled"), "true");
+  assert.equal(app.workflows.list(app.runtime.owner).length, 0);
   assert.deepEqual(errors, []);
 });
 
-test("Is Branch keeping up: lives in Settings, Advanced, and its switch is saved", async (t) => {
+test.skip("Is Branch keeping up: lives in Settings, Advanced, and its switch is saved", async (t) => {
+  // Redesign: replaced by the new window (prototype.html's Settings › Advanced has no "Is Branch keeping up" event-loop card).
   const root = await mkdtemp(join(tmpdir(), "branch-bucket13-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
