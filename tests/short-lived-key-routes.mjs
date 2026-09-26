@@ -145,7 +145,7 @@ export const ROUTES = {
   "/api/chatgpt/": "prefix",
   "/api/chatgpt/login": "owner POST",
   "/api/chatgpt/logout": "owner POST",
-  "/api/chatgpt/status": "look",
+  "/api/chatgpt/status": "secret-read", // accounts-wizard-plans: a waiting sign-in's one-time code is in it
   // eng-connectors: command-line tools found on this computer are read by anyone; allowing or removing one is the owner's.
   "/api/clis": "owner POST",
   "/api/clis/": "prefix",
