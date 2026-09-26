@@ -76,6 +76,13 @@ export const extraTabs = [];
 const extraShown = () => extraTabs.filter(([, , , shown]) => shown());
 const tabAct = (id) => (REAL.has(id) || extraShown().some(([x]) => x === id) ? "ptabp" : id === "browser" ? "stage" : "ptabp-" + id);
 
+/* A tab's button. Browser shows the full-size view of what this conversation's tasks opened (stage.js), so before a new
+   conversation's first message it is drawn greyed with that reason as its tip. */
+function ptabButton(id, label, tab) {
+  if (id === "browser" && !S.chat) return `<button class="ptab soon" role="tab" type="button" aria-selected="false" aria-disabled="true" tabindex="-1" data-p="${id}" data-tip="${t("window.shell.extras.after-first-message")}">${t(label)}</button>`;
+  return `<button class="ptab" role="tab" type="button" aria-selected="${tab === id}" data-act="${tabAct(id)}" data-p="${id}" data-v="${id}">${t(label)}</button>`;
+}
+
 export function drawPane() {
   const pane = $("#pane"), body = $("#body");
   // Open in every conversation, a new one too: each tab then says what it has (nothing yet, before the first message).
@@ -86,7 +93,7 @@ export function drawPane() {
   if (!open) { pane.innerHTML = ""; return; }
   const extra = extraShown(), own = extra.find(([id]) => id === S.pane);
   const tab = REAL.has(S.pane) || own ? S.pane : "activity";
-  pane.innerHTML = `${resizerHTML("pane")}<div class="pane-h"><div class="ptabs" role="tablist">${[...TABS, ...extra].map(([id, l]) => `<button class="ptab" role="tab" type="button" aria-selected="${tab === id}" data-act="${tabAct(id)}" data-p="${id}" data-v="${id}">${t(l)}</button>`).join("")}</div><button class="icon-btn" type="button" aria-label="${t("pane.close")}" data-act="pane" data-p="close">${ic("x")}</button></div><div class="pane-b">${own ? own[2]() : BODY[tab]()}</div>`;
+  pane.innerHTML = `${resizerHTML("pane")}<div class="pane-h"><div class="ptabs" role="tablist">${[...TABS, ...extra].map(([id, l]) => ptabButton(id, l, tab)).join("")}</div><button class="icon-btn" type="button" aria-label="${t("pane.close")}" data-act="pane" data-p="close">${ic("x")}</button></div><div class="pane-b">${own ? own[2]() : BODY[tab]()}</div>`;
   applyCss(pane);
   greyOut(pane);
   // The tab row scrolls when its tabs outgrow the card (pass 17 adds Timeline and Branches); keep the chosen one in view.
