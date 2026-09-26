@@ -86,6 +86,7 @@ test("the owner reads the bounded diff of a prepared change; before the yes it s
   assert.deepEqual(shown.body.untracked, ["src/ui/new-panel.ts"], "new files by name only");
   assert.deepEqual(shown.body.outside, ["README.md"], "a file outside the allowed paths is named");
   assert.deepEqual([shown.body.truncated, shown.body.note, shown.body.allowedPaths], [false, null, terms.allowedPaths]);
+  assert.equal(shown.body.warning, "These changed files are outside the contract's allowed paths: README.md.");
   assert.equal(git(copy, "ls-files", "src/ui/new-panel.ts"), "", "showing it added nothing to Git's index");
 
   assert.equal((await call(`/api/self-development/requests/${randomUUID()}/diff`)).status, 400);

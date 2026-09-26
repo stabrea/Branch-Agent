@@ -146,7 +146,7 @@ export class SourceChangeRequests {
     const request = this.get(id);
     if (!request) throw new Error("There is no request to change Branch with that id.");
     const contract = request.worktree ? this.deps.contracts.current(this.deps.owner, request.worktree) : null;
-    if (!contract) return { files: [], untracked: [], outside: [], truncated: false, allowedPaths: [], note: nothingPreparedYet };
+    if (!contract) return { files: [], untracked: [], outside: [], truncated: false, allowedPaths: [], note: nothingPreparedYet, warning: null };
     return boundedDiff(this.deps, contract, signal);
   }
 

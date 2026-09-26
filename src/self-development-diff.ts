@@ -26,6 +26,8 @@ export interface BoundedDiff {
   allowedPaths: string[];
   /** Said instead of a diff when there is nothing to show. */
   note: string | null;
+  /** Files outside the allowed paths, or a diff cut at its bound, in one sentence each. */
+  warning: string | null;
 }
 export interface DiffDeps { workspace: string; git: (options: GitRunOptions, signal: AbortSignal) => Promise<GitOutcome> }
 
@@ -69,6 +71,8 @@ export async function boundedDiff(deps: DiffDeps, contract: SelfDevelopmentContr
   const untracked = others.stdout.split("\0").filter(Boolean);
   const outside = [...new Set([...files.map((f) => f.path), ...untracked])].filter((path) => !contract.allowedPaths.some((glob) => globFits(glob, path)));
   const truncated = !!patch.truncated || !!others.truncated || files.length > maxDiffFiles || untracked.length > maxDiffFiles || files.some((f) => f.cut);
+  const warning = [outside.length ? `These changed files are outside the contract's allowed paths: ${outside.slice(0, 10).join(", ")}.` : "",
+    truncated ? "Only part of the change is shown here; it is longer than Branch shows at once." : ""].filter(Boolean).join(" ") || null;
   return { files: files.slice(0, maxDiffFiles), untracked: untracked.slice(0, maxDiffFiles), outside: outside.slice(0, maxDiffFiles), truncated,
-    allowedPaths: contract.allowedPaths, note: files.length || untracked.length ? null : nothingChangedYet };
+    allowedPaths: contract.allowedPaths, note: files.length || untracked.length ? null : nothingChangedYet, warning };
 }
