@@ -4,7 +4,7 @@ import {
   type ServerResponse,
   type Server,
 } from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { readFile, writeFile, lstat } from "node:fs/promises";
 import { dirname, extname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
@@ -474,6 +474,7 @@ function windowFiles(): Map<string, [string, string]> {
 async function staticFile(
   path: string,
   response: ServerResponse,
+  request?: IncomingMessage,
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
     // The window (public/index.html, public/app.css; its modules and art under /app/ and /art/ are served by exact file).
@@ -530,9 +531,19 @@ async function staticFile(
   const body = await readFile(
     new URL("../public/" + asset[0], import.meta.url),
   );
+  /* rw4-language: the words (public/locales, ~465 KB for English) are kept by the browser and asked about again on
+     every start: an unchanged file answers 304 with no body, and a new build's words differ, so they come fresh. */
+  const words = path.startsWith("/locales/");
+  const etag = words ? `"${createHash("sha256").update(body).digest("base64url").slice(0, 27)}"` : "";
+  if (words && request?.headers["if-none-match"] === etag) {
+    response.writeHead(304, { etag, "cache-control": "no-cache" });
+    response.end();
+    return true;
+  }
   response.writeHead(200, {
     "content-type": asset[1],
-    "cache-control": "no-store",
+    "cache-control": words ? "no-cache" : "no-store",
+    ...(words ? { etag } : {}),
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
     "content-security-policy":
@@ -3329,7 +3340,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (["/people", "/people.js", "/people.css"].includes(path) && !peopleEnabled(app.store, app.runtime.owner)
         && interopMode(app.store, app.runtime.owner, "handoff") === "off")
         throw new HttpError(404, "Not found");
-      if (request.method === "GET" && (await staticFile(path, response)))
+      if (request.method === "GET" && (await staticFile(path, response, request)))
         return;
       if (path.startsWith("/hooks/")) {
         send(response, 200, await hook(app, request, path));
