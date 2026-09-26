@@ -3461,3 +3461,9 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .ob9 .prov[aria-pressed="true"]::after{content:"";position:absolute;top:10px;right:10px;width:18px;height:18px;border-radius:50%;background:var(--accent)}
 .ob9 .prov[aria-pressed="true"]::before{content:"";position:absolute;top:14px;right:16px;width:4px;height:8px;border:solid var(--on-btn,#fff);border-width:0 2px 2px 0;transform:rotate(45deg);z-index:1}
 .ob9 .prov[aria-pressed="true"] b{color:var(--ink)}
+/* The session-token sign-in: one full-width field above Connect (it once borrowed the PIN digit boxes' 44px width). */
+.signin-form{display:grid;gap:10px;width:340px;max-width:calc(100vw - 32px)}
+.signin-form .fld{display:grid;gap:6px;text-align:left}
+.signin-form .fld>span{font:500 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.signin-form .inp{width:100%;height:40px;box-sizing:border-box}
+.signin-form .btn{justify-self:stretch;justify-content:center;text-align:center}
