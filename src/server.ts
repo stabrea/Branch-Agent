@@ -286,6 +286,7 @@ import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
 import { handlesSdkKitPath, sdkKitApi, SdkKitError } from "./sdk-kit.js"; // bucket 21
 import { webPagesApi, WebPagesApiError } from "./web-pages.js"; // w911 (A0743, A1452) hook
 import { audit, csvCell } from "./audit.js";
+import { AppLockRefusal } from "./session-lock.js";
 import { unifiedSearch } from "./unified-search.js";
 import { proposeSchedule } from "./schedule-words.js";
 import type { AnswerShape, ShapedAnswer } from "./answer-shape.js";
@@ -2132,11 +2133,25 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   }
   throw new HttpError(404, "Endpoint not found");
 }
+/**
+ * App lock: whose records an open stream or socket may still carry. Once Branch locks with a PIN set
+ * the answer is nobody's, so a stream opened before the lock ends there instead of flowing on.
+ */
+const scopeWhileUnlocked = (app: Branch): string => (app.sessionLock.refusal("GET", "/api/events/stream") ? "" : app.store.profiles.scope());
+/** An App lock refusal answered with its own status (400, 403 or 429); anything else as it was. */
+async function appLockAnswer(step: () => Promise<unknown>): Promise<unknown> {
+  return step().catch((error: unknown) => {
+    throw error instanceof AppLockRefusal ? new HttpError(error.status, error.message) : error;
+  });
+}
 /** Locking the app, and the privacy checks on messages that leave this computer. */
 async function guardApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   if (request.method === "GET" && path === "/api/lock") return app.sessionLock.state();
   if (request.method === "POST" && path === "/api/lock") return app.sessionLock.lock();
-  if (request.method === "POST" && path === "/api/lock/unlock") { z.object({}).strict().parse(await readBody(request)); return app.sessionLock.unlock(); }
+  // App lock: with a PIN set, unlocking asks for it; setting, changing or removing it is the owner's.
+  // A wrong PIN is 403 and a wait 429, never 401, which the window reads as a wrong session key.
+  if (request.method === "POST" && path === "/api/lock/unlock") return appLockAnswer(async () => app.sessionLock.unlock(await readBody(request)));
+  if (request.method === "POST" && path === "/api/lock/pin") return appLockAnswer(async () => app.sessionLock.setPin(await readBody(request)));
   if (request.method === "POST" && path === "/api/lock/settings") return app.sessionLock.configure(await readBody(request));
   if (request.method === "GET" && path === "/api/privacy") return app.privacy.settings();
   if (request.method === "POST" && path === "/api/privacy") return app.privacy.configure(await readBody(request));
@@ -3465,6 +3480,11 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         // 400, as every `requireOwner` refusal over HTTP has always been answered.
         if (refused) throw new HttpError(400, refused);
       }
+      // App lock: while a PIN is set and Branch is locked, nothing is answered but the lock's own
+      // status and unlock (src/session-lock.ts). 423, never 401: the window reads 401 as a wrong key.
+      // Checked before the activity below, so a request after the quiet period cannot restart it.
+      const lockedOut = app.sessionLock.refusal(request.method, path);
+      if (lockedOut) throw new HttpError(423, lockedOut);
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock" && !onlyLooking) app.sessionLock.touch();
@@ -3780,6 +3800,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // upgrade handler before this branch, and a task's socket stays on this computer's own door.
       if (viaRemote) { refuseUpgrade(socket); return; }
       // ---- end mac7/nodes ----
+      // App lock: a locked Branch with a PIN opens no socket for a task or a program lending tools.
+      if (app.sessionLock.refusal("GET", path)) { socket.end("HTTP/1.1 423 Locked\r\nConnection: close\r\n\r\n"); return; }
       // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
       if (path === clientToolsPath) {
         // Integration review: "a program on this computer" — the paired address never lends tools.
@@ -3803,7 +3825,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // Q254: the socket follows who is at the window, as /api/events/stream does since #339. Once the
       // window switches profile it ends, and opening it again is refused unless the run is theirs.
       await serveRunSocket(app.store, run.id, request, socket, {
-        ...liveHooks(app.live, run.id, run.sessionId), owner: run.owner, scopeNow: () => app.store.profiles.scope() });
+        ...liveHooks(app.live, run.id, run.sessionId), owner: run.owner, scopeNow: () => scopeWhileUnlocked(app) });
     })().catch(() => socket.destroy());
   };
   server.on("upgrade", (request, socket) => upgrade(request, socket, false));
@@ -4005,7 +4027,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
       scrub: app.runtime.hideSecrets,
       // Q253: an open stream follows who is at the window (as the activity list does since #324). Once
       // the window switches profile it ends, and the window's reconnect opens it under the new scope.
-      scopeNow: () => app.store.profiles.scope(),
+      scopeNow: () => scopeWhileUnlocked(app),
       ...(Number(query.get("maxMs")) ? { maxMs: Number(query.get("maxMs")) } : {}),
     });
     return true;
@@ -4018,7 +4040,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     // Q254: the stream follows who is at the window, as /api/events/stream does since #339. Once the
     // window switches profile it ends (reason "profile"), and opening it again answers 404 unless the
     // run belongs to whoever is there now.
-    await streamRunEvents(app.store, run.id, response, after, { owner: run.owner, scopeNow: () => app.store.profiles.scope() });
+    await streamRunEvents(app.store, run.id, response, after, { owner: run.owner, scopeNow: () => scopeWhileUnlocked(app) });
     return true;
   }
   // One kept picture or sound, so the gallery can show it. Anything outside the artifacts folder

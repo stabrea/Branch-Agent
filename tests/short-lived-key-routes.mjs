@@ -647,6 +647,7 @@ export const ROUTES = {
   "/api/local-models/switch": "owner POST",
   "/api/local-models/unload": "owner POST",
   "/api/lock": "owner POST",
+  "/api/lock/pin": "owner POST", // App lock: setting, changing or removing the PIN
   "/api/lock/settings": "owner POST",
   "/api/lock/unlock": "owner POST",
   // mac7/learn: reading the switch only looks; a map reads the whole folder and a tour may ask a model.
