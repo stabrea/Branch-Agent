@@ -72,6 +72,9 @@ test("in the window, the card goes once a model has answered and a new conversat
   const { page, errors } = await personWindow(browser, server);
   await setupCard(page).waitFor({ state: "visible", timeout: 10000 });
   // The owner leaves setup without finishing it, and writes straight away.
+  // Redesign: Skip for now shows only after Welcome (35e53413), so the owner ticks the trust box and starts first.
+  await page.locator("#ob-trust").check();
+  await page.locator('[data-act="ob-next"]').click();
   await page.getByRole("button", { name: "Skip for now", exact: true }).click();
   await setupCard(page).waitFor({ state: "detached" });
   await page.locator("#prompt").fill("hello");
