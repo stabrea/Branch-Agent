@@ -3491,3 +3491,6 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .ob9 .ob-tpl[aria-pressed="true"]::before{content:"";position:absolute;top:14px;right:16px;width:4px;height:8px;border:solid var(--on-btn,#fff);border-width:0 2px 2px 0;transform:rotate(45deg);z-index:1}
 .ob-props15{margin-top:12px}
 .ob-props15 > b{display:block;font-size:13px;margin-bottom:8px}
+/* A status-bar popover over the message box: the box fades back and takes no clicks until the popover closes. */
+#composer.under-pop{opacity:.28;pointer-events:none;transition:opacity .14s var(--ease17)}
+@media (prefers-reduced-motion:reduce){#composer.under-pop{transition:none}}
