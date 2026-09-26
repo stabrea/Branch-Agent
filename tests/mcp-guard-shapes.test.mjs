@@ -2,22 +2,25 @@
  * The second review of #332 found three launch shapes that still reached code in the workspace past the guard
  * (src/mcp-workspace-guard.ts): a file: URL, inline code that names a workspace path, and a package runner told to take
  * its package from a workspace folder. Its follow-up added five more: options that move a runner into another folder,
- * shell command strings, wsl, `python -m pip|uv`, and an option that takes a value placed before the program. Each is
+ * shell command strings, wsl, `python -m pip|uv`, and an option that takes a value placed before the program. Review 2
+ * of #368 added a home-relative `~` path, cmd's `^` escape, a name split by shell quotes, and 8.3 short names. Each is
  * refused when the server is added and when it is switched on, and (for the shapes that run locally) as Branch starts
  * it again; a workspace folder given as data stays allowed.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, symlink, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { homedir, tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { launchFingerprint } from "../dist/mcp-own-servers.js";
 import { workspaceRefusal } from "../dist/mcp-workspace-guard.js";
+import { inWorkspace } from "../dist/integrations/default-shell.js";
 
 const notesServer = resolve("dist/examples/mcp-notes-server.js");
 
@@ -234,4 +237,71 @@ test("a workspace folder given as data is still allowed", async (t) => {
     stdio("uvx", ["--from", "mcp-server-git==1.0", "mcp-server-git", "--repository", workspace]),
     stdio("uv", ["--directory", tmpdir(), "run", "srv", "--root", workspace]),
   ]) assert.equal(workspaceRefusal(server, workspace, process.env), null, `${server.command} ${server.args.join(" ")}`);
+});
+
+/* Review 2 of #368: spellings of a workspace path that a shell reads back to the path. As above, each path that only the
+   rule under test can catch does not exist yet. */
+const slashed = (path) => path.replace(/\\/g, "/");
+
+/* Mutation: in asPath (src/mcp-workspace-guard.ts), drop `?? fromHome(text)`; every one of these is then saved. */
+test("a path written from the home folder with ~ is read as the home folder, in a shell string and as an argument", async (t) => {
+  const f = await fixture(t);
+  const home = (path) => `~/${slashed(relative(homedir(), path))}`;
+  const said = /code that names a place inside the workspace/;
+  await refusedEverywhere(f, stdio("bash", ["-c", `node ${home(later(f.workspace, "srv.mjs"))}`]), said, false);
+  await refusedEverywhere(f, stdio("pwsh", ["-c", `node ${home(later(f.workspace, "srv.mjs")).replace(/\//g, "\\")}`]), said, false);
+  const script = await plant(f.workspace, join(f.root, "home-ran.txt"));
+  await refusedEverywhere(f, stdio(process.execPath, ["--import", home(script), notesServer]), /srv\.mjs, a file inside the workspace/, false);
+});
+
+/* Mutation: make `uncaret` (src/mcp-launch-shapes.ts) return its text unchanged; every one of these is then saved. */
+test("cmd's ^ escape inside a path is read the way cmd reads it", async (t) => {
+  const f = await fixture(t);
+  const caret = (path) => path.replace(/workspace/, "work^space");
+  await refusedEverywhere(f, stdio("cmd", ["/c", `node ${caret(later(f.workspace, "srv.mjs"))}`]), /code that names a place inside the workspace/, false);
+  const script = await plant(f.workspace, join(f.root, "caret-ran.txt"));
+  await refusedEverywhere(f, stdio("cmd", ["/c", "node", caret(script)]), /srv\.mjs, a file inside the workspace/, false);
+});
+
+/* Mutation: make `unbacktick` (src/mcp-launch-shapes.ts) return its text unchanged; this is then saved. */
+test("PowerShell's backtick escape inside a path is read the way PowerShell reads it", async (t) => {
+  const f = await fixture(t);
+  const path = later(f.workspace, "srv.mjs").replace(/workspace/, "w`orkspace");
+  await refusedEverywhere(f, stdio("pwsh", ["-c", `node ${path}`]), /code that names a place inside the workspace/, false);
+});
+
+/* Mutation: in commandLine (src/mcp-launch-shapes.ts), drop `words(read, how === "posix").join(" ")` from the texts kept;
+   every one of these is then saved. */
+test("a workspace name split by shell quotes or escapes is read whole: work\"sp\"ace, 'wo'rk, w\\ork", async (t) => {
+  const f = await fixture(t);
+  const path = slashed(later(f.workspace, "srv.mjs"));
+  const said = /code that names a place inside the workspace/;
+  for (const spelled of [path.replace("workspace", 'work"sp"ace'), path.replace("workspace", "'wo'rkspace"), path.replace("workspace", "w\\orkspace")])
+    await refusedEverywhere(f, stdio("bash", ["-c", `node ${spelled}`]), said, false);
+  await refusedEverywhere(f, stdio("cmd", ["/c", `node ${later(f.workspace, "srv.mjs").replace("workspace", 'work"sp"ace')}`]), said, false);
+});
+
+/* 8.3 short names: paths are compared with links followed (realFolder, src/folder-trust.ts, uses realpathSync.native,
+   which on Windows expands a short name). Short names are off on some drives, so the alias is made as a link named like
+   one (WORKSP~1 -> workspace), which realpathSync.native resolves the same way; a real short name is tried as well when
+   the drive has one. Mutation: in inWorkspace (src/integrations/default-shell.ts), drop the `realFolder` comparison; the
+   first unit check then goes red (and, run on their own, the guard checks allow the file and the code through the alias). */
+test("a workspace reached by a short name or other alias is still the workspace", async (t) => {
+  const f = await fixture(t);
+  const alias = join(f.root, "WORKSP~1");
+  await symlink(f.workspace, alias, "junction");
+  try {
+    const script = await plant(f.workspace, join(f.root, "alias-ran.txt"));
+    assert.equal(inWorkspace(f.workspace, join(alias, "srv.mjs"), process.platform), true, "an existing file through the alias");
+    assert.equal(inWorkspace(f.workspace, join(alias, "later", "srv.mjs"), process.platform), true, "a file not written yet, through the alias");
+    assert.equal(inWorkspace(f.workspace, join(f.root, "WORKSP~2", "srv.mjs"), process.platform), false, "a different name is not the workspace");
+    await refusedEverywhere(f, stdio(process.execPath, [join(alias, "srv.mjs")]), /srv\.mjs, a file inside the workspace/, false);
+    await refusedEverywhere(f, stdio("node", ["-e", `import(${JSON.stringify(slashed(join(alias, "later", "srv.mjs")))})`]),
+      /code that names a place inside the workspace/, false);
+    await refusedEverywhere(f, stdio("npm", ["-C", alias, "exec", "srv"]), /start in a folder inside the workspace/, false);
+    const short = process.platform === "win32" ? execFileSync("cmd", ["/d", "/c", `for %I in ("${script}") do @echo %~sI`], { encoding: "utf8", windowsVerbatimArguments: true }).trim() : script;
+    if (short !== script) await refusedEverywhere(f, stdio(process.execPath, [short]), /a file inside the workspace/, false);
+  } finally {
+    await unlink(alias);
+  }
 });

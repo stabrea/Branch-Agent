@@ -9,7 +9,8 @@
  *   -WorkingDirectory, wsl --cd; or deno is told to read its settings file from there (--config/-c);
  * - its program is inside the workspace (written as a path, or the first match on PATH);
  * - any argument, or the value of a `--name=value` argument, is an existing file inside the workspace; a `file:` URL is
- *   read as the path it names (`node --import file:///…/srv.mjs`), and on Windows so is a WSL `/mnt/<drive>/…` path;
+ *   read as the path it names (`node --import file:///…/srv.mjs`), a leading `~` as the home folder, and on Windows a
+ *   WSL `/mnt/<drive>/…` path as the drive path;
  * - a program that runs a folder (node, python, npx…) is given a workspace folder as the thing to run, found past the
  *   options that take a value first (`node -r x <folder>`, `python -X opt <folder>`);
  * - it runs inline code that names a place inside the workspace: node's -e/--eval/-p/--print, python's -c, deno's
@@ -18,7 +19,10 @@
  * - a package runner (npx, npm, uvx, uv, pip, and `python -m pip|uv|pipx`) is told to take its package from inside
  *   the workspace: --package/-p, --prefix, --from, --with/-w, --with-editable, --spec, and -e/--editable for pip and uv.
  * Every option counts as `--opt=value` or `--opt value`. A program started by another (`cmd /c`, a shell's -c,
- * PowerShell, wsl, `python -m`) is judged by all of these rules too (src/mcp-launch-shapes.ts reads the line).
+ * PowerShell, wsl, `python -m`) is judged by all of these rules too (src/mcp-launch-shapes.ts reads the line). A command
+ * string is read as written, with its escapes read (cmd's `^`, PowerShell's backtick), and as its shell splits it into
+ * words, so a name split by quotes (`work"sp"ace`) or escapes (`w^ork`) reads whole.
+ * Paths are compared with links followed (realpathSync.native), which on Windows also expands 8.3 short names.
  * The code, package and folder-option checks read text, not files: they refuse a written mention of the workspace,
  * whether or not it exists yet. Code that builds the path at run time (joined pieces of it, an environment variable,
  * text it decodes itself) is not caught. A shell command string that names the workspace is refused even as data:
@@ -27,7 +31,8 @@
  * Checked when a server is added and again before every start.
  */
 import { statSync } from "node:fs";
-import { basename, delimiter, isAbsolute, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, delimiter, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inWorkspace } from "./integrations/default-shell.js";
 import { realFolder } from "./folder-trust.js";
@@ -57,12 +62,16 @@ const fromWsl = (text: string): string | null => {
   return found ? `${found[1]}:${found[2] ?? "/"}` : null;
 };
 
+/** A leading `~/` or `~\` is the home folder, the way a shell (and many programs) read it. */
+const fromHome = (text: string): string | null => (/^~(?=$|[\\/])/.test(text) ? join(homedir(), text.slice(1)) : null);
+
 /**
  * The path a launch argument names: a `file:` URL is read as its path (a relative one against the folder, the way Node
- * and npm read `file:../pkg`), anything else is resolved against the folder. Null for a `file:` URL that names no path.
+ * and npm read `file:../pkg`), a leading `~` as the home folder, anything else is resolved against the folder. Null for a
+ * `file:` URL that names no path.
  */
 function asPath(text: string, cwd: string): string | null {
-  if (!/^file:/i.test(text)) return resolve(cwd, fromWsl(text) ?? text);
+  if (!/^file:/i.test(text)) return resolve(cwd, fromWsl(text) ?? fromHome(text) ?? text);
   try { return fileURLToPath(new URL(text, pathToFileURL(cwd + sep))); } catch { return null; }
 }
 
