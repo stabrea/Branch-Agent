@@ -17,7 +17,8 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { ic, av, mi, toast, openPop, closePop, openDlg, closeDlg } from "../core/ui.js";
 import { markLive } from "../core/features.js";
-import { moreButton } from "./more.js";
+import { moreButton, addMoreItem } from "./more.js";
+import { loadSteps, everyStepItem } from "./timeline.js"; // pass 17: Look inside and More gain "Every step"
 
 const M = { sid: null, pins: [], followUps: [], room: null, spend: null, commands: null, slashI: 0, edit: null };
 /* What the conversation module hands over: its state, a way to send words, and a way to re-read a conversation. */
@@ -163,10 +164,12 @@ async function inspect(el) {
   const last = rec.rounds?.at(-1);
   const rows = [["Model", last?.model], ["Words of context", last?.promptTokens != null ? contextWords(last.promptTokens) : ""],
     ["Time", rec.seconds != null ? `${rec.seconds} s total` : ""], ["Cost", rec.cost?.display]].filter(([, v]) => v);
+  const steps = (await loadSteps(runId))?.steps?.length ?? 0;
+  if (steps) rows.push(["Steps", `${steps} in this task · model calls, tools and approvals`]);
   openDlg({
     title: "Look inside",
     body: `<p class="lede" data-css="margin:0">What went into ${esc(who())}’s last reply.</p><dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`,
-    foot: '<button class="btn" type="button" data-act="toast">Copy the record</button>',
+    foot: `${steps ? `<button class="btn pri" type="button" data-act="tlopen17c" data-run="${esc(runId)}">${ic("tl17c", "s")}Every step</button>` : ""}<button class="btn" type="button" data-act="toast">Copy the record</button>`,
   });
 }
 
@@ -376,6 +379,7 @@ async function usePrompt(el) {
 
 export function initMessages(context) {
   X = context;
+  addMoreItem((m) => (m.role === "assistant" ? everyStepItem(runFor(m)?.id) : "")); // pass 17: More › Every step behind this reply
   markLive(["sw:rw-text", "sw:q15", "pin15", "pinjump15", "pinlist15", "u-edit", "rw-what", "rw-go", "undo", "inspect", "slash6-pick", "prompts-fill",
     "mention-pick", "queue15", "qup15", "qrm15", "roommenu", "spendmenu", "project"]);
   on("pin15", (el) => togglePin(el));

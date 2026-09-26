@@ -922,6 +922,7 @@ export const ROUTES = {
   "/api/runs/:id/result": "look",
   "/api/runs/:id/resume": "task POST",
   "/api/runs/:id/steer": "task POST",
+  "/api/runs/:id/steps": "look", // pass 17: the Timeline and Helpers read one task's steps, like inspect beside it
   "/api/runs/:id/stream": "look",
   "/api/runs/:id/timeline": "look",
   "/api/runs/:id/trace": "look",
