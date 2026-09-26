@@ -95,6 +95,9 @@ import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
 import { JevDecisions, registerJevDecisions, type JevRunner } from "./jev-decisions.js";
+import { DecisionModels } from "./decision-models.js"; // P17-D §4
+import { Workbooks, registerWorkbookTools } from "./workbooks.js"; // P17-D §3
+import type { ShapedAnswer } from "./answer-shape.js"; // P17-D §4
 // Wave mac5 (local models): one-click models on this computer, restored and resumed at start.
 import { localKitFor, startLocalModels } from "./local-kit.js";
 import type { Provider } from "./contracts.js";
@@ -525,6 +528,22 @@ export async function createBranch(options: {
   );
   const decisions = new JevDecisions(store, runtime.owner, options.jev?.runner);
   registerJevDecisions(registry, decisions);
+  // P17-D §3: learn an app or workflow and prove it, as a narrowed task that saves a workbook (src/workbooks.ts).
+  const workbooks = new Workbooks({ store, owner: runtime.owner, registry, run: (options) => runtime.run(options) });
+  registerWorkbookTools(registry, workbooks);
+  runtime.learningRules = (sessionId) => workbooks.rules(sessionId); // sealed: only its own tools, every browser step asks
+  // P17-D §4: small decisions on the owner's own connections, asked with no tools (src/decision-models.ts).
+  const decisionModels = new DecisionModels(store, runtime.owner, runtime.models, async (text, shape, preset) => {
+    // Temporary, so a decision never adds a conversation to the list.
+    const run = store.createRun(runtime.owner, "Making a small decision", undefined, true, "owner");
+    let answer: ShapedAnswer | undefined;
+    try {
+      answer = await runtime.shaped(run, runtime.context({ runId: run.id, permissions: [], signal: AbortSignal.timeout(60_000) }), text, shape, preset);
+      return answer;
+    } finally {
+      store.finish(run.id, answer?.status === "resolved" ? "completed" : "failed", answer?.status === "refused" ? answer.reason : "");
+    }
+  });
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
   // FQ-execution.browser: a tool's own steps (a browser.flow click) are judged as the tool they stand for.
   registry.judgeStep = (tool, args, context, target, index) => runtime.judgeStep(tool, args, context, target, index);
@@ -1203,6 +1222,7 @@ export async function createBranch(options: {
       if (!made.path || !runtime.artifacts) throw new Error("The picture model did not hand back a picture");
       return { bytes: await runtime.artifacts.read(made.path), mediaType: made.mediaType ?? "image/png" };
     } });
+  devices.computerRule = trunks.computerRule; // P17-D §9: the device tools and the pick route follow each Trunk's computers
   retention.keeps = (sessionId) => trunks.keeps(sessionId);
   // phase2/rooms (integration review): a Trunk's side of a room stays out of Recents (the room is what is
   // opened), and Talk live is refused where it would step round a Trunk, Lockdown or an outside hold.
@@ -1376,6 +1396,10 @@ export async function createBranch(options: {
     learn,
     /** Optional, owner-controlled typed judgments from JEV; off until explicitly enabled. */
     decisions,
+    /** P17-D §4: small decisions on the owner's own connections (src/decision-models.ts). */
+    decisionModels,
+    /** P17-D §3: behaviour workbooks, "Learn this app or workflow" (src/workbooks.ts). */
+    workbooks,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {

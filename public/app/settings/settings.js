@@ -29,11 +29,12 @@ import * as achievements from "./pages/achievements.js";
 import * as self from "./pages/self.js";
 import { t } from "../../i18n.js";
 import { say } from "../core/words.js";
+import * as chatapps from "./pages/chatapps.js"; // pass 17 part D §8
 
 const PAGES = {
   general, people, appearance, notifications, instructions, models, local,
   accounts, voice, permissions, computer, secrets, usage, gateway, updates,
-  advanced, developer, achievements, self
+  advanced, developer, achievements, self, chatapps
 };
 
 /* Whether the window has a Settings page by this id (an engine command may name one). */
@@ -41,7 +42,7 @@ export const hasPage = (id) => Object.hasOwn(PAGES, id);
 
 export const NAV = [
   ["General", [["general", "General"], ["people", "People"], ["appearance", "Appearance"], ["notifications", "Notifications"]]],
-  ["Your assistant", [["instructions", "Instructions & personality"], ["models", "Models"], ["accounts", "Accounts"], ["local", "On this computer"], ["voice", "Voice"]]],
+  ["Your assistant", [["instructions", "Instructions & personality"], ["models", "Models"], ["accounts", "Accounts"], ["local", "On this computer"], ["voice", "Voice"], ["chatapps", "Chat apps"]]],
   ["Safety", [["permissions", "Permissions"], ["computer", "Computer & browser"], ["secrets", "Saved sign-ins"]]],
   ["Care", [["usage", "Data & usage"], ["gateway", "Gateway"], ["self", "Branch itself"], ["updates", "Updates & about"], ["achievements", "Achievements"]]]
 ];

@@ -16,6 +16,7 @@ import { L, loadLocal, gb, DOWNLOAD_ICON } from "./local.js";
 import { sections17, init17 } from "../p17-models.js";
 import { t } from "../../../i18n.js";
 import { say } from "../../core/words.js";
+import { decisions17d, initDecisions17d, loadDecisions17d } from "../decisions17d.js"; // pass 17 part D §4
 
 const TABS = [["connections", "Connections"], ["defaults", "Defaults"], ["local", "On this computer"], ["second", "Second opinion"], ["media", "Media"]];
 let tab = "connections";
@@ -60,7 +61,7 @@ export function draw() {
   let html = `<h1>${t("layout.modelTabs")}</h1><p class="lede">${t("window.settings.models.which-models-answer-and-where-they")}</p><div class="tabs" role="tablist">${TABS.map(([id, l]) => `<button class="tab" role="tab" type="button" aria-selected="${tab === id}" data-act="mtab" data-v="${id}">${say(l)}</button>`).join("")}</div>${BODIES[tab]()}`;
   if (lv >= 1) html += advanced();
   if (lv >= 2) html += TECHNICAL();
-  return html + sections17(lv, tab);
+  return html + sections17(lv, tab) + decisions17d(lv);
 }
 
 /* ---------- Get another model ---------- */
@@ -129,6 +130,7 @@ async function saveSteps(box) {
 
 export function init() {
   init17();
+  initDecisions17d();
   loadAccounts();
   loadLocal();
   loadKnobs();
@@ -140,7 +142,7 @@ export function init() {
   markLive(["mtab", "download", "dl-go", "lm-stop"]);
 }
 
-export function load() { loadAccounts(); loadKnobs(); return loadLocal(); }
+export function load() { loadAccounts(); loadKnobs(); loadDecisions17d(); return loadLocal(); }
 
 export const live = { mtab: true, download: true, "dl-go": true, "lm-stop": true, "sw:m-steps": true };
 

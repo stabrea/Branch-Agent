@@ -65,6 +65,21 @@ export const ROUTES = {
   "/api/agents/remote/remove": "owner POST",
   "/api/approval-reviewer": "owner POST",
   "/api/jev": "secret-read",
+  // P17-D §4: decision models. Reading names the connections (as /api/models does); changing them and deciding,
+  // which asks a model, are the owner's.
+  "/api/decisions": "look",
+  // P17-D §3: behaviour workbooks. Reading them is looking; starting a learning task, running it again, making a
+  // skill and the switch are the owner's.
+  "/api/workbooks": "look",
+  "/api/workbooks/": "prefix",
+  "/api/workbooks/settings": "owner POST",
+  "/api/workbooks/learn": "owner POST",
+  "/api/workbooks/:id": "look",
+  "/api/workbooks/:id/rerun": "owner POST",
+  "/api/workbooks/:id/skill": "owner POST",
+  "/api/workbooks/:id/markdown": "look",
+  "/api/decisions/settings": "owner POST",
+  "/api/decisions/decide": "owner POST",
   "/api/approvals/categories": "owner POST",
   "/api/artifacts": "look",
   "/api/artifacts/file": "look",
@@ -333,6 +348,7 @@ export const ROUTES = {
   "/api/devices/invite": "owner POST",
   "/api/devices/invite/cancel": "owner POST",
   "/api/devices/pick": "owner POST",
+  "/api/devices/pick/:id": "secret-read", // P17-D §9: a conversation's pick and its Trunk's computers
   // phase2/shell: lending this computer to another Branch from the window. Reading where it stands
   // (with the check code) is refused to keys by the /api/devices reads rule; answering and leaving are the owner's.
   "/api/devices/join": "owner POST",
@@ -407,6 +423,8 @@ export const ROUTES = {
   // eng-trunk-controls: pausing and resuming a Trunk, or all of them, is the owner's.
   "/api/trunks/:id/pause": "owner POST",
   "/api/trunks/:id/resume": "owner POST",
+  // P17-D §9: the computers a Trunk may use and how many at once; reading names the owner's computers.
+  "/api/trunks/:id/computers": "owner GET,POST",
   "/api/trunks/pause-all": "owner POST",
   "/api/trunks/resume-all": "owner POST",
   "/api/trunks/rooms/:id": "owner POST",

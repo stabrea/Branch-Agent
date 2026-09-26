@@ -20,6 +20,7 @@ import { av, toast, ic, openDlg, closeDlg } from "../../core/ui.js";
 import { on } from "../../core/actions.js";
 import { onPaired } from "../../flows/pair.js";
 import { t } from "../../../i18n.js";
+import { trunkRow17, settingsCloudOffer, loadAll as loadComputers17 } from "../../flows/computers17.js"; // pass 17 part D §9, §1
 import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
 import { computer17 } from "../p17-more.js";
 
@@ -53,6 +54,7 @@ async function loadAll() {
     .map((path) => api(path).catch((error) => { toast(error.message); return null; })));
   Object.assign(D, { coding: c, notes: n?.settings ?? null, prs: p, devices: d, desktop, wall, reach, appAsk });
   render();
+  await loadComputers17();
 }
 
 export function init() {
@@ -96,11 +98,11 @@ function computers() {
   const mine = card("monitor", t("dashboard.computer.title"), t("window.settings.computer.your-windows-desktop"), `<span class="c7-reach">${t("window.settings.computer.your-screen-mouse-and-apps-it")}</span>`);
   const theirs = others.length ? `<div class="grp8">${t("settings.card.remote-computers")}</div><div class="comps7">${others.map((d) => card("monitor", esc(d.name), esc(PLATFORM[d.platform] ?? d.platform), "", removeBtn(d))).join("")}</div>` : "";
   const cloud = `<div class="grp8">${t("window.settings.computer.in-the-cloud")}</div><div class="comps7"><div class="comp7-card off7"><span class="ico-tile">${ic("globe", "s")}</span><span class="grow"><b>${t("window.settings.computer.keepoak-computer")}</b><small>${t("window.settings.computer.linux-in-the-cloud-stays-on")}</small><span class="c7-reach">${t("window.settings.computer.keeps-working-while-this-pc-sleeps")}</span></span><button class="btn sm" type="button" data-act="ko-start">${t("window.settings.computer.connect-keepoak-com")}</button></div></div>`;
-  return `<div class="sec"><h2>${t("window.settings.computer.computers-they-may-use")}</h2><div class="grp8">${t("window.settings.computer.on-this-pc")}</div><div class="comps7">${mine}</div>${theirs}${cloud}
+  return `<div class="sec"><h2>${t("window.settings.computer.computers-they-may-use")}</h2><div class="grp8">${t("window.settings.computer.on-this-pc")}</div><div class="comps7">${mine}</div>${theirs}${cloud}${settingsCloudOffer()}
     <div class="acts" data-css="margin-top:10px"><button class="btn pri" type="button" data-act="comp-add">${ic("plus", "s")}${t("window.settings.computer.add-a-computer")}</button></div></div>`;
 }
 
-/* Which Trunk uses which: the engine keeps no list of computers per Trunk, nor a limit, so the chips stay greyed. */
+/* Which Trunk uses which: each Trunk's computers and its At once (pass 17 part D §9, flows/computers17.js). */
 function trunkRow(trunk) {
   const id = esc(trunk.id ?? trunk.name ?? "");
   const nums = [1, 2, 3, 4].map((n) => `<button type="button" data-act="comp-max" data-id="${id}" data-v="${n}" aria-pressed="false">${n}</button>`).join("");
@@ -108,7 +110,7 @@ function trunkRow(trunk) {
 }
 
 function whichTrunk() {
-  return `<div class="sec"><h2>${t("window.settings.computer.which-trunk-uses-which")}</h2><p class="hint" data-css="margin:0 0 8px">${t("window.settings.computer.a-trunk-can-use-several-computers")}</p><div class="rows">${(E.trunks ?? []).map(trunkRow).join("")}</div></div>`;
+  return `<div class="sec"><h2>${t("window.settings.computer.which-trunk-uses-which")}</h2><p class="hint" data-css="margin:0 0 8px">${t("window.settings.computer.a-trunk-can-use-several-computers")}</p><div class="rows">${(E.trunks ?? []).map(trunkRow17).join("")}</div></div>`;
 }
 
 function onAComputer() {

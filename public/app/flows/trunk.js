@@ -4,7 +4,7 @@
    What it may do (the permission switches) stays greyed: loosening a Trunk is not done from here. */
 
 import { $, esc, onRender } from "../core/dom.js";
-import { openDlg, closeDlg, closePop, toast, ic, av, mi, COLOURS, SHAPES, SHAPE_NAMES, hex, faceOf } from "../core/ui.js";
+import { openDlg, closeDlg, closePop, toast, ic, av, mi, COLOURS, SHAPES, SHAPE_NAMES, hex, faceOf, dialog } from "../core/ui.js";
 import { S, E, refresh, activeId } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on, run } from "../core/actions.js";
@@ -12,6 +12,7 @@ import { markLive } from "../core/features.js";
 import { initPause } from "./pause.js";
 import { LOOKS17, look17 } from "../core/art17.js";
 import { t } from "../../i18n.js";
+import { itsTab, onChange as computersChanged } from "./computers17.js"; // pass 17 part D §9: Its computers
 
 /* The prototype's colours and shapes (COLOURS, SHAPES, SHAPE_NAMES) are kept beside av() in core/ui.js. */
 /* The prototype's Bob is the engine's sway (the engine has no bob). */
@@ -103,8 +104,8 @@ function drawEditor() {
   const tr = trunkById(ed.id);
   if (!tr) { closeDlg(); ed = null; return; }
   const d = ed.d, prev = { name: d.name, color: d.colour, shape: d.shape, emoji: face(tr).emoji, character: face(tr).character };
-  const tabs = [["look", t("window.flows.trunk.look")], ["may", t("autonomy.orders.authority")]].map(([k, l]) => `<button class="tab" role="tab" type="button" aria-selected="${ed.tab === k}" data-act="st-tab" data-v="${k}">${l}</button>`).join("");
-  const body = ed.tab === "look" ? lookPicker(tr) + emojiRow(tr) + lookTab(d) : mayTab();
+  const tabs = [["look", t("window.flows.trunk.look")], ["may", t("autonomy.orders.authority")], ["its17d", t("window.p17d.its-computers")]].map(([k, l]) => `<button class="tab" role="tab" type="button" aria-selected="${ed.tab === k}" data-act="st-tab" data-v="${k}">${l}</button>`).join("");
+  const body = ed.tab === "look" ? lookPicker(tr) + emojiRow(tr) + lookTab(d) : ed.tab === "its17d" ? itsTab(tr.id) : mayTab();
   openDlg({ title: t("trunks.editing", { name: tr.name }), wide: true,
     body: `<div class="editor"><div class="big">${av(prev, 84)}<button class="btn sm" type="button" data-act="st-shuffle">${t("studio.shuffle")}</button></div><div data-css="display:grid;gap:14px;min-width:0"><div class="tabs" data-css="margin:0" role="tablist">${tabs}</div>${body}</div></div>`,
     foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn pri" type="button" data-act="st-save">${t("action.save")}</button>` });
@@ -328,6 +329,7 @@ export function init() {
   on("new-trunk", () => newTrunk());
   on("edit", (el) => editTrunk(el.dataset.id));
   on("st-tab", (el) => { keepFields(); ed.tab = el.dataset.v; drawEditor(); });
+  computersChanged(() => { if (ed?.tab === "its17d" && dialog()?.querySelector(".editor")) drawEditor(); }); // only while the editor is open
   on("st-colour", (el) => { keepFields(); ed.d.colour = hex(el.dataset.v); drawEditor(); });
   on("st-shape", (el) => { keepFields(); ed.d.shape = SHAPE_NAMES[+el.dataset.v] ?? null; drawEditor(); });
   on("st-anim", (el) => { keepFields(); ed.d.motion = el.dataset.v; drawEditor(); });

@@ -14,6 +14,7 @@ import { toast } from "../../core/ui.js";
 import { ctl, ctlSeg } from "../parts.js";
 import { voice17 } from "../p17-more.js";
 import { t } from "../../../i18n.js";
+import { calls17d } from "../../chat/calls17d.js"; // pass 17 part D §2 (greyed)
 
 const V = { settings: null, comfort: null, dictation: null, wake: null, voices: [] };
 
@@ -107,7 +108,7 @@ async function saveAloud(on) {
 
 export function draw() {
   const lv = level();
-  return `<h1>${t("field.voice")}</h1><p class="lede">${t("window.settings.voice.talking-to-branch-voice-stays-on")}</p>${talking()}${speakingBack()}${lv >= 1 ? listeningMore() : ""}${voice17(lv)}`;
+  return `<h1>${t("field.voice")}</h1><p class="lede">${t("window.settings.voice.talking-to-branch-voice-stays-on")}</p>${talking()}${speakingBack()}${lv >= 1 ? listeningMore() : ""}${voice17(lv)}${lv >= 1 ? calls17d() : ""}`;
 }
 
 export function init() {

@@ -12,6 +12,7 @@ import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
 import { qr } from "../core/qr.js";
 import { t } from "../../i18n.js";
+import { manage17d, fixNote17d } from "./chatapps17d.js"; // pass 17 part D §8
 
 let vals = {};
 const FAMILY = { core: "window.flows.chw.popular", chat: "window.flows.chw.work-chat" };
@@ -34,9 +35,9 @@ function create(c) {
   return `<div class="chw-create12"><div><p>${esc(how)}</p>${c.steps?.length ? `<ol class="steps-list">${c.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>` : ""}<div class="acts">${open}${app}</div></div>${code}</div>`;
 }
 
-function paste(c) {
+function paste(c, w) {
   const rows = inputs(c).map((f) => `<label class="fld chf12"><span>${esc(f.what)}</span><span class="chf-in12"><input class="inp" data-sw="chf" data-chf="${esc(f.key)}" type="${f.secret ? "password" : "text"}" value="${f.secret ? "" : esc(vals[f.key] ?? "")}" autocomplete="off" spellcheck="false" placeholder="${f.secret ? t("pair.join.link.hint") : ""}">${f.secret ? `<button type="button" class="icon-btn" data-act="chf-eye" data-k="${esc(f.key)}" aria-label="${t("window.flows.chw.show-hide")}">${ic("eye", "s")}</button>` : ""}</span></label>`).join("");
-  return `<p data-css="margin:0 0 6px">${t("window.flows.chw.paste-what", { name: esc(c.name) })}</p>${rows || `<p class="hint">${t("window.flows.chw.nothing")}</p>`}`;
+  return `${w?.fixing ? fixNote17d() : ""}<p data-css="margin:0 0 6px">${t("window.flows.chw.paste-what", { name: esc(c.name) })}</p>${rows || `<p class="hint">${t("window.flows.chw.nothing")}</p>`}`;
 }
 
 function check(c, w) {
@@ -51,13 +52,13 @@ function pair(c, w) {
   return `<p data-css="margin:0 0 10px">${esc(c.pairing)}</p><div class="code12">${[0, 1, 2, 3, 4, 5].map((i) => `<input inputmode="numeric" maxlength="1" data-sw="code" data-code="${i}" value="${esc(w.code[i] ?? "")}" aria-label="${t("window.flows.chw.digit", { n: i + 1 })}">`).join("")}</div>${w.error ? `<p class="hint" role="alert">${esc(w.error)}</p>` : `<p class="hint">${t("window.flows.chw.code-once")}</p>`}`;
 }
 
-function save(c) {
+function save(c, w) {
   const who = [...E.trunks.map((tr) => tr.name), "Branch"].map((n, i, all) => `<button type="button" data-act="chw-who" aria-pressed="${i === all.length - 1}">${esc(n)}</button>`).join("");
   const may = [t("window.flows.chw.only-me"), t("window.flows.chw.approved"), t("window.flows.chw.workspace")].map((l, i) => `<button type="button" aria-pressed="${i === 0}" data-act="chw-may">${l}</button>`).join("");
   const tg = c.id === "telegram" ? `<div class="tg15"><div class="ctl"><b>${t("window.flows.chw.topics")}</b><input class="sw" type="checkbox" id="tg-topics15" aria-label="${t("window.flows.chw.topics")}" data-sw="set"><small>${t("window.flows.chw.topics-hint")}</small></div><div class="ctl"><b>${t("window.flows.chw.media")}</b><input class="sw" type="checkbox" id="tg-media15" aria-label="${t("window.flows.chw.media")}" data-sw="set"><small>${t("window.flows.chw.media-hint")}</small></div></div>` : "";
   return `<div class="chw-ok12">${ic("check", "s")}<span><b>${t("window.flows.chw.ready", { name: esc(c.name) })}</b><small>${t("window.flows.chw.choose")}</small></span></div>
     <div class="fld"><span>${t("window.flows.chw.who-answers", { name: esc(c.name) })}</span><span class="seg">${who}</span></div>
-    <div class="ctl"><b>${t("window.flows.chw.who-may")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.flows.chw.who-may")}">${may}</span></span><small>${t("window.flows.chw.no-answer")}</small></div>${tg}`;
+    <div class="ctl"><b>${t("window.flows.chw.who-may")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.flows.chw.who-may")}">${may}</span></span><small>${t("window.flows.chw.no-answer")}</small></div>${tg}${w?.connected ? manage17d(c, w.health) : ""}`; // pass 17 part D §8: the app's own page
 }
 
 const BODIES = { Create: create, Paste: paste, Check: check, Pair: pair, Save: save };
@@ -75,14 +76,16 @@ function draw() {
   if (cur === "Pair") setTimeout(() => $('.code12 input[value=""]')?.focus(), 30);
 }
 
-export async function openChatWizard(id) {
+export async function openChatWizard(id, at = null) {
   vals = {};
   let recipe, live;
   try {
     [recipe, live] = await Promise.all([api(`channel-setup/${encodeURIComponent(id)}`), api("channels").catch(() => ({}))]);
   } catch (error) { toast(error.message); return; }
-  const connected = (live.channels ?? []).some((c) => c.id === id || c.kind === id);
-  S.chw = { id, recipe, connected, step: connected ? stepsOf(recipe).length - 1 : 0, result: null, error: "", code: "" };
+  const here = (live.channels ?? []).find((c) => c.id === id || c.kind === id), connected = !!here;
+  // pass 17 part D §8: "Paste a new token" opens a connected app at Paste, saying why.
+  const step = at ? Math.max(0, stepsOf(recipe).indexOf(at)) : connected ? stepsOf(recipe).length - 1 : 0;
+  S.chw = { id, recipe, connected, health: here?.health ?? null, fixing: connected && at === "Paste", step, result: null, error: "", code: "" };
   draw();
 }
 
@@ -143,8 +146,9 @@ function onInput(e) {
 }
 
 export function init() {
-  markLive(["sw:chf", "sw:code", "ch-open", "chw-next", "chw-back", "chw-save", "chf-eye"]); // the eye shows only what the owner just pasted, never a saved secret
+  markLive(["sw:chf", "sw:code", "ch-open", "chw-next", "chw-back", "chw-save", "chf-eye", "revfix17d"]); // the eye shows only what the owner just pasted, never a saved secret
   on("ch-open", (el) => openChatWizard(el.dataset.v));
+  on("revfix17d", () => openChatWizard("telegram", "Paste")); // pass 17 part D §8
   on("chw-next", () => next());
   on("chw-back", () => { const w = S.chw; vals = {}; w.step = Math.max(0, w.step - 1); w.error = ""; w.result = null; draw(); });
   on("chw-save", () => finish());

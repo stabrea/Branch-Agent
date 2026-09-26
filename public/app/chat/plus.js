@@ -14,6 +14,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { plusMore } from "./media.js";
 import { t } from "../../i18n.js";
+import { plus17d } from "./calls17d.js"; // pass 17 part D §2 (greyed)
 
 const MAX_FILES = 6, MAX_BYTES = 32 * 1024 * 1024;
 const Q = { files: [], temporary: false, who: null, whoFor: null };
@@ -124,7 +125,7 @@ function insert(text) {
 
 export function initPlus() {
   markLive(["plusmenu", "attach", "unattach", "insert", "sw:pm-temp", "who"]);
-  on("plusmenu", (el) => openPop(el, menu() + plusMore()));
+  on("plusmenu", (el) => openPop(el, menu() + plusMore() + plus17d()));
   on("attach", () => pick());
   on("unattach", (el) => { Q.files.splice(+el.dataset.i, 1); redraw(); });
   on("insert", (el) => insert(el.dataset.v));

@@ -12,6 +12,7 @@ import { StartsInSchema, cannotStartThere, checkStartsIn, requireStartsHere, sta
 import { TrunkRooms } from "./rooms.js";
 import { TrunkConversations } from "./conversations.js"; // phase2/rooms
 import { TrunkPause } from "./pause.js"; // eng-trunk-controls
+import { TrunkComputers, thisComputer } from "./computers.js"; // P17-D §9
 
 /** Which Trunk a conversation belongs to, and how (phase2/rooms: `room` and `chosen`). */
 export interface Owned { trunkId: string; canonical: boolean; room?: boolean; chosen?: boolean }
@@ -66,6 +67,8 @@ export class Trunks {
   readonly conversations: TrunkConversations;
   /** eng-trunk-controls: pausing one Trunk or all of them (src/trunks/pause.ts). */
   readonly pause: TrunkPause;
+  /** P17-D §9: the computers each Trunk may use and how many tasks it may run at once (src/trunks/computers.ts). */
+  readonly computerRule: TrunkComputers;
   /** `room`: a Trunk's side of a room; `chosen`: an ordinary conversation the owner chose it for (phase2/rooms). */
   private owned = new Map<string, Owned>();
   /** phase2/rooms: a room member's conversation → the room's own conversation (whose mode it follows). */
@@ -91,9 +94,12 @@ export class Trunks {
       scrub: (value) => runtime.hideSecrets(value) });
     this.pause = new TrunkPause({ store, owner, records: this.records, runsOf: (id) => runtime.runsOfTrunk(id),
       cancel: (runId) => runtime.cancel(runId) });
+    this.computerRule = new TrunkComputers({ store, owner, records: this.records, computers: () => this.computers(),
+      runsOf: (id) => runtime.runsOfTrunk(id) }); // P17-D §9
     this.refresh();
     runtime.trunkShape = (options) => this.shapeOf(options);
     runtime.trunkPaused = (id) => this.pause.refusal(id); // eng-trunk-controls
+    runtime.trunkAtOnce = (id) => this.computerRule.atOnceRefusal(id); // P17-D §9
     runtime.trunkKeysFor = (id) => this.records.find(id)?.keys ?? null; // Q114
     runtime.trunkPermissionsFor = (id) => this.shapeOf({ prompt: "", trunkId: id })?.permissions ?? null; // Q119
     runtime.trunkStartsElsewhere = (id) => { // Q144
@@ -194,9 +200,12 @@ export class Trunks {
     requireStartsHere(trunk, this.computers()); // Q44: a Trunk that starts on another computer is never quietly run here.
     const { runtime, registry } = this.deps;
     const sessionModel = options.sessionId ? !!runtime.models.session(this.owner, options.sessionId).preset : false;
-    return shapeFor(trunk, this.records.list(), { available: registry.permissions(), caller: options.permissions,
+    const shape = shapeFor(trunk, this.records.list(), { available: registry.permissions(), caller: options.permissions,
       messaging: owned?.canonical === true && this.mode("messages") !== "off", sessionModel, agent: trunkAgent(trunk.id),
       roomTurn: owned?.room === true });
+    // P17-D §9: a Trunk the owner has not let use this computer never gets its screen, mouse or clipboard.
+    if (this.computerRule.allows(trunk.id, thisComputer)) return shape;
+    return { ...shape, permissions: shape.permissions.filter((permission) => !permission.startsWith("desktop.")) };
   }
 
   /** R17-007: the roster the rail shows — each Trunk with its latest message, when, and how many are unread. */

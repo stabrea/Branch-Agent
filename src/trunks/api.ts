@@ -25,7 +25,7 @@ const SwitchSchema = z.object({ part: TrunkPartSchema, mode: z.enum(["off", "whe
 const TextSchema = z.object({ text: z.string().trim().min(1).max(16000) }).strict();
 /** eng-trunk-controls: resume takes nothing. */
 const EmptySchema = z.object({}).strict().nullable().optional();
-const trunkPath = /^\/api\/trunks\/([a-f0-9-]{36})(?:\/(remove|say|seen|retire|avatar|export|keys|routines|watch|teach|pause|resume))?$/;
+const trunkPath = /^\/api\/trunks\/([a-f0-9-]{36})(?:\/(remove|say|seen|retire|avatar|export|keys|routines|watch|teach|pause|resume|computers))?$/;
 const roomPath = /^\/api\/trunks\/rooms\/([a-f0-9-]{36})(?:\/(remove|send|stop|answer|revoke|artifacts))?$/; // phase2/rooms: revoke
 const routinePath = /^\/api\/trunks\/routines\/([a-f0-9-]{36})\/remove$/;
 /** mac7/residuals (integration): Answer / Not now on a Trunk's message that waits for the owner. */
@@ -132,6 +132,8 @@ async function trunkRoute(deps: TrunksHttpDeps, id: string, action: string | und
   if (!action) return post ? edited(trunks, id, await deps.readBody()) : details(trunks, id);
   if (action === "export") return trunks.exportFile(id);
   if (action === "keys") return trunks.keys(id);
+  // P17-D §9: the computers it may use and how many tasks at once; reading names the owner's computers, so both are the owner's.
+  if (action === "computers") return post ? trunks.computerRule.set(id, await deps.readBody()) : trunks.computerRule.view(id);
   if (!post) return undefined;
   switch (action) {
     case "remove": return trunks.remove(id);

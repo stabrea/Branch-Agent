@@ -126,6 +126,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   // mac7/nodes: the owner's devices, their switches and who they are shared with. Changes are refused
   // by the fail-closed rule above; the device socket and pairing carry their own proof, not a key.
   /^\/api\/devices(\/.*)?$/,
+  // P17-D §9: which of the owner's computers a Trunk may use names them, as the devices list does.
+  new RegExp(`^/api/trunks/${id}/computers$`),
   // R17-S-A: the settings file outlives the key, and the owner's own files say who they are.
   /^\/api\/settings-kit\/(export|files)(\/.*)?$/,
   // mac7/r17-d: the shell snapshot holds the owner's PATH, aliases and functions.

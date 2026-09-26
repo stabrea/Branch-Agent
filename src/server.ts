@@ -290,6 +290,7 @@ import { audit, csvCell } from "./audit.js";
 import { AppLockRefusal } from "./session-lock.js";
 import { unifiedSearch } from "./unified-search.js";
 import { proposeSchedule } from "./schedule-words.js";
+import { workbooksRoute } from "./workbooks.js"; // P17-D §3
 import type { AnswerShape, ShapedAnswer } from "./answer-shape.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -1064,6 +1065,25 @@ async function api(
       request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
       throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
     });
+  // P17-D §4: decision models on the owner's own connections. Reading names the connections; deciding asks a model.
+  if (path === "/api/decisions" || path === "/api/decisions/settings" || path === "/api/decisions/decide") {
+    app.store.profiles.requireOwner("Decision models");
+    if (path === "/api/decisions") {
+      if (request.method === "GET") return app.decisionModels.overview();
+      throw new HttpError(405, "Use GET here.");
+    }
+    if (request.method !== "POST") throw new HttpError(405, "Use POST here.");
+    const body = await readBody(request, 256 * 1024);
+    return path === "/api/decisions/settings" ? { settings: app.decisionModels.configure(body) } : app.decisionModels.decide(body);
+  }
+  // P17-D §3: behaviour workbooks. Starting one, running it again and making a skill are the owner's.
+  if (path === "/api/workbooks" || path.startsWith("/api/workbooks/")) {
+    app.store.profiles.requireOwner("Learn this app or workflow");
+    return workbooksRoute(app.workbooks, request.method ?? "GET", path, () => readBody(request, 16 * 1024)).catch((error: unknown) => {
+      const status = (error as { status?: unknown }).status;
+      throw typeof status === "number" && error instanceof Error ? new HttpError(status, error.message) : error;
+    });
+  }
   // Optional JEV decisions are the owner's: even reading this card names a local program and provider.
   if (path === "/api/jev") {
     app.store.profiles.requireOwner("JEV decision support");
@@ -3599,7 +3619,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         if (handlesDevicesPath(path)) {
           app.store.profiles.requireOwner("Your devices");
           const answer = await devicesApi({ devices: app.devices, store: app.store, owner: app.runtime.owner, method: request.method ?? "GET",
-            readBody: () => readBody(request, 16384), baseUrl: remote.status().url ?? url }, path).catch((error: unknown) => {
+            readBody: () => readBody(request, 16384), baseUrl: remote.status().url ?? url,
+            trunkOf: (sessionId) => app.trunks.trunkForConversation(sessionId)?.trunkId ?? null }, path).catch((error: unknown) => {
             throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
           });
           if (answer === undefined) throw new HttpError(404, "Endpoint not found");
