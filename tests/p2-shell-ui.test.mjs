@@ -63,14 +63,27 @@ async function untranslated(page) {
   return page.evaluate(() => [...document.querySelectorAll("[data-t]")].filter((node) => node.checkVisibility() && node.textContent.trim() === node.dataset.t).map((node) => node.dataset.t));
 }
 
-// Redesign: public/strip.js, public/faces.js, public/studio.js, etc. deleted; moved to new window public/app/shell/**
-test.skip("the shell's modules write no colour and build no markup from text, and every word is in English and real French", () => {
-  // The old window's public/strip.js, public/faces.js, public/studio.js translation compliance checks no longer apply.
-  // Translation is checked by no-hardcoded-english.test.mjs for public/app/shell/** and related modules.
+// Redesign: public files deleted
+test.skip("the shell's modules write no colour and build no markup from text, and every word is in English and real French", async () => {
+  for (const file of [...MODULES, "trunks.js"]) {
+    const source = await readFile(new URL(`../public/${file}`, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i, `${file} writes no colour`);
+    assert.doesNotMatch(source, /innerHTML|insertAdjacentHTML|outerHTML/, `${file} builds nothing from text`);
+  }
+  const en = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
+  const fr = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  const mine = Object.keys(en).filter((key) => PREFIXES.some((prefix) => key.startsWith(prefix)));
+  assert.ok(mine.length > 200);
+  for (const key of mine) {
+    assert.ok(fr[key], `${key} has French`);
+    assert.notEqual(fr[key], en[key], `${key} is really translated`);
+  }
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  for (const tag of ['<script src="/strip.js" type="module">', '<link rel="stylesheet" href="/faces.css" />', '<link rel="stylesheet" href="/strip.css" />'])
+    assert.ok(html.includes(tag), tag);
 });
 
-// Redesign: #trunk-strip, .strip-face, #strip-menu, and strip-related features (#trunk-strip [data-strip-id]) replaced by Machines section
-test.skip("the strip sits at the left edge with this computer and each Trunk's own face, and opens a Trunk's conversation", async (t) => {
+test("the strip sits at the left edge with this computer and each Trunk's own face, and opens a Trunk's conversation", async (t) => {
   const f = await fixture(t);
   const trunk = await withTrunk(f);
   await f.open();
@@ -99,8 +112,7 @@ test.skip("the strip sits at the left edge with this computer and each Trunk's o
 
 /* phase2/everywhere (integration): on a phone the places bar holds the foot, so the strip is a row across the
    top, under the notch, as in the approved phone frame; a tablet keeps it as a row at the foot. */
-// Redesign: strip layout (#trunk-strip positioning) replaced by Machines section
-test.skip("on a phone the strip is a row across the top, a tablet's a row at the foot; neither covers the message box or scrolls the page sideways", async (t) => {
+test("on a phone the strip is a row across the top, a tablet's a row at the foot; neither covers the message box or scrolls the page sideways", async (t) => {
   const f = await fixture(t, { width: 390, height: 844 });
   await withTrunk(f);
   await f.open();
