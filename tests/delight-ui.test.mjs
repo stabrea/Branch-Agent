@@ -349,7 +349,8 @@ test("your own background: kept in the window, behind a scrim, refused when too 
 });
 
 test("at phone width the pet stays inside the folded list and nothing scrolls sideways", async (t) => {
-  const f = await fixture(t, { width: 390, height: 844 });
+  // Reduced motion: the list slides in, and measuring mid-slide under load put the pet outside a list still moving.
+  const f = await fixture(t, { width: 390, height: 844, reducedMotion: "reduce" });
   await f.call("/api/delight/settings", { pets: { on: true } });
   await f.page.reload();
   await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
