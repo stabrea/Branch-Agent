@@ -20,7 +20,7 @@ import { markLive } from "../core/features.js";
 import { moreButton, addMoreItem } from "./more.js";
 import { loadSteps, everyStepItem } from "./timeline.js"; // pass 17: Look inside and More gain "Every step"
 
-const M = { sid: null, pins: [], followUps: [], room: null, spend: null, commands: null, slashI: 0, edit: null };
+const M = { sid: null, pins: [], followUps: [], room: null, spend: null, commands: null, slashBox: null, slashI: 0, edit: null };
 /* What the conversation module hands over: its state, a way to send words, and a way to re-read a conversation. */
 let X = { state: () => ({ sessionId: null, messages: [] }), sendText: async () => {}, reopen: async () => {} };
 
@@ -192,12 +192,15 @@ function drawSlash() {
   form.insertAdjacentHTML("beforeend", `<div class="slash6" role="listbox" aria-label="Commands and saved prompts">${items.map((x, i) => `<button type="button" role="option" class="${i === M.slashI ? "sel6" : ""}" data-act="slash6-pick" data-i="${i}"><b>${esc(x.label)}</b>${x.arg ? `<code>${esc(x.arg)}</code>` : ""}<small>${esc(x.d)}</small></button>`).join("")}<span class="slash-f">The same commands work on the phone, in the terminal and in chat apps.</span></div>`);
 }
 
+/* The list is read when the menu opens (the box starts with "/" again, or it is a new box after a redraw) and again after a
+   prompt is saved (the "branch-prompts" event), not on every key. */
 async function slashTyped() {
   const box = $("#prompt");
-  if (!box?.value.startsWith("/")) { $(".slash6")?.remove(); return; }
-  if (!M.commands) {
+  if (!box?.value.startsWith("/")) { M.slashBox = null; $(".slash6")?.remove(); return; }
+  if (M.slashBox !== box || !M.commands) {
+    M.slashBox = box;
     const got = await api("commands?surface=window").catch(report);
-    if (!got) return;
+    if (!got) { M.slashBox = null; return; }
     M.commands = got.commands ?? [];
   }
   drawSlash();
@@ -403,6 +406,7 @@ export function initMessages(context) {
   on("project", (el) => chooseProject(el));
   document.addEventListener("keydown", listKeys, true);
   document.addEventListener("input", (e) => { if (e.target.id === "prompt") { M.slashI = 0; slashTyped(); mentionTyped(e.target); } });
+  document.addEventListener("branch-prompts", () => { M.commands = null; });
   document.addEventListener("focusout", (e) => { if (e.target.id === "prompt") setTimeout(() => { if (!document.activeElement?.closest(".slash6")) $(".slash6")?.remove(); }, 150); });
   document.addEventListener("change", (e) => { if (e.target.dataset?.q15) reword(e.target); });
   /* The waiting line changes while a task works; re-read it every few seconds while its conversation is open. */
