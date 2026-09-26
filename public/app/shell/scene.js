@@ -1,10 +1,11 @@
 /* What lives behind the glass and at the foot of the list, 1:1 with the prototype's: a painted scene behind the window
    when the engine's background is on (GET/POST /api/delight/settings keeps on, scrim and fit), and the pet walking along
    the list when the engine's pet is on. Which painted scene, the season and where the pet walks are the window's own
-   (FEATURE-AUDIT: scene-set, season, petwhere15), kept in this browser; your own file is shell/ownbg.js. A pat is told to the engine
-   (POST /api/delight/noticed, which counts it when achievements are on). */
+   (FEATURE-AUDIT: scene-set, season, petwhere15), kept in this browser; your own file is shell/ownbg.js. A pat, and
+   following the computer's light or dark (shell/look.js), are told to the engine (POST /api/delight/noticed, which
+   counts them when achievements are on). */
 
-import { $, esc } from "../core/dom.js";
+import { $, esc, render } from "../core/dom.js";
 import { E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { toast } from "../core/ui.js";
@@ -42,12 +43,28 @@ function loadWindow() {
 }
 
 /* The engine's delight switches, read once the window is let in and after every change. */
+let seenState = null;
 export async function loadDelight() {
   if (D.asked || !E.loaded) return;
   D.asked = true;
+  seenState = E.state;
   loadWindow();
   try { const d = await api("delight"); D.settings = d.settings ?? null; D.earned = d.earned ?? null; } catch (error) { toast(error.message); }
   try { await loadOwn(); } catch (error) { toast(error.message); }
+}
+/* Read again after each refresh (the engine's events refresh the window), so a switch changed elsewhere, such as in
+   the terminal, reaches an open window. Redraws only when the switches changed. */
+let reading = null;
+export function followDelight() {
+  if (!D.asked || !E.state || E.state === seenState) return reading ?? Promise.resolve();
+  seenState = E.state;
+  reading = rereadDelight().finally(() => { reading = null; });
+  return reading;
+}
+async function rereadDelight() {
+  const before = JSON.stringify(D.settings);
+  try { const d = await api("delight"); D.settings = d.settings ?? null; D.earned = d.earned ?? null; } catch (error) { toast(error.message); }
+  if (JSON.stringify(D.settings) !== before) render();
 }
 /* Changes only the parts named; the engine merges each part into what it has. */
 export async function saveDelight(part) {
@@ -111,6 +128,7 @@ export function petHTML(where) {
   return where === "side" ? `<div class="keeper">${box}</div>` : box;
 }
 export function drawPet() {
+  syncWalker();
   document.body.classList.toggle("pet-status15", petShown() && W.petWhere === "status");
   const cv = $("#pet-cv"), p = PETS[D.settings?.pets?.kind];
   if (!cv || !p) return;
@@ -131,13 +149,26 @@ function say(text) {
   const el = $("#pet-say");
   if (el) { el.textContent = text; el.hidden = false; }
 }
+/* Something the window saw, told to the engine (POST /api/delight/noticed, the shapes in src/delight.ts NoticeSchema).
+   The engine keeps it only while achievements are on, so nothing is sent while they are off. */
+export async function noticed(what) {
+  if (!D.settings?.achievements?.on) return;
+  try { await api("delight/noticed", what); } catch (error) { toast(error.message); }
+}
 export async function pat() {
   say(petWords());
-  try { await api("delight/noticed", { what: "pat" }); } catch (error) { toast(error.message); }
+  await noticed({ what: "pat" });
 }
 
-/* It walks, unless things are kept still; it speaks up by itself when a Trunk needs you, at most every five minutes. */
-setInterval(() => {
+/* It walks, unless things are kept still; it speaks up by itself when a Trunk needs you, at most every five minutes.
+   The timer runs only while the pet is shown. */
+let walker = null;
+function syncWalker() {
+  const want = petShown();
+  if (want && !walker) walker = setInterval(walk, 360);
+  else if (!want && walker) { clearInterval(walker); walker = null; }
+}
+function walk() {
   const box = $(".petbox");
   if (!box || calm()) return;
   P.frame++;
@@ -151,4 +182,4 @@ setInterval(() => {
   const bubble = $("#pet-say");
   if (bubble && !bubble.hidden && Date.now() > P.until) bubble.hidden = true;
   if (Date.now() > P.cool && bubble?.hidden && (E.state?.attention ?? []).length) { P.cool = Date.now() + 300000; say(petWords()); }
-}, 360);
+}

@@ -35,9 +35,12 @@ function same(combo) {
 export const binding = (action) => (K.keys ? K.keys[action] ?? "" : FIRST[action] ?? "");
 export const defaultOf = (action) => (K.defaults ? K.defaults[action] ?? "" : FIRST[action] ?? "");
 export const pressed = (e, action) => { const b = binding(action); return !!b && same(comboOf(e)) === same(b); };
+/* How a key is shown: the engine's "Ctrl" is the computer's main key, Command on a Mac, so a Mac shows it as Cmd.
+   Only the display changes; what is kept and compared stays the engine's own writing. */
+const shown = (part) => (MAC && part === "Ctrl" ? "Cmd" : part);
 /* "Ctrl+Shift+K" as the prototype shows keys: one <kbd> each. */
-export const kbd = (combo, esc) => String(combo).split("+").filter(Boolean).map((x) => `<kbd>${esc(x)}</kbd>`).join(" ");
-export const spoken = (combo) => String(combo).split("+").join(" ");
+export const kbd = (combo, esc) => String(combo).split("+").filter(Boolean).map((x) => `<kbd>${esc(shown(x))}</kbd>`).join(" ");
+export const spoken = (combo) => String(combo).split("+").map(shown).join(" ");
 export const usedBy = (combo, except) => Object.keys(K.keys ?? FIRST).find((a) => a !== except && binding(a) && same(binding(a)) === same(combo));
 
 export async function loadKeys() {
