@@ -1,16 +1,49 @@
 /* Settings › advanced: bind real engine data and wire controls. */
-import { esc } from "../../core/dom.js";
+import { esc, render } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
-import { token } from "../../core/api.js";
+import { api, token } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { toast, openDlg } from "../../core/ui.js";
+import { seg15 } from "../rows15.js";
+
+/* The engine's own values: show the thinking (GET/POST /api/knobs, reasoning card, merged), the activity log
+   (GET/POST /api/diagnostics/log/settings, merged; a three-way switch, on unless "off", turned on as "when-needed"),
+   the model on this computer (GET /api/local-models), the browser's profiles (GET /api/browser/profiles) and the
+   standing orders (GET /api/autonomy/orders). Crash reports need a linked destination first, so they stay greyed. */
+const D = { knobs: null, log: null, local: null, profiles: null, orders: null };
+
+const WIRES = {
+  "ad-think": (on) => api("knobs", { card: "reasoning", values: { showReasoning: on } }),
+  "ad-log": (on) => api("diagnostics/log/settings", { mode: on ? "when-needed" : "off" }),
+};
+
+async function loadAll() {
+  const [knobs, log, local, profiles, orders] = await Promise.all(["knobs", "diagnostics/log/settings", "local-models", "browser/profiles", "autonomy/orders"]
+    .map((path) => api(path).catch((error) => { toast(error.message); return null; })));
+  Object.assign(D, { knobs: knobs?.values ?? null, log, local, profiles: profiles?.profiles ?? null, orders: orders?.orders ?? null });
+  render();
+}
+
+const kv = (rows) => rows.filter(([, v]) => v != null && v !== "").map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
+const tile = (title, rows) => `<div class="tile" data-css="margin-top:12px"><div class="th"><b>${title}</b></div><dl class="kv" data-css="background:none;padding:0">${kv(rows)}</dl><div class="acts"><button class="btn sm" type="button" data-act="soon">Restart</button><button class="btn ghost sm" type="button" data-act="soon">Open logs</button></div></div>`;
+
+/* The first model the engine finds on this computer: its name and how much it can hold. */
+function localTile() {
+  const l = D.local;
+  const m = l?.oneClick?.loaded?.[0] ?? l?.ollama?.models?.[0] ?? l?.lmStudio?.models?.[0] ?? null;
+  return tile("Model on this computer", [["Model", m?.name], ["Room", m?.contextLength]]);
+}
+
+function browserTile() {
+  return tile("Browser", [["Profile", (D.profiles ?? []).map((p) => p.name ?? p.id ?? "").filter(Boolean).join(", ")]]);
+}
 
 export function draw() {
   const lv = level();
   const s = E.state || {};
 
-  let html = "<h1>Advanced</h1><p class=\"lede\">What's running under the hood, for when something needs a look.</p>";
+  let html = "<h1>Advanced</h1><p class=\"lede\">What’s running under the hood, for when something needs a look.</p>";
 
   // Service diagnostics
   html += "<div class=\"tile\" data-css=\"margin-top:12px\"><div class=\"th\"><b>Branch service</b><span class=\"pill done ml\"><i></i>Running</span></div>";
@@ -21,19 +54,21 @@ export function draw() {
      supervisor), so it stays greyed here. Open logs shows what the engine wrote down (GET /api/logs) in a new window. */
   html += "<div class=\"acts\"><button class=\"btn sm\" type=\"button\" data-act=\"restart16\">Restart</button><button class=\"btn ghost sm\" type=\"button\" data-act=\"adv-logs\">Open logs</button></div>";
   html += "</div>";
+  html += localTile() + browserTile();
 
   // Seeing more section
   html += "<div class=\"sec\"><h2>Seeing more</h2>";
-  html += "<div class=\"ctl\"><b>Show the thinking</b><input class=\"sw\" type=\"checkbox\" id=\"ad-think\" aria-label=\"Show the thinking\" data-sw=\"set\"><small>Adds the model's reasoning under each reply, folded.</small></div>";
-  html += "<div class=\"ctl\"><b>Keep an activity log</b><input class=\"sw\" type=\"checkbox\" id=\"ad-log\" aria-label=\"Keep an activity log\" data-sw=\"set\"><small>Every step, kept for 30 days on this computer.</small></div>";
+  html += `<div class="ctl"><b>Show the thinking</b><input class="sw" type="checkbox" id="ad-think" ${D.knobs?.reasoning?.showReasoning === true ? "checked" : ""} aria-label="Show the thinking" data-sw="set"><small>Adds the model’s reasoning under each reply, folded.</small></div>`;
+  const keep = D.log?.keepDays ? `Every step, kept for ${esc(D.log.keepDays)} days on this computer.` : "";
+  html += `<div class="ctl"><b>Keep an activity log</b><input class="sw" type="checkbox" id="ad-log" ${D.log?.mode && D.log.mode !== "off" ? "checked" : ""} aria-label="Keep an activity log" data-sw="set"><small>${keep}</small></div>`;
   html += "<div class=\"ctl\"><b>Send crash reports</b><input class=\"sw\" type=\"checkbox\" id=\"ad-crash\" aria-label=\"Send crash reports\" data-sw=\"set\"><small>Only the error, never your conversations.</small></div>";
   html += "</div>";
 
   // Level-specific content (shown at advanced level and above)
   if (lv >= 1) {
     html += "<div class=\"sec x15-sec\"><h2>Memory</h2>";
-    html += "<div class=\"ctl\"><b>Most facts it keeps</b><span class=\"right num15\"><input class=\"inp\" aria-label=\"Most facts it keeps\"><small>facts</small></span><small>Tidy up suggests what to archive when it gets close.</small></div>";
-    html += "<div class=\"ctl\"><b>Match by meaning</b><input class=\"sw\" type=\"checkbox\" id=\"f15-match-by-meaning\" aria-label=\"Match by meaning\" data-sw=\"set\"><small>Finds \"invoice\" when the fact says \"bill\".</small></div>";
+    html += "<div class=\"ctl\"><b>Most facts it keeps</b><span class=\"right num15\"><input class=\"inp\" id=\"ad-facts\" value=\"" + esc(E.state?.memoryCapacity?.maxFacts ?? "") + "\" aria-label=\"Most facts it keeps\" data-sw=\"set\" disabled><small>facts</small></span><small>Tidy up suggests what to archive when it gets close.</small></div>";
+    html += "<div class=\"ctl\"><b>Match by meaning</b><input class=\"sw\" type=\"checkbox\" id=\"f15-match-by-meaning\" aria-label=\"Match by meaning\" data-sw=\"set\"><small>Finds “invoice” when the fact says “bill”.</small></div>";
     html += "<div class=\"ctl\"><b>Share memory between Trunks</b><input class=\"sw\" type=\"checkbox\" id=\"f15-share-memory-between-trunks\" aria-label=\"Share memory between Trunks\" data-sw=\"set\"><small>Off: each Trunk keeps its own.</small></div>";
     html += "<div class=\"ctl\"><b>Outside memory</b><span class=\"right\"><span class=\"seg\" role=\"group\" aria-label=\"Outside memory\"><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">None</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Mem0</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Honcho</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">Hindsight</button></span></span><small></small></div>";
     html += "<div class=\"ctl\"><b>Keep a history in Git</b><input class=\"sw\" type=\"checkbox\" id=\"f15-keep-a-history-in-git\" aria-label=\"Keep a history in Git\" data-sw=\"set\"><small>Every change to memory as a commit, on this computer.</small></div>";
@@ -61,10 +96,10 @@ export function draw() {
     html += "<div class=\"sec x15-sec\"><h2>Trunks, more</h2>";
     html += "<div class=\"ctl\"><b>Projects pick up matching work</b><input class=\"sw\" type=\"checkbox\" id=\"f15-projects-pick-up-matching-work\" aria-label=\"Projects pick up matching work\" data-sw=\"set\"><small>A message in a project goes to that project by itself.</small></div>";
     html += "<div class=\"ctl\"><b>Follow-up tasks</b><input class=\"sw\" type=\"checkbox\" id=\"f15-follow-up-tasks\" aria-label=\"Follow-up tasks\" data-sw=\"set\"><small>A Trunk can leave itself a task for later, shown in the Board.</small></div>";
-    html += "<div class=\"ctl\"><b>Standing orders</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">See standing orders</button></span><small>Named programmes a Trunk keeps running; ESCALATE pauses one and asks you.</small></div>";
-    html += "<div class=\"ctl\"><b>\"From now on\" for a specialist</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">Add one</button></span><small>A standing instruction kept by one specialist.</small></div>";
+    html += "<div class=\"ctl\"><b>Standing orders</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">See " + esc(D.orders?.length ?? "") + "</button></span><small>Named programmes a Trunk keeps running; ESCALATE pauses one and asks you.</small></div>";
+    html += "<div class=\"ctl\"><b>“From now on” for a specialist</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">Add one</button></span><small>A standing instruction kept by one specialist.</small></div>";
     html += "<div class=\"ctl\"><b>Share a Trunk</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">Export…</button></span><small>Through Git, as a skill bundle, or exported with memory details removed.</small></div>";
-    html += "<div class=\"ctl\"><b>Custom modes</b><span class=\"right\"><code class=\"code15\">.branch/modes.json</code></span><small>Your own modes; one can hand the work back when it's done.</small></div>";
+    html += "<div class=\"ctl\"><b>Custom modes</b><span class=\"right\"><code class=\"code15\">.branch/modes.json</code></span><small>Your own modes; one can hand the work back when it’s done.</small></div>";
     html += "<div class=\"ctl\"><b>Agent marketplace</b><span class=\"right\"><button class=\"btn sm\" type=\"button\" data-act=\"soon\">Browse</button></span><small>Trunks others made, each with a fingerprint you can check.</small></div>";
     html += "</div>";
 
@@ -76,7 +111,9 @@ export function draw() {
     html += "</div>";
 
     html += "<div class=\"sec x15-sec\"><h2>Pinned skills</h2>";
-    html += "<div class=\"ctl\"><b>Always read in full</b><span class=\"right\"><span class=\"seg\" role=\"group\" aria-label=\"Always read in full\"><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">None</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">file-receipts</button><button type=\"button\" aria-pressed=\"false\" data-act=\"seg\">brief</button></span></span><small>A pinned skill's whole instructions go with every message, not only when it seems to fit.</small></div>";
+    // The choices are the engine's own skills (E.state.skills), never the prototype's examples.
+    const skills = (E.state?.skills ?? []).map((k) => [String(k.name ?? k.id ?? ""), String(k.name ?? k.id ?? "")]).filter(([v]) => v);
+    html += seg15("Always read in full", "A pinned skill’s whole instructions go with every message, not only when it seems to fit.", [["none", "None"], ...skills], null);
     html += "</div>";
   }
 
@@ -101,7 +138,16 @@ async function openLogs() {
 
 export function init() {
   on("adv-logs", () => openLogs());
-  markLive(["adv-logs"]);
+  markLive(["adv-logs", "sw:ad-think", "sw:ad-log"]);
+  document.addEventListener("change", async (e) => {
+    const wire = WIRES[e.target.id];
+    if (!wire) return;
+    try { await wire(e.target.checked); } catch (error) { toast(error.message); }
+    await loadAll();
+  });
+  loadAll();
 }
+
+export async function load() { await loadAll(); }
 
 export const live = { "adv-logs": true };
