@@ -7,7 +7,7 @@
 
 import { $, esc, applyCss, renderNow } from "../core/dom.js";
 import { ic, openPop, closePop, mi, toast } from "../core/ui.js";
-import { S, refresh } from "../core/state.js";
+import { S, E, refresh } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -24,14 +24,16 @@ function menu() {
     + mi("prompts-fill", "star", "Saved prompts", "<kbd>/</kbd>"); // handled in messages.js
 }
 
-/* Who answers the open conversation, as the engine said when it was opened; a room is chosen through its members instead. */
-const radio = (v, t, s, on) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${on}" data-act="who" data-v="${esc(v)}"><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(t)}</span>${s ? `<span class="mi-s">${s}</span>` : ""}</span></button>`;
+/* Who answers the open conversation, as the engine said when it was opened; a room is chosen through its members instead.
+   While the engine's "conversations" part is off (GET /api/trunks modes.conversations) it refuses a Trunk, so the Trunks
+   are drawn greyed; handing the conversation back to Branch still works then. */
+const radio = (v, t, s, on, off = false) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${on}" data-act="who" data-v="${esc(v)}"${off ? ' disabled aria-disabled="true"' : ""}><span class="tick">${ic("check", "s")}</span><span><span class="mi-t">${esc(t)}</span>${s ? `<span class="mi-s">${s}</span>` : ""}</span></button>`;
 function whoRows() {
   const w = Q.whoFor === S.chat ? Q.who : null;
   if (!S.chat || !w || (w.kind !== "plain" && w.kind !== "trunk")) return "";
-  const now = w.trunk?.id ?? "";
+  const now = w.trunk?.id ?? "", off = E.trunkModes?.conversations === "off";
   return '<hr><div class="ph">Who answers in this conversation</div>' + radio("", "Branch", "The assistant on this computer", now === "")
-    + (w.trunks ?? []).map((t) => radio(t.id, t.name, "", now === t.id)).join("");
+    + (w.trunks ?? []).map((t) => radio(t.id, t.name, "", now === t.id, off)).join("");
 }
 
 /* After the conversation is drawn: ask the engine who answers it, once per conversation. With Trunks off it has no answer. */
