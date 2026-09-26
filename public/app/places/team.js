@@ -37,10 +37,12 @@ function liveRow(r, i) {
     <div class="acts"><button class="btn sm" type="button" data-act="run-watch" data-i="${i}">${EYE}Watch</button><button class="btn ghost sm" type="button" data-act="toast">Ask to join</button></div></div>`;
 }
 
+const liveRuns = () => E.state.runs?.filter((r) => r.status === "running" || r.status === "needs_input") || [];
 function liveTab() {
-  const running = E.state.runs?.filter((r) => r.status === "running" || r.status === "needs_input") || [];
-  return `<div class="runs6">${running.map(liveRow).join("")}</div>`;
+  return `<div class="runs6">${liveRuns().map(liveRow).join("")}</div>`;
 }
+/* Live now counts the tasks working here; People counts the rows its tab draws (the person using Branch here). */
+const counts = () => ({ live: liveRuns().length, people: personHere() ? 1 : 0 });
 
 function peopleTab() {
   return `<div class="runs6"><div class="run6"><div class="run-h">${person()}</div></div></div>
@@ -55,7 +57,7 @@ export function draw() {
     <div class="team-top"><h1>People</h1></div>
     <p class="lede">Everyone who uses Branch, and what their Trunks are doing right now.</p>
     <div class="ko-banner"><span class="ko-mark" aria-hidden="true"></span><span class="grow"><b>Your keepoak.com team is optional</b><small>People on this computer and on their own devices work without it.</small></span><button class="btn pri sm" type="button" data-act="ko-start">Connect</button></div>
-    ${tabBar(tabs, "team", tab)}`;
+    ${tabBar(tabs.map(([id, label]) => [id, label, counts()[id] ?? 0]), "team", tab)}`;
 
   if (tab === "live") html += liveTab();
   else if (tab === "people") html += peopleTab();
