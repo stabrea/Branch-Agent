@@ -133,7 +133,7 @@ test("a phone paired in its browser sends its own secret, so 'this exact phone' 
   installDeviceHeaders(scope);
   assert.equal(scope.fetch, installed, "installing twice does not wrap twice");
   const appScript = await readFile(new URL("../public/app/main.js", import.meta.url), "utf8");
-  assert.match(appScript, /import \{ installDeviceHeaders \} from "\/device-headers\.js";\ninstallDeviceHeaders\(\);/);
+  assert.match(appScript, /import \{ installDeviceHeaders \} from "\.\.\/device-headers\.js";\ninstallDeviceHeaders\(\);/);
   const pairScript = await readFile(new URL("../public/pair.js", import.meta.url), "utf8");
   assert.ok(pairScript.includes(`sessionStorage.setItem(${JSON.stringify(DEVICE_STORAGE_KEY)}, JSON.stringify({ id: body.deviceId, key: body.deviceKey }))`));
   assert.equal((await fetch(`${base}/device-headers.js`)).status, 200, "the file is on the static allowlist");
