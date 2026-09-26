@@ -260,7 +260,8 @@ test("on demand, an older start that finishes after a newer one leaves the newer
 
 // The same when the server starts with Branch (the default): the older start's program answers once the newer start
 // is on. Mutation: in OwnMcpServers.open's catch, make the overtaken branch `if (!this.stillWanted(entry, generation) && started)`,
-// so an overtaken start that had started nothing keeps its failure as the server's problem and switches it off.
+// so an overtaken start that had started nothing keeps its failure as the server's problem and switches it off (the
+// on-demand test above goes red on it too).
 test("an older start whose program answers after a newer start finished leaves the newer one on and running", async (t) => {
   const fx = await fixture(t);
   const older = fx.pidfile("older");
