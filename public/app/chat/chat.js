@@ -18,7 +18,7 @@ import { selfCard, loadSelfChange, initSelfChange } from "./selfchange.js";
 import { teachBar, teachAdopt, initTeach } from "./teach.js";
 import { findBar, applyFind, initFind } from "./find.js";
 import { initToolsHub } from "./toolshub.js";
-import { initDictate } from "./dictate.js";
+import { initDictate, loadDictation, dictating, micButton, dictRow } from "./dictate.js";
 import { dockRow, initBg } from "./bg.js";
 import { mediaRows, initMedia } from "./media.js";
 import { besideWrap, rosterButton, initBeside } from "./beside.js";
@@ -87,9 +87,9 @@ function composer() {
   const draft = S.drafts[C.sessionId ?? "new"] ?? "";
   return `<div class="dock"><div id="attached">${attached()}</div>${queueRow()}${dockRow()}<form class="composer" id="composer" data-form="composer">
     <button class="c-btn" type="button" aria-label="Attach, mention a Trunk, skills, Temporary" aria-haspopup="menu" data-act="plusmenu">${ic("plus")}</button><button class="c-btn plug9" type="button" aria-label="Tools: connectors, skills, plugins and command-line tools" data-tip="Tools" aria-haspopup="dialog" data-act="tools9">${ic("puzzle")}</button>
-    <textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch">${esc(draft)}</textarea>
+    ${dictating() ? dictRow() : `<textarea id="prompt" rows="1" placeholder="Message Branch" aria-label="Message Branch">${esc(draft)}</textarea>`}
     ${chips()}
-    <button class="c-btn" type="button" aria-label="Dictate into the box" data-act="dict">${ic("mic")}</button><button class="c-btn" type="button" aria-label="Talk live with voice" data-act="voice">${ic("wave")}</button>
+    ${dictating() ? "" : `${micButton()}<button class="c-btn" type="button" aria-label="Talk live with voice" data-act="voice">${ic("wave")}</button>`}
     ${!draft.trim() && (C.sending || liveRun()) ? `<button class="c-btn send stop" id="send" type="button" aria-label="Stop" data-act="stop-run">${ic("stop")}</button>`
       : `<button class="c-btn send" id="send" type="submit" aria-label="Send" ${C.sending ? "disabled" : ""}>${ic("up")}</button>`}</form></div>`;
 }
@@ -111,6 +111,7 @@ export function after(main) {
     box.addEventListener("scroll", () => { C.readTop = box.scrollTop; C.atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40; }, { passive: true });
   }
   applyFind();
+  loadDictation();
   loadChips();
   loadGoal(C.sessionId);
   loadWho();
