@@ -208,6 +208,8 @@ export function listenTips() {
   document.addEventListener("pointerover", (e) => { const el = e.target.closest(TIP_SEL); if (el !== current) { current = el; showTip(el); } });
   document.addEventListener("focusin", (e) => { const el = e.target.closest(TIP_SEL); if (el) showTip(el); });
   document.addEventListener("pointerdown", hideTip, true);
+  // A tip is placed for the layout it was shown in; after a resize it could stand outside the window and widen the page.
+  window.addEventListener("resize", hideTip);
 }
 
 export { $ };
