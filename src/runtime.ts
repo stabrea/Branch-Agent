@@ -772,7 +772,8 @@ export class Runtime {
     let status: Run["status"] = "completed";
     try {
       // --- mac5/manual-actions: never-break, Lockdown, folder trust, the rules and the sandbox wall.
-      const scoped = { ...context, ...this.gateManual(run.id, name, args, context, options) };
+      // Q250: one call, its own task, so read-before-edit cannot hold it (ToolContext.readFirstExempt).
+      const scoped = { ...context, ...this.gateManual(run.id, name, args, context, options), readFirstExempt: true };
       // --- end mac5/manual-actions ---
       result = this.hideSecrets(await this.registry.execute(name, args, scoped));
       this.store.event(run.id, "tool.completed", { name, result });
@@ -3460,7 +3461,8 @@ ${run.output.slice(0, 6000)}`;
     // wave mac3 (os-sandbox, integration review): the wall comes only from wallContextFor below, never
     // from whatever context this call was handed, so an outer wall (and its key sites) cannot ride along.
     const { osSandbox: _outerWall, ...unwalled } = context;
-    const scoped: ToolContext = { ...unwalled, askable: true, signal: AbortSignal.any([context.signal, timeout]),
+    // Q250: a model's own call is always held to read-before-edit, whatever context it was started from.
+    const scoped: ToolContext = { ...unwalled, askable: true, readFirstExempt: false, signal: AbortSignal.any([context.signal, timeout]),
       ...(gated.sandbox ? { sandbox: gated.sandbox } : {}),
       ...(gated.backend ? { sandboxBackend: gated.backend } : {}),
       ...(gated.paths?.length ? { sandboxPaths: gated.paths } : {}),
