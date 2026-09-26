@@ -25,7 +25,7 @@ async function androidIcons(res, mascot, ground) {
     await put(join(folder, "ic_launcher.png"), writePng(compose(mascot, Math.round(48 * factor), 0.8, ground)));
     await put(join(folder, "ic_launcher_round.png"), writePng(compose(mascot, Math.round(48 * factor), 0.7, ground)));
     // The adaptive icon’s front layer: the mascot inside the 66% the launcher never crops.
-    await put(join(folder, "ic_launcher_foreground.png"), writePng(compose(mascot, Math.round(108 * factor), 0.6, null)));
+    await put(join(folder, "ic_launcher_foreground.png"), writePng(compose(mascot, Math.round(108 * factor), 0.55, null)));
   }
 }
 
