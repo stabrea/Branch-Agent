@@ -199,7 +199,7 @@ test("the cards that save around the kit, and /preset, are recorded, so why name
   await post("/api/retention", { enabled: true, keepDays: 30, megabytes: 1, exportBeforeDeleting: true });
   await byCard("retention.keepDays", "retention");
 
-  choosePreset(app.runtime, "workspace");
+  choosePreset(app.runtime, "workspace confirm"); // Q258: workspace loosens, so the typed yes
   const typed = await why("policy.preset");
   assert.equal(typed.kind, "recorded");
   assert.equal(typed.value, "workspace");

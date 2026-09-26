@@ -238,10 +238,10 @@ test("every writer of a Settings setting leaves a change record for each value i
   const { choosePreset } = await import("../dist/terminal-commands.js");
   const { usePreset } = await import("../dist/cli-run.js");
   const { switchComfort } = await import("../dist/comfort/terminal.js");
-  await check("/preset workspace", "policy.preset", () => choosePreset(app.runtime, "workspace"));
+  await check("/preset workspace", "policy.preset", () => choosePreset(app.runtime, "workspace confirm")); // Q258: workspace loosens, so the typed yes
   savePolicy(app.store, owner, { preset: "ask-before-changes" });
   const file = openAgent(exportAgent(app.store, owner, "test").bytes);
-  await check("/preset workspace again", "policy.preset", () => choosePreset(app.runtime, "workspace"));
+  await check("/preset workspace again", "policy.preset", () => choosePreset(app.runtime, "workspace confirm")); // Q258: workspace loosens, so the typed yes
   await check("an assistant file's approval rules", "policy.preset", () => importAgent(app.store, owner, file, ["permissions"]));
   await check("--save-preset", "policy.preset", () => usePreset(app.store, owner, "read-only", true));
   await check("--preset for one task, put back after", null, () => usePreset(app.store, owner, "off", false).restore());
