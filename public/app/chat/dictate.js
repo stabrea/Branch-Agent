@@ -12,7 +12,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 
-const D = { state: null, reading: false, on: false, timer: null };
+const D = { state: null, reading: false, on: false, timer: null, base: "", heard: "" };
 
 /* The engine's picture of dictation, read once the window is signed in (and again on each press). */
 async function read() {
@@ -43,23 +43,26 @@ export function micButton() {
 
 export const dictRow = () => `<div class="dict"><span class="wave" aria-hidden="true">${"<i></i>".repeat(9)}</span><span>Listening… speak naturally</span><span class="tb-grow"></span><button class="btn sm" type="button" data-act="dict-done">Done</button></div>`;
 
-/* The words go after what is already in the box, as typed words would; the box tells the conversation it changed. */
-function insert(text) {
+/* The words go after what was in the box when Dictate was pressed, as typed words would, and follow the engine's words
+   as they come (the box stays in the composer, hidden behind the listening row, so a redraw keeps them); the box tells
+   the conversation it changed, which keeps the draft. */
+function put(words) {
   const box = $("#prompt");
-  if (!box || !text) return;
-  box.value = (box.value.trim() ? box.value.replace(/\s*$/, " ") : "") + text;
-  box.focus();
-  box.setSelectionRange(box.value.length, box.value.length);
+  if (!box) return;
+  box.value = D.base + words;
   box.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+/* The engine's settled words when it gave them, else the last words it heard. */
 function finish(words) {
   clearInterval(D.timer);
   D.timer = null;
   D.on = false;
   renderNow();
-  insert(String(words ?? "").trim());
-  $("#prompt")?.focus();
+  put(typeof words === "string" ? words.trim() : D.heard);
+  const box = $("#prompt");
+  box?.focus();
+  box?.setSelectionRange(box.value.length, box.value.length);
 }
 
 async function start() {
@@ -70,12 +73,16 @@ async function start() {
   if (said.state) D.state = said.state;
   if (said.refusal) toast(said.refusal);
   if (!said.open) { renderNow(); return; }
-  D.on = true;
+  const typed = $("#prompt")?.value ?? "";
+  Object.assign(D, { on: true, heard: "", base: typed.trim() ? typed.replace(/\s*$/, " ") : "" });
   renderNow();
   D.timer = setInterval(async () => {
     let now;
-    try { now = await api("voice/dictation"); } catch (error) { toast(error.message); finish(""); return; }
-    if (!now.open && D.on) finish(now.words);
+    try { now = await api("voice/dictation"); } catch (error) { toast(error.message); finish(); return; }
+    if (!D.on) return;
+    if (!now.open) { finish(now.words); return; }
+    const words = String(now.words ?? "").trim();
+    if (words !== D.heard) { D.heard = words; put(words); }
   }, 500);
 }
 

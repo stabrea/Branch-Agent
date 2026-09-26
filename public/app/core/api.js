@@ -47,6 +47,16 @@ export async function apiBytes(path, blob) {
   return data;
 }
 
+/* POST JSON and answer the bytes the engine sends back (a reply read aloud); throws the engine's own words. */
+export async function apiBlob(path, body) {
+  const response = await fetch("/api/" + path, { method: "POST", cache: "no-store", headers: headers(true), body: JSON.stringify(body) });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw Object.assign(new Error(data.error || String(response.status)), { status: response.status });
+  }
+  return response.blob();
+}
+
 /* Server-sent events over fetch (EventSource cannot carry the header). The engine names events exactly ("run.started"),
    so the window takes them all and keeps those whose kind starts with one of `prefixes`. The engine closes a stream after a
    while; this opens the next one, so live updates never quietly stop. Calls onEvent(kind, payload) until stopped. */
