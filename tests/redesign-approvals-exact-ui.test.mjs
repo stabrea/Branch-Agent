@@ -103,12 +103,17 @@ test("F1: an approve control that names no request (as Inbox's Trunk-message row
 test("the chat-app wizard: a pasted token is saved by the engine and never shown on the page or kept by the window", async (t) => {
   const { page } = await signedIn(t);
   const token = "tk_redesign_gate_secret_0000000000042";
-  await page.evaluate(() => {
-    const open = document.createElement("button");
-    open.type = "button"; open.id = "open-ntfy"; open.dataset.act = "ch-open"; open.dataset.v = "ntfy"; open.textContent = "ntfy";
-    document.querySelector("#main").append(open);
-  });
-  await page.locator("#open-ntfy").click();
+  // The window draws #main once more when its second round of reads lands (~0.7 s after sign-in), which drops a
+  // button added from outside; add it again if it went and retry, so the test waits on the wizard, not on timing.
+  for (let tries = 0; tries < 5; tries++) {
+    await page.evaluate(() => {
+      if (document.querySelector("#open-ntfy")) return;
+      const open = document.createElement("button");
+      open.type = "button"; open.id = "open-ntfy"; open.dataset.act = "ch-open"; open.dataset.v = "ntfy"; open.textContent = "ntfy";
+      document.querySelector("#main").append(open);
+    });
+    if (await page.locator("#open-ntfy").click({ timeout: 3000 }).then(() => true, () => false)) break;
+  }
   const next = page.locator('.dlg [data-act="chw-next"]');
   while (!(await page.locator("[data-chf]").count())) { await next.click(); await page.waitForTimeout(200); }
   await page.locator('[data-chf="topic"]').fill("branch-gate");
