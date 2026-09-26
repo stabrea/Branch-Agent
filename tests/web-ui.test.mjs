@@ -344,15 +344,16 @@ test("U5 the playground runs a read-only tool and shows what came back", async (
   await page.locator("#set-q").fill("Playground");
   await page.locator("#main").getByRole("button", { name: "Open", exact: true }).first().click({ timeout: 10000 });
   await page.waitForFunction(() => document.getElementById("play-tool").options.length > 1);
+  // The playground (claude/unhold-control): its button reads "Run <tool>" as in the prototype.
   await page.locator("#play-tool").selectOption("files.write");
   await page.locator("#play-field-path").fill("playground.txt");
   await page.locator("#play-field-content").fill("written by hand");
-  await page.getByRole("button", { name: "Run it", exact: true }).click();
+  await page.getByRole("button", { name: /^Run / }).first().click();
   await page.locator("#play-result .code-block").waitFor();
   assert.match(await page.locator("#play-result .code-body").innerText(), /playground\.txt/);
   await page.locator("#play-tool").selectOption("files.read");
   await page.locator("#play-field-path").fill("playground.txt");
-  await page.getByRole("button", { name: "Run it", exact: true }).click();
+  await page.getByRole("button", { name: /^Run / }).first().click();
   await page.locator("#play-result .code-block").waitFor();
   assert.match(await page.locator("#play-result .code-body").innerText(), /written by hand/);
   assert.deepEqual(errors, []);
@@ -373,9 +374,10 @@ test("U5 a tool the settings say to ask about stops and asks before it runs", as
   await page.locator("#play-tool").selectOption("files.write");
   await page.locator("#play-field-path").fill("asked.txt");
   await page.locator("#play-field-content").fill("only after a yes");
-  await page.getByRole("button", { name: "Run it", exact: true }).click();
+  await page.getByRole("button", { name: /^Run / }).first().click();
   await page.locator("#play-confirm").waitFor();
-  assert.match(await page.locator("#play-result").innerText(), /needs your say-so/);
+  // The engine's own question, as the prototype words it: "Before I go ahead: run X on Y. Is that all right?"
+  assert.match(await page.locator("#play-result").innerText(), /Before I go ahead/);
   const before = await app.registry.execute("files.list", { path: "." }, app.runtime.context()).catch(() => ({ entries: [] }));
   assert.ok(!JSON.stringify(before).includes("asked.txt"), "nothing was written before the yes");
   await page.locator("#play-confirm").click();
