@@ -268,9 +268,9 @@ test("Overview and People are real, with faces; Who is using Branch lists everyo
   const menu = f.page.locator(".pop");
   assert.deepEqual(await texts(menu.locator(".ph").first()), ["Who is using Branch"]);
   assert.deepEqual(await menu.locator('[data-act="switchto"]').evaluateAll((nodes) => nodes.map((node) => node.lastChild.textContent)), [owner, "Amara"]);
-  // Redesign: switching person is held for separate security review, so each person is greyed; so is Add (invites).
-  assert.deepEqual(await greyed(menu.locator('[data-act="switchto"]').nth(1)), GREY);
-  assert.deepEqual(await greyed(menu.locator('[data-act="invite"]')), GREY);
+  // Redesign: switching person and Add (invites) are live since the un-hold (#353); the owner sees Add.
+  assert.equal(await live(menu.locator('[data-act="switchto"]').nth(1)), true, "switching to Amara is live");
+  assert.equal(await live(menu.locator('[data-act="invite"]')), true, "Add is live for the owner");
   await f.page.keyboard.press("Escape");
   // People: Team › People, everyone with a face.
   await place(f.page, "team", "people");
@@ -281,7 +281,7 @@ test("Overview and People are real, with faces; Who is using Branch lists everyo
   assert.equal(await f.page.locator('#main .t9-item[data-act="p-sel"] .tav6').count(), 2, "everyone has a face");
   await people.nth(1).click();
   await f.page.locator(".pcard10 .t9-dh b").filter({ hasText: "Amara" }).waitFor();
-  assert.deepEqual(await greyed(f.page.locator('.pcard10 [data-act="p-switch"]')), GREY, "switching person is held for review");
+  assert.equal(await live(f.page.locator('.pcard10 [data-act="p-switch"]')), true, "switching person is live (#353)");
   // Overview: real, and the prototype's "Who is using Branch" tile lists everyone on this computer (people2).
   await place(f.page, "overview");
   assert.equal(await f.page.locator("#main .place h1").innerText(), "Overview");
@@ -309,10 +309,12 @@ test("a household person sees this computer and the people, and nothing of the o
   assert.equal(ids[0], "owner");
   assert.ok(ids.includes(person.id), "their own card beside the owner's");
   assert.equal(await people.filter({ hasText: "Sam · you" }).count(), 1, "their own is marked as theirs");
-  // Redesign: no adding (invites) and no going back to the owner from the window: both are held for security review.
-  assert.deepEqual(await greyed(f.page.locator('[data-act="p-invite"]')), GREY);
+  // Redesign: adding people (invites) is the owner's, so it is not drawn for a household person at all; going back to
+  // the owner is live since the un-hold (#353), behind the owner's PIN.
+  assert.equal(await f.page.locator('[data-act="p-invite"]').count(), 0, "no Invite for a household person");
   await f.page.locator('#side [data-act="owner"]').click();
-  assert.deepEqual(await greyed(f.page.locator('.pop [data-act="switchto"][data-v=""]')), GREY, "Back to the owner is greyed");
+  assert.equal(await f.page.locator('.pop [data-act="invite"]').count(), 0, "no Add in the person menu either");
+  assert.equal(await live(f.page.locator('.pop [data-act="switchto"][data-v=""]')), true, "Back to the owner is live");
   await f.page.keyboard.press("Escape");
   assert.deepEqual(f.errors, []);
 });
