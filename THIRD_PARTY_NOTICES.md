@@ -3563,3 +3563,18 @@ The files in `src/learning-more/` were written for Branch after reading these pr
 - `readback.ts` follows the ideas of ZeroClaw's Markdown memory (`crates/zeroclaw-memory/src/markdown.rs`, https://github.com/zeroclaw-labs/zeroclaw, commit 3df68fb, MIT or Apache-2.0) and nanobot's "dream" tidy template (`nanobot/templates/agent/dream.md`, https://github.com/HKUDS/nanobot, commit 2fb1659, MIT).
 
 The MIT licence text is given under IronClaw above. For the Apache-2.0 projects: licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0); you may not use these files except in compliance with the License, and they are distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+
+### Service marks in public/art (Simple Icons, CC0-1.0; each mark its owner's trademark)
+
+The window shows a service's own mark only where the mark's owner publishes permission for another app to show it when
+referring to or connecting to that service; every other service is shown by its initials (public/app/core/logos.js).
+The files are Simple Icons 16.32.0 (https://github.com/simple-icons/simple-icons, CC0-1.0, "No Rights Reserved"),
+unmodified except for the fill colour attribute set to the owner's own colour. CC0 covers the drawing only: the marks
+remain trademarks of their owners, are used only to name the service, and imply no endorsement or partnership.
+
+- `public/art/providers/github.svg`: the GitHub mark, a trademark of GitHub, Inc. Simple Icons source
+  https://github.com/logos. Used as GitHub's logo guidelines allow ("inform others that your project integrates with
+  GitHub"), unmodified, in black on white: https://brand.github.com/foundations/logo
+- `public/art/channels/telegram.svg`: the Telegram logo, a trademark of Telegram. Simple Icons source
+  https://telegram.org/tour/screenshots, where Telegram lets its logos be used provided "people understand you're not
+  representing Telegram officially"; in Telegram's blue on white.
