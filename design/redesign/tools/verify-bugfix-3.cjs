@@ -214,13 +214,16 @@ async function delight(browser) {
   const redraws = asked.filter((r) => r.at >= idleFrom && r.path === "/api/state").length;
   check("15 idle with achievements on: the timer keeps looking with no refresh", looks >= 2 && redraws === 0, `${looks} looks, ${redraws} refreshes in 32 s`);
 
+  /* Switched off outside the window: the window learns it on its next refresh (here, an engine event), re-reads the
+     switches, and from then on asks nothing. A look already on its way before that refresh does not count. */
+  const offPost = Date.now();
   await api("delight/settings", { pets: { on: false }, achievements: { on: false } });
   await api("trunks", { name: `Refresh ${Date.now() % 100000}`, description: "Makes an engine event" });
-  await settle(page, 2500);
-  const offAt = Date.now();
-  await settle(page, 16000);
-  const late = asked.filter((r) => r.at >= offAt && r.path.startsWith("/api/delight")).map((r) => `${r.path} +${r.at - offAt}ms`);
-  check("14 switched off elsewhere: the window stops asking", !late.some((x) => x.startsWith("/api/delight/achievements")), late.join(", "));
+  const reread = await until(async () => asked.find((r) => r.at > offPost && r.path === "/api/delight"), 15000);
+  const offAt = reread?.at ?? Date.now();
+  await settle(page, 17000);
+  const late = asked.filter((r) => r.at > offAt && r.path.startsWith("/api/delight")).map((r) => `${r.path} +${r.at - offAt}ms`);
+  check("14 switched off elsewhere: after its refresh the window re-reads the switches and stops asking", !!reread && !late.some((x) => x.startsWith("/api/delight/achievements")), `re-read ${reread ? `${reread.at - offPost} ms after the change` : "never"}; after: ${late.join(", ") || "nothing"}`);
   check("14 switched off elsewhere: the pet timer stops", (await page.evaluate(() => window.__intervals(360))) === 0);
   check("15 switched off elsewhere: the light timer stops", (await page.evaluate(() => window.__intervals(15000))) === 0);
   check("delight: no page errors", errors.length === 0, errors.join(" | "));
