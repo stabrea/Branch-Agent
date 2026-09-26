@@ -188,6 +188,11 @@ test("/help lists only what that surface can do", () => {
 
 test("the switch ships off: the window keeps /model and /help, and anything else is a message as before", async (t) => {
   const f = await fixture(t);
+  // The owner's rule (ships on, 2026-09-26): the table ships "when needed"; a damaged record reads as off, and what
+  // "off" does is tested by switching it off.
+  assert.equal(commandSettings(f.app.store, f.owner).mode, "when-needed");
+  assert.equal(commandSettings({ get: () => ({ data: { mode: "sideways" } }) }, f.owner).mode, "off", "a damaged record reads as off");
+  on(f.app, "off");
   assert.equal(commandSettings(f.app.store, f.owner).mode, "off");
   const list = await (await f.call("/api/commands?surface=window")).json();
   assert.deepEqual(list.commands.map((c) => c.name), ["help", "model", "goal"]);
@@ -213,8 +218,9 @@ test("changing the switch needs the key of this computer", async (t) => {
   const f = await fixture(t);
   assert.equal((await f.call("/api/commands/settings", f.keys.run, { mode: "on" })).status, 401, "off limits to short-lived keys");
   assert.equal((await f.call("/api/commands/settings", f.keys.read, { mode: "on" })).status, 401);
-  assert.equal(commandSettings(f.app.store, f.owner).mode, "off");
-  assert.deepEqual(await (await f.call("/api/commands/settings", f.keys.read)).json(), { mode: "off", access: "read" });
+  // The owner's rule (ships on, 2026-09-26): it ships "when needed", and the refused changes left it there.
+  assert.equal(commandSettings(f.app.store, f.owner).mode, "when-needed");
+  assert.deepEqual(await (await f.call("/api/commands/settings", f.keys.read)).json(), { mode: "when-needed", access: "read" });
   assert.equal((await fetch(f.server.url + "/api/commands")).status, 401, "nothing is reachable without a key");
   assert.equal((await f.call("/api/commands?surface=terminal")).status, 400, "the terminal and the chat apps are not web surfaces");
 });

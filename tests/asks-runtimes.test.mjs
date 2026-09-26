@@ -249,6 +249,9 @@ test("A0032 a step that needs a yes is asked of the client, and a decline is hon
 
 test("A0032 branch app-server will not start while its switch is off", async (t) => {
   const { app } = await fixture(t);
+  // The owner's rule (ships on, 2026-09-26): it ships "when needed", so what "off" does is tested by switching it off.
+  assert.equal(app.asks.modes()["app-server"], "when-needed");
+  app.asks.setMode("app-server", { mode: "off" });
   await assert.rejects(serveAppServerStdio(app.runtime, "1", { input: new PassThrough(), output: new PassThrough(), log: () => {} }), /switched off/);
 });
 
@@ -272,6 +275,9 @@ test("A2258 installed agents are listed, added as connections, remembered, and f
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, body: await response.json() };
   };
+  // The owner's rule (ships on, 2026-09-26): runtimes ship "when needed"; "off" is tested by switching it off.
+  assert.equal((await post("/api/asks")).body.modes.runtimes, "when-needed");
+  await post("/api/asks/switch", { part: "runtimes", mode: "off" });
   assert.equal((await post("/api/asks/runtimes/add", { id: "codex-app-server" })).status, 409);
   await post("/api/asks/switch", { part: "runtimes", mode: "when-needed" });
   assert.equal((await post("/api/asks/runtimes/add", { id: "codex-app-server" })).body.connection, "runtime-codex-app-server");

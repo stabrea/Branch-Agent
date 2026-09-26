@@ -60,7 +60,9 @@ test("gateway: the healthiest labelled computer takes a task, and a down one is 
   await assert.rejects(nodes.ask({ prompt: "x", label: "tape" }), /No computer carries the label "tape"/);
   behaviour.attic = "down"; behaviour.desk = "down"; behaviour.gpu = "down";
   await assert.rejects(nodes.ask({ prompt: "x" }), /No computer could take the task: .*desk .*gpu .*attic|No computer could take the task/);
-  const off = new BranchNodes(memoryStore({}), "local", fetcher, async () => "k");
+  // The owner's rule (ships on, 2026-09-26): never saved, the part ships "when needed"; "off" is tested saved off.
+  await assert.rejects(new BranchNodes(memoryStore({}), "local", fetcher, async () => "k").ask({ prompt: "x" }), /No other computer running Branch has been added/);
+  const off = new BranchNodes(memoryStore({ nodes: "off" }), "local", fetcher, async () => "k");
   await assert.rejects(off.ask({ prompt: "x" }), /switched off/);
 });
 
@@ -79,6 +81,8 @@ test("A2240 a tool's page is kept fresh, served sealed with a refresh, and a hel
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, body: await response.json() };
   };
+  // The owner's rule (ships on, 2026-09-26): live pages ship "when needed", so "off" is tested by switching it off.
+  await api("/api/asks/switch", { part: "live-surfaces", mode: "off" });
   assert.equal((await api("/api/asks/surfaces", { title: "Build", tool: "demo.status" })).status, 409);
   await api("/api/asks/switch", { part: "live-surfaces", mode: "when-needed" });
   // Work that runs by itself is held to "ask before changes" at most; looking at a status is not a change.
