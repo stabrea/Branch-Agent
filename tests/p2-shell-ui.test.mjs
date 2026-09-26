@@ -80,6 +80,7 @@ const greyed = async (locator) => ({
   tip: await locator.getAttribute("data-tip"),
 });
 const GREY = { disabled: "true", soon: true, tip: "Coming soon" };
+const live = async (locator) => { const g = await greyed(locator); return g.disabled !== "true" && !g.soon; };
 /* The words as written (textContent): a heading styled in capitals is still the prototype's own words. */
 const texts = (locator) => locator.evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()).filter(Boolean));
 async function notInPrototype(words) {
@@ -247,8 +248,8 @@ test("Add a Trunk: switched off it says so and offers the switch; the tab strip 
   assert.equal(await f.page.locator(".dlg").count(), 1, "the same dialog, the same tabs");
   await dialog.locator('.tab[data-v="phone"]').click();
   await f.page.waitForFunction(() => document.querySelector('.dlg .tab[data-v="phone"]')?.getAttribute("aria-selected") === "true");
-  // Redesign: showing a pairing code is pairing, held for separate security review, so it is greyed.
-  assert.deepEqual(await greyed(dialog.getByRole("button", { name: "Show the phone code" })), GREY);
+  // Pairing is live since #351 (the owner, 2026-09-26: security-held controls are built for real, through the engine's guards).
+  assert.equal(await live(dialog.getByRole("button", { name: "Show the phone code" })), true, "Show the phone code is live");
   // Redesign: the prototype's dialog has no Back; its tabs go back and forth, and Close leaves it.
   await dialog.locator('.tab[data-v="network"]').click();
   await f.page.waitForFunction(() => document.querySelector('.dlg .tab[data-v="network"]')?.getAttribute("aria-selected") === "true");
@@ -384,22 +385,22 @@ test("a computer asking to join shows in the strip with a turning ring, and is l
   const publicKey = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).toString("base64");
   book.redeem({ offer: offer.id, code: offer.code, name: "Studio Mac", platform: "darwin", publicKey, offers: ["notify"] }, "127.0.0.1");
   await f.open();
-  // Redesign: letting a computer in is pairing, held for separate security review. The window draws the prototype's
-  // ways in (the switcher's Add a computer or phone, Settings › Computer's Add a computer) with pairing greyed, and never
-  // lets the asking computer in.
+  // Pairing is live since #351: the window draws the prototype's ways in (the switcher's Add a computer or phone,
+  // Settings › Computer's Add a computer), and still never lets an asking computer in by itself; only the owner's
+  // "Let it in", after ticking that the check codes match, does (tests/unhold-pairing.test.mjs).
   await f.page.locator('#side [data-act="machines"]').click();
   const switcher = f.page.locator(".pop");
   await switcher.getByText("Talk to the assistant on…").waitFor();
   assert.equal(await switcher.getByText("Studio Mac").count(), 0, "the asking computer is not offered from the window");
   await switcher.getByRole("menuitem", { name: "Add a computer or phone…" }).click();
   await f.page.locator('.dlg .tab[data-v="phone"]').click();
-  assert.deepEqual(await greyed(f.page.locator(".dlg").getByRole("button", { name: "Show the phone code" })), GREY);
+  assert.equal(await live(f.page.locator(".dlg").getByRole("button", { name: "Show the phone code" })), true, "Show the phone code is live");
   await f.page.locator(".dlg").getByRole("button", { name: "Close" }).click();
   await settingsPage(f.page, "computer");
   await f.page.locator('[data-act="comp-add"]').click();
   const kinds = f.page.locator(".dlg");
   await kinds.getByRole("heading", { name: "Add a computer" }).waitFor();
-  assert.deepEqual(await greyed(kinds.locator('[data-act="comp-add-go"][data-v="pair"]')), GREY, "Another computer with Branch is greyed");
+  assert.equal(await live(kinds.locator('[data-act="comp-add-go"][data-v="pair"]')), true, "Another computer with Branch is live");
   await kinds.getByRole("button", { name: "Cancel" }).click();
   const devices = await f.call("/api/devices");
   assert.deepEqual([devices.requests[0].status, devices.devices.length], ["waiting", 0], "the request still waits for the owner at the computer");
