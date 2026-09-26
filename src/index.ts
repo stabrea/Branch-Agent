@@ -719,7 +719,7 @@ export async function createBranch(options: {
     // Q12: and, inside a self-development worktree, the contract must list the pull request step too.
     preflight: (name, args, runId) => {
       const context = runtime.context(runId ? { runId } : {});
-      return gateRefusal(runtime, name, args, context, argumentFingerprint(JSON.stringify(args ?? {})), runId ? "owner" : "policy")
+      return gateRefusal(runtime, name, args, context, argumentFingerprint(name, JSON.stringify(args ?? {})), runId ? "owner" : "policy")
         ?? selfDevelopmentPreflight(name, args, context);
     },
     // Integration review: Branch's saved work and keys never leave in a pull request.

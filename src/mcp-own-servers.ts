@@ -35,6 +35,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { audit } from "./audit.js";
 import { approvalQuestion, type ApprovalGate, type PendingApproval } from "./approvals.js";
 import { askerOf, runOrigin, startedWithShortLivedKey } from "./key-context.js";
+import { argumentFingerprint } from "./question-fingerprint.js";
 import { evaluatePolicy, readPolicy } from "./policy.js";
 import { lockdownActive } from "./lockdown.js";
 import type { NetworkPolicy } from "./network-policy.js";
@@ -89,8 +90,11 @@ export interface OwnServersDeps {
   pollMs?: number;
 }
 
-/** `byOwner`: set when the question is answered, from that answer's own request; unset means no owner answered it. */
-interface Waiting { runId: string; sessionId: string; fingerprint: string; question: string; timer: NodeJS.Timeout; since: number; byOwner?: boolean }
+/**
+ * `fingerprint` is the question's own, which its answer names; `launch` is the saved launch's, which the yes is kept
+ * against. `byOwner`: set when the question is answered, from that answer's own request; unset means no owner answered it.
+ */
+interface Waiting { runId: string; sessionId: string; fingerprint: string; launch: string; question: string; timer: NodeJS.Timeout; since: number; byOwner?: boolean }
 
 export class OwnMcpServers {
   private readonly live = new Map<string, { close: () => Promise<void>; names: string[] }>();
@@ -185,7 +189,8 @@ export class OwnMcpServers {
 
   private ask(entry: OwnServer): Waiting {
     const store = this.deps.store, owner = this.deps.owner();
-    const fingerprint = launchFingerprint(entry.server), bytes = launchBytes(entry.server);
+    const bytes = launchBytes(entry.server), launch = launchFingerprint(entry.server);
+    const fingerprint = argumentFingerprint(startTool, bytes);
     const label = `Start a program on this computer for your ${entry.name} server: ${how(entry.server)}`;
     const question = approvalQuestion(label, "");
     const run = store.createRun(owner, `Switch on the ${entry.name} server`);
@@ -197,7 +202,7 @@ export class OwnMcpServers {
     // stop, it also means a window's "carry on" after the yes never starts a model turn here (src/server.ts settleAsked
     // carries on only when nothing was written since the task stopped); starting the program is this class's job.
     store.message(run.sessionId, { role: "assistant", content: question });
-    const waiting: Waiting = { runId: run.id, sessionId: run.sessionId, fingerprint, question, since: Date.now(),
+    const waiting: Waiting = { runId: run.id, sessionId: run.sessionId, fingerprint, launch, question, since: Date.now(),
       timer: setInterval(() => void this.check(entry.id), this.deps.pollMs ?? 250) };
     waiting.timer.unref?.();
     this.waiting.set(entry.id, waiting);
@@ -222,7 +227,7 @@ export class OwnMcpServers {
     store.finish(pending.runId, "completed", yes ? "You said yes." : "You said no.");
     if (!yes) return;
     const entry = this.saved().find((item) => item.id === id);
-    if (entry && launchFingerprint(entry.server) === pending.fingerprint) await this.open(entry, true, pending.fingerprint).catch(() => undefined);
+    if (entry && launchFingerprint(entry.server) === pending.launch) await this.open(entry, true, pending.launch).catch(() => undefined);
   }
   private stopWaiting(id: string): void {
     const pending = this.waiting.get(id);
