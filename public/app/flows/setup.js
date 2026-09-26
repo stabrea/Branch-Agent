@@ -5,9 +5,10 @@
    Choices the engine cannot act on yet keep their place and are greyed out. */
 
 import { $, esc, applyCss, renderNow } from "../core/dom.js";
-import { ic, app, toast } from "../core/ui.js";
+import { ic, av, app, toast, hex, SHAPE_NAMES } from "../core/ui.js";
+import { lookOf } from "./trunk.js";
 import { S, E, refresh } from "../core/state.js";
-import { api } from "../core/api.js";
+import { api, origin } from "../core/api.js";
 import { on, run } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
 import { logo } from "../core/logos.js";
@@ -15,18 +16,21 @@ import { t, language, LANGUAGES } from "../../i18n.js";
 import { say } from "../core/words.js";
 import { canSpeak, chooseLanguage } from "../shell/language.js";
 import { localPicker, freshPick, initLocalPick } from "./localpick.js";
+import { toolsStep, initToolsStep } from "./setup-tools.js";
 
 const STEPS = ["window.flows.setup.step-welcome", "window.flows.setup.step-where", "layout.modelTabs", "window.flows.setup.step-yours", "window.flows.setup.step-trunks", "window.flows.setup.step-reach", "dashboard.filter.tools",
   "window.flows.setup.step-keep", "people.admin.people", "window.flows.setup.step-more", "settings.card.health-check"];
 const POSES = [null, "point", "think", null, "work", "mail", "work", "sleep", "wave", null, "yay"];
-/* A template's name and job are keys: shown in the chosen language, and the Trunk it makes is named in those words. */
+/* A template's name and job are keys: shown in the chosen language, and the Trunk it makes is named in those words. Its
+   colour and shape are the prototype's jobs' (flows/trunk.js TEMPLATES): the card draws that face, and the Trunk made
+   from it is given the same face. */
 const TEMPLATES = [
-  ["window.flows.tmpl.inbox", "window.flows.tmpl.inbox-job", "#4F6FA8"],
-  ["window.flows.tmpl.expense", "window.flows.tmpl.expense-job", "#D8612A"],
-  ["window.flows.tmpl.researcher", "window.flows.tmpl.researcher-job", "#2F8C86"],
-  ["window.flows.tmpl.chief", "window.flows.tmpl.chief-job", "#56616B"],
-  ["window.flows.tmpl.bug", "window.flows.tmpl.bug-job", "#B84A6B"],
-  ["window.flows.tmpl.trip", "window.flows.tmpl.trip-job", "#8A5AA8"],
+  ["window.flows.tmpl.inbox", "window.flows.tmpl.inbox-job", "#4F6FA8", 0],
+  ["window.flows.tmpl.expense", "window.flows.tmpl.expense-job", "#D8612A", 2],
+  ["window.flows.tmpl.researcher", "window.flows.tmpl.researcher-job", "#2F8C86", 1],
+  ["window.flows.tmpl.chief", "window.flows.tmpl.chief-job", "#56616B", 3],
+  ["window.flows.tmpl.bug", "window.flows.tmpl.bug-job", "#B84A6B", 4],
+  ["window.flows.tmpl.trip", "window.flows.tmpl.trip-job", "#8A5AA8", 3],
 ];
 /* The language comes first (the owner's call). Only languages with words on file are listed (i18n.js LANGUAGES, the
    locale files), so one appears as soon as its file does; each is named in its own language by the browser
@@ -95,9 +99,19 @@ function yours(o) {
     <div class="ob-q15"><b>${t("window.flows.setup.asks")}</b><div class="ob-pick15 col15x">${asks.map(([v, i, l, s]) => `<button type="button" class="ob-row15" data-act="${v === "auto" ? "ob15-auto" : "ob15"}" data-k="asks" data-v="${v}" ${pressed(o.asks === v)}><span class="ico-tile">${ic(i, "s")}</span><span><b>${l}</b><small>${s}</small></span></button>`).join("")}</div><p class="hint" data-css="margin:6px 0 0">${t("window.flows.setup.full-off")}</p></div>`;
 }
 
+/* What Branch proposed from the owner's words (trunk.propose), each a card picked like a template, with the face its
+   name gives (the face the Trunk is made with). */
+function proposed(o, made) {
+  if (!o.proposals.length) return "";
+  const card = (p, i) => `<button class="ob-tpl" type="button" data-act="ob-prop" data-i="${i}" ${pressed(o.picks.has(p.name) || made.has(p.name))}>${av({ name: p.name }, 34)}<b>${esc(p.name)}</b><small>${esc(p.description || p.title)}</small></button>`;
+  return `<div class="ob-props15"><b>${t("window.chat.mktrunk.proposed")}</b><div class="ob-tr">${o.proposals.map(card).join("")}</div></div>`;
+}
+
 function trunks(o) {
   const made = new Set(E.trunks.map((tr) => tr.name));
-  return `<h2 tabindex="-1">${t("window.flows.setup.step-trunks")}</h2><p>${t("window.flows.setup.trunks-lede")}</p><div class="ob-tr">${TEMPLATES.map(([n, s, col], i) => `<button class="ob-tpl" type="button" data-act="ob-tpl" data-i="${i}" ${pressed(o.tpls.has(i) || made.has(t(n)))}><span class="ob-dot" data-css="background:${col}"></span><b>${esc(t(n))}</b><small>${esc(t(s))}</small></button>`).join("")}</div><label class="fld" data-css="margin-top:12px"><span>${t("window.flows.setup.describe")}</span><textarea class="inp" id="ob-life" rows="2" placeholder="${t("window.flows.setup.describe-hint")}"></textarea></label><button class="btn sm" type="button" data-act="ob-propose">${ic("spark", "s")}${t("window.flows.setup.propose")}</button>${o.error ? `<p class="hint" role="alert">${esc(o.error)}</p>` : ""}`;
+  const face = (n, col, sh) => av({ kind: "trunk", name: t(n), color: col, shape: sh }, 34);
+  const busy = o.proposing ? ` disabled aria-busy="true"` : "";
+  return `<h2 tabindex="-1">${t("window.flows.setup.step-trunks")}</h2><p>${t("window.flows.setup.trunks-lede")}</p><div class="ob-tr">${TEMPLATES.map(([n, s, col, sh], i) => `<button class="ob-tpl" type="button" data-act="ob-tpl" data-i="${i}" ${pressed(o.tpls.has(i) || made.has(t(n)))}>${face(n, col, sh)}<b>${esc(t(n))}</b><small>${esc(t(s))}</small></button>`).join("")}</div>${proposed(o, made)}<label class="fld" data-css="margin-top:12px"><span>${t("window.flows.setup.describe")}</span><textarea class="inp" id="ob-life" rows="2" placeholder="${t("window.flows.setup.describe-hint")}">${esc(o.life)}</textarea></label><button class="btn sm" type="button" data-act="ob-propose"${busy}>${ic(o.proposing ? "spin" : "spark", o.proposing ? "s spin" : "s")}${t("window.flows.setup.propose")}</button>${o.note ? `<p class="hint" role="status">${esc(o.note)}</p>` : ""}${o.error ? `<p class="hint" role="alert">${esc(o.error)}</p>` : ""}`;
 }
 
 function reach(o) {
@@ -106,11 +120,8 @@ function reach(o) {
   return `<h2 tabindex="-1">${t("window.flows.setup.reach")}</h2><p>${t("window.flows.setup.reach-lede", { count: o.channels.length })}</p><div class="ch-grid12 ob-ch12">${tiles}</div><div class="prow" data-css="margin-top:12px"><span class="ico-tile">${ic("phone", "s")}</span><span class="grow"><b>${t("studio.tab.phone")}</b><small>${t("window.flows.setup.scan")}</small></span><button class="btn sm" type="button" data-act="pair">${t("phoneApp.show")}</button></div>`;
 }
 
-function tools(o) {
-  /* The engine's own tool servers only (GET /api/mcp); with none, the list is empty rather than filled with examples. */
-  const rows = o.servers.map((s) => [s.id ?? s.name, s.name ?? s.id, s.description ?? ""]);
-  return `<h2 tabindex="-1">${t("window.flows.setup.tools")}</h2><p>${t("window.flows.setup.tools-lede")}</p><div class="rows">${rows.map(([id, n, s]) => `<div class="prow">${logo(id, n, 28)}<span class="grow"><b>${esc(n)}</b><small>${esc(s)}</small></span><input class="sw" type="checkbox" data-sw="set" aria-label="${esc(n)}"></div>`).join("")}</div>`;
-}
+/* What this Branch can use, every row from the engine (flows/setup-tools.js). */
+const tools = (o) => toolsStep(o, draw);
 
 function keep(o) {
   const seg = [["off", t("accounts.switch.off")], ["when-needed", t("accounts.switch.when-needed")], ["on", t("accounts.switch.on")]].map(([v, l]) => `<button type="button" ${pressed(o.gw === v)} data-act="ob-gw" data-v="${v}">${l}</button>`).join("");
@@ -199,7 +210,9 @@ async function load(o) {
 /* jump: the step "Start" goes to once the trust box is ticked; the message box's "Set up" (chat/nomodel.js) asks for the
    Models step when no model is set up yet. */
 export async function openSetup(jump = 1) {
-  S.ob = { i: 0, jump, trust: false, where: "this", pools: [], channels: [], connected: [], servers: [], gw: "off", asks: "ask", tpls: new Set(), test: null, checks: [], error: "", gwNote: "" };
+  origin.setup = true;
+  S.ob = { i: 0, jump, trust: false, where: "this", pools: [], channels: [], connected: [], servers: [], gw: "off", asks: "ask", tpls: new Set(), test: null, checks: [], error: "", gwNote: "",
+    life: "", proposals: [], picks: new Set(), proposing: false, note: "" };
   draw();
   freshPick();
   await load(S.ob).catch(() => {});
@@ -209,6 +222,7 @@ export async function openSetup(jump = 1) {
 function close() {
   $(".ob9")?.remove();
   S.ob = null;
+  origin.setup = false;
   try { localStorage.setItem("branch-setup-seen", "1"); } catch { /* private window */ }
 }
 
@@ -219,16 +233,59 @@ async function makeTrunks(o) {
   const have = new Set(E.trunks.map((tr) => tr.name));
   for (const i of o.tpls) {
     const [name, description] = TEMPLATES[i].slice(0, 2).map((key) => t(key));
-    if (!have.has(name)) await api("trunks", { name, description });
+    const [, , colour, shape] = TEMPLATES[i];
+    if (have.has(name)) continue;
+    /* The create takes name, title and description; the template's face follows as an edit, as flows/trunk.js does. */
+    const { trunk } = await api("trunks", { name, description });
+    await api(`trunks/${encodeURIComponent(trunk.id)}`, { chosenColour: hex(colour), look: { ...lookOf(null), shape: SHAPE_NAMES[shape] } });
+  }
+  /* A proposal is made with exactly the fields Branch proposed, the owner's own create (as chat/mktrunk.js). */
+  for (const p of o.proposals) {
+    if (o.picks.has(p.name) && !have.has(p.name)) await api("trunks", { name: p.name, title: p.title, description: p.description });
   }
   o.tpls.clear();
+  o.picks.clear();
   await refresh().catch(() => {});
+}
+
+/* The trunk.propose calls in a conversation's replies, with their arguments; one whose arguments are not JSON proposed
+   nothing (chat/mktrunk.js reads the same calls). */
+function proposalsIn(messages) {
+  return (messages ?? []).flatMap((m) => (m.role === "assistant" ? m.toolCalls ?? [] : [])).filter((call) => call.name === "trunk.propose").map((call) => {
+    let args;
+    try { args = JSON.parse(call.arguments || "{}"); } catch { return null; } // not JSON: nothing was proposed
+    const name = typeof args?.name === "string" ? args.name.trim().slice(0, 40) : "";
+    return name ? { name, title: String(args.title ?? "").slice(0, 80), description: String(args.description ?? "").slice(0, 1000) } : null;
+  }).filter(Boolean);
+}
+
+/* "Or describe what you do": the owner's words start a real task, "Make me a Trunk: <words>" (the + menu's ask), in a
+   temporary conversation that is discarded once read. What Branch proposes with trunk.propose becomes cards, picked. With
+   no model yet, the engine's own words say so and nothing is asked; a reply with no proposal is shown as it came. */
+async function propose() {
+  const o = S.ob, what = ($("#ob-life")?.value ?? o.life).trim();
+  o.life = what;
+  if (!what || o.proposing) { $("#ob-life")?.focus(); return; }
+  await refresh().catch(() => {});
+  if (E.state?.modelNeeded) { o.note = E.state.modelNeeded; draw(); return; }
+  Object.assign(o, { proposing: true, note: "", error: "" });
+  draw();
+  try {
+    const task = await api("run", { prompt: t("window.chat.mktrunk.ask", { what }), temporary: true });
+    const view = await api(`sessions/${encodeURIComponent(task.sessionId)}`);
+    const found = proposalsIn(view.messages).filter((p) => !o.proposals.some((q) => q.name === p.name));
+    for (const p of found) { o.proposals.push(p); o.picks.add(p.name); }
+    if (!found.length) o.note = task.status === "completed" ? [...view.messages].reverse().find((m) => m.role === "assistant" && m.content)?.content ?? task.output : task.output;
+    await api(`sessions/${encodeURIComponent(task.sessionId)}/discard`, {});
+  } catch (error) { o.error = error.message; }
+  o.proposing = false;
+  if (S.ob === o) draw();
 }
 
 async function go(i) {
   const o = S.ob;
   if (!o || i < 0 || i >= STEPS.length || (i > 0 && !o.trust)) return;
-  if (o.i === 4 && o.tpls.size) {
+  if (o.i === 4 && (o.tpls.size || o.picks.size)) {
     try { await makeTrunks(o); o.error = ""; } catch (error) { o.error = error.message; draw(); return; }
   }
   o.i = i;
@@ -309,7 +366,7 @@ async function saveGateway(v) {
 
 export function init() {
   initLocalPick();
-  markLive(["sw:ob-trust", "sw:ob-lang", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-test", "ob15", "ob-tpl", "ob-gw"]);
+  markLive(["sw:ob-trust", "sw:ob-lang", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-test", "ob15", "ob-tpl", "ob-gw", "ob-propose", "ob-prop", "sw:ob-life"]);
   on("onboard", (el) => openSetup(Number(el?.dataset?.v) || 1));
   on("ob-go", (el) => go(+el.dataset.v));
   on("ob-next", () => { if (S.ob.i === 0 && !S.ob.trust) { nudgeTrust(); return; } go(S.ob.i === 0 ? S.ob.jump : S.ob.i + 1); });
@@ -320,6 +377,10 @@ export function init() {
   on("ob15", (el) => { if (el.dataset.k === "look") { run("themeset", el); draw(); } else saveAsks(el.dataset.v); });
   on("ob-tpl", (el) => { const i = +el.dataset.i; if (S.ob.tpls.has(i)) S.ob.tpls.delete(i); else S.ob.tpls.add(i); draw(); });
   on("ob-gw", (el) => saveGateway(el.dataset.v));
+  on("ob-propose", () => propose());
+  on("ob-prop", (el) => { const name = S.ob.proposals[+el.dataset.i]?.name; if (!name) return; if (S.ob.picks.has(name)) S.ob.picks.delete(name); else S.ob.picks.add(name); draw(); });
+  document.addEventListener("input", (e) => { if (e.target.id === "ob-life" && S.ob) S.ob.life = e.target.value; });
+  initToolsStep(draw);
   document.addEventListener("change", (e) => { if (e.target.id === "ob-trust" && S.ob) { S.ob.trust = e.target.checked; draw(); } });
   document.addEventListener("change", (e) => { if (e.target.id === "ob-lang" && S.ob) pickLanguage(e.target.value); });
   /* The language can also change while setup is open without it being picked here (the engine's saved choice arriving
