@@ -21,7 +21,9 @@ export const SCENES = [["auto", "By the season", ""], ["spring", "Spring grove",
   ["winter", "Winter grove", "/art/grove-winter.webp"], ["night", "Firefly night", "/art/grove-night.webp"], ["summer", "Summer Meadow", "/art/bg/grove-summer.webp"],
   ["rain", "Rainy Forest", "/art/bg/grove-rain.webp"], ["lake", "Mountain Lake", "/art/bg/grove-lake.webp"], ["blossom", "Blossoming Grove", "/art/bg/grove-blossom.webp"],
   ["canyon", "Desert Canyon", "/art/bg/grove-canyon.webp"], ["snownight", "Snowy Night", "/art/bg/grove-snownight.webp"], ["bamboo", "Bamboo Grove", "/art/bg/grove-bamboo.webp"],
-  ["hills", "Sunflower Hills", "/art/bg/grove-hills.webp"]];
+  ["hills", "Sunflower Hills", "/art/bg/grove-hills.webp"], ["night17-lake", "Still lake at night", "/art/bg/lake-night.webp"], ["night17-highland", "Moonlit highland", "/art/bg/highland-moon.webp"],
+  ["day17-sea", "Morning sea", "/art/bg/sea-morning.webp"], ["day17-meadow", "Meadow afternoon", "/art/bg/meadow-afternoon.webp"],
+  ["glow17-amber", "Amber glass", "/art/bg/glow-amber.webp"], ["season17-snow", "First snow", "/art/bg/first-snow.webp"]];
 const PAINT = { spring: "spring", summer: "spring", autumn: "autumn", winter: "winter" };
 const seasonNow = () => (W.season !== "auto" ? W.season : ["winter", "winter", "spring", "spring", "spring", "summer", "summer", "summer", "autumn", "autumn", "autumn", "winter"][new Date().getMonth()]);
 function paintFile() {
