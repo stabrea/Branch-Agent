@@ -107,6 +107,15 @@ function welcome() {
   if (!E.loaded || $(".welcome10") || $(".ob9") || $(".tour-layer") || !seen("branch-setup-seen") || seen("branch-welcomed")) return;
   app().insertAdjacentHTML("beforeend", `<div class="welcome10" role="region" aria-label="${t("window.flows.first.welcome")}"><img class="pose11 wel11" src="/art/branch-wave.webp" alt="" draggable="false"><span class="grow"><b>${t("window.flows.first.new")}</b><small>${t("window.flows.first.new-hint")}</small></span><button class="btn pri sm" type="button" data-act="onboard">${t("channel-setup.row-button")}</button><button class="btn sm" type="button" data-act="tour">${t("window.flows.first.walkthrough")}</button><button class="icon-btn" type="button" aria-label="${t("window.flows.first.dismiss")}" data-act="welcome-x">${ic("x", "s")}</button></div>`);
   greyOut($(".welcome10"));
+  placeWelcome();
+}
+/* The card keeps the prototype's corner but never covers the message box: its bottom sits just above the dock (the
+   composer and the lines over it) whenever one is drawn, so Send is always reachable. */
+function placeWelcome() {
+  const card = $(".welcome10"), dock = $("#main .dock"), root = app();
+  if (!card || !root) return;
+  const over = dock?.getClientRects().length ? root.getBoundingClientRect().bottom - dock.getBoundingClientRect().top + 12 : 0;
+  card.style.bottom = over > 0 ? `${Math.round(over)}px` : "";
 }
 function dismissWelcome() {
   try { localStorage.setItem("branch-welcomed", "1"); } catch (error) { toast(error.message); }
@@ -124,5 +133,7 @@ export function init() {
   on("welcome-x", () => dismissWelcome());
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && F.step != null) close(); });
   let checked = false;
-  onRender(() => { if (!checked && E.loaded) { checked = true; setTimeout(welcome, 1200); } });
+  onRender(() => { if (!checked && E.loaded) { checked = true; setTimeout(welcome, 1200); } placeWelcome(); });
+  addEventListener("resize", placeWelcome);
+  document.addEventListener("input", placeWelcome); // the message box grows as it is written in
 }
