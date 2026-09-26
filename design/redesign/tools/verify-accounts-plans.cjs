@@ -13,7 +13,7 @@
      npx tsc -p . && node design/redesign/tools/verify-accounts-plans.cjs        (PORT=<free port> to pick the port)
    Covered: aa-grp (Your plan, Coding assistants), aa-plan, aa-dev, aa-chk, aa-cli, aa-fin, aa-done on a ChatGPT and a
    program list (the extra account's own sign-in), Gemini's key step without a Google client id (no aa-goo), and the
-   GitHub and Telegram marks, the Email glyph and a letter tile in Add an account, Customize › Channels and Setup's
+   services' own marks (all loading), the neutral glyphs for Email, Microsoft and Apple, in Add an account, Customize › Channels and Setup's
    "Reach it anywhere". Last it starts the engine again on the same data folder and checks that ChatGPT and Claude
    Code are still connected. SHOTS=<folder> saves a light and a dark picture of each step. */
 const { chromium } = require("playwright");
@@ -95,6 +95,7 @@ async function setupReach(page) {
   await page.locator('.ob-ch12 .ch12[data-v="telegram"]').waitFor({ timeout: 15000 });
   await shot(page, "setup-reach");
   const tg = await page.locator('.ob-ch12 .ch12[data-v="telegram"] img[src="/art/channels/telegram.svg"]').count();
+  await page.waitForFunction(() => [...document.querySelectorAll('.ob-ch12 img')].every((i) => i.complete));
   const mail = await page.locator('.ob-ch12 .ch12[data-v="email"] svg.i').count();
   check("Setup › Reach it anywhere: Telegram's own logo and Email's mail glyph", tg === 1 && mail === 1, `telegram ${tg}, email ${mail}`);
 }
@@ -265,24 +266,36 @@ async function extraProgram(page, api) {
   check("aa-chk: the extra Claude Code account is signed in (POST /api/accounts/sign-ins/check)", said.signedIn === true, said.message);
 }
 
+/* Every mark on screen loaded (a file the engine serves by exact name), and none is a broken image. */
+const marksLoaded = (page, scope) => page.$$eval(`${scope} img[src^="/art/"]`, (imgs) => imgs.map((i) => [i.getAttribute("src"), i.complete && i.naturalWidth > 0]));
+
 async function marks(page, server) {
   await openWizard(page);
-  const github = await page.locator('.aa-list12 img[src="/art/providers/github.svg"]').count();
-  const served = await page.request.get(new URL("/art/providers/github.svg", server.url).href);
-  check("Add an account: GitHub's own mark, served by exact file", github > 0 && served.ok() && /svg/.test(served.headers()["content-type"] ?? ""), `${github} cards`);
-  const claudeTile = await page.locator('.aa-list12 [data-act="aa-prov"][data-v="cli-claude-code"] .logo b').first().innerText().catch(() => "");
-  const openaiTile = await page.locator('.aa-list12 [data-act="signin"][data-v="openai"] .logo b').innerText().catch(() => "");
-  const noMark = await page.locator('.aa-list12 [data-v="openai"] img, .aa-list12 [data-v="cli-claude-code"] img, .aa-list12 [data-v="anthropic"] img').count();
-  check("OpenAI and Anthropic/Claude stay letter tiles (their owners ask for written permission)", claudeTile === "CL" && openaiTile === "OP" && noMark === 0, `${claudeTile} ${openaiTile}`);
+  const src = (sel) => page.locator(`${sel} .logo img`).first().getAttribute("src").catch(() => "");
+  const openai = await src('.aa-list12 [data-act="signin"][data-v="openai"]');
+  const claude = await page.locator('.aa-list12 [data-v="cli-claude-code"]', { hasText: "Claude Code" }).locator(".logo img").first().getAttribute("src").catch(() => "");
+  const github = await src('.aa-list12 [data-v="github-copilot"]');
+  const azure = await page.locator('.aa-list12 [data-v="azure-openai"] .logo svg.i').count();
+  const azureMark = await page.locator('.aa-list12 [data-v="azure-openai"] img').count();
+  check("Add an account: OpenAI's, Claude Code's and GitHub's own marks; Azure OpenAI a neutral glyph (Microsoft allows no logo use)",
+    openai === "/art/providers/openai.svg" && claude === "/art/providers/claudecode.svg" && github === "/art/providers/github.svg" && azure === 1 && azureMark === 0, `${openai} ${claude} ${github} azure-glyph ${azure}`);
+  const loaded = await marksLoaded(page, ".aa-list12");
+  check("every mark in Add an account loads", loaded.length > 20 && loaded.every(([, ok]) => ok), `${loaded.length} marks, broken: ${loaded.filter(([, ok]) => !ok).map(([s]) => s).join(" ")}`);
+  const served = await page.request.get(new URL("/art/providers/openai.svg", server.url).href);
+  check("a mark is served by exact file as an SVG", served.ok() && /svg/.test(served.headers()["content-type"] ?? ""));
   await page.locator('.dlg [data-act="dlg-close"]').first().click();
   await page.locator('#side [data-act="view"][data-v="customize"]').click();
   await page.locator('[data-act="ptab"][data-place="customize"][data-v="channels"]').first().click();
   await page.locator('.ch12[data-v="telegram"]').waitFor({ timeout: 15000 });
   await shot(page, "customize-channels");
-  const tg = await page.locator('.ch12[data-v="telegram"] img[src="/art/channels/telegram.svg"]').count();
+  const at = (id) => page.locator(`.ch12[data-v="${id}"] .logo img`).first().getAttribute("src").catch(() => "");
+  const [tg, discord, slack] = [await at("telegram"), await at("discord"), await at("slack")];
   const mail = await page.locator('.ch12[data-v="email"] svg.i').count();
-  const discord = await page.locator('.ch12[data-v="discord"] .logo b').innerText().catch(() => "");
-  check("Customize › Channels: Telegram's own logo, Email's mail glyph, Discord's initials", tg === 1 && mail === 1 && discord === "DI", `telegram ${tg}, email ${mail}, discord ${discord}`);
+  const imessage = await page.locator('.ch12[data-v="imessage"] svg.i').count();
+  check("Customize › Channels: Telegram's, Discord's and Slack's own marks; Email and iMessage (Apple allows no icon use) a neutral glyph",
+    tg === "/art/channels/telegram.svg" && discord === "/art/channels/discord.svg" && slack === "/art/channels/slack.svg" && mail === 1 && imessage === 1, `${tg} ${discord} ${slack} email ${mail} imessage ${imessage}`);
+  const channelMarks = await marksLoaded(page, ".ch12");
+  check("every chat-app mark loads", channelMarks.length > 20 && channelMarks.every(([, ok]) => ok), `${channelMarks.length} marks`);
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });
