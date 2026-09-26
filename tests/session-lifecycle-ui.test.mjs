@@ -28,6 +28,7 @@ async function fixture(t, provider) {
   const sourceId = seed(app, 'Juniper lifecycle source');
   const original = JSON.stringify(app.store.sessionView('local', sourceId));
   const server = await startServer(app, { dataDir: join(root, 'private'), port: 0 });
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true, serviceWorkers: 'block' });

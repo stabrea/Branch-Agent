@@ -101,6 +101,7 @@ test("F8 in the window, the row of a task a restart cut off offers Continue and 
   const { root, gated } = await before(t);
   const app = await open(root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });

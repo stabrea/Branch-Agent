@@ -31,6 +31,7 @@ async function fixture(t, provider) {
     ...(provider ? { provider } : {}),
   });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) });
   /* Redesign phase 1: a conversation begun in the window starts on Ask first. These tests are about
      something else, so their conversations follow the setting as before (tests/conversation-mode.test.mjs
      covers Ask first). */
