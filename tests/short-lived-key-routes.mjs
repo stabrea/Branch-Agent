@@ -927,6 +927,7 @@ export const ROUTES = {
   "/api/schedules/:id/gate": "owner POST",
   "/api/schedules/:id/remove": "other POST",
   "/api/schedules/:id/trigger": "task POST",
+  "/api/schedules/propose": "owner POST", // words to a schedule: may ask the model in use, so the owner's alone
   "/api/sdk-kit": "owner POST", // bucket 21: the switch for building on Branch
   // FQ-collaboration.unified-search: one query across conversations, workflows and the audit
   // record is a wider window than any one of those alone, so it is refused like a secret read.
