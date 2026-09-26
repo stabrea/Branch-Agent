@@ -3506,3 +3506,5 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .resizer:focus-visible .grip9{opacity:1}
 /* the rail hides the computer button's arrow too, as the prototype's rail does (its .chev is an svg here, not a span) */
 .app.rail9 .side .machine>svg{display:none}
+/* Focus mode steps the list aside entirely, its edge too */
+.app.focus .side>.resizer{visibility:hidden}

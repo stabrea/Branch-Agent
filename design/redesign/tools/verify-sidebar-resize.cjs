@@ -33,6 +33,14 @@ async function drag(page, x0, y, x1) {
 }
 async function press(page, x, y) { await page.mouse.move(x, y); await page.mouse.down(); await wait(150); await page.mouse.up(); await wait(300); }
 const centre = async (page, sel) => { const b = await page.locator(sel).boundingBox(); return [b.x + b.width / 2, b.y + b.height / 2]; };
+async function until(fn, ms = 3000) { const end = Date.now() + ms; for (;;) { const v = await fn().catch(() => null); if (v || Date.now() > end) return v; await wait(100); } }
+const toasts = (page) => page.locator(".toast", { hasText: "Back to the usual size." }).count();
+/* Tab from the title bar's theme button, as a keyboard user would, until the list's edge has focus (bounded). */
+async function tabTo(page, id) {
+  await page.locator('[data-act="theme-flip"]').focus();
+  for (let i = 0; i < 20; i++) { await page.keyboard.press("Tab"); if (await page.evaluate((id) => document.activeElement?.id === id, id)) return i + 1; }
+  return 0;
+}
 const saved = (page) => page.evaluate(() => JSON.parse(localStorage.getItem("branch-window") || "{}"));
 const sideWidth = (page) => page.evaluate(() => Math.round(document.getElementById("side").getBoundingClientRect().width));
 const appClass = (page) => page.evaluate(() => document.getElementById("app").className);
@@ -118,11 +126,13 @@ async function keysAndReset(page) {
   check("double-clicking the hidden edge restores the usual width", (await sideWidth(page)) === 292 && toast1 > 0, `side ${await sideWidth(page)}px, toast ${toast1}`);
   const [x, y] = await centre(page, "#rz-side");
   await drag(page, x, y, x + 120);
+  await until(async () => (await toasts(page)) === 0, 8000); // the first reset's toast has gone
   const [x2] = await centre(page, "#rz-side");
   await page.mouse.dblclick(x2, y);
   await wait(300);
-  check("double-clicking the edge resets to 292px with the toast", (await sideWidth(page)) === 292 && (await saved(page)).sideW === 292 && (await page.locator(".toast", { hasText: "Back to the usual size." }).count()) > 0, `side ${await sideWidth(page)}px`);
-  await page.locator("#rz-side").focus();
+  check("double-clicking the edge resets to 292px with the toast", (await sideWidth(page)) === 292 && (await saved(page)).sideW === 292 && (await toasts(page)) > 0, `side ${await sideWidth(page)}px, toast ${await toasts(page)}`);
+  const tabs = await tabTo(page, "rz-side");
+  check("Tab from the title bar reaches the list's edge", tabs > 0, `${tabs} presses`);
   await page.keyboard.press("ArrowRight");
   await wait(200);
   const right = [await sideWidth(page), await page.locator("#rz-side").getAttribute("aria-valuenow"), await page.evaluate(() => document.activeElement?.id)];
@@ -133,10 +143,29 @@ async function keysAndReset(page) {
   check("ArrowLeft narrows 16px a press", (await sideWidth(page)) === 276, `side ${await sideWidth(page)}px`);
   await page.keyboard.press("Control+b");
   await wait(300);
-  await page.locator("#rz-side").focus();
+  const hiddenTabs = await tabTo(page, "rz-side");
+  check("Tab reaches the hidden list's slim edge", hiddenTabs > 0, `${hiddenTabs} presses`);
   await page.keyboard.press("Enter");
   await wait(300);
   check("Enter on the hidden edge brings the list back", !(await appClass(page)).includes("side-hidden") && (await sideWidth(page)) === 276, `side ${await sideWidth(page)}px`);
+}
+
+/* Focus mode (Ctrl+.) steps the list aside entirely: nothing of it, its edge included, is left to hit. */
+async function focusMode(page) {
+  const probe = () => page.evaluate(() => ({ main: [10, 100, 200].every((x) => document.elementFromPoint(x, 400)?.closest("#main")), edge: !!document.elementFromPoint(2, 400)?.closest("[data-resize]") }));
+  await page.keyboard.press("Control+.");
+  await wait(400);
+  const shown = await probe();
+  await page.screenshot({ path: SHOTS + "after-focus.png" });
+  await page.keyboard.press("Control+.");
+  await page.keyboard.press("Control+b");
+  await page.keyboard.press("Control+.");
+  await wait(400);
+  const hidden = await probe();
+  await page.keyboard.press("Control+.");
+  await page.keyboard.press("Control+b");
+  await wait(300);
+  check("focus mode leaves nothing of the list to hit", shown.main && !shown.edge && hidden.main && !hidden.edge, `list shown ${JSON.stringify(shown)}, list hidden ${JSON.stringify(hidden)}`);
 }
 
 async function places(page) {
@@ -209,9 +238,11 @@ async function narrow(browser) {
   await wait(500);
   const cls = await appClass(page);
   await page.click('[data-act="side"]');
-  await wait(600);
-  const open = await page.evaluate(() => { const s = document.getElementById("side"), r = s.getBoundingClientRect(); return { cls: document.getElementById("app").className, vis: getComputedStyle(s).visibility, right: Math.round(r.right) }; });
-  check("a narrow window ignores a saved hidden list and its menu button slides the list in", !cls.includes("side-hidden") && open.cls.includes("side-open") && open.vis === "visible" && open.right > 100, `before ${cls}; after ${JSON.stringify(open)}`);
+  const read = () => page.evaluate(() => { const s = document.getElementById("side"), r = s.getBoundingClientRect(); return { cls: document.getElementById("app").className, vis: getComputedStyle(s).visibility, right: Math.round(r.right) }; });
+  const slid = (o) => o.cls.includes("side-open") && o.vis === "visible" && o.right > 100;
+  await until(async () => slid(await read()), 3000);
+  const open = await read();
+  check("a narrow window ignores a saved hidden list and its menu button slides the list in", !cls.includes("side-hidden") && slid(open), `before ${cls}; after ${JSON.stringify(open)}`);
   await page.close();
 }
 
@@ -228,8 +259,11 @@ async function narrow(browser) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await signIn(page);
+  // a draw that throws is caught and logged by core/dom.js drawAll, so console errors count too (after signing in: the
+  // first request before the token is refused with 401 by design)
+  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await page.screenshot({ path: SHOTS + "after-normal.png" });
-  for (const step of [listEdge, railAndHidden, keysAndReset, places]) await step(page).catch((e) => check(step.name, false, e.message));
+  for (const step of [listEdge, railAndHidden, keysAndReset, focusMode, places]) await step(page).catch((e) => check(step.name, false, e.message));
   await pane(page, sessionId).catch((e) => check("pane", false, e.message));
   await narrow(browser).catch((e) => check("narrow", false, e.message));
   check("no page errors", errors.length === 0, errors.join(" | ") || "none");
