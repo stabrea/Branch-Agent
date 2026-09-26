@@ -24,6 +24,7 @@ export const E = {
   state: null,
   trunks: [],
   trunkModes: {},
+  rooms: [],
   sessions: [],
   conversation: null,
   profiles: null,
@@ -53,10 +54,16 @@ export async function refresh() {
   E.state = state;
   E.trunks = trunks?.trunks ?? (Array.isArray(trunks) ? trunks : []);
   E.trunkModes = trunks?.modes ?? {};
+  E.rooms = Array.isArray(trunks?.rooms) ? trunks.rooms : [];
   E.sessions = sessions?.sessions ?? [];
   E.loaded = true;
   render();
 }
+
+/* Who is using Branch now: GET /api/profiles answers `active` as the person's profile ({ id, name, … }), or null for the
+   owner, whose name is the engine's owner label. */
+export const activeId = () => E.profiles?.active?.id ?? null;
+export const personHere = () => E.profiles?.active?.name || E.profiles?.roleLabels?.owner?.label || "";
 
 /* The level control: Regular 0, Advanced 1, Technical 2. */
 export const LEVELS = { regular: 0, advanced: 1, technical: 2 };

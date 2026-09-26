@@ -2,7 +2,7 @@
    sidebar (machine, search, Places, the conversation list, the person) and the status bar. Real data only. */
 
 import { $, esc, paint, renderNow } from "../core/dom.js";
-import { S, E, refresh, save } from "../core/state.js";
+import { S, E, refresh, save, activeId, personHere } from "../core/state.js";
 import { on, run } from "../core/actions.js";
 import { ic, av, mi, openPop, closePop, openDlg, toast } from "../core/ui.js";
 import { greyOut, markLive } from "../core/features.js";
@@ -60,7 +60,7 @@ function row(s) {
 let searchTimer;
 function searchInside(q) {
   clearTimeout(searchTimer);
-  if (!q.trim()) return;
+  if (q.trim().length < 2) return;
   searchTimer = setTimeout(async () => {
     if (!(await askEngine(q.trim()))) return;
     const box = $("#side-q"), typing = document.activeElement === box, from = box?.selectionStart, to = box?.selectionEnd;
@@ -83,9 +83,17 @@ async function toggleProjects() {
 /* A row is pinned when the engine keeps its Trunk or room pinned (POST /api/trunks/<id>, /api/trunks/rooms/<id>). */
 const pinnedRow = (s) => !!(s.pinned || chatOwner(sessionId(s))?.pinned);
 
+/* The rooms this person is in (GET /api/trunks rooms) that the conversation list does not already have: for a household
+   person GET /api/sessions holds only their own conversations, so their rooms get a row from here. */
+function roomRows() {
+  const have = new Set(E.sessions.map(sessionId));
+  return E.rooms.filter((r) => r.sessionId && !have.has(r.sessionId))
+    .map((r) => ({ sessionId: r.sessionId, opening: r.name, lastMessage: r.latest ?? "", updatedAt: r.at, pinned: r.pinned }));
+}
+
 function list() {
   if (SQ.q.trim()) return `<nav class="list searching9" aria-label="Conversations">${searchHTML()}</nav>`;
-  const rows = E.sessions;
+  const rows = [...E.sessions, ...roomRows()];
   const pinned = rows.filter(pinnedRow);
   const recent = rows.filter((s) => !pinnedRow(s));
   return `<nav class="list" aria-label="Conversations">
@@ -96,8 +104,7 @@ function list() {
 
 function side() {
   const n = waitingCount();
-  const active = E.profiles?.profiles?.find((p) => p.id === E.profiles.active);
-  const person = active?.name || E.profiles?.roleLabels?.owner?.label || "";
+  const person = personHere();
   return `<div class="resizer" data-resize="side"><i class="grip9"></i></div>
     <button class="machine" type="button" data-act="machines" data-tip="Which computer you’re talking to"><span class="mico">${ic("monitor", "s")}</span><span class="mach14"><b>${esc(machineName() || "This computer")}</b><i class="dot"></i></span>${ic("chev", "s")}</button>
     <div class="side-top"><label class="sq9">${ic("search", "s")}<input id="side-q" type="search" placeholder="Search" value="${esc(SQ.q)}" autocomplete="off" aria-label="Search chats, Trunks, messages and past sessions">${SQ.q ? `<button type="button" class="sq-x" data-act="sq-clear" aria-label="Clear the search">${ic("x", "s")}</button>` : binding("palette") ? `<kbd>${esc(spoken(binding("palette")))}</kbd>` : ""}</label><button class="icon-btn" type="button" aria-label="New conversation, Trunk, room or automation" data-act="newmenu">${ic("plus")}</button></div>
@@ -158,7 +165,7 @@ export function drawShell() {
 }
 
 export function initShell() {
-  markLive(["sq-f", "sq-clear", "projtoggle"]);
+  markLive(["sq-f", "sq-clear", "projtoggle", "sw:side-q"]);
   on("projtoggle", () => toggleProjects());
   on("sq-f", (el) => { SQ.f = el.dataset.v; renderNow(); });
   on("sq-clear", () => { SQ.q = ""; SQ.f = "all"; renderNow(); $("#side-q")?.focus(); });
@@ -242,7 +249,7 @@ async function hidePart(v) {
 function people() {
   const owner = E.profiles?.roleLabels?.owner?.label || "";
   const all = [[null, owner], ...(E.profiles?.profiles ?? []).map((p) => [p.id, p.name])];
-  return all.map(([id, name]) => `<button type="button" data-act="switchto" data-v="${esc(id ?? "")}" data-css="display:grid;justify-items:center;gap:3px;font-size:11.5px;padding:4px;border-radius:10px;${(E.profiles?.active ?? null) === id ? "background:var(--fill-2)" : ""}"><span class="me">${esc(String(name ?? "").slice(0, 1).toUpperCase())}</span>${esc(name)}</button>`).join("");
+  return all.map(([id, name]) => `<button type="button" data-act="switchto" data-v="${esc(id ?? "")}" data-css="display:grid;justify-items:center;gap:3px;font-size:11.5px;padding:4px;border-radius:10px;${activeId() === id ? "background:var(--fill-2)" : ""}"><span class="me">${esc(String(name ?? "").slice(0, 1).toUpperCase())}</span>${esc(name)}</button>`).join("");
 }
 function ownerMenu() {
   const current = document.documentElement.dataset.theme || "system", earned = D.earned;

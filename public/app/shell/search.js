@@ -42,7 +42,9 @@ function found(q) {
   const lq = q.toLowerCase();
   const chats = E.sessions.filter((s) => titleOf(s).toLowerCase().includes(lq) || (trunkOf(s)?.name ?? "").toLowerCase().includes(lq));
   const inside = SQ.asked === q ? SQ.hits.filter((h) => h.kind === "conversation") : [];
-  const msgs = inside.map((h) => ({ id: String(h.link ?? "").split("/").pop(), snippet: h.snippet ?? "" })).filter((m) => m.id);
+  const seen = new Set();
+  const msgs = inside.map((h) => ({ id: String(h.link ?? "").split("/").pop(), snippet: h.snippet ?? "" }))
+    .filter((m) => m.id && !seen.has(m.id) && seen.add(m.id));
   const memory = (E.state?.memory ?? []).filter((m) => JSON.stringify(m.data ?? m).toLowerCase().includes(lq));
   return { chats, msgs, sessions: SQ.asked === q ? SQ.past : [], memory };
 }

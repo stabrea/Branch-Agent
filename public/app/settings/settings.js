@@ -34,12 +34,21 @@ const PAGES = {
   advanced, developer, achievements, self
 };
 
+/* Whether the window has a Settings page by this id (an engine command may name one). */
+export const hasPage = (id) => Object.hasOwn(PAGES, id);
+
 export const NAV = [
   ["General", [["general", "General"], ["people", "People"], ["appearance", "Appearance"], ["notifications", "Notifications"]]],
-  ["Your assistant", [["instructions", "Instructions & personality"], ["models", "Models"], ["local", "On this computer"], ["accounts", "Accounts"], ["voice", "Voice"]]],
+  ["Your assistant", [["instructions", "Instructions & personality"], ["models", "Models"], ["accounts", "Accounts"], ["local", "On this computer"], ["voice", "Voice"]]],
   ["Safety", [["permissions", "Permissions"], ["computer", "Computer & browser"], ["secrets", "Saved sign-ins"]]],
   ["Care", [["usage", "Data & usage"], ["gateway", "Gateway"], ["self", "Branch itself"], ["updates", "Updates & about"], ["achievements", "Achievements"]]]
 ];
+
+/* Pages whose every read the engine refuses to anybody but the owner ("… belongs to the owner. Switch back to the owner's
+   profile …": settings-kit files, the saved sign-ins' autofill); on a household person's profile they are not listed. */
+const OWNER_ONLY = new Set(["instructions", "secrets"]);
+const household = () => E.profiles?.isOwner === false;
+const shown = (id) => !(household() && OWNER_ONLY.has(id));
 
 let searchText = "";
 
@@ -55,11 +64,12 @@ function open(id) {
 
 export function draw() {
   const lv = level();
+  if (!shown(S.setPage)) S.setPage = "general";
   if (!started.has(S.setPage)) open(S.setPage);
   const q = searchText.trim().toLowerCase();
   const extra = [lv >= 1 ? ["advanced", "Advanced"] : null, lv >= 2 ? ["developer", "Developer"] : null].filter(Boolean);
   const groups = [...NAV, ...(extra.length ? [["More", extra]] : [])]
-    .map(([g, items]) => [g, items.filter(([, l]) => !q || l.toLowerCase().includes(q))])
+    .map(([g, items]) => [g, items.filter(([id, l]) => shown(id) && (!q || l.toLowerCase().includes(q)))])
     .filter(([, items]) => items.length);
   if ((S.setPage === "advanced" && lv < 1) || (S.setPage === "developer" && lv < 2)) S.setPage = "general";
 
@@ -69,7 +79,7 @@ export function draw() {
         .map(([id, l]) => `<button class="nav" type="button" data-act="setpage" data-v="${id}" aria-current="${S.setPage === id}">${esc(l)}</button>`)
         .join("")}`
     )
-    .join("");
+    .join("") || '<p class="hint" data-css="padding:0 10px">No page matches.</p>';
 
   const page = PAGES[S.setPage];
   const pageContent = page?.draw?.() ?? "";
@@ -152,7 +162,7 @@ export function init() {
   for (const page of Object.values(PAGES)) {
     live.push(...(page.live ? Object.keys(page.live) : []));
   }
-  markLive(["setpage", "setgo", "setlevel", ...live]);
+  markLive(["setpage", "setgo", "setlevel", "sw:set-q", ...live]);
 }
 
 export function after(main) {

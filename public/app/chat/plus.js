@@ -36,12 +36,22 @@ function whoRows() {
     + (w.trunks ?? []).map((t) => radio(t.id, t.name, "", now === t.id, off)).join("");
 }
 
+/** What the engine said about the open conversation (GET /api/trunks/conversations/<id>), or null. */
+export const whoHere = () => (Q.whoFor === (S.chat ?? null) ? Q.who : null);
+/** Reads it again on the next loadWho (after a Trunk was chosen, or a room made). */
+export function forgetWho() { Q.whoFor = undefined; }
+
 /* After the conversation is drawn: ask the engine who answers it, once per conversation. With Trunks off it has no answer. */
 export async function loadWho() {
   const sid = S.chat ?? null;
   if (Q.whoFor === sid) return;
   Q.whoFor = sid;
-  Q.who = sid ? await api(`trunks/conversations/${encodeURIComponent(sid)}`).catch(() => null) : null;
+  Q.who = null;
+  const who = sid ? await api(`trunks/conversations/${encodeURIComponent(sid)}`).catch(() => null) : null;
+  if (Q.whoFor !== sid) return;
+  Q.who = who;
+  /* The replies are signed from it, so the conversation is drawn again once it is known. */
+  if (who && S.view === "chat") renderNow();
 }
 
 async function chooseWho(el) {

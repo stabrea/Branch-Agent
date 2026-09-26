@@ -39,9 +39,13 @@ function thread(messages, session) {
   }).join("");
 }
 
+/* Only the newest pick's answer is kept: a slower read for a conversation picked earlier is dropped when it returns. */
 async function load(id) {
   V.loaded = id;
-  try { V.messages = (await api("sessions/" + encodeURIComponent(id))).messages ?? []; } catch (error) { V.messages = []; toast(error.message); }
+  let messages = [];
+  try { messages = (await api("sessions/" + encodeURIComponent(id))).messages ?? []; } catch (error) { if (V.loaded === id) toast(error.message); }
+  if (V.loaded !== id) return;
+  V.messages = messages;
   V.id = id;
   render();
 }

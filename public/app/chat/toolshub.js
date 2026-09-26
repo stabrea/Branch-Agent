@@ -39,7 +39,7 @@ async function open(el) {
 }
 
 export function initToolsHub() {
-  markLive(["tools9", "tools-manage"]);
+  markLive(["tools9", "tools-manage", "sw:tool9-q"]);
   on("tools9", (el) => open(el));
   on("tools-manage", () => { closePop(); S.view = "customize"; S.tabs.customize = "tools"; renderNow(); });
   document.addEventListener("input", (e) => {

@@ -17,7 +17,7 @@ export function load() { return loadAccounts(); }
 
 function row(a, i, list) {
   const ids = `data-pool="${esc(a.pool)}" data-id="${esc(a.id)}"`;
-  const tick = picked ? `<input type="checkbox" class="chk15" data-acc15="${esc(key(a))}" ${picked.includes(key(a)) ? "checked" : ""} aria-label="Select ${esc(a.label)}">` : "";
+  const tick = picked ? `<input type="checkbox" class="chk15" data-sw="acc15" data-acc15="${esc(key(a))}" ${picked.includes(key(a)) ? "checked" : ""} aria-label="Select ${esc(a.label)}">` : "";
   const top = i === 0 || list[i - 1].pool !== a.pool;
   return `<div class="prow">${tick}${logo(a.pool, a.poolName, 32)}<span class="grow"><b>${esc(a.label)}</b><small>${esc(a.poolName)}</small></span>${a.first ? '<span class="pill ok">used next</span>' : ""}`
     + `<button class="icon-btn" type="button" aria-label="Move up" data-act="acct-up" ${ids} ${top ? "disabled" : ""} data-css="width:28px;height:28px">${ic("up", "s")}</button>`
@@ -96,7 +96,7 @@ export function init() {
     picked = e.target.checked ? [...new Set([...picked, k])] : picked.filter((x) => x !== k);
     renderNow();
   });
-  markLive(["acct-up", "acsel15", "acbulk15"]);
+  markLive(["acct-up", "acsel15", "acbulk15", "sw:acc15"]);
 }
 
 export const live = { "acct-up": true, "acsel15": true, "acbulk15": true };

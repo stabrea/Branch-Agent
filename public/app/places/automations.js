@@ -187,7 +187,7 @@ async function saveHeartbeat(change, switchOn) {
 }
 
 export function init() {
-  markLive(["ptab", "hb-every", "hb-hours", "hb-rm", "sched-run", "bmove15", "bto15", "ideas15", "idea15"]);
+  markLive(["sw:hb-in", "ptab", "hb-every", "hb-hours", "hb-rm", "sched-run", "bmove15", "bto15", "ideas15", "idea15"]);
   on("bmove15", (el) => {
     const card = cardOf(el.dataset.id);
     if (!card) return;

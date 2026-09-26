@@ -139,7 +139,10 @@ async function flip(page, pageId, id, engine) {
   await box.waitFor({ state: "attached", timeout: 10000 });
   if ((await box.getAttribute("aria-disabled")) === "true" || (await box.isDisabled())) { check(`${pageId} › ${id} is live`, false, "greyed"); return; }
   const before = await engine();
-  check(`${pageId} › ${id} shows the engine's value`, (await box.isChecked()) === before, String(before));
+  // A page draws its switches once its data is read; wait (up to 8 s) for the switch to show the engine's value instead of
+  // judging it at a fixed moment, so a slower read on a busy machine doesn't fail a switch that works.
+  const shown = await page.waitForFunction(([sel, want]) => document.querySelector(sel)?.checked === want, [`#${id}`, before], { timeout: 8000 }).then(() => true, () => false);
+  check(`${pageId} › ${id} shows the engine's value`, shown, String(before));
   for (const want of [!before, before]) {
     await page.locator(`#${id}`).click();
     await settle(page, 1200);

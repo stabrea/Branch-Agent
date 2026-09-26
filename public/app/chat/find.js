@@ -65,7 +65,7 @@ function open() {
 }
 
 export function initFind() {
-  markLive(["find-open", "find-close", "find-step"]);
+  markLive(["find-open", "find-close", "find-step", "sw:find9-q"]);
   on("find-open", () => (FIND.on ? (FIND.on = false, render()) : open()));
   on("find-close", () => { FIND.on = false; render(); });
   on("find-step", (el) => step(+el.dataset.v));

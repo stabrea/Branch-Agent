@@ -275,7 +275,7 @@ function redrawGrid() {
 }
 
 export function init() {
-  markLive(["ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam", "rev", "sugg15"]);
+  markLive(["sw:ch-q", "ptab", "t9-kind", "t9-sel", "tool-rm", "ch-fam", "rev", "sugg15"]);
   on("rev", (el) => revise(el));
   on("sugg15", (el) => addSuggested(el));
   on("t9-kind", (el) => { T9.k = el.dataset.v; T9.sel = null; renderNow(); });

@@ -2,28 +2,35 @@
    view into #main; the shell draws the sidebar, title-bar actions and status bar. */
 
 import { $, onRender, render, renderNow, paint } from "./core/dom.js";
-import { S, E, loadSaved, refresh } from "./core/state.js";
-import { stream, link } from "./core/api.js";
+import { S, E, loadSaved, refresh, activeId } from "./core/state.js";
+import { api, stream, link } from "./core/api.js";
 import { listen, on } from "./core/actions.js";
-import { listenTips, closePop, closeDlg } from "./core/ui.js";
+import { listenTips, closePop, closeDlg, dialog } from "./core/ui.js";
 import { greyOut } from "./core/features.js";
 import { VIEWS } from "./views.js";
 import { drawShell, initShell } from "./shell/shell.js";
 import { showSignIn } from "./shell/signin.js";
+import { openConversation } from "./chat/chat.js";
+import { goHome } from "./chat/goto.js";
 
-/* A redraw keeps the field being typed in focused, with its caret where it was. */
+/* A place draws its own <main class="main" id="main">; inside the shell's #main that would be a second main and a second
+   #main, so it becomes a <div> with the same classes and children (the styles are by class). */
+function unnest(main) {
+  const inner = main?.querySelector(":scope > main");
+  if (!inner) return;
+  const box = document.createElement("div");
+  box.className = inner.className;
+  box.append(...inner.childNodes);
+  inner.replaceWith(box);
+}
+
+/* The focused control, and a text field's caret, are kept across redraws by core/dom.js for every region. */
 function drawMain() {
   const main = $("#main");
   const draw = VIEWS[S.view] ?? VIEWS.chat;
-  const a = document.activeElement;
-  const typing = a?.id && main?.contains(a) && "selectionStart" in a ? { id: a.id, from: a.selectionStart, to: a.selectionEnd } : null;
   paint(main, draw());
+  unnest(main);
   greyOut(main);
-  if (typing) {
-    const field = document.getElementById(typing.id);
-    field?.focus({ preventScroll: true });
-    try { field?.setSelectionRange(typing.from, typing.to); } catch { /* a field without a caret */ }
-  }
   VIEWS.after?.[S.view]?.(main);
 }
 
@@ -35,7 +42,7 @@ function drawWidth() {
 }
 
 on("dlg-close", () => closeDlg());
-on("view", (el) => { S.view = el.dataset.v; if (el.dataset.tab) S.tabs[el.dataset.v] = el.dataset.tab; closePop(); renderNow(); });
+on("view", (el) => { S.view = el.dataset.v; if (el.dataset.tab) S.tabs[el.dataset.v] = el.dataset.tab; $("#app")?.classList.remove("side-open"); closePop(); renderNow(); });
 on("ptab", (el) => { S.view = el.dataset.place; S.tabs[el.dataset.place] = el.dataset.v; closePop(); renderNow(); });
 
 async function boot() {
@@ -47,8 +54,31 @@ async function boot() {
   onRender(drawShell);
   onRender(drawMain);
   onRender(drawWidth);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closePop(); closeDlg(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") escape(); });
   await connect();
+}
+
+/* Escape, as the prototype's: the popover, else the dialog, else Focus mode; and the phone's list closes. */
+function escape() {
+  const app = $("#app");
+  if (document.querySelector(".pop")) closePop();
+  else if (dialog()) closeDlg();
+  else if (app?.classList.contains("focus")) app.classList.remove("focus");
+  app?.classList.remove("side-open");
+}
+
+/* The dashboard's way back in: /#open=<home> (a place and tab, or a Settings page) or /#open=<conversation id>, and
+   /#task=<run id>, which opens the conversation that task belongs to. Only names the window knows are followed. */
+const UUID = /^[a-f0-9-]{36}$/;
+async function followLink() {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const route = hash.get("open"), task = hash.get("task");
+  if (!route && !task) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  if (route && UUID.test(route)) await openConversation(route);
+  else if (route && goHome(route)) renderNow();
+  const run = task && UUID.test(task) ? (E.state?.runs ?? []).find((r) => r.id === task) : null;
+  if (run?.sessionId) await openConversation(run.sessionId);
 }
 
 /* First load; a browser without a valid session token is asked for one (the engine's words say why it refused). */
@@ -64,6 +94,28 @@ async function connect(refusal = "") {
     clearTimeout(queued);
     queued = setTimeout(() => refresh().then(render, () => {}), 250);
   });
+  watchPerson();
+  followLink();
+  addEventListener("hashchange", () => followLink());
+}
+
+/* Who is using Branch can change from anywhere (a switch through POST /api/profiles/switch sends no event), so the window
+   asks GET /api/profiles every two seconds. When the person changes, the window starts again from nothing: no editor,
+   dialog or page the last person had open stays on screen or in memory, and every page is read again as the new person.
+   The session token is kept for the tab, so the window comes straight back. */
+function watchPerson() {
+  let known = E.profiles ? activeId() : undefined;
+  const timer = setInterval(async () => {
+    let now;
+    try { now = await api("profiles"); } catch (error) {
+      /* A refused key stops the asking: every refused request counts against signing in. */
+      if (error.status === 401 || error.status === 429) clearInterval(timer);
+      return;
+    }
+    const id = now?.active?.id ?? null;
+    if (known === undefined) known = id;
+    else if (id !== known) location.reload();
+  }, 2000);
 }
 
 boot();

@@ -494,8 +494,24 @@ async function staticFile(
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
     "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
     "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
-    // Wave mac3: the owner's dashboard (its other files are served by isDashboardFile) and the card that switches it on.
+    // Wave mac3: the owner's dashboard and the card that switches it on. While the dashboard is off, isDashboardFile keeps
+    // every /dashboard path unserved. Its stylesheets and modules, including its own copies of the words, the theme
+    // bridge, the oak, the look and the event reader that left public/ with the old window (#291):
     "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
+    "/dashboard/dashboard.css": ["dashboard/dashboard.css", "text/css; charset=utf-8"],
+    "/dashboard/style.css": ["dashboard/style.css", "text/css; charset=utf-8"],
+    "/dashboard/layout.css": ["dashboard/layout.css", "text/css; charset=utf-8"],
+    "/dashboard/control-styles.css": ["dashboard/control-styles.css", "text/css; charset=utf-8"],
+    "/dashboard/dashboard.js": ["dashboard/dashboard.js", "text/javascript; charset=utf-8"],
+    "/dashboard/commands.js": ["dashboard/commands.js", "text/javascript; charset=utf-8"],
+    "/dashboard/sections.js": ["dashboard/sections.js", "text/javascript; charset=utf-8"],
+    "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
+    "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
+    "/dashboard/i18n.js": ["dashboard/i18n.js", "text/javascript; charset=utf-8"],
+    "/dashboard/theme-bridge.js": ["dashboard/theme-bridge.js", "text/javascript; charset=utf-8"],
+    "/dashboard/grove.js": ["dashboard/grove.js", "text/javascript; charset=utf-8"],
+    "/dashboard/appearance.js": ["dashboard/appearance.js", "text/javascript; charset=utf-8"],
+    "/dashboard/activity-feed.js": ["dashboard/activity-feed.js", "text/javascript; charset=utf-8"],
     "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
     // One theme's colours under Branch's token names; the engine reads it too (src/terminal-theme.ts, src/achievements.ts).
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],

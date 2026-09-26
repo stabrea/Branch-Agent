@@ -50,12 +50,25 @@ export function openPop(anchor, html, opt = {}) {
   popAnchor = anchor;
   anchor.setAttribute("aria-expanded", "true");
   place(popEl, root.getBoundingClientRect(), anchor.getBoundingClientRect(), opt.right);
+  offComposer(popEl, root.getBoundingClientRect(), anchor);
   popEl.querySelector("button:not([aria-disabled='true']),input")?.focus({ preventScroll: true });
 }
 /* A click anywhere outside the open popover and its button closes it. */
 document.addEventListener("pointerdown", (e) => {
   if (popEl && !popEl.contains(e.target) && !popAnchor?.contains(e.target)) closePop();
 }, true);
+
+/* A popover opened from outside the message box (the status bar's usage, tasks or version) never sits over it: when it
+   would, it goes above the box, still inside the window. */
+function offComposer(el, a, anchor) {
+  const box = document.getElementById("composer");
+  if (!box || box.contains(anchor)) return;
+  const c = box.getBoundingClientRect(), p = el.getBoundingClientRect();
+  if (anchor.getBoundingClientRect().top < c.bottom) return;
+  if (!(p.left < c.right && p.right > c.left && p.top < c.bottom && p.bottom > c.top)) return;
+  const above = c.top - a.top - p.height - 6;
+  if (above >= 8) el.style.top = above + "px";
+}
 
 function place(el, a, r, right) {
   if (a.width <= 480) Object.assign(el.style, { left: "8px", right: "8px", maxWidth: "none" });

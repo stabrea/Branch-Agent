@@ -23,24 +23,52 @@ export function paint(region, html) {
   return region;
 }
 
+/* How to find the focused control again after its region is drawn anew: its id, or its tag and the attributes that name
+   it (data-act, data-v, data-id, …) with its place among the controls that share them. */
+const NAMING = ["data-act", "data-v", "data-id", "data-sw", "data-k", "name", "aria-label"];
+function focusKey(el) {
+  if (!el || el === document.body || !el.isConnected) return null;
+  const caret = "selectionStart" in el ? (() => { try { return [el.selectionStart, el.selectionEnd]; } catch { return null; } })() : null;
+  if (el.id) return { selector: "#" + CSS.escape(el.id), index: 0, caret };
+  const named = NAMING.filter((a) => el.hasAttribute(a)).map((a) => `[${a}="${CSS.escape(el.getAttribute(a))}"]`).join("");
+  if (!named) return null;
+  const selector = el.tagName.toLowerCase() + named;
+  return { selector, index: $$(selector).indexOf(el), caret };
+}
+/* A redraw keeps the focused control focused, and a text field's caret where it was. Only when the draw took focus
+   away: a draw that moved focus on purpose keeps its choice. */
+function keepFocus(draw) {
+  const before = document.activeElement, key = focusKey(before);
+  draw();
+  if (!key || document.activeElement === before && before.isConnected) return;
+  if (document.activeElement && document.activeElement !== document.body) return;
+  const again = $$(key.selector)[Math.max(key.index, 0)];
+  if (!again) return;
+  again.focus({ preventScroll: true });
+  if (key.caret && key.caret[0] != null) {
+    try { again.setSelectionRange(key.caret[0], key.caret[1]); } catch { /* a number or colour field has no caret to put back */ }
+  }
+}
+
 /* Regions register a draw function; render() redraws all of them on the next frame, once, however often it is asked. */
 const painters = [];
 let queued = false;
 export function onRender(draw) { painters.push(draw); }
+function drawAll() {
+  for (const draw of painters) {
+    try { draw(); } catch (error) { console.error(error); }
+  }
+}
 export function render() {
   if (queued) return;
   queued = true;
   requestAnimationFrame(() => {
     queued = false;
-    for (const draw of painters) {
-      try { draw(); } catch (error) { console.error(error); }
-    }
+    keepFocus(drawAll);
   });
 }
 /* A redraw that must happen now (after a click the person can see). */
 export function renderNow() {
   queued = false;
-  for (const draw of painters) {
-    try { draw(); } catch (error) { console.error(error); }
-  }
+  keepFocus(drawAll);
 }

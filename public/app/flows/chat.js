@@ -32,7 +32,7 @@ function create(c) {
 }
 
 function paste(c) {
-  const rows = inputs(c).map((f) => `<label class="fld chf12"><span>${esc(f.what)}</span><span class="chf-in12"><input class="inp" data-chf="${esc(f.key)}" type="${f.secret ? "password" : "text"}" value="${f.secret ? "" : esc(vals[f.key] ?? "")}" autocomplete="off" spellcheck="false" placeholder="${f.secret ? "Paste it here" : ""}">${f.secret ? `<button type="button" class="icon-btn" data-act="chf-eye" data-k="${esc(f.key)}" aria-label="Show or hide">${ic("eye", "s")}</button>` : ""}</span></label>`).join("");
+  const rows = inputs(c).map((f) => `<label class="fld chf12"><span>${esc(f.what)}</span><span class="chf-in12"><input class="inp" data-sw="chf" data-chf="${esc(f.key)}" type="${f.secret ? "password" : "text"}" value="${f.secret ? "" : esc(vals[f.key] ?? "")}" autocomplete="off" spellcheck="false" placeholder="${f.secret ? "Paste it here" : ""}">${f.secret ? `<button type="button" class="icon-btn" data-act="chf-eye" data-k="${esc(f.key)}" aria-label="Show or hide">${ic("eye", "s")}</button>` : ""}</span></label>`).join("");
   return `<p data-css="margin:0 0 6px">Paste what ${esc(c.name)} gave you. Secrets go straight into your password manager; Branch shows only the last four characters afterwards.</p>${rows || '<p class="hint">Nothing to paste for this one.</p>'}`;
 }
 
@@ -45,7 +45,7 @@ function check(c, w) {
 }
 
 function pair(c, w) {
-  return `<p data-css="margin:0 0 10px">${esc(c.pairing)}</p><div class="code12">${[0, 1, 2, 3, 4, 5].map((i) => `<input inputmode="numeric" maxlength="1" data-code="${i}" value="${esc(w.code[i] ?? "")}" aria-label="Digit ${i + 1}">`).join("")}</div>${w.error ? `<p class="hint" role="alert">${esc(w.error)}</p>` : '<p class="hint">The code works once, for ten minutes, and only for the person who sent the message.</p>'}`;
+  return `<p data-css="margin:0 0 10px">${esc(c.pairing)}</p><div class="code12">${[0, 1, 2, 3, 4, 5].map((i) => `<input inputmode="numeric" maxlength="1" data-sw="code" data-code="${i}" value="${esc(w.code[i] ?? "")}" aria-label="Digit ${i + 1}">`).join("")}</div>${w.error ? `<p class="hint" role="alert">${esc(w.error)}</p>` : '<p class="hint">The code works once, for ten minutes, and only for the person who sent the message.</p>'}`;
 }
 
 function save(c) {
@@ -140,7 +140,7 @@ function onInput(e) {
 }
 
 export function init() {
-  markLive(["ch-open", "chw-next", "chw-back", "chw-save", "chf-eye"]); // the eye shows only what the owner just pasted, never a saved secret
+  markLive(["sw:chf", "sw:code", "ch-open", "chw-next", "chw-back", "chw-save", "chf-eye"]); // the eye shows only what the owner just pasted, never a saved secret
   on("ch-open", (el) => openChatWizard(el.dataset.v));
   on("chw-next", () => next());
   on("chw-back", () => { const w = S.chw; vals = {}; w.step = Math.max(0, w.step - 1); w.error = ""; w.result = null; draw(); });

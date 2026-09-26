@@ -219,7 +219,7 @@ function removeMaterial(el) {
 }
 
 export function initMedia() {
-  markLive(["imagine", "img-go", "office15", "offk15", "offgo15", "mplay15", "mseek15", "matrm15"]);
+  markLive(["sw:img-q", "sw:off-in15", "imagine", "img-go", "office15", "offk15", "offgo15", "mplay15", "mseek15", "matrm15"]);
   on("imagine", () => openImagine());
   on("img-go", () => makePicture());
   on("office15", () => openOffice());
