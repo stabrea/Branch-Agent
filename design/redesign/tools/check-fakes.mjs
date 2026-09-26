@@ -23,12 +23,18 @@ const RULES = [
   [/\son(submit|click|input|change)=/, "inline event handler (the CSP refuses it)"],
   [/aria-(pressed|checked)=\\?"true\\?"|<input[^>]*\schecked[\s>]|<option[^>]*\sselected[\s>]/, "state written into markup (compute it)"],
   [/\|\|\s*["']\$\d/, "amount written in as a fallback"],
+  // bugfix-9 ("no nonsense demo language"): what the demo-language sweep took out must not come back.
+  [/\b[\w-]+\.example\b/, "example address written in (leave the field empty)"],
+  [/\.length\s*\?\s*\w+\s*:\s*\[\s*\[\s*["']/, "made-up rows drawn when the engine has none (show nothing)"],
+  [/\b\d+ of them\b/, "count written into words (use the engine's count or none)"],
+  [/data-act=\\?["'](ckpt-demo|proto-reset|notes-toggle|note)\\?["']/, "prototype-only control (it has no feature behind it)"],
+  [/read out at \d|\bFive places\b/, "a time or count written in that the engine or window decides"],
 ];
 // A toast's own words must be the prototype's: any literal toast text has to appear in prototype.html.
 const PROTO = readFileSync("design/redesign/prototype.html", "utf8").replaceAll("’", "'");
 const toastWords = (line) => [...line.matchAll(/toast\((["'`])((?:(?!\1).)*)\1/g)].map((m) => m[2]).filter((t) => !t.includes("${"));
-// The tour's own copy names the model families; setup's textarea keeps the prototype's placeholder hint.
-const EXEMPT = { "public/app/flows/tour.js": ["prototype example model"], "public/app/flows/setup.js": ["prototype example name"] };
+// Setup's textarea keeps the prototype's placeholder hint.
+const EXEMPT = { "public/app/flows/setup.js": ["prototype example name"] };
 
 let bad = 0;
 for (const f of files) {

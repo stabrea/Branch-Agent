@@ -103,8 +103,8 @@ function reach(o) {
 }
 
 function tools(o) {
-  const found = o.servers.map((s) => [s.id ?? s.name, s.name ?? s.id, s.description ?? ""]);
-  const rows = found.length ? found : [["outlook", "Outlook", t("window.flows.setup.mail-cal")], ["drive", "Google Drive", t("window.flows.setup.documents")], ["github", "GitHub", t("window.flows.setup.code-issues")]];
+  /* The engine's own tool servers only (GET /api/mcp); with none, the list is empty rather than filled with examples. */
+  const rows = o.servers.map((s) => [s.id ?? s.name, s.name ?? s.id, s.description ?? ""]);
   return `<h2 tabindex="-1">${t("window.flows.setup.tools")}</h2><p>${t("window.flows.setup.tools-lede")}</p><div class="rows">${rows.map(([id, n, s]) => `<div class="prow">${logo(id, n, 28)}<span class="grow"><b>${esc(n)}</b><small>${esc(s)}</small></span><input class="sw" type="checkbox" data-sw="set" aria-label="${esc(n)}"></div>`).join("")}</div>`;
 }
 

@@ -122,7 +122,7 @@ async function loadGlance() {
 
 /* The ring and the save-progress offer (POST /api/usage/glance/settings, merged) and asking a service what is left
    (POST /api/usage/limits/settings, a three-way switch: on unless "off", turned on as "when-needed"). The tray has no
-   route, and "Show me" only plays the prototype's demo, so both stay greyed. */
+   route, so it stays greyed; the prototype's "Show me" only played its own demo, so it is not drawn. */
 const WIRES = {
   "u-ring": [() => glance?.settings?.ring === "shown", (on) => api("usage/glance/settings", { ring: on ? "shown" : "hidden" })],
   "u-ckpt": [() => glance?.settings?.saveProgress === "ask", (on) => api("usage/glance/settings", { saveProgress: on ? "ask" : "off" })],
@@ -133,7 +133,7 @@ const checked = (id) => (WIRES[id][0]() ? "checked" : "");
 function limitsSec() {
   return `<div class="sec"><h2>What each connection has left</h2><p class="hint" data-css="margin:0 0 6px">How much of each service’s allowance is still there: one row per connection, one row per account. Every figure arrived on traffic Branch was already sending.</p><div class="lims flat">${(glance?.rows ?? []).map(limitRow).join("")}</div>
     <div class="ctl"><b>The ring bottom right</b><input class="sw" type="checkbox" id="u-ring" ${checked("u-ring")} aria-label="Show the ring" data-sw="ring"><small>The connection used next, how much of its window is left, and when it refills.</small></div>
-    <div class="ctl"><b>Offer to save progress at 95%</b><input class="sw" type="checkbox" id="u-ckpt" ${checked("u-ckpt")} aria-label="Offer to save progress at 95%" data-sw="ckpt"><small>It only asks, once per connection per window, and never for an estimate. <button class="link" type="button" data-act="ckpt-demo">Show me</button></small></div>
+    <div class="ctl"><b>Offer to save progress at 95%</b><input class="sw" type="checkbox" id="u-ckpt" ${checked("u-ckpt")} aria-label="Offer to save progress at 95%" data-sw="ckpt"><small>It only asks, once per connection per window, and never for an estimate.</small></div>
     <div class="ctl"><b>Asking a service what is left</b><input class="sw" type="checkbox" id="u-ask" ${checked("u-ask")} aria-label="Asking a service what is left" data-sw="set"><small>Only OpenRouter documents a way to ask. Off until you switch it on. Subscriptions are never asked.</small></div>
     <div class="ctl"><b>Show usage in the tray</b><input class="sw" type="checkbox" id="u-tray" aria-label="Show usage in the tray" data-sw="set"><small>A small ring by the clock opens the same list.</small></div></div>`;
 }
