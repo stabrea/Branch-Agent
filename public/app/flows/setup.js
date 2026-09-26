@@ -50,7 +50,7 @@ function languageControl() {
 }
 
 function welcome(o) {
-  return `${languageControl()}<div class="ob-stage11"><video class="pose11 vid11 ob-art11" src="/art/anim-idle.webm" poster="/art/branch-wave.webp" muted loop autoplay playsinline aria-hidden="true"></video></div><h2>${t("window.flows.first.hi")}</h2><p>${t("window.flows.setup.hi-lede")}</p><div class="ob-trust"><b>${t("window.flows.setup.safe")}</b><ul class="may6"><li>${ic("check", "s")}${t("window.flows.setup.safe-asks")}</li><li>${ic("check", "s")}${t("window.flows.setup.safe-stay")}</li><li>${ic("check", "s")}${t("window.flows.setup.safe-stop")}</li></ul><label class="chk"><input type="checkbox" id="ob-trust" ${o.trust ? "checked" : ""}> ${t("window.flows.setup.understand")}</label></div>`;
+  return `${languageControl()}<div class="ob-stage11"><video class="pose11 vid11 ob-art11" src="/art/anim-idle.webm" poster="/art/branch-wave.webp" muted loop autoplay playsinline aria-hidden="true"></video></div><h2>${t("window.flows.first.hi")}</h2><p>${t("window.flows.setup.hi-lede")}</p><div class="ob-trust"><b>${t("window.flows.setup.safe")}</b><ul class="may6"><li>${ic("check", "s")}${t("window.flows.setup.safe-asks")}</li><li>${ic("check", "s")}${t("window.flows.setup.safe-stay")}</li><li>${ic("check", "s")}${t("window.flows.setup.safe-stop")}</li></ul><label class="chk ob-agree"><input type="checkbox" id="ob-trust" ${o.trust ? "checked" : ""}><span class="ob-box" aria-hidden="true">${ic("check", "s")}</span><span>${t("window.flows.setup.understand")}</span></label></div>`;
 }
 
 function where(o) {
@@ -137,7 +137,7 @@ function frame(o) {
   const i = o.i, last = i === STEPS.length - 1;
   const rail = STEPS.map((l, j) => `<li class="${j < i ? "done" : j === i ? "now" : ""}"><button type="button" data-act="ob-go" data-v="${j}" ${j > i && !o.trust ? "disabled" : ""}><em>${j < i ? ic("check", "s") : j + 1}</em>${t(l)}</button></li>`).join("");
   const done = o.checks.filter((c) => c.ok != null).length;
-  const next = !last ? `<button class="btn pri" type="button" data-act="ob-next" ${i === 0 && !o.trust ? "disabled" : ""}>${i === 0 ? t("personal.tunnel.start") : t("window.flows.chw.continue")}</button>`
+  const next = !last ? `<button class="btn pri" type="button" data-act="ob-next" ${i === 0 && !o.trust ? 'aria-disabled="true" data-wait="trust"' : ""}>${i === 0 ? t("personal.tunnel.start") : t("window.flows.chw.continue")}</button>`
     : `<button class="btn pri" type="button" data-act="ob-done" ${done < o.checks.length ? "disabled" : ""}>${done < o.checks.length ? t("window.flows.setup.checking-n", { done, total: o.checks.length }) : t("window.flows.setup.open-walkthrough")}</button>`;
   return `<aside class="ob-rail"><span class="ob-brand"><span class="mark mark-face" data-css="width:26px;height:26px"></span>${t("window.setup.label")}</span><ol>${rail}</ol><button class="link ob-skip" type="button" data-act="ob-close">${t("window.flows.first.skip")}</button></aside>
     <section class="ob-main"><div class="ob-body">${pose(i)}${BODIES[i](o)}</div><footer class="ob-foot">${i ? `<button class="btn ghost" type="button" data-act="ob-go" data-v="${i - 1}">${t("action.back")}</button>` : "<span></span>"}<span class="grow"></span>${next}</footer></section>`;
@@ -287,7 +287,7 @@ export function init() {
   markLive(["sw:ob-trust", "sw:ob-lang", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-test", "ob15", "ob-tpl", "ob-gw"]);
   on("onboard", (el) => openSetup(Number(el?.dataset?.v) || 1));
   on("ob-go", (el) => go(+el.dataset.v));
-  on("ob-next", () => go(S.ob.i === 0 ? S.ob.jump : S.ob.i + 1));
+  on("ob-next", () => { if (S.ob.i === 0 && !S.ob.trust) { nudgeTrust(); return; } go(S.ob.i === 0 ? S.ob.jump : S.ob.i + 1); });
   on("ob-close", () => close());
   on("ob-done", () => finish());
   on("ob-set", (el) => { S.ob[el.dataset.k] = el.dataset.v; draw(); });
@@ -301,4 +301,15 @@ export function init() {
      after the first draw, or another window): setup is drawn again in the words now in force. */
   document.addEventListener("branch-language", () => { if (S.ob) draw(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.ob && !document.querySelector(".scrim")) close(); });
+}
+
+/* Start before the box is ticked: the box and its line light up and shake once, and the keyboard lands on the box, so the
+   one thing between the person and the next step is plain. Pressed again, it does it again. */
+function nudgeTrust() {
+  const box = document.querySelector(".ob-trust");
+  if (!box) return;
+  box.classList.remove("nudge");
+  void box.offsetWidth;
+  box.classList.add("nudge");
+  document.getElementById("ob-trust")?.focus();
 }

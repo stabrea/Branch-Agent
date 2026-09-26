@@ -3439,3 +3439,18 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .flsend17c b{font-size:13px;font-weight:500}
 .flsend17c small{font-size:12px;color:var(--mute17c)}
 .flsend17c.off17c b{color:var(--mute17c)}
+
+/* area: setup trust box — the checkbox drawn like the window's other controls, and the nudge when Start is pressed first */
+.ob-agree{position:relative;gap:10px;cursor:pointer;color:var(--ink);font-size:13.5px;line-height:1.4;align-items:flex-start;padding:8px 10px;margin:0 -10px -6px;border-radius:10px}
+.ob-agree:hover{background:var(--fill)}
+.ob-agree input{position:absolute;opacity:0;width:18px;height:18px;margin:0;left:10px;top:9px;cursor:pointer}
+.ob-box{flex:none;display:grid;place-items:center;width:18px;height:18px;margin-top:1px;border-radius:6px;border:1.5px solid var(--line-2);background:var(--raise);color:transparent;transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
+.ob-box svg{width:12px;height:12px}
+.ob-agree:hover .ob-box{border-color:var(--ink-3)}
+.ob-agree input:checked + .ob-box{background:var(--accent);border-color:var(--accent);color:var(--on-btn,#fff)}
+.ob-agree input:focus-visible + .ob-box{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}
+.btn[data-wait="trust"]{opacity:.55}
+.ob-trust.nudge{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);animation:obNudge .4s ease}
+.ob-trust.nudge .ob-box{border-color:var(--accent)}
+@keyframes obNudge{20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
+@media (prefers-reduced-motion:reduce){.ob-trust.nudge{animation:none}}
