@@ -268,7 +268,7 @@ import { readOnlyTerminalCommands, runTerminalCommand } from "./terminal-cli.js"
 import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { DelightError, delightRoute, handlesDelightPath } from "./delight.js"; // phase2/delight
 import { savingsRefusal } from "./short-lived-keys.js";
-import { householdMaySend, householdRefusalFor, householdRefusedRead } from "./household-routes.js"; // profile-audit, Q259
+import { householdMaySend, householdRefusalFor, isRead } from "./household-routes.js"; // profile-audit, Q259, Q261
 import { appAskSettings, saveAppAskSettings } from "./desktop-app-ask.js"; // unhold-control
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
 import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
@@ -3539,7 +3539,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // profile-audit: a window switched to a household profile is that person. Every owner-only
       // route is refused to them here, in one sentence, before its own code runs (src/household-routes.ts).
       if (!app.store.profiles.isOwner()) {
-        const refused = offLimitsToHousehold(request.method, path);
+        // Q261: the household read list is the window's. A person's own key already has its own fail-closed list of
+        // what it may read (People.admit, src/people/access.ts, checked above), so its reads are decided there only.
+        const refused = currentPerson() && isRead(request.method) ? null : offLimitsToHousehold(request.method, path);
         // 400, as every `requireOwner` refusal over HTTP has always been answered.
         if (refused) throw new HttpError(400, refused);
       }
@@ -3873,6 +3875,13 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         socket.end("HTTP/1.1 423 Locked\r\nConnection: close\r\n\r\n");
         return true;
       };
+      // Q261: a socket is a read, so a household person at the window opens only one listed in householdReads (none
+      // is listed now). Asked once the key has passed, like the lock above.
+      const refusedHousehold = (): boolean => {
+        if (app.store.profiles.isOwner() || offLimitsToHousehold("GET", path) === null) return false;
+        socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+        return true;
+      };
       // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
       if (path === clientToolsPath) {
         // Integration review: "a program on this computer" — the paired address never lends tools.
@@ -3881,7 +3890,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
           return;
         }
-        if (refusedLocked()) return;
+        if (refusedLocked() || refusedHousehold()) return;
         serveClientToolSocket(app.interop.clients, request, socket);
         return;
       }
@@ -3892,7 +3901,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
       }
-      if (refusedLocked()) return;
+      if (refusedLocked() || refusedHousehold()) return;
       // Wave 8: the same socket also carries a live voice conversation, when the browser asks for
       // one. Nothing is opened until it does, so an ordinary task is unchanged.
       // Q254: the socket follows who is at the window, as /api/events/stream does since #339. Once the
@@ -4649,10 +4658,12 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
  * profile-audit: what a household person at the window is refused. Whatever a short-lived key is
  * refused, they are too — settings, permissions, secrets, pairing, backups, updates, the danger
  * zone — except their own things and the ways out listed in src/household-routes.ts.
+ * Q261: reading fails closed too. A GET is answered only when it is listed in householdReads, and a HEAD never is,
+ * whatever a short-lived key may read.
  */
 export function offLimitsToHousehold(method: string | undefined, path: string): string | null {
-  if (householdRefusedRead(method, path)) return householdRefusalFor(path); // Q259
   if (householdMaySend(method, path)) return null;
+  if (isRead(method)) return householdRefusalFor(path);
   return offLimitsToShortLivedKeys(method, path) === null ? null : householdRefusalFor(path);
 }
 /**
