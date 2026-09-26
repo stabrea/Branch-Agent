@@ -234,7 +234,7 @@ async function bells(page) {
   const note = page.locator(".ach-toast");
   await note.waitFor({ timeout: 30000 });
   await shot(page, "sp2-5-note-bell");
-  check("5 the note has the bell, named", (await note.locator('[data-act="ach-mute"]').getAttribute("aria-label")) === "Stop these pop-ups");
+  check("5 the note has the bell, named", (await note.locator('[data-act="ach-mute"]').getAttribute("aria-label")) === "Stop achievement pop-ups");
   await note.locator('[data-act="ach-mute"]').click();
   const quiet = await until(async () => (await api("delight")).settings.achievements.quiet === true);
   const gone = await note.waitFor({ state: "detached", timeout: 3000 }).then(() => true, () => false);
