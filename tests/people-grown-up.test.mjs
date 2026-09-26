@@ -127,7 +127,8 @@ test("each card lists what the grant really allows, the owner's card changes the
   await f.page.reload();
   await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await f.people();
-  assert.equal(await f.page.locator('[data-act="p-invite"]:not(.soon)').count(), 0, "no inviting for a household person");
+  // Owner-only People actions are hidden, not greyed, for anybody but the owner (grey means not built yet).
+  assert.equal(await f.page.locator('[data-act="p-invite"]').count(), 0, "no inviting for a household person");
   assert.equal((await mayOf(await cardOf(f.page, "Sam"))).filter((one) => one.endsWith(":yes")).length, 2);
   assert.deepEqual(f.errors, []);
 });
