@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer, restoreBackup, offLimitsToHousehold, offLimitsToShortLivedKeys } from "../dist/server.js";
-import { householdOwnRoutes, householdRefusal, householdRefusalFor } from "../dist/household-routes.js";
+import { householdOwnRoutes, householdRefusal, householdRefusalFor, householdRefusedRead } from "../dist/household-routes.js";
 import { runOrigin } from "../dist/key-context.js";
 import { removalGuard, removePersonRefusal } from "../dist/remove-branch.js";
 import { runForCurrentPerson } from "../dist/collab-server.js";
@@ -61,7 +61,8 @@ test("the rule: a household person keeps their own things, the task routes and e
     if (kind === "other" || kind === "task") for (const method of methods)
       if (offLimitsToHousehold(method, at) !== null && (kind === "other" || offLimitsToShortLivedKeys(method, at) === null))
         refused.push(`${method} ${path} (${kind})`);
-    if (kind === "look" && offLimitsToHousehold("GET", at) !== null) refused.push(`GET ${path} (look)`);
+    // Q259: a read listed as refused to a household person (the pairing link) is the one exception, named in household-routes.ts.
+    if (kind === "look" && offLimitsToHousehold("GET", at) !== null && !householdRefusedRead("GET", at)) refused.push(`GET ${path} (look)`);
   }
   for (const path of VIEWS) if (offLimitsToHousehold("GET", path) !== null) refused.push(`GET ${path} (view)`);
   assert.deepEqual(refused, [], "a household person's own things are refused; list them in src/household-routes.ts");

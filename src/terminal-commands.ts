@@ -79,7 +79,9 @@ export function presetLines(runtime: Runtime): string[] {
  * Changes which approval preset is in force, exactly as the app's settings screen does: `<name>`, or `<name> confirm`
  * for a preset that makes Branch less careful.
  */
-export function choosePreset(runtime: Runtime, argument: string): string {
+export function choosePreset(runtime: Runtime, argument: string,
+  // Q259: how the yes is typed where the command was: `/preset <name> confirm`, or `branch permissions <name> confirm`.
+  howToConfirm = (name: string): string => `Send /preset ${name} confirm to go ahead.`): string {
   const known = policyPresets().map((preset) => preset.id);
   const [name = "", word, ...rest] = argument.trim().split(/\s+/);
   if (!known.includes(name as PolicyPresetName) || (word !== undefined && word !== "confirm") || rest.length)
@@ -89,8 +91,7 @@ export function choosePreset(runtime: Runtime, argument: string): string {
   // separate yes, as POST /api/policy does: the command says what would loosen, and `confirm` after the name goes
   // ahead. Both are weighed on exactly the policy it would save (src/policy-change-guard.ts).
   const after = nextPolicy(readPolicy(runtime.store, runtime.owner), { preset: name });
-  const refusal = policyChangeRefusal(runtime.store, runtime.owner, after, word === "confirm", runtime.registry,
-    `Send /preset ${name} confirm to go ahead.`);
+  const refusal = policyChangeRefusal(runtime.store, runtime.owner, after, word === "confirm", runtime.registry, howToConfirm(name));
   if (refusal) throw new Error(refusal);
   const saved = recordedWrite(runtime.store, runtime.owner, { writer: "owner-by-command", source: "command", detail: `/preset ${name}` }, ["policy"],
     () => savePolicy(runtime.store, runtime.owner, { preset: name }));

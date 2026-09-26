@@ -1,5 +1,15 @@
 import { runOrigin } from "./key-context.js";
 import type { Store } from "./store.js";
+import { lentOwner } from "./people/lending.js";
+
+/**
+ * Q259: a household person's own conversation: filed under their profile (profiles.scope()), or lent to the owner for
+ * as long as one of their tasks works in it (src/collab-server.ts runForCurrentPerson writes `lentTo` on that task).
+ */
+export function personConversation(store: Store, owner: string, sessionId: string): boolean {
+  const scope = store.profiles.scope();
+  return store.ownsSession(scope, sessionId) || (store.ownsSession(owner, sessionId) && lentOwner(store, sessionId) === scope);
+}
 
 /**
  * Q257: whose waiting questions a person at the window may see and answer. The owner sees and answers every one.

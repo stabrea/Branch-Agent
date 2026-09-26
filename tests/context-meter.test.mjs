@@ -99,11 +99,18 @@ test("one failed refresh keeps the context chip's last reading instead of showin
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
-  const chip = () => page.evaluate(() => document.querySelector(".lx-foot-context")?.textContent ?? "");
-  await page.waitForFunction(() => /Context used [1-9]/.test(document.querySelector(".lx-foot-context")?.textContent ?? ""), null, { timeout: 20000 });
+  // Redesign: the old ".lx-foot-context" chip ("Context used …", public/app.js branchConversationFacts) is replaced by
+  // prototype.html's "Room left" meter in the status bar (public/app/chat/messages.js statusItems, read from the same
+  // GET /api/sessions/<id>/context when the conversation is opened). Opening the same conversation again reads it again.
+  const open = () => page.locator(`#side [data-act="chat"][data-id="${run.sessionId}"]`).first().click();
+  const chip = () => page.evaluate(() => document.querySelector('[data-act="roommenu"]')?.textContent ?? "");
+  await open();
+  await page.waitForFunction(() => /Room left.*[0-9]+%/.test(document.querySelector('[data-act="roommenu"]')?.textContent ?? ""), null, { timeout: 20000 });
   const before = await chip();
-  await page.route("**/api/sessions/*/context", (route) => route.fulfill({ status: 503, body: JSON.stringify({ error: "busy" }) }));
-  await page.evaluate(() => globalThis.branchConversationFacts.refresh());
+  let refused = 0;
+  await page.route("**/api/sessions/*/context", (route) => { refused++; return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "busy" }) }); });
+  await open();
+  await page.locator(".toast", { hasText: "busy" }).waitFor({ timeout: 20000 }); // the refresh happened and failed, and said so
+  assert.ok(refused >= 1, "the reading was asked for again");
   assert.equal(await chip(), before, "a failed refresh changes nothing on the chip");
 });
