@@ -76,6 +76,9 @@ function fenced(part) {
   return (lang?.[1].toLowerCase() === "chart" && chartCard(body)) || `<pre><code>${esc(body)}</code></pre>`;
 }
 
+/* One line of words with only the inline part (bold, italic, code, links), for a line that is not a whole answer. */
+export const inlineText = (words) => inline(esc(words));
+
 export function text(markdown) {
   return String(markdown ?? "").split(/```/).map((part, i) => (i % 2
     ? fenced(part)

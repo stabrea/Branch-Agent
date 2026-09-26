@@ -12,6 +12,7 @@ import { ic, mi, toast, openPop, closePop, openDlg, dialog } from "../core/ui.js
 import { markLive } from "../core/features.js";
 import { api, token } from "../core/api.js";
 import { on } from "../core/actions.js";
+import { inlineText } from "../chat/markdown.js"; // a fact keeps its inline formatting, drawn from escaped text
 import { workSection, labelled, mapSection, manageSection, learnSection, readLibrary17, initLibrary17 } from "./library17.js";
 
 function tabBar(tabs, place, current) {
@@ -48,7 +49,7 @@ function memoryTab(mem) {
       <b>${cap ? `${cap.count} of ${cap.maxFacts} remembered` : `${mem.length} things remembered`}</b>
       <p>Trunks suggest what to remember and you decide. Nothing here leaves this computer.</p></div>${acts}</div>`;
   html += mem.map((m, i) => `<div class="prow"><span class="ico-tile">${ic('star', 's')}</span>
-        <span class="grow"><b>${esc(m.data?.text ?? m.data?.fact ?? m.data?.content ?? "")}</b><small>${esc([m.data?.source, when(m.updatedAt ?? m.createdAt)].filter(Boolean).join(" · "))}</small></span>
+        <span class="grow"><b>${inlineText(m.data?.text ?? m.data?.fact ?? m.data?.content ?? "")}</b><small>${esc([m.data?.source, when(m.updatedAt ?? m.createdAt)].filter(Boolean).join(" · "))}</small></span>
         <button class="btn ghost sm" type="button" data-act="forget" data-i="${i}" data-id="${esc(m.id || '')}">Forget</button></div>`).join('');
   return html;
 }

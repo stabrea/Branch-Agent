@@ -37,6 +37,7 @@ import { agentWin, initAgent17 } from "./agent17.js"; // pass 17: a Trunk's char
 import { helpersChip } from "./helpers.js"; // pass 17: the helpers chip, steering and the model-switch note
 import { steerChip, steeredNotes, initSteer } from "./steer.js";
 import { droppedNote, initSwitched } from "./switched.js";
+import { media17 } from "../core/art17.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -106,6 +107,17 @@ function thread() {
   return marks.start + rows.join("") + helpersChip() + steeredNotes() + planBlock(liveRun()) + failedLine(E.state?.runs, C.sessionId, C.sending) + rememberCards(C.sessionId) + asks.join("") + typing;
 }
 
+/* The empty conversation, 1:1 with the prototype's emptyChat() (with pass 11's waving Branch in place of the mark): the
+   question, starting points that send themselves (POST /api/run, as a typed message is), and the Trunks to ask, each
+   opening its own conversation. The prototype's flight booking names an example city (check-fakes), so it is left out. */
+const SUGG = ["Tidy my Downloads folder", "Summarise the PDFs on my desktop", "Plan my week from my calendar"];
+const isEmpty = () => !C.sessionId && !C.messages.length && !C.sending;
+function emptyChat() {
+  const ask = E.trunks.filter((t) => t.chatSessionId && t.name !== "New Trunk").slice(0, 4)
+    .map((t) => `<button type="button" data-act="chat" data-id="${esc(t.chatSessionId)}" aria-label="Ask ${esc(t.name)}">${av(t, 28)}</button>`).join("");
+  return `<div class="empty-chat"><span class="hero11">${media17("/art/branch-wave.webp", "/art/anim-idle.webm", "pose11 vid11")}</span><h1>What should Branch do?</h1><div class="chips">${SUGG.map((x) => `<button class="chipb" type="button" data-act="sugg" data-v="${esc(x)}">${esc(x)}</button>`).join("")}</div>${ask ? `<div class="askrow">Or ask a Trunk: ${ask}</div>` : ""}</div>`;
+}
+
 function composer() {
   const draft = S.drafts[C.sessionId ?? "new"] ?? "";
   return `<div class="dock"><div id="attached">${attached()}</div>${queueRow()}${dockRow()}${steerChip()}<form class="composer" id="composer" data-form="composer">
@@ -122,7 +134,7 @@ export const sendingPrompt = () => (C.sending && !C.sessionId ? C.prompt : null)
 
 export function draw() {
   const narrowHead = WIDE.matches ? "" : head();
-  return `${narrowHead}${recBar()}${teachBar(C.sessionId)}${findBar()}${pinsBar()}${pathBar(C.sessionId)}${besideWrap(`<div class="scroll" id="scroll">${goalStrip(C.sessionId)}<div class="thread" id="conversation">${thread()}</div></div>`)}${composer()}${agentWin(C.sessionId, C.sending)}`;
+  return `${narrowHead}${recBar()}${teachBar(C.sessionId)}${findBar()}${pinsBar()}${pathBar(C.sessionId)}${besideWrap(`<div class="scroll" id="scroll">${goalStrip(C.sessionId)}${isEmpty() ? emptyChat() : `<div class="thread" id="conversation">${thread()}</div>`}</div>`)}${composer()}${agentWin(C.sessionId, C.sending)}`;
 }
 export function after(main) {
   /* Newest at the bottom stays in view only while the reader is at the bottom; someone reading back keeps their place. */
@@ -442,7 +454,8 @@ export function init() {
   initSteer();
   initSwitched();
   onRender(drawPane);
-  markLive(["ask", "room-ask", "send", "side", "stop-run", "sw:prompt"]);
+  markLive(["ask", "room-ask", "send", "side", "stop-run", "sw:prompt", "sugg"]);
+  on("sugg", (el) => send(el.dataset.v));
   on("stop-run", () => stopRun());
   on("ask", (el) => answer(el, el.dataset.v === "deny" ? "deny" : "allow"));
   on("room-ask", (el) => answerInRoom(el, el.dataset.v === "deny" ? "deny" : "allow"));
@@ -451,6 +464,14 @@ export function init() {
   on("side", () => document.getElementById("app").classList.toggle("side-open"));
   document.addEventListener("submit", (e) => { if (e.target.id === "composer") { e.preventDefault(); send(); } });
   document.addEventListener("keydown", (e) => { if (e.target.id === "prompt" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+  /* Page Up and Page Down with nothing focused move through the conversation, which scrolls inside its own box. */
+  document.addEventListener("keydown", (e) => {
+    if (S.view !== "chat" || (e.key !== "PageUp" && e.key !== "PageDown") || e.target !== document.body) return;
+    const box = $("#scroll");
+    if (!box) return;
+    e.preventDefault();
+    box.scrollBy({ top: (e.key === "PageUp" ? -0.9 : 0.9) * box.clientHeight });
+  });
   document.addEventListener("input", (e) => {
     if (e.target.id !== "prompt") return;
     S.drafts[C.sessionId ?? "new"] = e.target.value;

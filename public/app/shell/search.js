@@ -1,6 +1,6 @@
 /* The sidebar's search results, 1:1 with the prototype's: filter chips with counts, then Chats and Trunks (titles and
-   answering Trunks), Messages (words inside conversations, from GET /api/search), Past sessions (older conversations
-   than the list holds, from POST /api/sessions/search) and Files and memory (what the engine remembers). A message opens
+   answering Trunks), Messages (words inside conversations, from GET /api/search), Past sessions (every conversation
+   with the words, from POST /api/sessions/search) and Files and memory (what the engine remembers). A message opens
    its conversation with those words found; a past session opens to read (GET /api/sessions/<id>) and can be carried on
    as a new conversation (POST /api/sessions/<id>/duplicate). Matches are marked. */
 
@@ -31,9 +31,9 @@ const day = (t) => (t ? new Date(t).toLocaleDateString([], { month: "short", day
 export async function askEngine(q) {
   const [answer, older] = await Promise.all([api("search?q=" + encodeURIComponent(q)).catch(() => null), api("sessions/search", { query: q }).catch(() => null)]);
   if (q !== SQ.q.trim()) return false;
-  const listed = new Set(E.sessions.map(idOf));
   SQ.hits = answer?.results ?? [];
-  SQ.past = (older?.sessions ?? []).filter((s) => !listed.has(s.sessionId));
+  /* Every conversation with those words, also one the list shows: here it is read and carried on, not opened. */
+  SQ.past = older?.sessions ?? [];
   SQ.asked = q;
   return true;
 }

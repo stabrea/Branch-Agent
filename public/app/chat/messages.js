@@ -8,7 +8,8 @@
      through POST /api/flows-boards/waiting/followups/move|remove|edit);
    - Room left and today's spend in the status bar (GET /api/sessions/{id}/context, GET /api/usage);
    - choosing the active project from the sidebar (POST /api/projects/active).
-   Copy, Try again, Report a problem and Tidy up stay greyed until each has its own real action; Branch from here and
+   - Copy on a reply puts its words on the clipboard (the browser's own, no route).
+   Try again, Report a problem and Tidy up stay greyed until each has its own real action; Branch from here and
    More are chat/branches.js and chat/more.js (pass 17). */
 
 import { $, esc, render, renderNow } from "../core/dom.js";
@@ -53,12 +54,40 @@ function latestRun(wanted) {
 
 export function msgActs(m) {
   if (!m.messageId) return "";
-  const branch = `<button type="button" aria-label="Branch from here" data-act="br17c" data-mid="${esc(m.messageId)}">${ic("branch")}</button>${moreButton(m)}`; // pass 17: chat/branches.js, chat/more.js
+  /* A path is taken from a settled conversation: while its answer is pending, Branch from here waits. */
+  const held = X.state().sending ? " disabled" : "";
+  const branch = `<button type="button" aria-label="Branch from here" data-act="br17c" data-mid="${esc(m.messageId)}"${held}>${ic("branch")}</button>${moreButton(m)}`; // pass 17: chat/branches.js, chat/more.js
   if (m.role === "user")
     return `<div class="msg-acts"><button type="button" aria-label="Edit" data-act="u-edit" data-mid="${esc(m.messageId)}">${ic("edit")}</button>${branch}${pinButton(m)}</div>`;
   const run = runFor(m);
   const look = run ? `<button type="button" aria-label="Look inside" data-act="inspect" data-run="${esc(run.id)}">${ic("eye")}</button>` : "";
-  return `<div class="msg-acts"><button type="button" aria-label="Copy" data-act="toast">${ic("copy")}</button><button type="button" aria-label="Try again" data-act="toast">${ic("retry")}</button>${look}<button type="button" aria-label="Report a problem" data-act="flag">${ic("flag")}</button>${branch}${pinButton(m)}</div>`;
+  return `<div class="msg-acts"><button type="button" aria-label="Copy" data-act="copy15" data-mid="${esc(m.messageId)}">${ic("copy")}</button><button type="button" aria-label="Try again" data-act="toast">${ic("retry")}</button>${look}<button type="button" aria-label="Report a problem" data-act="flag">${ic("flag")}</button>${branch}${pinButton(m)}</div>`;
+}
+
+/* ---------- Copy: the message's words as they were written (its Markdown) ---------- */
+/* Through the clipboard; where the window refuses it, through a selection instead; the clipboard's refusal is said only
+   when that fails too. */
+async function copyMessage(el) {
+  const m = (X.state().messages ?? []).find((x) => x.messageId === Number(el.dataset.mid));
+  if (!m) return;
+  const words = String(m.content ?? "");
+  try { await navigator.clipboard.writeText(words); } catch (error) {
+    if (!copyBySelection(words)) { toast(error.message); return; }
+  }
+  toast("Copied.");
+}
+function copyBySelection(words) {
+  const before = document.activeElement, box = document.createElement("textarea");
+  box.value = words;
+  box.readOnly = true;
+  box.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+  document.body.append(box);
+  box.select();
+  let done = false;
+  try { done = document.execCommand("copy"); } catch { done = false; }
+  box.remove();
+  before?.focus?.({ preventScroll: true });
+  return done;
 }
 
 /* ---------- pins ---------- */
@@ -383,8 +412,9 @@ async function usePrompt(el) {
 export function initMessages(context) {
   X = context;
   addMoreItem((m) => (m.role === "assistant" ? everyStepItem(runFor(m)?.id) : "")); // pass 17: More › Every step behind this reply
-  markLive(["sw:rw-text", "sw:q15", "pin15", "pinjump15", "pinlist15", "u-edit", "rw-what", "rw-go", "undo", "inspect", "slash6-pick", "prompts-fill",
+  markLive(["copy15", "sw:rw-text", "sw:q15", "pin15", "pinjump15", "pinlist15", "u-edit", "rw-what", "rw-go", "undo", "inspect", "slash6-pick", "prompts-fill",
     "mention-pick", "queue15", "qup15", "qrm15", "roommenu", "spendmenu", "project"]);
+  on("copy15", (el) => copyMessage(el));
   on("pin15", (el) => togglePin(el));
   on("pinjump15", (el) => jump(el));
   on("pinlist15", (el) => openPop(el, pinsPop()));
