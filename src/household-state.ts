@@ -63,22 +63,25 @@ export function ownRunIds(app: Branch): Set<string> {
     .filter((run) => mayAnswerHere(store, { runId: run.id, sessionId: run.sessionId })).map((run) => run.id));
 }
 
-/** What was allowed for the person's own tasks only: the owner's record narrowed to them, and counted from that. */
-function ownAllowed(app: Branch, own: Set<string>): OwnerStateParts["allowed"] {
-  const mine = app.store.audit.list(app.runtime.owner, { limit: 1000 }).filter((entry) => entry.runId !== null && own.has(entry.runId));
-  const counts = auditActions.map((action) => ({ action, label: auditLabel(action), count: mine.filter((entry) => entry.action === action).length }));
-  return { counts, recent: mine.slice(0, 20) };
-}
-
 /**
- * Q259: GET /api/audit and its spreadsheet for a household person: the owner's record, filtered as asked, narrowed to
- * the person's own tasks, then cut to the length asked for; the counts are counted from what they may see.
+ * The owner's record narrowed to the person's own tasks (filtered as asked, then cut to `limit`), and counted from
+ * what is left. Q259: GET /api/audit and its spreadsheet read it too, not only GET /api/state.
  */
-export function ownAudit(app: Branch, query: AuditQuery): { entries: AuditEntry[]; counts: OwnerStateParts["allowed"]["counts"] } {
-  const own = ownRunIds(app);
+function ownRecord(app: Branch, own: Set<string>, query: Partial<AuditQuery>, limit: number) {
   const mine = app.store.audit.list(app.runtime.owner, { ...query, limit: 1000 }).filter((entry) => entry.runId !== null && own.has(entry.runId));
   const counts = auditActions.map((action) => ({ action, label: auditLabel(action), count: mine.filter((entry) => entry.action === action).length }));
-  return { entries: mine.slice(0, query.limit), counts };
+  return { entries: mine.slice(0, limit), counts };
+}
+
+/** What was allowed for the person's own tasks only: the owner's record narrowed to them, and counted from that. */
+function ownAllowed(app: Branch, own: Set<string>): OwnerStateParts["allowed"] {
+  const { entries, counts } = ownRecord(app, own, {}, 20);
+  return { counts, recent: entries };
+}
+
+/** Q259: GET /api/audit and its spreadsheet for a household person at the window. */
+export function ownAudit(app: Branch, query: AuditQuery): { entries: AuditEntry[]; counts: OwnerStateParts["allowed"]["counts"] } {
+  return ownRecord(app, ownRunIds(app), query, query.limit);
 }
 
 /** The same keys for a household person at the window: their own, or empty. */
