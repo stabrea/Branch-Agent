@@ -212,14 +212,16 @@ test("closing the owner's servers while one is still starting leaves no tools of
 /** Stands in front of the malware check and holds its `at`-th look from now until `release` is called. */
 function holdVet(app, at) {
   const malware = app.security.malware, real = malware.vet.bind(malware);
-  let looks = 0, held = false, release;
+  let looks = 0, held = false, done = false, release;
   const gate = new Promise((resolve) => { release = resolve; });
   malware.vet = async (command, args) => {
     looks += 1;
-    if (looks === at) { held = true; await gate; }
-    return real(command, args);
+    if (looks !== at) return real(command, args);
+    held = true;
+    await gate;
+    try { return await real(command, args); } finally { done = true; }
   };
-  return { held: () => held, release: () => release() };
+  return { held: () => held, done: () => done, release: () => release() };
 }
 
 // Review 2's LOW. Mutation: in OwnMcpServers.hostFor's register (src/mcp-own-servers.ts), drop
@@ -244,7 +246,9 @@ test("on demand, an older start that finishes after a newer one leaves the newer
   await switchOn(fx, id);
   assert.ok(await until(async () => (await serverOf(fx, id)).running && toolsOf(fx.app, id).length === 2), "the newer start finished first");
   vet.release();
-  await sleep(1000); // the older start carries on from the malware check and finds it was overtaken
+  // The older start carries on from the malware check: whatever startMcp puts in place next happens in that same step.
+  assert.ok(await until(vet.done), "the older start's held look has returned");
+  await sleep(100);
   const after = await serverOf(fx, id);
   assert.equal(after.running, true, "the newer start is still running");
   assert.equal(after.error, null, "and nothing of the older start was put on it");
