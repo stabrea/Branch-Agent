@@ -165,6 +165,11 @@ async function languageSelect(browser, W, E) {
   now = await shown(page);
   check("Español: cannot be picked", refused && now.value === "fr", `refused=${refused}, value=${now.value}`);
   check("Español: the engine still says fr", (await api("look")).language === "fr");
+  // A script can still set a disabled option; the window's own guard refuses it and draws the choice in force again.
+  await page.locator("#lang").evaluate((s) => { s.value = "es"; s.dispatchEvent(new Event("change", { bubbles: true })); });
+  await page.waitForFunction(() => document.getElementById("lang")?.value === "fr", null, { timeout: 5000 }).catch(() => null);
+  now = await shown(page);
+  check("Español set by script: refused, the engine still says fr and the select shows Français", (await api("look")).language === "fr" && now.value === "fr" && now.text === "Français", JSON.stringify(now));
 
   await page.reload();
   await page.waitForFunction(() => document.documentElement.lang === "fr", null, { timeout: 30000 });
