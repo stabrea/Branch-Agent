@@ -64,12 +64,12 @@ async function openSettingsPage(page, id) {
   await page.locator(`[data-act="setpage"][data-v="${id}"]`).click();
   await page.locator(`[data-act="setpage"][data-v="${id}"][aria-current="true"]`).waitFor();
 }
-const backToBranch = (page) => page.locator('.set-nav [data-act="view"][data-v="chat"]').click();
+const backToBranch = (page) => page.locator(".set-nav .set-back").click();
 /** Appearance › The pet › Squirrel, then back to the conversation. */
 async function petOn(page) {
   await openSettingsPage(page, "appearance");
-  await page.locator('[data-act="petset"][data-v="squirrel"]').click();
-  await page.locator('[data-act="petset"][data-v="squirrel"][aria-pressed="true"]').waitFor();
+  await page.locator('[data-act="petset"][data-v="squirrel"]').first().click();
+  await page.locator('[data-act="petset"][data-v="squirrel"][aria-pressed="true"]').first().waitFor();
   await backToBranch(page);
   if (await page.evaluate(() => innerWidth <= 760)) await page.locator('[data-act="side"]').filter({ visible: true }).first().click();
   await page.locator("#side #pet-cv").waitFor();
@@ -84,6 +84,20 @@ async function ownBackground(page) {
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DAwMDAxMDAwMAAAAwGAQFm2g5eAAAAAElFTkSuQmCC", "base64");
 const stored = (page) => page.evaluate(async () => (await indexedDB.databases()).some((db) => db.name === "branch-delight"));
 const status = (page, words) => page.getByRole("status").filter({ hasText: words }).first().waitFor();
+
+/** The window looks for what the engine earned when it redraws (shell/celebrate.js check, on each draw, at most every
+    10 s). A person using the window redraws it all the time; here the list's show/hide switch is pressed twice now and
+    then, which redraws it and changes nothing, until the celebration shows. (That nothing is looked for without a redraw
+    is checked in achievement-medal-card.) */
+async function celebrated(page, selector, text) {
+  const target = text ? page.locator(selector, { hasText: text }) : page.locator(selector);
+  for (let i = 0; i < 40; i++) {
+    if (await target.first().isVisible()) return;
+    await page.evaluate(() => { const b = document.querySelector('[data-act="side-toggle"]'); b?.click(); document.querySelector('[data-act="side-toggle"]')?.click(); });
+    await target.first().waitFor({ timeout: 1000 }).catch(() => undefined);
+  }
+  await target.first().waitFor({ timeout: 1000 });
+}
 
 /**
  * Notes every timer and animation frame asked for by a delight file, before the page's own scripts run,
@@ -124,7 +138,7 @@ test("off by default: no pet, no own background, no achievements, and their choi
   const settings = (await f.call("/api/delight")).settings;
   assert.deepEqual([settings.pets.on, settings.achievements.on, settings.background.on], [false, false, false], "each ships off");
   await openSettingsPage(f.page, "appearance");
-  assert.equal(await f.page.locator('[data-act="petset"][data-v="none"]').getAttribute("aria-pressed"), "true", "the pet waits in Appearance");
+  assert.equal(await f.page.locator('[data-act="petset"][data-v="none"]').first().getAttribute("aria-pressed"), "true", "the pet waits in Appearance");
   assert.equal(await f.page.locator('[data-act="bgset"][data-v="own"]').getAttribute("aria-pressed"), "false", "your own background waits in Appearance");
   assert.equal(await f.page.locator('[data-act="petwhere15"]').count(), 0, "the pet's own choices wait until it is on");
   const timers = await f.page.evaluate(() => globalThis.__delightTimers), fetched = await f.page.evaluate(() => globalThis.__delightFetches);
@@ -250,7 +264,7 @@ test("achievements: what a real task earns arrives as a seven-second note, once;
   await f.app.runtime.run({ prompt: "one" });
   await f.page.reload();
   await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  await f.page.locator(".ach-toast").waitFor({ timeout: 20000 });
+  await celebrated(f.page, ".ach-toast");
   const note = await f.page.locator(".ach-toast").textContent();
   assert.match(note, /Achievement unlocked/);
   // One at a time, the highest tier first (shell/celebrate.js); the one shown is told to the engine.
@@ -266,7 +280,7 @@ test("achievements: what a real task earns arrives as a seven-second note, once;
   f.app.store.save("settings", f.app.runtime.owner, "delight-achievements", { ...progress, got: { ...progress.got, [diamond.id]: "2026-09-25" }, fresh: [diamond.id] });
   await f.page.reload();
   await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  await f.page.locator(".ach-big .card").waitFor({ timeout: 20000 });
+  await celebrated(f.page, ".ach-big .card");
   const card = await f.page.locator(".ach-big .card").boundingBox(), box = await f.page.locator("#prompt").boundingBox();
   assert.ok(card.y + card.height <= box.y || card.y >= box.y + box.height, "the card never covers the message box");
   await f.page.getByRole("button", { name: "Nice", exact: true }).click();
@@ -281,7 +295,7 @@ test("Keep things still shows the card without falling leaves", async (t) => {
   f.app.store.save("settings", f.app.runtime.owner, "delight-achievements", { got: { [high]: "2026-09-25" }, fresh: [high] });
   await f.page.reload();
   await f.page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
-  await f.page.locator(".ach-big .card").waitFor({ timeout: 20000 });
+  await celebrated(f.page, ".ach-big .card");
   const ink = await f.page.locator(".ach-big canvas").evaluate((canvas) => canvas.width > 0 && canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data.some((value, i) => i % 4 === 3 && value > 0));
   assert.equal(ink, false, "no confetti falls");
   assert.deepEqual(f.errors, []);

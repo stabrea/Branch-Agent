@@ -46,19 +46,24 @@ async function openSettingsPage(page, id) {
   await page.locator(`[data-act="setpage"][data-v="${id}"][aria-current="true"]`).waitFor();
 }
 
-test("U1 the wake word is under Settings, Voice, and starts off with no word", async (t) => {
+test("U1 the wake word is under Settings, Voice, starts off, and switching it on is kept by the engine", async (t) => {
   const { app, page, errors } = await fixture(t);
   await openSettingsPage(page, "voice");
   assert.equal(app.store.get("settings", "local", "wake-word"), undefined, "a fresh install already saved something");
-  await page.locator('[data-act="setlevel"][data-v="advanced"]').click();
-  assert.deepEqual(errors, []);
-  // prototype.html: Talking › Listening (Off / Push to talk / Wake word), and Advanced › "Listening, more" › Wake word.
+  // prototype.html: Talking › Listening (Off / Push to talk / Wake word), drawn in place and greyed until wired
+  // (Coming soon, seg, checked at e5b8a610), and Advanced › "Listening, more" › Wake word, which is live.
   const listening = page.getByRole("group", { name: "Listening", exact: true });
-  assert.equal(await listening.count(), 1, "the Voice page has the prototype's Listening row");
-  assert.equal(await listening.getByRole("button", { name: "Wake word", exact: true }).count(), 1, "with Wake word among its choices");
+  assert.equal(await listening.getByRole("button", { name: "Wake word", exact: true }).count(), 1, "Wake word is among the Listening choices");
+  await page.locator('[data-act="setlevel"][data-v="advanced"]').click();
   const wake = page.getByRole("checkbox", { name: "Wake word", exact: true });
-  assert.equal(await wake.count(), 1, "and the Advanced Wake word switch");
+  await wake.waitFor();
   assert.equal(await wake.isChecked(), false, "off until chosen");
+  await wake.check();
+  let kept = app.store.get("settings", "local", "wake-word")?.data;
+  for (let i = 0; i < 30 && !(kept && kept.mode !== "off"); i++) { await page.waitForTimeout(100); kept = app.store.get("settings", "local", "wake-word")?.data; }
+  assert.ok(kept && kept.mode !== "off", `the engine keeps it on (${JSON.stringify(kept)})`);
+  await page.waitForFunction(() => document.querySelector('[role=group][aria-label="Listening"] [aria-pressed="true"]')?.textContent === "Wake word");
+  assert.deepEqual(errors, []);
 });
 
 test("U2 the pins card is under Settings, Permissions, starts empty, and its Pin a setting is greyed out", async (t) => {
@@ -68,12 +73,12 @@ test("U2 the pins card is under Settings, Permissions, starts empty, and its Pin
   await card.waitFor({ state: "visible" });
   assert.equal(await card.locator(".rows > *").count(), 0, "nothing is pinned yet");
   assert.equal(app.store.get("settings", "local", "settings-pins"), undefined);
-  // Redesign: Coming soon (pin-add8), checked at fc541c24; the pin and unpin flow is the skipped test below.
+  // Redesign: Coming soon (pin-add8), checked at e5b8a610; the pin and unpin flow is the skipped test below.
   assert.equal(await card.getByRole("button", { name: "Pin a setting", exact: true }).getAttribute("aria-disabled"), "true");
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (pin-add8), checked at fc541c24.
+// Redesign: Coming soon (pin-add8), checked at e5b8a610.
 test.skip("U2 the pins card pins one setting, and unpins it", async (t) => {
   const { app, page, errors } = await fixture(t);
   await openPlace(page, "settings:permissions");

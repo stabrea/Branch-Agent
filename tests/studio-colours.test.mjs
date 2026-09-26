@@ -18,7 +18,7 @@ const SAMPLE = ["#1F5139", "#133524", "#E07033", "#E4BA94", "#B0D0E0", "#D4A73A"
   "#FF8A5B", "#8DB082", "#F97316", "#BD93F9", "#88C0D0", "#FE8019", "#EBBCBA", "#7AA2F7", "#CBA6F7", "#A7C080"];
 
 /* Redesign: in the new window a Trunk's studio is "Edit Trunk…" (flows/trunk.js), opened from its conversation row's
-   menu; "New Trunk" is Coming soon (new-trunk). Its colours are prototype.html's eight swatches (COLOURS), each named by
+   menu; "New Trunk" makes "Trunk N" at once, with no studio (flows/trunk.js newTrunk). Its colours are prototype.html's eight swatches (COLOURS), each named by
    its colour; there is no "any colour" picker, no Letters face and no "Follow my theme" in the design. */
 const PROTOTYPE = ["#2F8C86", "#D8612A", "#8A5AA8", "#5E8C4A", "#4F6FA8", "#C9982E", "#B84A6B", "#56616B"];
 
@@ -74,9 +74,12 @@ test("DG-105 the studio offers the prototype's colours in its order, each named 
 
 test("DG-105 a chosen colour is kept as #rrggbb and comes back chosen after a reload", async (t) => {
   const { page, errors, call, connect } = await signedIn(t);
-  const made = (await (await call("POST", "/api/trunks", { name: "Gardener" })).json()).trunk;
-  await page.reload();
-  await connect();
+  /* New Trunk, the way a person makes one: the + menu's New Trunk names it and opens its conversation. */
+  await page.getByRole("button", { name: "New conversation, Trunk, room or automation" }).click();
+  await page.getByRole("menuitem", { name: "New Trunk" }).click();
+  let made;
+  for (let i = 0; i < 50 && !made; i++) { made = (await (await call("GET", "/api/trunks")).json()).trunks[0]; if (!made) await page.waitForTimeout(100); }
+  assert.ok(made, "New Trunk made one");
   await openEditor(page, made);
   await page.getByRole("button", { name: "Colour #D8612A", exact: true }).click();
   assert.deepEqual(await pressedColours(page), ["#D8612A"]);
@@ -122,7 +125,7 @@ const previewContrast = (page) => page.evaluate(() => {
 const trunks = async (call) => (await (await call("GET", "/api/trunks")).json()).trunks;
 
 // Redesign: replaced by the new window (prototype.html's studio has eight colours and no "any colour" circle; a new
-// Trunk's studio is Coming soon, new-trunk; the eight are checked live above).
+// Trunk has no studio of its own in the new window; the eight are checked live above).
 test.skip("DG-105 the studio offers the sample's twenty colours in its order, then any colour", async (t) => {
   const { page, errors } = await signedIn(t);
   await openAdd(page);
@@ -135,7 +138,7 @@ test.skip("DG-105 the studio offers the sample's twenty colours in its order, th
   assert.deepEqual(errors, []);
 });
 
-// Redesign: replaced by the new window (the new-Trunk studio is Coming soon, new-trunk, and there is no "any colour"
+// Redesign: replaced by the new window (New Trunk opens no studio, there is no "Create the Trunk", and no "any colour"
 // picker; keeping a chosen colour through a reload is checked live above).
 test.skip("DG-105 a chosen colour is kept as #rrggbb and comes back chosen after a reload", async (t) => {
   const { page, errors, call, connect } = await signedIn(t);

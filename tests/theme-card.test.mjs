@@ -53,7 +53,7 @@ const sections = (page) => page.$$eval(".set-col .sec > h2", (nodes) => nodes.ma
 
 test("DG-166/DG-040: Appearance has the prototype's sections, in its order", async (t) => {
   const { page, errors } = await appearance(t);
-  assert.deepEqual(await sections(page), ["Light or dark", "Theme", "Agents", "Background", "Reading", "The pet", "What's shown", "Language"]);
+  assert.deepEqual(await sections(page), ["Light or dark", "Theme", "Agents", "Background", "Reading", "The pet", "What’s shown", "Language"]);
   assert.deepEqual(await page.getByRole("group", { name: "Conversation width", exact: true }).getByRole("button").allInnerTexts(), ["Comfortable", "Wide", "Full"]);
   assert.deepEqual(errors, []);
 });
@@ -132,7 +132,7 @@ test.skip("DG-166: Contrast is two choices that still reach the terminal, and co
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (sw:a-still, "Keep things still"), checked at fc541c24; Conversation width is checked live
+// Redesign: Coming soon (sw:a-still, "Keep things still"), checked at e5b8a610; Conversation width is checked live
 // above.
 test.skip("DG-166: Conversation width and Keep things still are this card's own controls, saved, and nowhere else", async (t) => {
   const { page, errors, open } = await appearance(t);

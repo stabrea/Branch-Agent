@@ -137,7 +137,7 @@ test.skip("DG-160: Daylight really switches the window, keeps the theme, and is 
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (sw:lang), checked at fc541c24.
+// Redesign: Coming soon (sw:lang), checked at e5b8a610.
 test.skip("DG-160: in French the words change and the signs stay", async (t) => {
   const { page, errors } = await appearance(t);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));

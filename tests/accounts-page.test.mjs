@@ -114,7 +114,7 @@ test("A2 a new key can be given to a Trunk, saved on the Trunk, and a sign-in ne
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (toast: the account menu's "Which Trunks use it"), checked at fc541c24.
+// Redesign: Coming soon (toast: the account menu's "Which Trunks use it"), checked at e5b8a610.
 test.skip("A2 a Trunk's key is put back to the default", async (t) => {
   const { app, call, page, errors, open } = await fixture(t);
   await withAccounts(call);
@@ -138,7 +138,7 @@ test.skip("A2 a Trunk's key is put back to the default", async (t) => {
 });
 
 // Redesign: Coming soon (sw:ac-next, sw:ac-fall: the prototype's "When one runs out" in place of the fallback list),
-// checked at fc541c24.
+// checked at e5b8a610.
 test.skip("A3 when one runs low: the fallback order and the way to change it", async (t) => {
   const { call, page, errors, open } = await fixture(t);
   await withAccounts(call);
@@ -202,7 +202,7 @@ test("A5 chat apps show plain names, and a saved secret's value is never on the 
   await open();
   await openSettingsPage(page, "secrets");
   assert.equal((await page.content()).includes("sample-value-123"), false, "a secret's value is never shown");
-  await page.locator('[data-act="view"][data-v="chat"]').first().click();
+  await page.locator(".set-nav .set-back").click();
   await page.locator('#side [data-act="view"][data-v="customize"]').click();
   await page.locator('[data-act="ptab"][data-place="customize"][data-v="channels"]').first().click();
   // No brand marks shown; just service names

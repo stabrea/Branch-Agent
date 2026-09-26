@@ -43,6 +43,20 @@ async function fixture(t, width, tiers = []) {
   return { page, errors, fresh };
 }
 
+/** The window looks for what the engine earned when it redraws (shell/celebrate.js check, on each draw, at most every
+    10 s). A person using the window redraws it all the time; here the list's show/hide switch is pressed twice now and
+    then, which redraws it and changes nothing, until the celebration shows. (That nothing is looked for without a redraw
+    is the separate test "an earned achievement is looked for soon after the window opens".) */
+async function celebrated(page, selector, text) {
+  const target = text ? page.locator(selector, { hasText: text }) : page.locator(selector);
+  for (let i = 0; i < 40; i++) {
+    if (await target.first().isVisible()) return;
+    await page.evaluate(() => { const b = document.querySelector('[data-act="side-toggle"]'); b?.click(); document.querySelector('[data-act="side-toggle"]')?.click(); });
+    await target.first().waitFor({ timeout: 1000 }).catch(() => undefined);
+  }
+  await target.first().waitFor({ timeout: 1000 });
+}
+
 /* The note as a person meets it: what it covers in the title bar, whether it is inside the window, its words. */
 const note = (page) => page.evaluate(() => {
   const el = document.querySelector(".ach-toast"), box = el.getBoundingClientRect();
@@ -55,10 +69,20 @@ const note = (page) => page.evaluate(() => {
     text: el.innerText, cut, role: el.getAttribute("role") };
 });
 
+test("an earned achievement is looked for soon after the window opens", async (t) => {
+  // prototype.html celebrates as the achievement is earned; an engine-earned one waiting when the window opens is
+  // looked for at once, without waiting for something else to redraw the window.
+  const { page, errors, fresh } = await fixture(t, 1440, ["Bronze"]);
+  await page.locator(".ach-toast").waitFor({ timeout: 5000 }).catch(() => undefined);
+  const looked = !(await fresh()).includes("tool:all:1") || await page.locator(".ach-toast").isVisible();
+  assert.equal(looked, true, "within 5 seconds of opening, the waiting Bronze is celebrated");
+  assert.deepEqual(errors, []);
+});
+
 for (const width of [1440, 860, 400]) {
   test(`DG-014 at ${width} px a Bronze achievement is the small note, read out, covering none of the title bar`, async (t) => {
     const { page, errors, fresh } = await fixture(t, width, ["Bronze"]);
-    await page.locator(".ach-toast").waitFor({ timeout: 20000 });
+    await celebrated(page, ".ach-toast");
     const seen = await note(page);
     assert.deepEqual(seen.covered, [], "it covers none of the title bar's buttons");
     assert.equal(seen.inWindow, true, "inside the window");
@@ -75,13 +99,13 @@ for (const width of [1440, 860, 400]) {
 
 test("DG-014 a Silver is the same note, and Gold still gets its party instead", async (t) => {
   const { page, errors } = await fixture(t, 1440, ["Silver"]);
-  await page.locator(".ach-toast").waitFor({ timeout: 20000 });
+  await celebrated(page, ".ach-toast");
   const seen = await note(page);
   assert.match(seen.text, /Night Owl by daylight · Silver/);
   assert.deepEqual(seen.covered, []);
   assert.deepEqual(errors, []);
   const gold = await fixture(t, 1440, ["Gold"]);
-  await gold.page.locator(".ach-big .card", { hasText: "20 themes tried" }).waitFor({ timeout: 20000 })
+  await celebrated(gold.page, ".ach-big .card", "20 themes tried")
     .catch(() => assert.fail("Gold keeps its party card"));
   assert.equal(await gold.page.locator(".ach-toast").count(), 0, "a Gold is not the small note");
   await gold.page.getByRole("button", { name: "Nice", exact: true }).click();

@@ -89,7 +89,7 @@ for (const [width, beside] of [[1440, true], [860, false], [400, false]]) {
 }
 
 // Redesign: replaced by the new window (no "Try a celebration" row in prototype.html); its French is Coming soon
-// (sw:lang), checked at fc541c24.
+// (sw:lang), checked at e5b8a610.
 test.skip("DG-134 in French the row speaks French, and a tier still shows its celebration", async (t) => {
   const { page, errors } = await fixture(t, 1440);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));

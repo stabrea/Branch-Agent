@@ -137,7 +137,7 @@ test("U2 at 400 px nothing scrolls sideways and the page fits", async (t) => {
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (sw:lang), checked at fc541c24.
+// Redesign: Coming soon (sw:lang), checked at e5b8a610.
 test.skip("U2 French: every word has a key, and French is real French", async (t) => {
   const { page, errors } = await fixture(t, 400);
   await openCard(page);
@@ -187,7 +187,7 @@ test.skip("U3 a sign-in list says once why sharing stopped, and an account can b
 });
 
 // Redesign: replaced by the new window (no pooling notice or "Kept separate" box in prototype.html); its French is
-// Coming soon (sw:lang), checked at fc541c24.
+// Coming soon (sw:lang), checked at e5b8a610.
 test.skip("U4 the notice and the Kept separate box fit at 400 px, carry keys, and read in French", async (t) => {
   const { page, errors } = await fixture(t, 400, oldSharedList);
   await openCard(page);

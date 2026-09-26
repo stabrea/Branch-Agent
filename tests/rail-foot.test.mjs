@@ -242,7 +242,7 @@ for (const width of [1440, 1024, 390]) {
   });
 }
 
-// Redesign: Coming soon (sw:lang), checked at fc541c24; and the icon line is replaced.
+// Redesign: Coming soon (sw:lang), checked at e5b8a610; and the icon line is replaced.
 test.skip("DG-094 in French the icon line speaks French", async (t) => {
   const { page, errors } = await signedIn(t, 1440);
   await page.evaluate(async () => { await (await import("/i18n.js")).setLanguage("fr"); });

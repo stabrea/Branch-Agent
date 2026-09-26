@@ -105,7 +105,7 @@ test.skip("DG-116 the foot stays on the card's bottom edge while its list is scr
   }
 });
 
-// Redesign: Coming soon (shell), checked at fc541c24: the Terminal tab draws "Open a terminal for me" greyed out.
+// Redesign: Coming soon (shell), checked at e5b8a610: the Terminal tab draws "Open a terminal for me" greyed out.
 test.skip("DG-117 the Terminal tab offers Open a terminal for me, the sample's small button, joining this conversation safely", async (t) => {
   const { page, errors, sessionId } = await fixture(t);
   await openCard(page);
@@ -168,7 +168,7 @@ test.skip("DG-118 the card's own close and Escape put it away, hand the keyboard
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (sw:lang), checked at fc541c24.
+// Redesign: Coming soon (sw:lang), checked at e5b8a610.
 test.skip("DG-115 in French all six tabs keep their names in the 340 px card", async (t) => {
   const { page, errors } = await fixture(t);
   await openCard(page);

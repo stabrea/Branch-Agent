@@ -56,7 +56,7 @@ const row = (page) => page.evaluate(() => {
 });
 
 // Redesign: replaced by the new window (prototype.html's Trunk studio, flows/trunk.js "Edit Trunk…", has no "Follow my
-// theme" row; a new Trunk's studio is Coming soon, new-trunk).
+// theme" row; New Trunk makes "Trunk N" with no studio).
 test.skip("DG-106 Follow my theme is the sample's switch row, and still follows the theme", async (t) => {
   const { page, errors } = await studio(t);
   const seen = await row(page);
@@ -79,7 +79,7 @@ test.skip("DG-106 Follow my theme is the sample's switch row, and still follows 
 });
 
 // Redesign: replaced by the new window (no "Follow my theme" row), and its French is Coming soon (sw:lang), checked at
-// fc541c24.
+// e5b8a610.
 test.skip("DG-106 in French the row's words are French", async (t) => {
   const { page, errors } = await studio(t);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));

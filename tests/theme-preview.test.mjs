@@ -145,7 +145,7 @@ test.skip("DG-039 narrower: a strip names the theme and opens both mirrors side 
 
 // Redesign: replaced by the new window (prototype.html's mirrors are pictures beside "Match this computer", not framed live
 // copies with chips, a strip or a flip; checked live above).
-// Its French is Coming soon (sw:lang), checked at fc541c24.
+// Its French is Coming soon (sw:lang), checked at e5b8a610.
 test.skip("DG-039 on a phone one mirror shows at a time, and a button flips to the other", async (t) => {
   const { page, errors } = await appearance(t, 400);
   await page.locator(".sg-strip").click();

@@ -146,7 +146,7 @@ test("background picker opens by mouse, Enter and Space; keeps filenames, errors
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (sw:lang), checked at fc541c24.
+// Redesign: Coming soon (sw:lang), checked at e5b8a610.
 test.skip("background picker keeps its accessible name when the language changes", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });

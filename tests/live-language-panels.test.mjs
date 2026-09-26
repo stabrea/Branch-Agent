@@ -41,7 +41,7 @@ async function onPage(t, provider) {
 
 const locale = async (name) => JSON.parse(await readFile(new URL(`../public/locales/${name}.json`, import.meta.url), "utf8"));
 
-// Redesign: Coming soon (sw:lang), checked at fc541c24: the window has no language change yet (Settings › Appearance ›
+// Redesign: Coming soon (sw:lang), checked at e5b8a610: the window has no language change yet (Settings › Appearance ›
 // Language is greyed out); prototype.html also has no label picker.
 test.skip("open panels follow a live language change: label picker, quiet hours and a chart's buttons", async (t) => {
   const answers = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
@@ -103,7 +103,7 @@ test.skip("open panels follow a live language change: label picker, quiet hours 
   assert.deepEqual(errors, []);
 });
 
-// Redesign: Coming soon (sw:lang), checked at fc541c24: the window has no language change yet.
+// Redesign: Coming soon (sw:lang), checked at e5b8a610: the window has no language change yet.
 test.skip("a branch's carry-back button follows a live language change, before and after it is pressed", async (t) => {
   const answers = { name: "scripted", async complete() { return { content: "The loft answer.", toolCalls: [] }; } };
   const { app, page, errors } = await onPage(t, answers);

@@ -106,7 +106,7 @@ test.skip("the corner matches the approved tile at every width, in both lights, 
   }
 });
 
-// Redesign: Coming soon (sw:lang), checked at fc541c24; and the corner tile is replaced (see above).
+// Redesign: Coming soon (sw:lang), checked at e5b8a610; and the corner tile is replaced (see above).
 test.skip("in French the corner keeps its size and the pet keeps its saved name", { timeout: 180000 }, async (t) => {
   const f = await fixture(t);
   const { page, errors } = await open(f, { width: 400, scheme: "dark", everything: false });
