@@ -4,7 +4,8 @@
    another (state.trunkWaiting; POST /api/trunks/messages/<id>/answer or /decline).
    Above every tab: each task Branch closed on that can be continued (state.attention with canContinue), picked up with
    POST /api/runs/<id>/resume or left with POST /api/runs/<id>/cancel. At the bottom of "Needs you": each request to change
-   Branch itself (GET /api/self-development/requests); its review shows the request, and answering it stays greyed.
+   Branch itself (GET /api/self-development/requests), waiting or prepared; its review shows the request and the engine's
+   bounded diff of it (GET /api/self-development/requests/<id>/diff), and answering or publishing it stays greyed.
    History's "Verify" walks the activity chain (POST /api/safety-extras/activity/verify) and shows what the engine found.
    "Watch again" plays a task back from its recording (GET /api/runs/<id>/recording): the engine's own frames, stepped or
    played; with recordings switched off the engine's sentence is shown. It never runs the task again. */
@@ -49,9 +50,11 @@ function cutCard(a) {
 const cutCards = () => (E.state.attention ?? []).filter((a) => a.canContinue).map(cutCard).join("");
 
 function selfCard(r) {
-  return `<div class="self15"><span class="ico-tile">${ic("branch", "s")}</span><span class="grow"><b>Branch wants to improve itself</b><small>${esc(firstLine(r.text))} · waiting for you</small></span><button class="btn sm" type="button" data-act="selfrev15" data-id="${esc(r.id)}">Review</button></div>`;
+  const stage = r.status === "approved" ? "edits approved, ready to publish" : "waiting for you";
+  return `<div class="self15"><span class="ico-tile">${ic("branch", "s")}</span><span class="grow"><b>Branch wants to improve itself</b><small>${esc(firstLine(r.text))} · ${stage}</small></span><button class="btn sm" type="button" data-act="selfrev15" data-id="${esc(r.id)}">Review</button></div>`;
 }
-const waitingChanges = () => changeRequests.filter((r) => r.status === "waiting");
+/* Waiting for the owner's yes, or prepared and so showing its edits before a draft is published. */
+const waitingChanges = () => changeRequests.filter((r) => r.status === "waiting" || r.status === "approved");
 
 const waitingCount = () => asks.length + E.state.trunkWaiting.length + installs.length;
 function needsTab() {
@@ -223,14 +226,29 @@ function stepReplay(el) {
   RP.timer = setInterval(() => { if (++i > last || !dialog()?.querySelector(".replay6")) return stopReplay(); drawReplay(i); }, 800);
 }
 
-/* The request as it was sent, who sent it and from which app; answering it needs the owner's contract terms and stays greyed. */
-function reviewChange(id) {
+/* The engine's bounded diff (GET /api/self-development/requests/<id>/diff): one block per changed file, new files by name,
+   and the engine's own sentence when there is nothing yet or something falls outside the contract. */
+function diffBlocks(d) {
+  const lines = (f) => f.lines.map((l) => `<span class="${l.m === "+" ? "d-add" : l.m === "-" ? "d-del" : ""}">${esc(l.m)} ${esc(l.t)}</span>`).join("");
+  const files = d.files.map((f) => `<div class="diff15"><div class="df-h15"><code>${esc(f.path)}</code><span>+${f.added} −${f.removed}</span></div><pre>${lines(f)}</pre></div>`).join("");
+  const added = d.untracked.map((p) => `<div class="diff15"><div class="df-h15"><code>${esc(p)}</code><span></span></div></div>`).join("");
+  return `${[d.note, d.warning].filter(Boolean).map((s) => `<p class="hint">${esc(s)}</p>`).join("")}${files}${added}`;
+}
+
+/* The request as it was sent, who sent it and from which app, and its diff before any yes. Answering it needs the owner's
+   contract terms, and publishing is asked in its conversation, so both stay greyed. */
+async function reviewChange(id) {
   const r = changeRequests.find((x) => x.id === id);
   if (!r) return;
-  const stages = [["Approve the edits"], ["Publish a draft pull request"]].map(([t], i) => `<li class="${i === 0 ? "now" : ""}"><em>${i + 1}</em>${t}</li>`).join("");
+  let diff;
+  try { diff = await api(`self-development/requests/${encodeURIComponent(r.id)}/diff`); } catch (error) { toast(error.message); return; }
+  const editing = r.status === "approved";
+  const stages = [["Approve the edits", editing], ["Publish a draft pull request", false]].map(([t, d], i) => `<li class="${d ? "done" : (i === 0 && !editing) || (i === 1 && editing) ? "now" : ""}"><em>${d ? ic("check", "s") : i + 1}</em>${t}</li>`).join("");
+  const foot = editing ? `<button class="btn pri" type="button" data-act="selfdo15" data-v="published" data-id="${esc(r.id)}">Publish the draft</button>`
+    : `<button class="btn ghost" type="button" data-act="selfdo15" data-v="gone" data-id="${esc(r.id)}">Decline</button><button class="btn pri" type="button" data-act="selfdo15" data-v="editing" data-id="${esc(r.id)}">Approve the edits</button>`;
   openDlg({ title: "A change to Branch’s own code", wide: true,
-    body: `<p data-css="margin:0 0 10px">${esc(r.text)}</p><p class="hint">${esc([r.from?.senderName, r.from?.channel, when(r.at)].filter(Boolean).join(" · "))}</p>${r.problem ? `<p class="hint">${esc(r.problem)}</p>` : ""}<ol class="stages15">${stages}</ol>`,
-    foot: `<button class="btn ghost" type="button" data-act="selfdo15" data-v="gone" data-id="${esc(r.id)}">Decline</button><button class="btn pri" type="button" data-act="selfdo15" data-v="editing" data-id="${esc(r.id)}">Approve the edits</button>` });
+    body: `<p data-css="margin:0 0 10px">${esc(r.text)}</p><p class="hint">${esc([r.from?.senderName, r.from?.channel, when(r.at)].filter(Boolean).join(" · "))}</p>${r.problem ? `<p class="hint">${esc(r.problem)}</p>` : ""}${diffBlocks(diff)}<ol class="stages15">${stages}</ol>`,
+    foot });
 }
 
 export function init() {

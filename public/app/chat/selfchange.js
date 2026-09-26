@@ -3,7 +3,9 @@
    card shows it under the reply that made it: the assistant's reason, each setting now and after, and whether the
    engine's throwaway try started cleanly. Apply is POST /api/never-break/proposal/accept, which saves it for the next
    start and says so in its own words; Not now is POST /api/never-break/proposal/discard. A suggestion whose try did not
-   start cleanly can only be put away: the engine refuses to apply it, and the card says why in the engine's words. */
+   start cleanly can only be put away: the engine refuses to apply it, and the card says why in the engine's words.
+   Once applied, Roll back is POST /api/never-break/rollback, which puts back the timings from before it (the engine
+   refuses when they have changed since, in its own words). */
 
 import { esc, render, renderNow } from "../core/dom.js";
 import { api } from "../core/api.js";
@@ -37,40 +39,51 @@ export async function loadSelfChange(sessionId, messages) {
   if (!key || G.asked === key) return;
   G.asked = key;
   await readGateway();
-  if (G.view?.proposal) render();
+  if (G.view?.proposal || G.view?.accepted) render();
 }
 
-function changedRows(p, now) {
-  return Object.keys(p.config).filter((k) => k !== "mode" && k !== "workerEnv" && p.config[k] !== now[k])
-    .map((k) => `<tr><th>${esc(k)}</th><td>${esc(now[k])}</td><td><b>${esc(p.config[k])}</b></td></tr>`).join("");
+function changedRows(after, before, struck) {
+  return Object.keys(after).filter((k) => k !== "mode" && k !== "workerEnv" && after[k] !== before[k])
+    .map((k) => `<tr><th>${esc(k)}</th><td>${struck ? `<s>${esc(before[k])}</s>` : esc(before[k])}</td><td><b>${esc(after[k])}</b></td></tr>`).join("");
 }
+const lastBy = (messages, m, p) => madeBy(m, p) && messages.filter((x) => madeBy(x, p)).at(-1) === m;
+const cardOf = (pill, why, rows, rest, acts) => `<div class="b"><div class="gut"></div><div><div class="card self10"><div class="card-h"><b>${ic("gear", "s")}A change to Branch itself</b>${pill}</div>${why ? `<div class="sub">${esc(why)}</div>` : ""}
+    <table class="cmp6"><thead><tr><th></th><th>Now</th><th>After</th></tr></thead><tbody>${rows}</tbody></table>${rest}
+    <p class="hint" data-css="margin:6px 0 0">Branch asks before changing how it’s set up. It can never change its own program or your saved work by itself.${acts.undoable ? " Every change is kept and can be rolled back." : ""}</p>
+    <div class="acts">${acts.html}</div></div></div></div>`;
 
-/* The card, under the last reply of this conversation that made the waiting suggestion, while it waits. */
+/* The card, under the last reply of this conversation that made the suggestion: while it waits (Apply, Not now); once
+   accepted, the engine's journal of accepted changes (GET /api/never-break `accepted`) shows it applied with Roll back,
+   and rolled back after that. */
 export function selfCard(m, messages) {
-  const p = G.view?.proposal;
-  if (!p || !madeBy(m, p) || messages.filter((x) => madeBy(x, p)).at(-1) !== m) return "";
-  const ok = p.check?.ok === true;
-  const pill = ok ? '<span class="pill ok ml"><i></i>Tried on a throwaway copy · started cleanly</span>' : "";
-  const why = p.why ? `<div class="sub">${esc(p.why)}</div>` : "";
-  const refused = ok || !p.check?.detail ? "" : `<p class="hint">${esc(p.check.detail)}</p>`;
-  const apply = ok ? '<button class="btn pri sm" type="button" data-act="self-apply">Apply</button>' : "";
-  return `<div class="b"><div class="gut"></div><div><div class="card self10"><div class="card-h"><b>${ic("gear", "s")}A change to Branch itself</b>${pill}</div>${why}
-    <table class="cmp6"><thead><tr><th></th><th>Now</th><th>After</th></tr></thead><tbody>${changedRows(p, G.view.config ?? {})}</tbody></table>${refused}
-    <p class="hint" data-css="margin:6px 0 0">Branch asks before changing how it’s set up. It can never change its own program or your saved work by itself.</p>
-    <div class="acts">${apply}<button class="btn ghost sm" type="button" data-act="self-no">Not now</button></div></div></div></div>`;
+  const p = G.view?.proposal, a = G.view?.accepted;
+  if (p && lastBy(messages, m, p)) {
+    const ok = p.check?.ok === true;
+    const pill = ok ? '<span class="pill ok ml"><i></i>Tried on a throwaway copy · started cleanly</span>' : "";
+    const refused = ok || !p.check?.detail ? "" : `<p class="hint">${esc(p.check.detail)}</p>`;
+    const apply = ok ? '<button class="btn pri sm" type="button" data-act="self-apply">Apply</button>' : "";
+    return cardOf(pill, p.why, changedRows(p.config, G.view.config ?? {}, false), refused, { html: `${apply}<button class="btn ghost sm" type="button" data-act="self-no">Not now</button>` });
+  }
+  if (!a || !lastBy(messages, m, { why: a.why, config: a.after })) return "";
+  const back = !!a.rolledBackAt;
+  const pill = back ? '<span class="pill idle ml"><i></i>Rolled back</span>' : '<span class="pill done ml"><i></i>Applied</span>';
+  const acts = back ? "" : '<button class="btn sm" type="button" data-act="self-undo">Roll back</button><button class="btn ghost sm" type="button" data-act="setgo" data-v="self">See every change</button>';
+  return cardOf(pill, a.why, changedRows(a.after, a.before, !back), "", { html: acts, undoable: true });
 }
 
-async function answer(use) {
+async function answer(route) {
   try {
-    const done = await api(use ? "never-break/proposal/accept" : "never-break/proposal/discard", {});
-    if (use && done.note) toast(done.note);
+    const done = await api(route, {});
+    if (done.note) toast(done.note);
   } catch (error) { toast(error.message); }
   await readGateway();
   renderNow();
 }
 
 export function initSelfChange() {
-  markLive(["self-apply", "self-no"]);
-  on("self-apply", () => answer(true));
-  on("self-no", () => answer(false));
+  markLive(["self-apply", "self-no", "self-undo"]);
+  on("self-apply", () => answer("never-break/proposal/accept"));
+  on("self-no", () => answer("never-break/proposal/discard"));
+  /* Roll back: POST /api/never-break/rollback puts the timings from before the accepted change back, for the next start. */
+  on("self-undo", () => answer("never-break/rollback"));
 }

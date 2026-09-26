@@ -8,6 +8,7 @@ import { ic, av, toast, openPop, closePop, openDlg, closeDlg } from "../core/ui.
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
+import { propCard, initScheduleCard } from "./schedule-card.js";
 
 let heartbeat = null;
 let board = null;
@@ -81,6 +82,13 @@ function procedureRow(p) {
   const steps = Array.isArray(p.data?.definition?.steps) ? p.data.definition.steps.length : 0;
   return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(p.data?.definition?.name ?? '')}</b><small>${esc([`${steps} steps`, p.data?.status].filter(Boolean).join(' · '))}</small></span><button class="btn sm" type="button" data-act="proc-run" data-id="${esc(p.id)}">Run now</button><button class="btn sm" type="button" data-act="flow" data-id="${esc(p.id)}">Open</button></div>`;
 }
+/* A procedure that starts itself (GET /api/autonomy/procedures): its steps, its version once changed, and when it starts in
+   the engine's words. Open edits its steps as a proposal (flow-editor.js, data-v="auto"). */
+let autoProcedures = [];
+function autoRow(p) {
+  const small = [`${p.procedure.steps.length} steps`, p.version > 1 ? `version ${p.version}` : "", p.starts].filter(Boolean).join(" · ");
+  return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(p.procedure.name)}</b><small>${esc(small)}</small></span><button class="btn sm" type="button" data-act="proc-run" data-id="${esc(p.id)}">Run now</button><button class="btn sm" type="button" data-act="flow" data-id="${esc(p.id)}" data-v="auto">Open</button></div>`;
+}
 
 export function draw() {
   const tab = S.tabs.automations || "scheduled";
@@ -96,19 +104,19 @@ export function draw() {
 
   if (tab === "scheduled") {
     html += `<p class="hint" data-css="margin:4px 0 8px">Work a Trunk does on a schedule.</p>
-    <form class="nl" data-form="nl"><input class="inp" id="nl-in" placeholder="Describe it: &quot;every weekday at 8, check my inbox for invoices&quot;" aria-label="Describe a new automation"><button class="btn pri" type="submit" data-act="nl-add">Add</button></form>
+    <form class="nl" data-form="nl"><input class="inp" id="nl-in" placeholder="Describe it: &quot;every weekday at 8, check my inbox for invoices&quot;" aria-label="Describe a new automation"><button class="btn pri" type="submit" data-act="nl-add">Add</button></form>${propCard()}
     <div class="rows" data-css="margin-top:8px">${schedules.length ? schedules.map((s, i) => `<div class="prow">${av({id: s.id}, 34)}<span class="grow"><b>${esc(String(s.data?.prompt ?? '').split('\n')[0].slice(0, 80))}</b><small>${esc(s.data?.dueAt ? new Date(s.data.dueAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '')}</small></span><button class="btn sm" type="button" data-act="sched-run" data-id="${esc(s.id || '')}">Run now</button></div>`).join('') : ''}</div>
   <div class="sec ideas15"><div class="sec-h15"><h2>Ideas</h2><button type="button" class="link15" data-act="ideas15">See all ${IDEAS.length}</button></div><div class="idea-row15">${IDEAS.slice(0, 3).map(ideaCard).join('')}</div></div>`;
 
   } else if (tab === "procedures") {
     html += `<p class="hint" data-css="margin:4px 0 8px">Saved step-by-step routines, including ones a Trunk learned by watching you.</p>
     <div class="acts" data-css="margin:6px 0"><button class="btn" type="button" data-act="teach-start" ${E.trunks.length ? "" : "disabled"}>${ic('play', 's')}Show a Trunk how, once</button></div>
-    <div class="rows" data-css="margin-top:8px">${procedures.map(procedureRow).join('')}</div>
+    <div class="rows" data-css="margin-top:8px">${autoProcedures.map(autoRow).join('')}${procedures.map(procedureRow).join('')}</div>
   <div class="sec"><h2>Your saved prompts</h2><p class="hint" data-css="margin:0 0 8px">Things you ask for often. Each has its own command that works in the window, on the phone, in the terminal and in chat apps.</p><div class="rows">${(prompts?.prompts ?? []).slice(0, 3).map(p => `<div class="prow"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"></path></svg></span><span class="grow"><b>${esc(p.title ?? '')}${p.command ? ` <code>/${esc(p.command)}</code>` : ''}</b><small>${esc([p.group, String(p.body ?? '').slice(0, 40)].filter(Boolean).join(' · '))}</small></span><button class="btn sm" type="button" data-act="prompt-use" data-v="${esc(p.id ?? '')}">Use</button></div>`).join('')}</div><div class="acts" data-css="margin-top:10px"><button class="btn" type="button" data-act="prompt-new">${ic('plus', 's')}New prompt</button></div></div>`;
 
   } else if (tab === "triggers") {
     html += `<p class="hint" data-css="margin:4px 0 8px">Work that starts when something happens.</p>
-    <form class="nl" data-form="nl"><input class="inp" id="nl-in" placeholder="Describe it: &quot;when a PDF lands in Downloads, summarise it&quot;" aria-label="Describe a new automation"><button class="btn pri" type="submit" data-act="nl-add">Add</button></form>
+    <form class="nl" data-form="nl"><input class="inp soon" id="nl-in" placeholder="Describe it: &quot;when a PDF lands in Downloads, summarise it&quot;" aria-label="Describe a new automation" disabled aria-disabled="true" data-tip="Coming soon"><button class="btn pri soon" type="submit" disabled aria-disabled="true" data-tip="Coming soon">Add</button></form>
     <div class="rows" data-css="margin-top:8px">${triggers.length ? triggers.map((t, i) => `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(t.name ?? '')}</b><small>${esc(t.prompt ?? '')}</small></span><input class="sw" type="checkbox" id="auto-triggers-${i}" data-sw="trigger" data-id="${esc(t.id || '')}" ${t.enabled ? 'checked=""' : ''} aria-label="${esc(t.name ?? '')} on or off"></div>`).join('') : ''}</div>`;
 
     markLive(triggers.map((_, i) => `sw:auto-triggers-${i}`));
@@ -140,9 +148,11 @@ export async function after() {
       renderNow();
     }
   } else if (tab === "procedures") {
-    const fresh = await api("prompts").catch(() => null);
-    if (fresh && JSON.stringify(fresh) !== JSON.stringify(prompts)) {
-      prompts = fresh;
+    const [fresh, auto] = await Promise.all([api("prompts").catch(() => null), api("autonomy/procedures").catch(() => null)]);
+    const autoFresh = auto?.procedures ?? autoProcedures;
+    if ((fresh && JSON.stringify(fresh) !== JSON.stringify(prompts)) || JSON.stringify(autoFresh) !== JSON.stringify(autoProcedures)) {
+      prompts = fresh ?? prompts;
+      autoProcedures = autoFresh;
       renderNow();
     }
   }
@@ -209,8 +219,10 @@ export function init() {
   on("hb-every", (el) => (el.dataset.v === "off" ? saveHeartbeat(null, "off") : saveHeartbeat({ everyMinutes: +el.dataset.v }, "on")));
   on("hb-hours", (el) => (el.dataset.v === "always" ? saveHeartbeat({ activeHours: null }) : null));
   on("hb-rm", (el) => { const lines = linesOf(heartbeat); lines.splice(+el.dataset.i, 1); saveHeartbeat({ checklist: lines.join("\n") }); });
-  // A schedule needs a time the engine can read (dailyAt, weekdays, cron); nothing turns words into one yet, so "Add" is
-  // greyed (nl-add is not live) and pressing Enter in the box never submits the page.
+  // Scheduled: "Add" (and Enter, which presses it) asks the engine to read the words into a proposal card
+  // (schedule-card.js). Triggers: the engine has no reading of an event from words, so its "Add" stays greyed. The page
+  // itself is never submitted.
+  initScheduleCard();
   document.addEventListener("submit", (e) => { if (e.target.dataset?.form === "nl") e.preventDefault(); });
   document.addEventListener("submit", (e) => {
     if (e.target.dataset?.form !== "hb") return;

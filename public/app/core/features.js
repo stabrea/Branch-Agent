@@ -306,7 +306,7 @@ export const FEATURES = {
   "seg": "ready",
   "self-apply": "ready",
   "self-no": "ready",
-  "self-undo": "soon",
+  "self-undo": "ready",
   "selfdo15": "ready",
   "selfrev15": "ready",
   "sess-carry": "ready",

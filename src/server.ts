@@ -282,6 +282,8 @@ import { handlesSdkKitPath, sdkKitApi, SdkKitError } from "./sdk-kit.js"; // buc
 import { webPagesApi, WebPagesApiError } from "./web-pages.js"; // w911 (A0743, A1452) hook
 import { audit, csvCell } from "./audit.js";
 import { unifiedSearch } from "./unified-search.js";
+import { proposeSchedule } from "./schedule-words.js";
+import type { AnswerShape, ShapedAnswer } from "./answer-shape.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
 // Wave 6 (collaboration and workflows): sharing pages and links, labels and notes, workflows,
@@ -2031,7 +2033,14 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return { suggested: staged.length, proposals: staged, review };
   }
   if (request.method === "POST" && path === "/api/memory/hygiene") return app.store.memoryHygiene(owner, await readBody(request));
-  if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner) };
+  if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner), total: app.store.archivedMemoryCount(owner) };
+  // Purge all: every archived fact removed for good, the owner's alone. The confirm step is the word and how
+  // many archived facts the owner was shown; a count that no longer matches removes nothing.
+  if (request.method === "POST" && path === "/api/memory/archive/purge") {
+    app.store.profiles.requireOwner("Purging archived facts");
+    const { count } = z.object({ confirm: z.literal("purge"), count: z.number().int().min(1).max(1_000_000) }).strict().parse(await readBody(request));
+    return app.store.purgeArchivedMemory(owner, count);
+  }
   if (request.method === "POST" && path === "/api/memory/consolidate") return app.store.review.consolidate(app.runtime, owner);
   if (request.method === "GET" && path === "/api/memory/settings") return app.store.review.settings(owner);
   if (request.method === "POST" && path === "/api/memory/settings") return app.store.review.configure(owner, await readBody(request));
@@ -2116,6 +2125,12 @@ async function schedulesApi(app: Branch, request: IncomingMessage, path: string)
     if (request.method === "POST") return app.scheduler.create(scheduleContext(app), await readBody(request));
     throw new HttpError(404, "Endpoint not found");
   }
+  // Words to a schedule (src/schedule-words.ts): a proposal only, which the owner confirms with POST /api/schedules.
+  if (path === "/api/schedules/propose" && request.method === "POST") {
+    app.store.profiles.requireOwner("Your schedules");
+    return { proposal: await proposeSchedule(await readBody(request), { now: new Date(),
+      defaultTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone, askModel: (question, shape) => askAside(app, question, shape) }) };
+  }
   const match = /^\/api\/schedules\/([a-f0-9-]{36})(?:\/(trigger|remove))?$/.exec(path);
   if (!match) throw new HttpError(404, "Endpoint not found");
   const record = app.store.get("schedules", owner, match[1]!);
@@ -2130,6 +2145,22 @@ async function schedulesApi(app: Branch, request: IncomingMessage, path: string)
     return app.scheduler.remove(scheduleContext(app), record.id);
   }
   throw new HttpError(404, "Endpoint not found");
+}
+/**
+ * One question to the model in use, with no tools and a fixed answer shape, for words the engine cannot
+ * read itself. It is asked under a task of its own, kept like the morning brief's, so what it spent
+ * counts in the owner's usage and spending limits like any other model call.
+ */
+async function askAside(app: Branch, question: string, shape: AnswerShape): Promise<ShapedAnswer> {
+  const run = app.store.createRun(app.runtime.owner, "Reading a schedule from your words", undefined, false, "owner");
+  let answer: ShapedAnswer | undefined;
+  try {
+    const context = app.runtime.context({ runId: run.id, permissions: [], signal: AbortSignal.timeout(60_000) });
+    answer = await app.runtime.shaped(run, context, question, shape);
+    return answer;
+  } finally {
+    app.store.finish(run.id, answer?.status === "resolved" ? "completed" : "failed", answer?.status === "refused" ? answer.reason : "");
+  }
 }
 /** The owner's own hands, for a schedule they are adding or removing from the command line. */
 function scheduleContext(app: Branch) {

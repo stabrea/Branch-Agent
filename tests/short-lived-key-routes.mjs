@@ -26,7 +26,6 @@ export const ROUTES = {
   "/ap/v1/agent/tasks/:id/steps": "task POST",
   "/ap/v1/agent/tasks/:id/steps/:id": "look",
   "/mcp": "task POST,DELETE",
-  "/mcp.js": "look",
   "/v1/chat/completions": "task POST",
   "/v1/models": "look",
 
@@ -366,6 +365,7 @@ export const ROUTES = {
   "/api/autonomy/orders/:id/update": "owner POST",
   "/api/autonomy/procedures": "owner POST",
   "/api/autonomy/procedures/:id/pause": "owner POST",
+  "/api/autonomy/procedures/:id/propose": "owner POST",
   "/api/autonomy/procedures/:id/remove": "owner POST",
   "/api/autonomy/procedures/:id/resume": "owner POST",
   "/api/autonomy/procedures/:id/run": "owner POST",
@@ -678,6 +678,7 @@ export const ROUTES = {
   "/api/memory": "prefix",
   "/api/memory/": "prefix",
   "/api/memory/archive": "look",
+  "/api/memory/archive/purge": "owner POST", // Purge all removes archived facts for good: the owner's alone
   "/api/memory/archive/sample/restore": "other POST",
   "/api/memory/capacity": "owner POST",
   "/api/memory/checkpoints": "other POST",
@@ -727,6 +728,7 @@ export const ROUTES = {
   "/api/never-break/last-update": "secret-read", // Q55: what the owner's last update did is the owner's alone
   "/api/never-break/proposal/accept": "owner POST",
   "/api/never-break/proposal/discard": "owner POST",
+  "/api/never-break/rollback": "owner POST", // rolls back the last accepted gateway change: the owner's alone
   "/api/never-break/snapshot": "owner POST",
   "/api/never-break/telegram": "owner POST",
   "/api/obsidian": "owner POST",
@@ -928,6 +930,7 @@ export const ROUTES = {
   "/api/schedules/:id/gate": "owner POST",
   "/api/schedules/:id/remove": "other POST",
   "/api/schedules/:id/trigger": "task POST",
+  "/api/schedules/propose": "owner POST", // words to a schedule: may ask the model in use, so the owner's alone
   "/api/sdk-kit": "owner POST", // bucket 21: the switch for building on Branch
   // FQ-collaboration.unified-search: one query across conversations, workflows and the audit
   // record is a wider window than any one of those alone, so it is refused like a secret read.
@@ -948,6 +951,7 @@ export const ROUTES = {
   "/api/self-development/requests": "secret-read",
   "/api/self-development/requests/:id/approve": "owner POST",
   "/api/self-development/requests/:id/decline": "owner POST",
+  "/api/self-development/requests/:id/diff": "secret-read", // the change to Branch's own source, for the owner to read before a yes
   "/api/sessions": "look",
   "/api/sessions/": "prefix",
   "/api/sessions/:id": "look",
