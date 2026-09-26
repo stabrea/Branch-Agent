@@ -1,77 +1,58 @@
-/* Settings › notifications: bind real engine data and wire controls. */
-import { level } from "../../core/state.js";
+/* Settings › Notifications, 1:1 with the prototype's page, from the engine: how Branch gets your attention and whether
+   it updates itself (the comfort card "notify", POST /api/comfort { card, values }, merged), and quiet hours
+   (GET /api/calendar), named in the status line only while they are on. "A Trunk needs a yes", "A long task finishes"
+   and "Days off" have no engine setting of their own (the engine's working days are a set, not one day), so they are
+   drawn greyed. */
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
-import { render } from "../../core/dom.js";
+import { esc, render } from "../../core/dom.js";
 import { toast } from "../../core/ui.js";
+import { ctl, ctlSeg } from "../parts.js";
 
-let notifySettings = {
-  method: "system",
-  sound: "off",
-  autoUpdate: "off",
-  releaseChannel: "stable"
-};
+let notify = null;
+let quiet = null;
 
-async function loadNotifySettings() {
+async function loadNotify() {
   try {
-    const comfort = await api("comfort");
-    notifySettings = comfort.values?.notify || notifySettings;
-  } catch (err) {
-    console.error("Failed to load notification settings:", err);
-  }
+    const [comfort, calendar] = await Promise.all([api("comfort"), api("calendar")]);
+    notify = comfort.values?.notify ?? null;
+    quiet = calendar.settings?.quietHours ?? null;
+  } catch (error) { toast(error.message); }
   render();
 }
 
-async function saveNotifySettings(updates) {
-  try {
-    const merged = { ...notifySettings, ...updates };
-    await api("comfort", { card: "notify", values: merged });
-    notifySettings = merged;
-    render();
-  } catch (err) {
-    toast(err.message || "Failed to save notification settings");
-    render();
-  }
+async function saveNotify(part) {
+  try { notify = (await api("comfort", { card: "notify", values: part })).values?.notify ?? notify; } catch (error) { toast(error.message); }
+  render();
 }
 
-export function draw() {
-  const html = `<h1>Notifications</h1><p class="lede">When Branch may interrupt you.</p><div class="status"><span class="sdot "></span><div><b>Quiet hours are 10 PM to 7 AM</b><p>Approvals still wait in the Inbox; nothing pings you in that window.</p></div></div>
-    <div class="sec"><h2>Tell me when…</h2><div class="ctl"><b>Notifications</b><span class="right"><span class="seg" role="group" aria-label="Notifications"><button type="button" aria-pressed="${notifySettings.method === "window" ? 'true' : 'false'}" data-act="n-method" data-v="window">In the app</button><button type="button" aria-pressed="${notifySettings.method === "system" ? 'true' : 'false'}" data-act="n-method" data-v="system">And on the computer</button></span></span><small>In the app only, or also as system notifications.</small></div><div class="ctl"><b>Play a sound</b><span class="right"><span class="seg" role="group" aria-label="Play a sound"><button type="button" aria-pressed="${notifySettings.sound === "off" ? 'true' : 'false'}" data-act="n-sound" data-v="off">No</button><button type="button" aria-pressed="${notifySettings.sound === "chime" ? 'true' : 'false'}" data-act="n-sound" data-v="chime">A chime</button><button type="button" aria-pressed="${notifySettings.sound === "knock" ? 'true' : 'false'}" data-act="n-sound" data-v="knock">A knock</button></span></span><small>When Branch needs your attention.</small></div></div>
-    <div class="sec"><h2>Updates</h2><div class="ctl"><b>Check for updates</b><span class="right"><span class="seg" role="group" aria-label="Check for updates"><button type="button" aria-pressed="${notifySettings.autoUpdate === "off" ? 'true' : 'false'}" data-act="n-update" data-v="off">Never</button><button type="button" aria-pressed="${notifySettings.autoUpdate === "check" ? 'true' : 'false'}" data-act="n-update" data-v="check">Daily</button><button type="button" aria-pressed="${notifySettings.autoUpdate === "install" ? 'true' : 'false'}" data-act="n-update" data-v="install">Install when idle</button></span></span><small>Stable releases keep things working; Beta brings new features first.</small></div><div class="ctl"><b>Release channel</b><span class="right"><span class="seg" role="group" aria-label="Release channel"><button type="button" aria-pressed="${notifySettings.releaseChannel === "stable" ? 'true' : 'false'}" data-act="n-channel" data-v="stable">Stable</button><button type="button" aria-pressed="${notifySettings.releaseChannel === "beta" ? 'true' : 'false'}" data-act="n-channel" data-v="beta">Beta</button><button type="button" aria-pressed="${notifySettings.releaseChannel === "dev" ? 'true' : 'false'}" data-act="n-channel" data-v="dev">Dev</button></span></span><small></small></div></div>`;
+const seg = (title, sub, act, opts, cur) => `<div class="ctl"><b>${esc(title)}</b><span class="right"><span class="seg" role="group" aria-label="${esc(title)}">${opts.map(([v, l]) => `<button type="button" aria-pressed="${cur === v}" data-act="${act}" data-v="${v}">${esc(l)}</button>`).join("")}</span></span><small>${esc(sub)}</small></div>`;
 
-  return html;
+/* "21:00" as the prototype says it ("10 PM"), in this computer's own way of writing a time. */
+const clock = (hm) => { const [h, m] = String(hm).split(":").map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString([], { hour: "numeric", minute: m ? "2-digit" : undefined }); };
+const status = () => (quiet?.enabled ? `<div class="status"><span class="sdot "></span><div><b>Quiet hours are ${esc(clock(quiet.from))} to ${esc(clock(quiet.to))}</b><p>Approvals still wait in the Inbox; nothing pings you in that window.</p></div></div>` : "");
+
+export function draw() {
+  const n = notify ?? {};
+  return `<h1>Notifications</h1><p class="lede">When Branch may interrupt you.</p>${status()}
+    <div class="sec"><h2>Tell me when…</h2>${ctl("n-need", "A Trunk needs a yes", "Shows on this computer and your phone.", false)}${ctl("n-done", "A long task finishes", "Only tasks over two minutes.", false)}
+      ${seg("Notifications", "In the app only, or also as system notifications.", "n-method", [["window", "In the app"], ["system", "And on the computer"]], n.method)}
+      ${seg("Play a sound", "When Branch needs your attention.", "n-sound", [["off", "No"], ["chime", "A chime"], ["knock", "A knock"]], n.sound)}</div>
+    <div class="sec"><h2>Quiet</h2>${ctlSeg("Days off", "No notifications at all on these days.", ["Sat", "Sun", "None"], "")}</div>
+    <div class="sec"><h2>Updates</h2>${seg("Check for updates", "Stable releases keep things working; Beta brings new features first.", "n-update", [["off", "Never"], ["check", "Daily"], ["install", "Install when idle"]], n.autoUpdate)}
+      ${seg("Release channel", "", "n-channel", [["stable", "Stable"], ["beta", "Beta"], ["dev", "Dev"]], n.releaseChannel)}</div>`;
 }
 
 export function init() {
-  loadNotifySettings();
-
-  on("n-method", (el) => {
-    const value = el.dataset.v;
-    saveNotifySettings({ method: value });
-  });
-
-  on("n-sound", (el) => {
-    const value = el.dataset.v;
-    saveNotifySettings({ sound: value });
-  });
-
-  on("n-update", (el) => {
-    const value = el.dataset.v;
-    saveNotifySettings({ autoUpdate: value });
-  });
-
-  on("n-channel", (el) => {
-    const value = el.dataset.v;
-    saveNotifySettings({ releaseChannel: value });
-  });
-
+  loadNotify();
+  on("n-method", (el) => saveNotify({ method: el.dataset.v }));
+  on("n-sound", (el) => saveNotify({ sound: el.dataset.v }));
+  on("n-update", (el) => saveNotify({ autoUpdate: el.dataset.v }));
+  on("n-channel", (el) => saveNotify({ releaseChannel: el.dataset.v }));
   markLive(["n-method", "n-sound", "n-update", "n-channel"]);
 }
 
-export const live = {
-  "n-method": true,
-  "n-sound": true,
-  "n-update": true,
-  "n-channel": true,
-};
+export function load() { return loadNotify(); }
+
+export const live = { "n-method": true, "n-sound": true, "n-update": true, "n-channel": true };
