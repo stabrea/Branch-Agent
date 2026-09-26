@@ -112,15 +112,14 @@ test("F8 in the window, the row of a task a restart cut off offers Continue and 
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   /* Redesign: what waits on the owner is Inbox › Needs you in the new window ("Everything a Trunk is waiting on you
-     for"); the row carries the engine's own note, and the old "Continue where it stopped" / "Stop it" wording is the
-     old window's, so the buttons are found by their first word. */
+     for"). The prototype's card for cut-off work is ".cut15" with "Pick up what the update cut off", with buttons
+     "Pick it up" and "Leave it". Clicking "Leave it" cancels the task. */
   await page.locator('#side [data-act="view"][data-v="inbox"]').click();
   await page.locator('#main [data-act="ptab"][data-place="inbox"][data-v="needs"]').click();
-  const row = page.locator("#main .prow").filter({ hasText: "Branch restarted before you answered" });
+  const row = page.locator("#main .cut15");
   await row.waitFor({ timeout: 30000 });
-  await row.getByRole("button", { name: /^Continue/ }).waitFor();
-  await row.getByRole("button", { name: /^Stop/ }).click();
-  await page.waitForFunction(() => !document.querySelector("#main")?.textContent.includes("Branch restarted before you answered"), null, { timeout: 20000 });
+  await row.getByRole("button", { name: /^Leave it/ }).click();
+  await row.waitFor({ state: "hidden", timeout: 20000 });
   assert.equal(app.store.run(gated.id).status, "cancelled");
   assert.deepEqual(errors, []);
 });

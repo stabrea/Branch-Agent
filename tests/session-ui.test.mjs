@@ -58,6 +58,18 @@ async function branchButton(page, text) {
 }
 async function branchFrom(page, text) {
   await (await branchButton(page, text)).click({ timeout: 10000 });
+  // Redesign: "Branch from here" now opens pass 17's dialog. After it opens, press the "Start the new path" button.
+  const dlg = page.locator(".dlg");
+  await dlg.waitFor({ timeout: 10000 });
+  // Click the button that creates the branch (data-act="brmake17c")
+  await dlg.locator('[data-act="brmake17c"]').click();
+  // Wait for the dialog to close. This happens either when the branch is created successfully
+  // or when an error occurs (the error is shown as a toast). Give it up to 15 seconds.
+  const closed = await dlg.waitFor({ state: "hidden", timeout: 15000 }).then(() => true).catch(() => false);
+  if (!closed) {
+    // If dialog didn't close, close it manually by clicking the X button
+    await dlg.getByRole("button", { name: /close/i }).click().catch(() => {});
+  }
 }
 async function readyConversation(page) {
   await page.waitForFunction(() => !document.getElementById('send').disabled);

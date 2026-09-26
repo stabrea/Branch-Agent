@@ -61,6 +61,9 @@ const row = (page, words) => page.locator('#side [data-act="chat"]').filter({ ha
    control that the conversation really was drawn again. */
 async function redrawn(page) {
   await page.evaluate(() => { globalThis.__draws = 0; new MutationObserver(() => globalThis.__draws++).observe(document.getElementById("main"), { childList: true }); });
+  // Redesign: since #341, an unchanged view is redrawn only after the person acts in it.
+  // Dispatch a click on #scroll before the theme flip.
+  await page.locator('#scroll').dispatchEvent('click');
   await page.locator('#tbActions [data-act="theme-flip"]').click();
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.ok(await page.evaluate(() => globalThis.__draws) > 0, "control: the conversation was drawn again");
@@ -199,6 +202,8 @@ test("a slash command on the empty screen leaves no send under way: Recents stil
   let runs = 0;
   page.on("request", (request) => { if (request.url().endsWith("/api/run")) runs += 1; });
   await page.locator("#prompt").fill("/help");
+  // Redesign: in the prototype, the first Enter picks the command from the / list and the second runs it.
+  await page.locator("#prompt").press("Enter");
   await page.locator("#prompt").press("Enter");
   await page.waitForFunction(() => document.getElementById("prompt").value === "", null, { timeout: 20000 });
   await page.waitForFunction(() => !document.getElementById("send").disabled, null, { timeout: 20000 });

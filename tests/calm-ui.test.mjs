@@ -725,17 +725,22 @@ test.skip("calm: the sample-height message box has + on the left and one round b
 });
 
 /* Redesign: the empty conversation is the prototype's emptyChat(): "What should Branch do?" and suggestion chips
-   (data-act="sugg") that fill the box. The chips' words are the design's; what they do is checked. */
-test("calm: the empty screen offers three starting points that fill the box without sending", async (t) => {
+   (data-act="sugg") that send immediately (POST /api/run). The chips' words are the design's; what they do is checked. */
+test("calm: the empty screen offers three starting points that send as a run", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.locator("#main .empty-chat h1").waitFor({ state: "visible", timeout: 10000 });
   assert.equal((await f.page.locator("#main .empty-chat h1").innerText()).trim(), "What should Branch do?");
   const chips = f.page.locator('#main .empty-chat [data-act="sugg"]');
   assert.ok(await chips.count() >= 3, "at least three starting points");
   const words = (await chips.first().innerText()).trim();
+  const initialRuns = f.app.store.runs(f.app.runtime.owner).length;
   await chips.first().click();
-  assert.equal(await f.page.locator("#prompt").inputValue(), words, "the box holds the starting point");
-  assert.equal(await f.page.locator("#conversation .u").count(), 0, "nothing was sent");
+  // Wait for the run to appear in the store
+  await f.page.locator("#conversation .u").waitFor({ state: "visible", timeout: 10000 });
+  const newRuns = f.app.store.runs(f.app.runtime.owner);
+  assert.ok(newRuns.length > initialRuns, "a new run was sent");
+  const lastRun = newRuns[newRuns.length - 1];
+  assert.equal(lastRun.prompt, words, "the run has the chip's words as the prompt");
   assert.deepEqual(f.errors, []);
 });
 

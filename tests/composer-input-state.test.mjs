@@ -161,7 +161,8 @@ test("the model chip opens a real model picker without leaving the conversation"
   assert.equal(await menu.getByRole("menuitem", { name: /Accounts and order/ }).isVisible(), true);
   await menu.locator('[data-act="pick-model"]').first().click();
   await page.keyboard.press("Escape");
-  assert.equal(await page.locator("#conversation").isVisible(), true, "the conversation is still what is shown");
+  // Redesign: check #scroll instead of #conversation, because the empty screen has no thread now.
+  assert.equal(await page.locator("#scroll").isVisible(), true, "the conversation is still what is shown");
   said.push((await chip.locator(".lbl").innerText()).trim());
   await page.locator("#prompt").fill("Start a conversation");
   await page.locator("#send").click();

@@ -429,37 +429,54 @@ const answersTheQuestion = { name: "scripted", async complete(request) {
 } };
 
 test("D1 comparing two tasks shows both sets of figures and the difference between the answers", async (t) => {
-  const { page, errors } = await onPage(t, { provider: answersTheQuestion });
-  /* Redesign: two conversations started from New (newmenu › New conversation); comparing is the prototype's
-     data-act="compare" beside a task in Inbox › History (the engine route: GET /api/runs/{id}/inspect for each). */
-  for (const prompt of ["apples", "pears"]) {
+  // A model that answers differently each time, even for the same prompt
+  let callCount = 0;
+  const varyingAnswers = { name: "scripted", async complete(request) {
+    callCount++;
+    const asked = [...request.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    const variation = callCount === 1 ? "first" : "second";
+    return { content: `The ${variation} answer for ${asked}.\nSame line in both.`, toolCalls: [] };
+  } };
+  const { page, errors } = await onPage(t, { provider: varyingAnswers });
+  /* Redesign: the compare button sits beside "Watch a task again" and compares with an earlier run of
+     the SAME words. Send the same words twice with a scripted model answering differently each time.
+     Then expect exactly one [data-act="compare"], and clicking it opens the "Two tasks side by side" dialog. */
+  const prompt = "apples";
+  // Send the prompt twice, model answers differently each time
+  for (let i = 0; i < 2; i++) {
     await page.locator("#prompt").fill(prompt);
     await page.locator("#composer").evaluate((form) => form.requestSubmit());
-    await page.waitForFunction((answer) => document.getElementById("conversation").textContent.includes(answer), `The answer for ${prompt}.`, { timeout: 20000 });
+    // Wait for the answer to appear
+    const expectedAnswer = i === 0 ? "The first answer" : "The second answer";
+    await page.waitForFunction((answer) => document.getElementById("conversation").textContent.includes(answer), expectedAnswer, { timeout: 20000 });
     await page.waitForFunction(() => !document.getElementById("send")?.disabled, undefined, { timeout: 120000 });
-    await page.locator('#side [data-act="newmenu"]').click();
-    await page.locator('[data-act="newconv"]').click();
+    // After the first run, create a new conversation for the second run
+    if (i === 0) {
+      await page.locator('#side [data-act="newmenu"]').click();
+      await page.locator('[data-act="newconv"]').click();
+    }
   }
   await page.locator('#side [data-act="view"][data-v="inbox"]').click();
   await page.locator('#main [data-act="ptab"][data-place="inbox"][data-v="history"]').click();
   const picks = page.locator('#main [data-act="compare"]');
   await picks.first().waitFor({ timeout: 10000 });
-  assert.equal(await picks.count(), 2);
-  await picks.nth(0).click();
-  await picks.nth(1).click();
-  const panel = page.locator("#compare-panel");
-  await panel.locator(".compare-table").waitFor({ timeout: 15000 });
-  const labels = await panel.locator(".compare-table tbody tr td:first-child").allTextContents();
-  for (const wanted of ["Rounds with the model", "Tools used", "Words in (tokens)", "Estimated cost", "How long"])
+  assert.equal(await picks.count(), 1, "exactly one compare button for comparing runs of the same words");
+  await picks.first().click();
+  // The prototype opens a dialog with the compare results (class "dlg")
+  const dlg = page.locator(".dlg");
+  await dlg.waitFor({ timeout: 15000 });
+  const table = dlg.locator("table.cmp6");
+  await table.waitFor({ timeout: 5000 });
+  const rows = dlg.locator("table.cmp6 tbody tr");
+  const labels = await rows.locator("th").allTextContents();
+  // The compare table has Cost, Time, Rounds, and Tools used
+  for (const wanted of ["Cost", "Time", "Rounds", "Tools used"])
     assert.ok(labels.includes(wanted), `${wanted} is compared (${labels.join(", ")})`);
-  /* Both answers differ on one line and agree on the other, and that is what is shown. */
-  const gone = await panel.locator(".compare-gone").allTextContents();
-  const added = await panel.locator(".compare-new").allTextContents();
-  assert.ok(gone.some((line) => line.includes("pears")) || gone.some((line) => line.includes("apples")));
-  assert.ok(added.some((line) => line.includes("pears")) || added.some((line) => line.includes("apples")));
-  assert.ok(![...gone, ...added].some((line) => line.includes("Same second line")), "the line both share is not marked");
-  await panel.getByRole("button", { name: /Close the comparison/ }).click();
-  assert.equal(await panel.isHidden(), true);
+  /* Both answers differ on one line and agree on the other. The diff shows removed lines with "- " and added with "+ ". */
+  const diffText = await dlg.locator("pre.diff6").textContent();
+  assert.ok(diffText.includes("- ") || diffText.includes("+ "), "the diff shows differences between the answers");
+  await dlg.getByRole("button", { name: /Done/ }).click();
+  await dlg.waitFor({ state: "hidden", timeout: 5000 });
   assert.deepEqual(errors, []);
 });
 

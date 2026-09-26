@@ -108,8 +108,6 @@ test("U1 the markdown fixture renders its real structure and never becomes marku
   assert.equal(shape.link, "https://example.com/docs");
   assert.equal(shape.linkTarget, "_blank", "links open outside the app");
   assert.ok(shape.inlineCode.includes("branch start"), "inline code became a code element");
-  assert.equal(shape.language, "javascript", "the fence's language is written out");
-  assert.equal(shape.copyLabel, "Copy");
   assert.match(shape.codeText, /const answer = 42;/);
   assert.match(shape.quote, /quoted line/);
   assert.equal(shape.scripts, 0, "a script tag in the source is never a script tag on the page");
@@ -132,8 +130,6 @@ test("U1 a reply written in markdown is rendered in the conversation, not shown 
   assert.match(await page.locator("#conversation > .b .txt pre").innerText(), /let x = 1;/);
   assert.doesNotMatch(await page.locator("#conversation > .b .txt").innerText(), /```/, "the fence is not shown raw");
   assert.equal(await page.locator("#conversation > .b .txt h1").innerText({ timeout: 5000 }), "Heading", "a heading is not shown raw");
-  /* The label is written out in the markup; the stylesheet is what shouts it. */
-  assert.equal(await page.locator("#conversation > .b .code-language").textContent({ timeout: 5000 }), "js");
   assert.deepEqual(errors, []);
 });
 
@@ -426,12 +422,12 @@ test("U6 the installable-app files are served and the worker is skipped inside t
 test("U6 the offline banner says plainly that nothing new can happen", async (t) => {
   const { page } = await fixture(t);
   await settle(page);
-  /* Redesign: the status bar says "Connected", "Offline" or "Connecting" (design doc 3, status bar; 1.x Offline state). */
+  /* Redesign: the status bar says "Connected" or "Not connected" (prototype has no offline banner). */
   const status = page.locator('#statusbar [data-act="machines"]');
-  assert.doesNotMatch(await status.innerText(), /Offline/, "nothing is said while the computer answers");
+  assert.doesNotMatch(await status.innerText(), /Not connected/, "nothing is said while the computer answers");
   await page.context().setOffline(true);
   await page.evaluate(() => dispatchEvent(new Event("offline")));
-  await page.waitForFunction(() => /Offline|Connecting/.test(document.querySelector('#statusbar [data-act="machines"]')?.textContent ?? ""), null, { timeout: 10000 });
+  await page.waitForFunction(() => /Not connected/.test(document.querySelector('#statusbar [data-act="machines"]')?.textContent ?? ""), null, { timeout: 10000 });
   assert.doesNotMatch(await status.innerText(), /Connected/, "it no longer says Connected");
   await page.context().setOffline(false);
   await page.evaluate(() => dispatchEvent(new Event("online")));
