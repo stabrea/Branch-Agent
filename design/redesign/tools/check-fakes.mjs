@@ -23,12 +23,18 @@ const RULES = [
   [/\son(submit|click|input|change)=/, "inline event handler (the CSP refuses it)"],
   [/aria-(pressed|checked)=\\?"true\\?"|<input[^>]*\schecked[\s>]|<option[^>]*\sselected[\s>]/, "state written into markup (compute it)"],
   [/\|\|\s*["']\$\d/, "amount written in as a fallback"],
+  // bugfix-9 ("no nonsense demo language"): what the demo-language sweep took out must not come back.
+  [/["'`\/@][\w-]+(\.[\w-]+)*\.example(?![\w-]|s\b)(?!\.[a-z])/, "example address written in (leave the field empty)"],
+  [/\.length\s*\?\s*\w+\s*:\s*\[\s*\[\s*["']/, "made-up rows drawn when the engine has none (show nothing)"],
+  [/\b\d+ of them\b/, "count written into words (use the engine's count or none)"],
+  [/data-act=\\?["'](ckpt-demo|proto-reset|notes-toggle|note)\\?["']/, "prototype-only control (it has no feature behind it)"],
+  [/read out at \d|\bFive places\b/, "a time or count written in that the engine or window decides"],
 ];
 // A toast's own words must be the prototype's: any literal toast text has to appear in prototype.html.
 const PROTO = readFileSync("design/redesign/prototype.html", "utf8").replaceAll("’", "'");
 const toastWords = (line) => [...line.matchAll(/toast\((["'`])((?:(?!\1).)*)\1/g)].map((m) => m[2]).filter((t) => !t.includes("${"));
-// The tour's own copy names the model families; setup's textarea keeps the prototype's placeholder hint.
-const EXEMPT = { "public/app/flows/tour.js": ["prototype example model"], "public/app/flows/setup.js": ["prototype example name"] };
+// Setup's textarea keeps the prototype's placeholder hint.
+const EXEMPT = { "public/app/flows/setup.js": ["prototype example name"] };
 
 // The owner's decision: Branch has no demo or practice model; setup is how a model is chosen. Checked on every line,
 // comments included, so not even a note about one comes back.
@@ -50,6 +56,17 @@ for (const f of files) {
       if (!PROTO.includes(words.replaceAll("’", "'"))) { console.log(`${rel}:${i + 1}: toast words not in the prototype: ${words}`); bad++; }
     }
   });
+}
+// bugfix-9: the window's words now live in the locale files too (t()), so the words-only rules read every English
+// value there. Setup's describe-yourself hint keeps the prototype's placeholder, as setup.js did.
+const WORDS_ONLY = new Set(["prototype example name", "prototype example Trunk", "prototype example model",
+  "count written into words (use the engine's count or none)", "a time or count written in that the engine or window decides"]);
+const LOCALE_EXEMPT = { "window.flows.setup.describe-hint": ["prototype example name"] };
+for (const [key, value] of Object.entries(JSON.parse(readFileSync("public/locales/en.json", "utf8")))) {
+  for (const [re, why] of RULES) {
+    if (!WORDS_ONLY.has(why) || LOCALE_EXEMPT[key]?.includes(why)) continue;
+    if (re.test(`"${value}`)) { console.log(`public/locales/en.json ${key}: ${why}: ${`"${value}`.match(re)[0].trim()}`); bad++; }
+  }
 }
 console.log(bad ? `${bad} fake or forbidden thing(s)` : "fakes ok");
 process.exit(bad ? 1 : 0);

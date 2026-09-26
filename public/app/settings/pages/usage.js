@@ -123,7 +123,7 @@ async function loadGlance() {
 
 /* The ring and the save-progress offer (POST /api/usage/glance/settings, merged) and asking a service what is left
    (POST /api/usage/limits/settings, a three-way switch: on unless "off", turned on as "when-needed"). The tray has no
-   route, and "Show me" only plays the prototype's demo, so both stay greyed. */
+   route, so it stays greyed; the prototype's "Show me" only played its own demo, so it is not drawn. */
 const WIRES = {
   "u-ring": [() => glance?.settings?.ring === "shown", (on) => api("usage/glance/settings", { ring: on ? "shown" : "hidden" })],
   "u-ckpt": [() => glance?.settings?.saveProgress === "ask", (on) => api("usage/glance/settings", { saveProgress: on ? "ask" : "off" })],
@@ -134,7 +134,7 @@ const checked = (id) => (WIRES[id][0]() ? "checked" : "");
 function limitsSec() {
   return `<div class="sec"><h2>${t("glance.title")}</h2><p class="hint" data-css="margin:0 0 6px">${t("window.settings.usage.how-much-of-each-services-allowance")}</p><div class="lims flat">${(glance?.rows ?? []).map(limitRow).join("")}</div>
     <div class="ctl"><b>${t("window.settings.usage.the-ring-bottom-right")}</b><input class="sw" type="checkbox" id="u-ring" ${checked("u-ring")} aria-label="${t("window.settings.usage.show-the-ring")}" data-sw="ring"><small>${t("window.settings.usage.the-connection-used-next-how-much")}</small></div>
-    <div class="ctl"><b>${t("window.settings.usage.offer-to-save-progress-at-95")}</b><input class="sw" type="checkbox" id="u-ckpt" ${checked("u-ckpt")} aria-label="${t("window.settings.usage.offer-to-save-progress-at-95")}" data-sw="ckpt"><small>${t("window.settings.usage.it-only-asks-once-per-connection")} <button class="link" type="button" data-act="ckpt-demo">${t("window.settings.usage.show-me")}</button></small></div>
+    <div class="ctl"><b>${t("window.settings.usage.offer-to-save-progress-at-95")}</b><input class="sw" type="checkbox" id="u-ckpt" ${checked("u-ckpt")} aria-label="${t("window.settings.usage.offer-to-save-progress-at-95")}" data-sw="ckpt"><small>${t("window.settings.usage.it-only-asks-once-per-connection")}</small></div>
     <div class="ctl"><b>${t("settings-kit.name.usage-limits")}</b><input class="sw" type="checkbox" id="u-ask" ${checked("u-ask")} aria-label="${t("settings-kit.name.usage-limits")}" data-sw="set"><small>${t("window.settings.usage.only-openrouter-documents-a-way-to")}</small></div>
     <div class="ctl"><b>${t("window.settings.usage.show-usage-in-the-tray")}</b><input class="sw" type="checkbox" id="u-tray" aria-label="${t("window.settings.usage.show-usage-in-the-tray")}" data-sw="set"><small>${t("window.settings.usage.a-small-ring-by-the-clock")}</small></div></div>`;
 }

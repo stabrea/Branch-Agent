@@ -342,6 +342,8 @@ export interface RunOptions {
   source?: RunSource;
   /** Ask for a short plan first and work through it step by step. */
   plan?: boolean;
+  /** The engine's own ask, marked on the saved message (src/contracts.ts Message.system); never the person's words. */
+  system?: "trunk-intro";
   /** Have a reviewer check the finished answer before it is given. */
   verify?: boolean;
   /** Redesign phase 1: the mode a conversation started here is given (src/conversation-mode.ts). */
@@ -1133,6 +1135,7 @@ ${run.output.slice(0, 6000)}`;
         role: "user",
         content: options.prompt + picturesNote(options.images) + attachmentsNote(attached),
         ...(attached.length ? { attachments: attached } : {}),
+        ...(options.system ? { system: options.system } : {}),
       });
       options.onUserMessageId?.(userMessageId);
     }

@@ -61,7 +61,7 @@ const DECIDES = { allow: ["ok", "Allowed"], ask: ["warn", "Asks"], deny: ["no", 
 function ruleDlg() {
   const r = P.result;
   const res = r ? `<div class="res-line-b17">${DECIDES[r.decision] ? pill17(DECIDES[r.decision][0], say(DECIDES[r.decision][1])) : pill17("idle", r.decision)}<span><b>${esc(r.because)}</b><small></small></span></div>` : "";
-  openDlg({ title: t("window.settings.p17-permissions.test-a-rule"), body: `<p class="lead-b17">${t("window.settings.p17-permissions.nothing-runs-branch-only-says-what")}</p><div class="test-b17"><input class="inp" id="rule-in-b17" value="${esc(P.ruleQ ?? "")}" aria-label="${t("window.settings.p17-permissions.command-file-or-site")}"><button class="btn pri sm" type="button" data-act="rulerunb17">${t("window.settings.p17-permissions.test")}</button></div><div class="chips-b17">${[t("window.settings.p17-permissions.git-status"), "https://unknown.example"].map((t) => `<button type="button" class="chip-b17" data-act="rulepickb17" data-v="${esc(t)}">${esc(t)}</button>`).join("")}</div>${res}`,
+  openDlg({ title: t("window.settings.p17-permissions.test-a-rule"), body: `<p class="lead-b17">${t("window.settings.p17-permissions.nothing-runs-branch-only-says-what")}</p><div class="test-b17"><input class="inp" id="rule-in-b17" value="${esc(P.ruleQ ?? "")}" aria-label="${t("window.settings.p17-permissions.command-file-or-site")}"><button class="btn pri sm" type="button" data-act="rulerunb17">${t("window.settings.p17-permissions.test")}</button></div><div class="chips-b17">${[t("window.settings.p17-permissions.git-status")].map((t) => `<button type="button" class="chip-b17" data-act="rulepickb17" data-v="${esc(t)}">${esc(t)}</button>`).join("")}</div>${res}`,
     foot: `<button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });
 }
 const toolFor = (q) => (/^https?:\/\//i.test(q) ? "web.fetch" : /\s/.test(q) ? "shell.session.run" : "files.write");
@@ -76,7 +76,7 @@ async function runRule() {
 /* ---------- What Trunks may reach ---------- */
 function fwDlg(out = "") {
   const sentences = P.fw?.sentences ?? [];
-  openDlg({ title: t("window.settings.p17-permissions.what-trunks-may-reach"), body: `<ol class="fw-b17">${sentences.map((s) => `<li>${esc(s)}</li>`).join("")}</ol><div class="test-b17"><input class="inp" id="fw-in-b17" value="${esc(P.fwQ ?? "https://unknown.example")}" aria-label="${t("window.settings.p17-permissions.an-address-to-check")}"><button class="btn sm" type="button" data-act="fwtestb17">${t("window.settings.p17-permissions.check-an-address")}</button></div><p class="hint" id="fw-out-b17" data-css="margin:0">${esc(out)}</p>`,
+  openDlg({ title: t("window.settings.p17-permissions.what-trunks-may-reach"), body: `<ol class="fw-b17">${sentences.map((s) => `<li>${esc(s)}</li>`).join("")}</ol><div class="test-b17"><input class="inp" id="fw-in-b17" value="${esc(P.fwQ ?? "")}" aria-label="${t("window.settings.p17-permissions.an-address-to-check")}"><button class="btn sm" type="button" data-act="fwtestb17">${t("window.settings.p17-permissions.check-an-address")}</button></div><p class="hint" id="fw-out-b17" data-css="margin:0">${esc(out)}</p>`,
     foot: `<button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });
 }
 async function openFw() {

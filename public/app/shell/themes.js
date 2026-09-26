@@ -4,7 +4,7 @@
    themes you make and your own accent stay in this window, as the audit says the engine cannot hold them. */
 
 import { $, esc, applyCss, renderNow } from "../core/dom.js";
-import { E, S } from "../core/state.js";
+import { E, S, ownName } from "../core/state.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { openDlg, closeDlg, dialog, ic, toast } from "../core/ui.js";
@@ -77,7 +77,7 @@ function preview(c) {
   const css = Object.entries(varsFromEF(c, G.ced.edit)).map(([k, x]) => `${k}:${x}`).join(";");
   const rows = E.trunks.slice(0, 3).map((t, i) => `<span class="cp-row ${i ? "" : "cp-on"}"><i></i>${esc(t.name)}${i ? "" : "<em></em>"}</span>`).join("");
   const s = E.sessions.find((x) => (x.sessionId ?? x.id) === S.chat) ?? E.sessions[0];
-  const talk = s ? `<span class="cp-u">${esc(s.opening || s.title || "")}</span><span class="cp-b">${esc((s.lastMessage ?? "").slice(0, 90))}</span>` : "";
+  const talk = s ? `<span class="cp-u">${esc(ownName(s.sessionId ?? s.id) || s.opening || s.title || "")}</span><span class="cp-b">${esc((s.lastMessage ?? "").slice(0, 90))}</span>` : "";
   return `<div class="cprev" data-css="${css}"><div class="cp-side"><b>Branch</b>${rows}</div>
     <div class="cp-main">${talk}<span class="cp-chips"><i class="c-ok">${t("first-run-steps.done")}</i><i class="c-warn">${t("glance.estimate")}</i><i class="c-bad">${t("panels.state.stopped")}</i></span></div></div>
     <div class="ratings">${ratings(c).map(([t, x, w, ok]) => `<div class="rate ${ok ? "" : "poor"}"><span>${t}</span><b>${x.toFixed(1)}:1</b><small>${w}</small></div>`).join("")}</div>`;

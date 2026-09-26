@@ -71,3 +71,16 @@ export const ownerHere = () => E.profiles?.isOwner === true;
 /* The level control: Regular 0, Advanced 1, Technical 2. */
 export const LEVELS = { regular: 0, advanced: 1, technical: 2 };
 export const level = () => LEVELS[S.level] ?? 0;
+
+/* A conversation that is a Trunk's own (or one it retired) or a room's is named and drawn for it, as the prototype's
+   rowHtml and av(c) do: the Trunk's face, or a room's stack of two member faces (GET /api/trunks rooms[].members). */
+const ownTrunkOf = (id) => (id ? E.trunks.find((t) => t.chatSessionId === id || (t.retiredChats ?? []).includes(id)) : undefined);
+const roomOf = (id) => (id ? E.rooms.find((r) => r.sessionId === id) : undefined);
+export const ownName = (id) => ownTrunkOf(id)?.name || roomOf(id)?.name || "";
+export const roomFace = (room) => ({ kind: "room", members: (room?.members ?? []).map((m) => E.trunks.find((t) => t.id === m)).filter(Boolean) });
+export const chatFace = (id) => ownTrunkOf(id) ?? (roomOf(id) ? roomFace(roomOf(id)) : { kind: "main" });
+
+/* The engine's own ask that has a new Trunk introduce itself carries system: "trunk-intro" (src/trunks/index.ts). A
+   conversation saved before that marker has the ask unmarked, so only a message with no marker is matched by its words. */
+const OLD_INTRO = "Introduce yourself to the owner in two or three short sentences: your name, your role, and what you can help with. This is the first message of your own conversation.";
+export const trunkIntro = (m) => m.role === "user" && (m.system === "trunk-intro" || (!m.system && m.content === OLD_INTRO));
