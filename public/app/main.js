@@ -105,9 +105,13 @@ async function connect(refusal = "") {
    The session token is kept for the tab, so the window comes straight back. */
 function watchPerson() {
   let known = E.profiles ? activeId() : undefined;
-  setInterval(async () => {
-    const now = await api("profiles").catch(() => undefined);
-    if (now === undefined) return;
+  const timer = setInterval(async () => {
+    let now;
+    try { now = await api("profiles"); } catch (error) {
+      /* A refused key stops the asking: every refused request counts against signing in. */
+      if (error.status === 401 || error.status === 429) clearInterval(timer);
+      return;
+    }
     const id = now?.active?.id ?? null;
     if (known === undefined) known = id;
     else if (id !== known) location.reload();

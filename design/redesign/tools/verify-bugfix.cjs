@@ -502,8 +502,14 @@ async function shellLeftovers(page) {
   await page.locator("#side-q").fill("sc");
   await sleep(900);
   check("11 search: one letter is not sent to the engine; two are", !asked.includes("s") && asked.includes("sc"), JSON.stringify(asked));
-  const rows = await page.$$eval('#side .list .sr-row.msg9', (b) => b.map((x) => x.dataset.id));
-  check("11 search: each conversation's messages are listed once", rows.length === new Set(rows).size, `${rows.length} rows`);
+  /* One conversation whose two messages share a word: the engine finds it more than once, the list shows it once. */
+  const first = await call("run", { prompt: "quokkaword the first time" });
+  await call("run", { prompt: "quokkaword the second time", sessionId: first.sessionId });
+  const hits = (await call("search?q=quokkaword")).results.filter((h) => h.kind === "conversation");
+  await page.locator("#side-q").fill("quokkaword");
+  await until("message rows", async () => (await page.locator("#side .list .sr-row.msg9").count()) > 0, 10000).catch(() => undefined);
+  const rows = await page.$$eval("#side .list .sr-row.msg9", (b) => b.map((x) => x.dataset.id));
+  check("11 search: each conversation's messages are listed once", rows.length >= 1 && rows.length === new Set(rows).size, `engine hits ${hits.length}, rows ${rows.length}`);
   await page.locator("#side-q").fill("");
 }
 
