@@ -10,7 +10,8 @@ import { inFrench } from "./achievements-fr.js";
 
 /**
  * phase2/delight: the playful extras — a pet in the acorn's corner, achievements, and your own
- * background. Each has its own switch and every one ships off.
+ * background. Each has its own switch and, by the owner's rule (Q251, 2026-09-26: nothing here reaches outside,
+ * spends, sends data out or weakens a guard), every one ships on.
  *
  * Everything here is the owner's and stays on this computer: the switches and the achievements are
  * two records in Branch's own settings table, the owner's own picture never leaves the window at all
@@ -28,7 +29,7 @@ export class DelightError extends Error {
 }
 export const DelightSettingsSchema = z.object({
   pets: z.object({
-    on: z.boolean().default(false),
+    on: z.boolean().default(true),
     kind: z.enum(petKinds).default("squirrel"),
     name: z.string().trim().min(1).max(20).default("Hazel"),
     /** A small bubble in plain words about what Branch is doing. */
@@ -37,7 +38,7 @@ export const DelightSettingsSchema = z.object({
     tips: z.boolean().default(true),
   }).strict().prefault({}),
   achievements: z.object({
-    on: z.boolean().default(false),
+    on: z.boolean().default(true),
     /** Earned without any pop-up. */
     quiet: z.boolean().default(false),
   }).strict().prefault({}),
@@ -46,7 +47,7 @@ export const DelightSettingsSchema = z.object({
     style: z.enum(["pixel", "3d"]).default("pixel"),
   }).strict().prefault({}),
   background: z.object({
-    on: z.boolean().default(false),
+    on: z.boolean().default(true),
     /** How strongly the theme's own colour is laid over the picture, so text stays readable (20–90). */
     scrim: z.number().int().min(20).max(90).default(60),
     fit: z.enum(["fill", "fit", "tile"]).default("fill"),
