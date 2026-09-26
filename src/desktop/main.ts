@@ -37,7 +37,7 @@ import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 // 0.18.1: "Branch stopped responding — Restart" relaunches the app, and with it the local server.
 import { ipcMain } from "electron";
 import { registerRestartIpc } from "./restart-ipc.js";
-import { minimumSize, openingFor, readWindowState, writeWindowState } from "./window-state.js";
+import { minimumSize, openingFor, readWindowState, restoreBounds, writeWindowState } from "./window-state.js";
 import { overlayFor, registerWindowLookIpc } from "./window-chrome-ipc.js";
 import { registerEditMenu } from "./context-menu.js";
 import { recordDesktopCrash, type SpanStore } from "../tracing.js";
@@ -161,7 +161,9 @@ async function createWindow(
       partition: "persist:branch-agent",
     },
   });
-  // DG-177: the first launch fills the screen; later ones open the way the owner left the window.
+  // DG-177: the first launch fills the screen; later ones open the way the owner left the window. The size is put
+  // back before maximising and before anything is remembered, so un-maximising returns to it.
+  if (opening.bounds) restoreBounds(window, opening.bounds);
   if (opening.maximized) window.maximize();
   const remember = () => {
     if (window && !window.isDestroyed() && !window.isMinimized())

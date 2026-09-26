@@ -168,6 +168,8 @@ async function exportMemory(el) {
       return;
     }
     const archive = await api("memory/export");
+    /* The desktop app drops every download: there the archive goes to the Save dialog through its guarded export. */
+    if (typeof window.branchDesktop?.exportMemory === "function") { await window.branchDesktop.exportMemory(JSON.stringify(archive)); return; }
     save(new Blob([JSON.stringify(archive, null, 2)], { type: "application/json" }), `${archive.format}.json`);
   } catch (error) { toast(error.message); }
 }
