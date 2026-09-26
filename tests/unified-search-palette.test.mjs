@@ -21,6 +21,7 @@ async function fixture(t) {
   const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) }); // the first-run card (#323) is not what this is about
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     await browser.close();

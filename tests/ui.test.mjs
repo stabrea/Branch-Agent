@@ -19,6 +19,7 @@ test("browser UI connects, runs demo, finds it again, and fits mobile viewport",
   const root = await mkdtemp(join(tmpdir(), "branch-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) }); // the first-run card (#323) is not what this is about
   saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });

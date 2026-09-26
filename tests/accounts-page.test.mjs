@@ -32,6 +32,7 @@ async function fixture(t, width = 1440) {
   registerCliAgent(app.runtime.models, { id: "claude-code" }, {}, async () => ({ code: 0, stdout: "{}", stderr: "" }));
   app.runtime.models.configure(owner, { activePreset: "openai-work", fallbackOrder: ["anthropic-home"] });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  await fetch(new URL("/api/onboarding", server.url), { method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }) }); // the first-run card (#323) is not what this is about
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST",
@@ -231,7 +232,8 @@ test("A6 a household person with nothing shared sees no owner accounts and no co
   await page.locator(".set-col h1", { hasText: "Accounts" }).waitFor();
   await page.waitForTimeout(3500); // past one of the window's refreshes, which redraws the list
   assert.equal(await page.locator(".set-col .prow").count(), 0, "nothing is shared with Sam");
-  assert.deepEqual(asked.filter((path) => path.startsWith("/api/") && !/^\/api\/(accounts|state|activity|events)/.test(path)), [],
+  // /api/profiles is the window noticing a profile switch every 2 s (#326), not the owner's data.
+  assert.deepEqual(asked.filter((path) => path.startsWith("/api/") && !/^\/api\/(accounts|state|activity|events|profiles)/.test(path)), [],
     "opening the page asks for nothing but the accounts (no Trunks)");
   assert.equal(await page.locator('.set-col [data-act="addacct"]:not([aria-disabled="true"])').count(), 0,
     "adding an account is the owner's: the engine refuses it for Sam");
