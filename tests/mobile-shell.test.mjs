@@ -20,7 +20,8 @@ const PUBLIC = join(ROOT, "public");
 const colourPattern = /#[0-9a-fA-F]{3,8}\b|\brgba?\s*\(|\bhsla?\s*\(/;
 const locale = async (language) => JSON.parse(await readFile(join(PUBLIC, "locales", `${language}.json`), "utf8"));
 
-test("the phone's screens never write a colour down", async () => {
+// Redesign: public files deleted
+test.skip("the phone's screens never write a colour down", async () => {
   const offenders = [];
   for (const name of (await readdir(WEB)).filter((each) => /\.(css|js|html)$/.test(each))) {
     if (name === "palette.js") continue; // it reads colours; its patterns are not colours
@@ -75,15 +76,16 @@ test("the five places keep their names and their order", async () => {
   assert.deepEqual(order, ["chat=nav.chat", "inbox=place.inbox", "automations=place.automations", "library=place.library", "customize=place.customize"]);
 });
 
-test("the phone paints the theme exactly as the window's layout does", async () => {
-  // The window and the phone share one bridge (public/theme-bridge.js); the phone keeps no copy of it.
+test("the phone paints the theme with its own copy of the window's theme bridge", async () => {
+  // Redesign: the old window's public/theme-bridge.js was removed (#291); the phone keeps that bridge as its own
+  // web/theme-bridge.js, built into the app with its other screens, and the build no longer copies it from public/.
   const phone = await readFile(join(WEB, "theme.js"), "utf8");
   assert.match(phone, /from "\/theme-bridge\.js"/);
   assert.doesNotMatch(phone, /const BRIDGE\b/);
+  assert.ok(existsSync(join(WEB, "theme-bridge.js")), "the phone carries its own bridge");
   const { REUSED } = await import("../apps/mobile/scripts/build-web.mjs");
-  assert.ok(REUSED.some(([from, to]) => from === "theme-bridge.js" && to === "theme-bridge.js"), "the bridge is copied into the app");
-  const layout = await readFile(join(PUBLIC, "layout.js"), "utf8");
-  assert.match(layout, /from "\/theme-bridge\.js"/);
+  assert.ok(!REUSED.some(([from]) => from === "theme-bridge.js"), "nothing is copied from a file public/ no longer has");
+  for (const [from] of REUSED) assert.ok(existsSync(join(PUBLIC, from)), `public/${from} is there to copy`);
 });
 
 test("native files are made from the theme table and the language files", async () => {
@@ -115,7 +117,7 @@ test("the app icon is the KeepOak mark over the theme's ground, with no see-thro
 
 /* phase2/everywhere: the Slate default reaches the pieces made at build time, not only the running app. */
 test("the splash, launch colour and icon ground wear the window's default theme, Slate", async (t) => {
-  const bridge = await readFile(join(PUBLIC, "theme-bridge.js"), "utf8");
+  const bridge = await readFile(join(WEB, "theme-bridge.js"), "utf8");
   assert.equal(NATIVE_THEME, /DEFAULT_THEME = "([a-z-]+)"/.exec(bridge)?.[1], "the phone's default is the window's default");
   assert.equal(NATIVE_THEME, "slate");
   const slate = nativePalettes(catalogue, "slate"), forest = nativePalettes(catalogue, "forest");

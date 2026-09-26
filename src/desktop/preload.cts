@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("branchDesktop", Object.freeze({
   exportConversation: (text: unknown) =>
     ipcRenderer.invoke("branch:export-conversation", text),
   exportMemory: (text: unknown) => ipcRenderer.invoke("branch:export-memory", text),
+  exportMemoryLines: (text: unknown) => ipcRenderer.invoke("branch:export-memory-lines", text),
   exportBackup: (text: unknown) => ipcRenderer.invoke("branch:export-backup", text),
   updateStatus: () => ipcRenderer.invoke("branch:update-status"),
   checkForUpdates: () => ipcRenderer.invoke("branch:update-check"),
@@ -15,4 +16,10 @@ contextBridge.exposeInMainWorld("branchDesktop", Object.freeze({
   openExternal: (url: unknown) => ipcRenderer.invoke("branch:open-external", url),
   restartBranch: () => ipcRenderer.invoke("branch:restart"),
   windowLook: (dark: unknown) => ipcRenderer.invoke("branch:window-look", dark),
+  // Pass 17: the quick-ask keys pressed in any app open the box; the page never sees the event itself.
+  onQuickAsk: (callback: unknown) => {
+    if (typeof callback !== "function") return;
+    ipcRenderer.on("branch:quick-ask", () => (callback as () => void)());
+  },
+  quickAskKeysChanged: () => ipcRenderer.invoke("branch:quick-ask-keys"),
 }));

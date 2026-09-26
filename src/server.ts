@@ -4,7 +4,7 @@ import {
   type ServerResponse,
   type Server,
 } from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { readFile, writeFile, lstat } from "node:fs/promises";
 import { dirname, extname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
@@ -35,6 +35,7 @@ import { refusedHosts } from "./integrations/desktop-config.js";
 import { draftFromRuns, testSkill } from "./skill-authoring.js";
 import { suggestSkills } from "./skill-suggest.js";
 import { healthReport, startedCleanly } from "./health.js";
+import { noModelWords } from "./no-model.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
@@ -61,6 +62,8 @@ import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFi
 import { TryToolSchema, toolForms, tryToolByHand } from "./playground.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import { exportTemplate, importTemplate } from "./templates.js";
+import { agentSections, agentSummary, exportAgent } from "./agent-export.js"; // p17: whole-agent export from the window
+import { applyPiiGuard } from "./pii.js"; // p17: memory leaves with personal details masked
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 // Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
 import { handlesRecordingPath, recordingApi, startEventLoopWatch } from "./run-recording-api.js";
@@ -109,6 +112,7 @@ import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-
 // mac2/fly-core-2: the learning core's owner routes.
 import { handlesLearningCorePath, learningCoreApi, LearningCoreApiError } from "./fly-core-api.js";
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
+import { conversationPathsApi, conversationPathsRoute, readMarksPath } from "./conversation-paths-api.js";
 import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
@@ -126,6 +130,8 @@ import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/
 import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
 import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
 import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
+import { safetyMode } from "./safety-extras/settings.js";
+import { runSteps } from "./run-steps.js"; // pass 17: Timeline and Helpers
 import { projectsApi, secretsApi } from "./owner-data-api.js";
 import { HttpError, readJsonBody as readBody } from "./server-http.js";
 import { handlesSourceRequestPath, sourceRequestsApi } from "./self-development-requests.js";
@@ -258,6 +264,7 @@ import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute,
 import { DelightError, delightRoute, handlesDelightPath } from "./delight.js"; // phase2/delight
 import { savingsRefusal } from "./short-lived-keys.js";
 import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
+import { appAskSettings, saveAppAskSettings } from "./desktop-app-ask.js"; // unhold-control
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
 import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
 import { comfortRefusal } from "./short-lived-keys.js";
@@ -280,13 +287,17 @@ import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
 import { handlesSdkKitPath, sdkKitApi, SdkKitError } from "./sdk-kit.js"; // bucket 21
 import { webPagesApi, WebPagesApiError } from "./web-pages.js"; // w911 (A0743, A1452) hook
 import { audit, csvCell } from "./audit.js";
+import { AppLockRefusal } from "./session-lock.js";
 import { unifiedSearch } from "./unified-search.js";
+import { proposeSchedule } from "./schedule-words.js";
+import type { AnswerShape, ShapedAnswer } from "./answer-shape.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
 // Wave 6 (collaboration and workflows): sharing pages and links, labels and notes, workflows,
 // the waiting line for tasks, days off and quiet hours, and the household's profiles.
 import { collabApi, collabState, notCollab, runForCurrentPerson } from "./collab-server.js";
 import { shareHtml, RedactionSchema } from "./conversation-share.js";
+import { askSpreadsheet } from "./data-ask.js"; // p17: Ask a spreadsheet
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 const actionSchema = z
@@ -466,305 +477,77 @@ function windowFiles(): Map<string, [string, string]> {
 async function staticFile(
   path: string,
   response: ServerResponse,
+  request?: IncomingMessage,
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
-    "/acorn.js": ["acorn.js", "text/javascript; charset=utf-8"],
-    // phase2/delight: the corner (acorn and pet), achievements and your own background.
-    "/delight.js": ["delight.js", "text/javascript; charset=utf-8"],
-    "/delight.css": ["delight.css", "text/css; charset=utf-8"],
-    "/delight-kit.js": ["delight-kit.js", "text/javascript; charset=utf-8"],
-    "/delight-pet.js": ["delight-pet.js", "text/javascript; charset=utf-8"],
-    "/delight-achievements.js": ["delight-achievements.js", "text/javascript; charset=utf-8"],
-    "/delight-background.js": ["delight-background.js", "text/javascript; charset=utf-8"],
-    "/delight-3d.js": ["delight-3d.js", "text/javascript; charset=utf-8"],
-    "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
-    "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
-    "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
+    // The window (public/index.html, public/app.css; its modules and art under /app/ and /art/ are served by exact file).
     "/": ["index.html", "text/html; charset=utf-8"],
-    "/app.js": ["app.js", "text/javascript; charset=utf-8"],
-    "/app.css": ["app.css", "text/css; charset=utf-8"], // redesign: the new window's one stylesheet
-    "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
-    // mac2/desktop-ui: this computer's own permission switches, and the Keychain list on a Mac.
-    "/os-permissions.js": ["os-permissions.js", "text/javascript; charset=utf-8"],
-    "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
-    // Wave 8: the composer's live-conversation button and everything behind it.
-    "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
-    "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
-    // Help in the app: the owner's handbook, opened in the pane on the right.
-    "/help.js": ["help.js", "text/javascript; charset=utf-8"],
-    "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
-    // FQ-collaboration: the seek-to-comment hook, for a media player screen to wire in.
-    "/media-comments.js": ["media-comments.js", "text/javascript; charset=utf-8"],
-    "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
-    "/media.js": ["media.js", "text/javascript; charset=utf-8"],
-    // FQ-surfaces.playback: an inline player for a sound or video file attached to a message.
-    "/playback.js": ["playback.js", "text/javascript; charset=utf-8"],
-    // Bucket 17: the video programs card and the speech plug-ins card.
-    "/media-programs.js": ["media-programs.js", "text/javascript; charset=utf-8"],
-    // Bucket 21: the "Building on Branch" and "Flows as files" cards.
-    "/sdk-kit.js": ["sdk-kit.js", "text/javascript; charset=utf-8"],
-    "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
-    "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
-    // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
-    "/docs-3.js": ["docs-3.js", "text/javascript; charset=utf-8"],
-    // Wave 9: what it noticed by itself, and the refresh that shows its cost first.
-    "/self-improving.js": ["self-improving.js", "text/javascript; charset=utf-8"],
-    "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
-    "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
-    // Wave mac5 (local models): the one-click block inside the same card.
-    "/local-oneclick.js": ["local-oneclick.js", "text/javascript; charset=utf-8"],
-    // mac7/clean-uninstall: the danger zone at the bottom of Settings.
-    "/danger-zone.js": ["danger-zone.js", "text/javascript; charset=utf-8"],
-    // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
-    "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
-    "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
-    // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
-    "/heartbeat.js": ["heartbeat.js", "text/javascript; charset=utf-8"],
-    "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
-    "/mcp-workbench.js": ["mcp-workbench.js", "text/javascript; charset=utf-8"],
-    "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
-    "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
-    "/tracing.js": ["tracing.js", "text/javascript; charset=utf-8"],
-    "/desktop.js": ["desktop.js", "text/javascript; charset=utf-8"],
-    "/linux-desktop.js": ["linux-desktop.js", "text/javascript; charset=utf-8"], // FQ-execution.desktop
-    "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
-    "/activity-log.js": ["activity-log.js", "text/javascript; charset=utf-8"], // mac7/diagnostics
-    "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
-    "/deployment.js": ["deployment.js", "text/javascript; charset=utf-8"],
-    "/pair": ["pair.html", "text/html; charset=utf-8"],
-    "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
-    "/pair.css": ["pair.css", "text/css; charset=utf-8"],
-    // Wave mac3: the owner's dashboard, and the card in Customize → Channels that switches it on.
-    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
-    "/dashboard/dashboard.css": ["dashboard/dashboard.css", "text/css; charset=utf-8"],
-    "/dashboard/dashboard.js": ["dashboard/dashboard.js", "text/javascript; charset=utf-8"],
-    "/dashboard/sections.js": ["dashboard/sections.js", "text/javascript; charset=utf-8"],
-    "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
-    "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
-    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
-    "/dashboard/commands.js": ["dashboard/commands.js", "text/javascript; charset=utf-8"],
-    // Wave mac3 (commands): the message box's / menu and the commands card.
-    "/commands.js": ["commands.js", "text/javascript; charset=utf-8"],
-    // Bucket 13 (mac4): the task recordings card and the "is Branch keeping up" card.
-    "/recordings.js": ["recordings.js", "text/javascript; charset=utf-8"],
-    // mac4/bucket-20: the cards for talking to other agents and tools, and ways of working.
-    "/interop.js": ["interop.js", "text/javascript; charset=utf-8"],
-    // Bucket 15: the add-ons card (Customize → Plugins).
-    "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
-    "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
-    "/devices.js": ["devices.js", "text/javascript; charset=utf-8"], // mac7/nodes
-    "/phone-app.js": ["phone-app.js", "text/javascript; charset=utf-8"], // mac7/phone-qr
-    "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
-    "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
-    "/settings-trunks.js": ["settings-trunks.js", "text/javascript; charset=utf-8"], // DG-193
-    // phase2/shell: faces, the Trunks strip, the studio, pairing, Overview and People
-    "/faces.js": ["faces.js", "text/javascript; charset=utf-8"],
-    "/faces.css": ["faces.css", "text/css; charset=utf-8"],
-    "/strip.js": ["strip.js", "text/javascript; charset=utf-8"],
-    "/topbar-crumbs.js": ["topbar-crumbs.js", "text/javascript; charset=utf-8"], // DG-099
-    "/rail-foot.js": ["rail-foot.js", "text/javascript; charset=utf-8"], // DG-094
-    "/lockdown-card.js": ["lockdown-card.js", "text/javascript; charset=utf-8"],
-    "/strip.css": ["strip.css", "text/css; charset=utf-8"],
-    "/studio.js": ["studio.js", "text/javascript; charset=utf-8"],
-    "/studio.css": ["studio.css", "text/css; charset=utf-8"],
-    "/pairing.js": ["pairing.js", "text/javascript; charset=utf-8"],
-    "/overview.js": ["overview.js", "text/javascript; charset=utf-8"],
-    "/people-place.js": ["people-place.js", "text/javascript; charset=utf-8"],
-    "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
-    "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
-    "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
-    "/safety-extras.js": ["safety-extras.js", "text/javascript; charset=utf-8"], // mac7/r17-g
-    "/vault-autofill.js": ["vault-autofill.js", "text/javascript; charset=utf-8"], // mac7/vault-autofill
-    "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
-    "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
-    "/memory-provider-ui.js": ["memory-provider-ui.js", "text/javascript; charset=utf-8"], // FQ-memory.providers
-    "/adapt.js": ["adapt.js", "text/javascript; charset=utf-8"], // mac7/adapt
-    "/learn.js": ["learn.js", "text/javascript; charset=utf-8"], // mac7/learn
-    "/popover.js": ["popover.js", "text/javascript; charset=utf-8"], // 0.18.1: how every popover opens and closes
-    "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
-    "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
-    // Wave 7: written-down experiments, under the evaluation card.
-    "/studies.js": ["studies.js", "text/javascript; charset=utf-8"],
-    // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
-    "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
-    // Batch 20 (wave 7): flows drawn as boxes and arrows under Procedures, and the suggested
-    // better versions of a skill under Skills.
-    "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
-    // Wave 9: the advisor switch and the two debate bounds.
-    "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
-    // FQ-collaboration.unified-search: the palette's fetch of GET /api/search, kept out of shell.js.
-    "/unified-search.js": ["unified-search.js", "text/javascript; charset=utf-8"],
-    // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
-    "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
-    "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
-    "/wake-word.js": ["wake-word.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
-    "/dictation.js": ["dictation.js", "text/javascript; charset=utf-8"], // mac7/live-voice
-    "/voice-listening.js": ["voice-listening.js", "text/javascript; charset=utf-8"], // DG-047
-    "/pins.js": ["pins.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
-    "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
-    // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
-    "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
-    "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
-    // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
-    "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
-    "/code-editor.js": ["code-editor.js", "text/javascript; charset=utf-8"], // bucket-18 (A0098)
-    // Wave 8: the Lockdown switch and the shape branched conversations make.
-    "/other.js": ["other.js", "text/javascript; charset=utf-8"],
-    "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
-    "/host-bridge.js": ["host-bridge.js", "text/javascript; charset=utf-8"], // FQ-execution.host-bridge
-    // Wave mac2: bringing your chats and memory over from another assistant.
-    "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
-    "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
-    // Wave mac2 (guards): the card that asks whether a folder is trusted.
-    "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
-    "/knobs.js": ["knobs.js", "text/javascript; charset=utf-8"], // R17-S-B: the hidden knobs
-    "/model-savings.js": ["model-savings.js", "text/javascript; charset=utf-8"], // R17-E
-    "/round-chart.js": ["round-chart.js", "text/javascript; charset=utf-8"], // R17-E (R17-049)
-    "/comfort.js": ["comfort.js", "text/javascript; charset=utf-8"], // R17-S-C
-    // mac3/never-break: the Keep running card and the Telegram setup card.
-    "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
-    // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
-    "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
-    // phase2/accounts: thinking levels per model, the Accounts page, the agent files editor.
-    "/thinking-levels.js": ["thinking-levels.js", "text/javascript; charset=utf-8"],
-    "/brand-marks.js": ["brand-marks.js", "text/javascript; charset=utf-8"],
-    "/accounts.css": ["accounts.css", "text/css; charset=utf-8"],
-    "/agent-files.js": ["agent-files.js", "text/javascript; charset=utf-8"],
-    "/service-marks.js": ["service-marks.js", "text/javascript; charset=utf-8"],
-    "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
-    // mac7/connect: the Set up panel for each chat app.
-    "/channel-setup.js": ["channel-setup.js", "text/javascript; charset=utf-8"],
-    "/channel-setup.css": ["channel-setup.css", "text/css; charset=utf-8"],
-    // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
-    "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
-    "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
-    // Wave mac3 (tool-safety): the card for the second look before an approval.
-    "/approval-reviewer.js": ["approval-reviewer.js", "text/javascript; charset=utf-8"],
-    "/jev-decisions.js": ["jev-decisions.js", "text/javascript; charset=utf-8"],
-    // Wave mac3 (os-sandbox): the card for the wall around programs.
-    "/os-sandbox.js": ["os-sandbox.js", "text/javascript; charset=utf-8"],
-    "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
-    "/style.css": ["style.css", "text/css; charset=utf-8"],
-    // App shell (wave 2): tokens, layout, appearance.
-    "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
-    "/shell.css": ["shell.css", "text/css; charset=utf-8"],
-    "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
-    // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
-    "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
-    "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
-    // R17-S-A (understandable settings): the settings kit, descriptions on every control, and first-run offers.
-    "/settings-kit.js": ["settings-kit.js", "text/javascript; charset=utf-8"],
-    "/settings-describe.js": ["settings-describe.js", "text/javascript; charset=utf-8"],
-    "/settings-descriptions.js": ["settings-descriptions.js", "text/javascript; charset=utf-8"],
-    "/first-run-next.js": ["first-run-next.js", "text/javascript; charset=utf-8"],
-    // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
-    "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
-    // mac3/security-check: the security self-check card.
-    "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
-    // bucket 12: saved prompts (Automations › Procedures) and the skill install record (Customize › Skills).
-    "/prompt-library.js": ["prompt-library.js", "text/javascript; charset=utf-8"],
-    "/skill-installs.js": ["skill-installs.js", "text/javascript; charset=utf-8"],
-    // bucket 19: the page people sign in on, and the owner's card for it (Settings, General).
-    "/people": ["people.html", "text/html; charset=utf-8"],
-    "/people.js": ["people.js", "text/javascript; charset=utf-8"],
-    "/people.css": ["people.css", "text/css; charset=utf-8"],
-    "/people-admin.js": ["people-admin.js", "text/javascript; charset=utf-8"],
-    // mac2/fly-core-2: the learning core's card.
-    "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
-    "/layout.css": ["layout.css", "text/css; charset=utf-8"],
-    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
-    // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
-    "/theme-bridge.js": ["theme-bridge.js", "text/javascript; charset=utf-8"],
-    // mac3/mobile integration: a phone paired in its browser sends its own secret on every request.
-    "/device-headers.js": ["device-headers.js", "text/javascript; charset=utf-8"],
-    "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
-    "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
-    // Wave 7: what a conversation is allowed to do right now, and the observability screens.
-    "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
-    "/labels-ui.js": ["labels-ui.js", "text/javascript; charset=utf-8"],
-    "/compare.js": ["compare.js", "text/javascript; charset=utf-8"],
-    "/activity-feed.js": ["activity-feed.js", "text/javascript; charset=utf-8"],
-    "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
-    // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
-    "/web-ui.js": ["web-ui.js", "text/javascript; charset=utf-8"],
-    // Wave 8: artifacts out of a reply, charts drawn in the page, the flow editor, reports, the
-    // to-do list, the log view and the page a local page of the owner's own can include.
-    "/artifacts.js": ["artifacts.js", "text/javascript; charset=utf-8"],
-    "/charts.js": ["charts.js", "text/javascript; charset=utf-8"],
-    "/reports.js": ["reports.js", "text/javascript; charset=utf-8"],
-    "/todos.js": ["todos.js", "text/javascript; charset=utf-8"],
-    "/logs.js": ["logs.js", "text/javascript; charset=utf-8"],
-    "/flow-editor.js": ["flow-editor.js", "text/javascript; charset=utf-8"],
-    // The small box a page of the owner's own can include. Nothing on this page imports it.
-    "/widget.js": ["widget.js", "text/javascript; charset=utf-8"],
-    "/bridges.js": ["bridges.js", "text/javascript; charset=utf-8"],
-    "/markdown.js": ["markdown.js", "text/javascript; charset=utf-8"],
-    "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
-    "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
-    "/plan-act.js": ["plan-act.js", "text/javascript; charset=utf-8"],
-    "/conversation-facts.js": ["conversation-facts.js", "text/javascript; charset=utf-8"],
-    "/follow-newest.js": ["follow-newest.js", "text/javascript; charset=utf-8"],
-    "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
-    "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
-    // phase2/everywhere: the window at phone and tablet widths
-    "/phone-layout.js": ["phone-layout.js", "text/javascript; charset=utf-8"],
-    "/phone-layout.css": ["phone-layout.css", "text/css; charset=utf-8"],
-    "/look-early.js": ["look-early.js", "text/javascript; charset=utf-8"],
-    "/rooms.js": ["rooms.js", "text/javascript; charset=utf-8"], // phase2/rooms
-    "/rooms.css": ["rooms.css", "text/css; charset=utf-8"], // phase2/rooms
-    "/voice-bar.js": ["voice-bar.js", "text/javascript; charset=utf-8"], // phase2/rooms
-    "/voice-view.js": ["voice-view.js", "text/javascript; charset=utf-8"], // phase2/rooms
-    "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
-    "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
-    // batch1/controls: single control factory (switches, segmented, dropdowns).
-    "/control-makers.js": ["control-makers.js", "text/javascript; charset=utf-8"],
-    // phase2/settings: Settings grown up (groups, levels, search over every setting).
-    "/settings-grown.js": ["settings-grown.js", "text/javascript; charset=utf-8"],
-    "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
-    "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
-    "/settings-rows.js": ["settings-rows.js", "text/javascript; charset=utf-8"], // DG-199
-    "/settings-row-levels.js": ["settings-row-levels.js", "text/javascript; charset=utf-8"], // DG-199
-    "/task-state.js": ["task-state.js", "text/javascript; charset=utf-8"], // Q51
-    "/team-tasks.js": ["team-tasks.js", "text/javascript; charset=utf-8"], // Q64
-    "/run-result.js": ["run-result.js", "text/javascript; charset=utf-8"], // Q52
-    "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
-    "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
-    // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
-    "/settings-kit.css": ["settings-kit.css", "text/css; charset=utf-8"],
-    // phase2/panels: the side panel's tabs, resizable panes, see-through message box, hide anything.
-    "/panels.js": ["panels.js", "text/javascript; charset=utf-8"],
-    "/panels.css": ["panels.css", "text/css; charset=utf-8"],
-    // FQ-surfaces.panes: compare topics side by side (public/topic-panes.js).
-    "/topic-panes.js": ["topic-panes.js", "text/javascript; charset=utf-8"],
-    "/topic-panes.css": ["topic-panes.css", "text/css; charset=utf-8"],
-    "/panels-hide.js": ["panels-hide.js", "text/javascript; charset=utf-8"],
-    "/composer-grown.js": ["composer-grown.js", "text/javascript; charset=utf-8"],
-    "/composer-grown.css": ["composer-grown.css", "text/css; charset=utf-8"],
-    "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
-    "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
-    "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
-    // batch1/controls: switch, segmented, and glass dropdown styling.
-    "/control-styles.css": ["control-styles.css", "text/css; charset=utf-8"],
-    "/web-ui.css": ["web-ui.css", "text/css; charset=utf-8"],
-    "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
-    "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
+    "/app.css": ["app.css", "text/css; charset=utf-8"],
+    "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
+    "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
+    "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
+    // The installable web app: its manifest, icons and service worker.
     "/manifest.webmanifest": ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
     "/service-worker.js": ["service-worker.js", "text/javascript; charset=utf-8"],
     "/assets/icon-192.png": ["assets/icon-192.png", "image/png"],
     "/assets/icon-512.png": ["assets/icon-512.png", "image/png"],
     "/assets/icon.svg": ["assets/icon.svg", "image/svg+xml"],
-    "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
-    "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
-    "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
+    "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
+    "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
+    // Pairing a phone in its browser (src/remote), and the page people sign in on (bucket 19); both use the shared tokens.
+    "/pair": ["pair.html", "text/html; charset=utf-8"],
+    "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
+    "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    "/people": ["people.html", "text/html; charset=utf-8"],
+    "/people.js": ["people.js", "text/javascript; charset=utf-8"],
+    "/people.css": ["people.css", "text/css; charset=utf-8"],
+    "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
+    // The people page's words (public/people.js imports it; the owner's dashboard does too).
+    "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
+    "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
+    "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
+    "/locales/es.json": ["locales/es.json", "application/json; charset=utf-8"],
+    // Wave mac3: the owner's dashboard (the old window's card that switched it on left with that window). While it is off, isDashboardFile keeps
+    // every /dashboard path unserved. Its stylesheets and modules, including its own copies of the words, the theme
+    // bridge, the oak, the look and the event reader that left public/ with the old window (#291):
+    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
+    "/dashboard/dashboard.css": ["dashboard/dashboard.css", "text/css; charset=utf-8"],
+    "/dashboard/style.css": ["dashboard/style.css", "text/css; charset=utf-8"],
+    "/dashboard/layout.css": ["dashboard/layout.css", "text/css; charset=utf-8"],
+    "/dashboard/control-styles.css": ["dashboard/control-styles.css", "text/css; charset=utf-8"],
+    "/dashboard/dashboard.js": ["dashboard/dashboard.js", "text/javascript; charset=utf-8"],
+    "/dashboard/commands.js": ["dashboard/commands.js", "text/javascript; charset=utf-8"],
+    "/dashboard/sections.js": ["dashboard/sections.js", "text/javascript; charset=utf-8"],
+    "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
+    "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
+    "/dashboard/i18n.js": ["dashboard/i18n.js", "text/javascript; charset=utf-8"],
+    "/dashboard/theme-bridge.js": ["dashboard/theme-bridge.js", "text/javascript; charset=utf-8"],
+    "/dashboard/grove.js": ["dashboard/grove.js", "text/javascript; charset=utf-8"],
+    "/dashboard/appearance.js": ["dashboard/appearance.js", "text/javascript; charset=utf-8"],
+    "/dashboard/activity-feed.js": ["dashboard/activity-feed.js", "text/javascript; charset=utf-8"],
+    // One theme's colours under Branch's token names; the engine reads it too (src/terminal-theme.ts, src/achievements.ts).
+    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    // Wave 8: the small box a page of the owner's own can include; served only while the owner has switched it on.
+    "/widget.js": ["widget.js", "text/javascript; charset=utf-8"],
   };
   const asset = Object.hasOwn(assets, path) ? assets[path] : windowFiles().get(path);
   if (!asset) return false;
   const body = await readFile(
     new URL("../public/" + asset[0], import.meta.url),
   );
+  /* rw4-language: the words (public/locales, ~465 KB for English) are kept by the browser and asked about again on
+     every start: an unchanged file answers 304 with no body, and a new build's words differ, so they come fresh. */
+  const words = path.startsWith("/locales/");
+  const etag = words ? `"${createHash("sha256").update(body).digest("base64url").slice(0, 27)}"` : "";
+  if (words && request?.headers["if-none-match"] === etag) {
+    response.writeHead(304, { etag, "cache-control": "no-cache" });
+    response.end();
+    return true;
+  }
   response.writeHead(200, {
     "content-type": asset[1],
-    "cache-control": "no-store",
+    "cache-control": words ? "no-cache" : "no-store",
+    ...(words ? { etag } : {}),
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
     "content-security-policy":
@@ -783,6 +566,8 @@ async function staticFile(
   return true;
 }
 const OnboardingSchema = z.object({ done: z.boolean(), completedAt: z.string().optional() }).strict();
+/** p17: which parts of the assistant go into the one file. */
+const AgentExportSchema = z.object({ sections: z.array(z.enum(agentSections)).min(1).max(agentSections.length) }).strict();
 function onboardingState(app: Branch): { done: boolean } {
   const saved = OnboardingSchema.safeParse(app.store.get("settings", app.runtime.owner, "onboarding")?.data ?? {});
   return { done: saved.success ? saved.data.done : false };
@@ -791,6 +576,7 @@ function onboardingState(app: Branch): { done: boolean } {
 async function testModel(app: Branch, body: unknown): Promise<unknown> {
   const { preset } = z.object({ preset: z.string().min(1).max(64).nullable().optional() }).strict().parse(body);
   const owner = app.runtime.owner;
+  if (!preset && !app.runtime.models.configured) throw new HttpError(400, noModelWords);
   const chosen = preset ? app.runtime.models.presets.get(preset) : app.runtime.models.plan(owner, "").candidates[0];
   if (!chosen) throw new HttpError(400, "That model is not configured");
   const started = Date.now();
@@ -964,8 +750,10 @@ async function settleAsked(app: Branch, asked: { runId: string; sessionId: strin
   // Only the owner's own task, answered by the owner at the window: never a key's (it records source "owner" too,
   // and a carry-on would lose its key mark), a household person's, or one that came from elsewhere (NAS 618407c).
   const origin = runOrigin(app.store, run.id);
+  // Pass 17 (Helpers): nor a helper's. Its carry-on would start in the helper's conversation as a task of the owner's
+  // own, without the narrower reach the helper was given; its question is answered and the helper is settled instead.
   const owners = asked.source === "owner" && origin.source === "owner" && !origin.shortLivedKey && !origin.keyIds.length
-    && !origin.personProfileId && !origin.lentTo;
+    && !origin.personProfileId && !origin.lentTo && !origin.parentRunId;
   if (decision === "allow" && owners && app.store.profiles.isOwner() && !startedWithShortLivedKey()) {
     // NAS 06a9508: the carry-on reads as the owner saying yes, so with a plan waiting for the owner's own answer in
     // that conversation it would agree to the plan too. Then nothing carries on by itself: the task keeps waiting,
@@ -997,14 +785,23 @@ async function settleAsked(app: Branch, asked: { runId: string; sessionId: strin
   return "settled";
 }
 function attention(app: Branch) {
-  type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; canContinue?: true; who?: string; room?: string; open?: string };
+  type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; parentRunId?: string; canContinue?: true; who?: string; room?: string; open?: string };
   return app.store.waitingRuns(app.runtime.owner).map((run): Waiting => {
     // phase2/rooms (integration review): a Trunk's question says which Trunk, and a room member's opens the room.
     const by = app.trunks.conversations.answerer(run.sessionId);
-    return { runId: run.id, sessionId: run.sessionId, question: waitingWords(app, run), createdAt: run.createdAt,
+    return { runId: run.id, sessionId: run.sessionId, question: waitingWords(app, run), createdAt: run.createdAt, ...helperMark(app, run.id),
       ...(run.status === "interrupted" ? { canContinue: true as const } : {}),
       ...(by ? { who: by.name, open: by.sessionId, ...(by.room ? { room: by.room } : {}) } : {}) };
   });
+}
+/**
+ * Pass 17 (Helpers): a helper's question (a task another task started, "run.started" parentRunId) names the task that
+ * started it. It is answered in that task's Activity › Helpers, so the window keeps it out of the Inbox's counts and list.
+ * Only a task that exists counts: the learning passes mark their own rows "learning".
+ */
+function helperMark(app: Branch, runId: string): { parentRunId?: string } {
+  const parent = app.store.events(runId).find((event) => event.kind === "run.started")?.data.parentRunId;
+  return typeof parent === "string" && app.store.run(parent) ? { parentRunId: parent } : {};
 }
 /** What a waiting task says: its question, or for one Branch closed on, the note that it can be continued. */
 function waitingWords(app: Branch, run: Run): string {
@@ -1019,7 +816,9 @@ function state(app: Branch): unknown {
   return {
     collab: collabState(app),
     provider: app.runtime.provider.name,
-    activeModel: app.runtime.models.plan(owner, "").choice,
+    // No model set up: nothing is named as answering, and the window shows these words with the way to set one up.
+    activeModel: app.runtime.models.configured ? app.runtime.models.plan(owner, "").choice : null,
+    modelNeeded: app.runtime.models.configured ? null : noModelWords,
     onboarding: onboardingState(app),
     attention: attention(app),
     // mac7/residuals (integration): a Trunk's message whose task stopped to ask; its card offers Answer and Not now. The owner's alone.
@@ -1363,7 +1162,10 @@ async function api(
   if (request.method === "POST" && path === "/api/tools/try") {
     // mac5/manual-actions: the same hand-pressed gate as /api/action, with its question kept, the
     // two-minute ceiling and the secret scrub; shared with the host-bridge card (src/playground.ts).
-    return tryToolByHand(app, TryToolSchema.parse(await readBody(request)));
+    const tried = TryToolSchema.parse(await readBody(request));
+    // unhold-control: a key bound to one conversation keeps what it runs in that conversation only.
+    if (tried.sessionId) requireBoundSession(shortLivedKeyMark().sessionId, tried.sessionId);
+    return tryToolByHand(app, tried);
   }
   // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
   // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.
@@ -1384,8 +1186,14 @@ async function api(
     });
   // A phone-sized list of conversations. It goes through the same door and needs the same key as
   // everything else, so a paired phone can pick up what was started at the computer.
-  if (request.method === "GET" && path === "/api/sessions")
-    return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
+  if (request.method === "GET" && path === "/api/sessions") {
+    const scope = app.store.profiles.scope();
+    const recent = app.store.recentSessions(scope, Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
+    // Pass 17: whether each has something the person has not seen (src/read-marks.ts).
+    return { ...recent, sessions: recent.sessions.map((s) => ({ ...s, unread: app.store.readMarks.unread(scope, s.sessionId) })) };
+  }
+  // Pass 17: named paths of a conversation, leaving a message out of context, and read marks.
+  if (conversationPathsRoute.test(path) || path === readMarksPath) return conversationPathsApi(app, request, path, () => readBody(request));
   // Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
   if (path === "/api/goals" || path === "/api/goal-undo/settings" || /^\/api\/sessions\/[a-f0-9-]{36}\/(goal|rewind|unrevert)$/.test(path))
     return goalUndoApi(app, request, path);
@@ -1410,6 +1218,11 @@ async function api(
   }
   if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  // p17: "Ask a spreadsheet" in Library › Documents, one read-only question over one of the owner's spreadsheets.
+  if (path === "/api/data/ask" && request.method === "POST") {
+    app.store.profiles.requireOwner("Asking a spreadsheet");
+    return askSpreadsheet({ documents: app.documents.list(app.runtime.owner), tables: app.dataTables }, await readBody(request));
+  }
   // FQ-collaboration: a comment pinned to a moment in a media file (video today), so it can be
   // reopened at the same position later.
   if (path.startsWith("/api/media-comments")) return mediaCommentsApi(app, request, path);
@@ -1542,6 +1355,9 @@ async function api(
   if (request.method === "GET" && path === "/api/os-permissions")
     return { permissions: await app.osPermissions.all(), ...permissionsContext() };
   // Batch 26 (wave 8): reading passwords out of the password manager the owner already has.
+  // Q255: the owner's alone, read and write; a household person is refused here, a short-lived key at the door.
+  if (path === "/api/credentials/settings" && (request.method === "GET" || request.method === "POST"))
+    app.store.profiles.requireOwner("Your password manager");
   if (request.method === "GET" && path === "/api/credentials/settings")
     return readCredentialSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/credentials/settings")
@@ -1569,6 +1385,18 @@ async function api(
     const desktop = await readBody(request);
     return recordedWrite(app.store, app.runtime.owner, byCard("desktop-control"), ["desktop-control"],
       () => saveDesktopSettings(app.store, app.runtime.owner, desktop));
+  }
+  // unhold-control: "Ask before opening an app it hasn't used", once per app, per Trunk (src/desktop-app-ask.ts).
+  // Reading it is a look; changing it is the owner's alone, and every change is written in the audit log.
+  if (request.method === "GET" && path === "/api/desktop/app-ask")
+    return appAskSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/desktop/app-ask") {
+    app.store.profiles.requireOwner("Asking before a new app");
+    const before = appAskSettings(app.store, app.runtime.owner);
+    const after = saveAppAskSettings(app.store, app.runtime.owner, await readBody(request));
+    audit(app.store, app.runtime.owner, { action: "policy.changed", actor: app.runtime.owner,
+      subject: `Ask before opening an app it hasn't used: ${after.on ? "on" : "off"}`, reason: `Was ${before.on ? "on" : "off"}.`, outcome: "saved" });
+    return after;
   }
   // FQ-execution.desktop: the shared Linux desktop's switch, and the owner taking it over and handing
   // it back. Reading the card is a look (it never carries the VNC password); every change is the
@@ -1654,7 +1482,13 @@ async function api(
     // Q58: queued tasks show they are waiting their turn, with position and what they wait behind.
     const waiting = new URL(request.url ?? "/", "http://local").searchParams.get("waiting") === "1";
     const staleMs = staleAfterMs(app.store, app.runtime.owner, app.runtime.reliability);
-    const activities = liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+    // Dogfood B1: what a running task's model is thinking now, from memory only (never the record).
+    // Redesign security review: whose tasks these are follows who is at the window. A household profile sees its own
+    // tasks only, never the owner's (their prompts and what waits for the owner), as every other read of runs does.
+    const activities = liveActivity(app.store, app.store.profiles.scope(), { waiting, staleMs }).map((a) => {
+      const thinking = app.runtime.thinkingOf(a.runId);
+      return { ...a, followUps: app.runtime.queued(a.sessionId).length, ...(thinking ? { thinking } : {}) };
+    });
     if (!waiting) return activities;
     // Q58: add queued tasks for each conversation using pure function
     const result: RunActivity[] = [];
@@ -1847,7 +1681,8 @@ async function api(
     // name of their own: nothing they do reaches the owner's folder or the owner's memory.
     return runToolChecksSafely(app, AbortSignal.timeout(120000));
   if (request.method === "GET" && path === "/api/policy")
-    return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
+    return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(),
+      waiting: app.runtime.approvals.waiting().map((asked) => ({ ...asked, ...helperMark(app, asked.runId) })) };
   if (request.method === "POST" && path === "/api/policy") {
     const input = await readBody(request);
     return { policy: recordedWrite(app.store, app.runtime.owner, { writer: "owner-in-window", source: "card", detail: "policy" }, ["policy"],
@@ -1892,6 +1727,17 @@ async function api(
   if (hookEnable && request.method === "POST") return app.hooks.enable(hookEnable[1]!);
   const template = /^\/api\/templates\/(specialist|procedure)\/([a-f0-9-]{36})$/.exec(path);
   if (template && request.method === "GET") return exportTemplate(app.store, app.runtime.owner, template[1] as "specialist" | "procedure", template[2]!);
+  // p17 (whole-agent export from the window): what each part holds, then the one file. The owner's alone; a
+  // short-lived key is refused the POST by the fail-closed rule, and memory always leaves with personal details masked.
+  if (path === "/api/agent-export") {
+    app.store.profiles.requireOwner("Taking the whole assistant with you");
+    if (request.method === "GET") return { sections: agentSummary(app.store, app.runtime.owner) };
+    if (request.method !== "POST") throw new HttpError(405, "Use GET or POST");
+    const { sections } = AgentExportSchema.parse(await readBody(request));
+    const { bytes, manifest } = exportAgent(app.store, app.runtime.owner, app.version, {
+      sections, memory: sections.includes("memory"), redact: (text) => applyPiiGuard(text, "mask").text });
+    return { manifest, data: bytes.toString("base64") };
+  }
   if (request.method === "POST" && path === "/api/templates/import") return importTemplate(app.knowledge, app.runtime.context(), await readBody(request, 256 * 1024));
   if (request.method === "POST" && path === "/api/receipts/verify") {
     const body = z.object({ runId: z.string().min(1).max(64), data: z.record(z.string(), z.unknown()) }).strict().parse(await readBody(request));
@@ -1988,6 +1834,16 @@ async function api(
     // A tool call's raw arguments are read back off the assistant message, which the runtime never
     // scrubbed; nothing leaves here carrying a saved password or key.
     return app.runtime.hideSecrets(inspectRun(app.store, run.id, await trajectoryOptions(app, run.id)));
+  }
+  // Pass 17 (Timeline, Helpers): one task's steps in order, its helpers, and its links in the activity chain.
+  const stepsMatch = /^\/api\/runs\/([a-f0-9-]{36})\/steps$/.exec(path);
+  if (request.method === "GET" && stepsMatch) {
+    const run = app.store.run(stepsMatch[1]!);
+    // Household profiles are refused this route (src/household-routes.ts). If one is ever let in, this check must
+    // follow who is at the window (profiles.scope(), as the activity list does since #324), not runtime.owner.
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    // Tool inputs are read back off the conversation, and helpers' words and questions too: nothing leaves with a secret.
+    return app.runtime.hideSecrets(await stepsOf(app, run.id));
   }
   // Batch 26 (wave 8): "Do this again" — the same words, the same tools and the same model, in a
   // conversation of its own, so the two can be read side by side.
@@ -2259,7 +2115,14 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return { suggested: staged.length, proposals: staged, review };
   }
   if (request.method === "POST" && path === "/api/memory/hygiene") return app.store.memoryHygiene(owner, await readBody(request));
-  if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner) };
+  if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner), total: app.store.archivedMemoryCount(owner) };
+  // Purge all: every archived fact removed for good, the owner's alone. The confirm step is the word and how
+  // many archived facts the owner was shown; a count that no longer matches removes nothing.
+  if (request.method === "POST" && path === "/api/memory/archive/purge") {
+    app.store.profiles.requireOwner("Purging archived facts");
+    const { count } = z.object({ confirm: z.literal("purge"), count: z.number().int().min(1).max(1_000_000) }).strict().parse(await readBody(request));
+    return app.store.purgeArchivedMemory(owner, count);
+  }
   if (request.method === "POST" && path === "/api/memory/consolidate") return app.store.review.consolidate(app.runtime, owner);
   if (request.method === "GET" && path === "/api/memory/settings") return app.store.review.settings(owner);
   if (request.method === "POST" && path === "/api/memory/settings") return app.store.review.configure(owner, await readBody(request));
@@ -2287,11 +2150,25 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   }
   throw new HttpError(404, "Endpoint not found");
 }
+/**
+ * App lock: whose records an open stream or socket may still carry. Once Branch locks with a PIN set
+ * the answer is nobody's, so a stream opened before the lock ends there instead of flowing on.
+ */
+const scopeWhileUnlocked = (app: Branch): string => (app.sessionLock.refusal("GET", "/api/events/stream") ? "" : app.store.profiles.scope());
+/** An App lock refusal answered with its own status (400, 403 or 429); anything else as it was. */
+async function appLockAnswer(step: () => Promise<unknown>): Promise<unknown> {
+  return step().catch((error: unknown) => {
+    throw error instanceof AppLockRefusal ? new HttpError(error.status, error.message) : error;
+  });
+}
 /** Locking the app, and the privacy checks on messages that leave this computer. */
 async function guardApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   if (request.method === "GET" && path === "/api/lock") return app.sessionLock.state();
   if (request.method === "POST" && path === "/api/lock") return app.sessionLock.lock();
-  if (request.method === "POST" && path === "/api/lock/unlock") { z.object({}).strict().parse(await readBody(request)); return app.sessionLock.unlock(); }
+  // App lock: with a PIN set, unlocking asks for it; setting, changing or removing it is the owner's.
+  // A wrong PIN is 403 and a wait 429, never 401, which the window reads as a wrong session key.
+  if (request.method === "POST" && path === "/api/lock/unlock") return appLockAnswer(async () => app.sessionLock.unlock(await readBody(request)));
+  if (request.method === "POST" && path === "/api/lock/pin") return appLockAnswer(async () => app.sessionLock.setPin(await readBody(request)));
   if (request.method === "POST" && path === "/api/lock/settings") return app.sessionLock.configure(await readBody(request));
   if (request.method === "GET" && path === "/api/privacy") return app.privacy.settings();
   if (request.method === "POST" && path === "/api/privacy") return app.privacy.configure(await readBody(request));
@@ -2344,6 +2221,12 @@ async function schedulesApi(app: Branch, request: IncomingMessage, path: string)
     if (request.method === "POST") return app.scheduler.create(scheduleContext(app), await readBody(request));
     throw new HttpError(404, "Endpoint not found");
   }
+  // Words to a schedule (src/schedule-words.ts): a proposal only, which the owner confirms with POST /api/schedules.
+  if (path === "/api/schedules/propose" && request.method === "POST") {
+    app.store.profiles.requireOwner("Your schedules");
+    return { proposal: await proposeSchedule(await readBody(request), { now: new Date(),
+      defaultTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone, askModel: (question, shape) => askAside(app, question, shape) }) };
+  }
   const match = /^\/api\/schedules\/([a-f0-9-]{36})(?:\/(trigger|remove))?$/.exec(path);
   if (!match) throw new HttpError(404, "Endpoint not found");
   const record = app.store.get("schedules", owner, match[1]!);
@@ -2358,6 +2241,22 @@ async function schedulesApi(app: Branch, request: IncomingMessage, path: string)
     return app.scheduler.remove(scheduleContext(app), record.id);
   }
   throw new HttpError(404, "Endpoint not found");
+}
+/**
+ * One question to the model in use, with no tools and a fixed answer shape, for words the engine cannot
+ * read itself. It is asked under a task of its own, kept like the morning brief's, so what it spent
+ * counts in the owner's usage and spending limits like any other model call.
+ */
+async function askAside(app: Branch, question: string, shape: AnswerShape): Promise<ShapedAnswer> {
+  const run = app.store.createRun(app.runtime.owner, "Reading a schedule from your words", undefined, false, "owner");
+  let answer: ShapedAnswer | undefined;
+  try {
+    const context = app.runtime.context({ runId: run.id, permissions: [], signal: AbortSignal.timeout(60_000) });
+    answer = await app.runtime.shaped(run, context, question, shape);
+    return answer;
+  } finally {
+    app.store.finish(run.id, answer?.status === "resolved" ? "completed" : "failed", answer?.status === "refused" ? answer.reason : "");
+  }
 }
 /** The owner's own hands, for a schedule they are adding or removing from the command line. */
 function scheduleContext(app: Branch) {
@@ -3477,7 +3376,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (["/people", "/people.js", "/people.css"].includes(path) && !peopleEnabled(app.store, app.runtime.owner)
         && interopMode(app.store, app.runtime.owner, "handoff") === "off")
         throw new HttpError(404, "Not found");
-      if (request.method === "GET" && (await staticFile(path, response)))
+      if (request.method === "GET" && (await staticFile(path, response, request)))
         return;
       if (path.startsWith("/hooks/")) {
         send(response, 200, await hook(app, request, path));
@@ -3598,6 +3497,11 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         // 400, as every `requireOwner` refusal over HTTP has always been answered.
         if (refused) throw new HttpError(400, refused);
       }
+      // App lock: while a PIN is set and Branch is locked, nothing is answered but the lock's own
+      // status and unlock (src/session-lock.ts). 423, never 401: the window reads 401 as a wrong key.
+      // Checked before the activity below, so a request after the quiet period cannot restart it.
+      const lockedOut = app.sessionLock.refusal(request.method, path);
+      if (lockedOut) throw new HttpError(423, lockedOut);
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock" && !onlyLooking) app.sessionLock.touch();
@@ -3913,6 +3817,13 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // upgrade handler before this branch, and a task's socket stays on this computer's own door.
       if (viaRemote) { refuseUpgrade(socket); return; }
       // ---- end mac7/nodes ----
+      // App lock: a locked Branch with a PIN opens no socket for a task or a program lending tools.
+      // Asked only once the key has passed, so the answer tells nobody else that Branch is locked.
+      const refusedLocked = (): boolean => {
+        if (!app.sessionLock.refusal("GET", path)) return false;
+        socket.end("HTTP/1.1 423 Locked\r\nConnection: close\r\n\r\n");
+        return true;
+      };
       // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
       if (path === clientToolsPath) {
         // Integration review: "a program on this computer" — the paired address never lends tools.
@@ -3921,6 +3832,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
           return;
         }
+        if (refusedLocked()) return;
         serveClientToolSocket(app.interop.clients, request, socket);
         return;
       }
@@ -3931,9 +3843,13 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
       }
+      if (refusedLocked()) return;
       // Wave 8: the same socket also carries a live voice conversation, when the browser asks for
       // one. Nothing is opened until it does, so an ordinary task is unchanged.
-      await serveRunSocket(app.store, run.id, request, socket, liveHooks(app.live, run.id, run.sessionId));
+      // Q254: the socket follows who is at the window, as /api/events/stream does since #339. Once the
+      // window switches profile it ends, and opening it again is refused unless the run is theirs.
+      await serveRunSocket(app.store, run.id, request, socket, {
+        ...liveHooks(app.live, run.id, run.sessionId), owner: run.owner, scopeNow: () => scopeWhileUnlocked(app) });
     })().catch(() => socket.destroy());
   };
   server.on("upgrade", (request, socket) => upgrade(request, socket, false));
@@ -4133,6 +4049,9 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
       // The stream carries tool arguments and results, so nothing goes out of it carrying a saved
       // password or key; how long it may run and how much it may send are both capped inside.
       scrub: app.runtime.hideSecrets,
+      // Q253: an open stream follows who is at the window (as the activity list does since #324). Once
+      // the window switches profile it ends, and the window's reconnect opens it under the new scope.
+      scopeNow: () => scopeWhileUnlocked(app),
       ...(Number(query.get("maxMs")) ? { maxMs: Number(query.get("maxMs")) } : {}),
     });
     return true;
@@ -4142,7 +4061,10 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     const run = app.store.run(stream[1]!);
     if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
-    await streamRunEvents(app.store, run.id, response, after);
+    // Q254: the stream follows who is at the window, as /api/events/stream does since #339. Once the
+    // window switches profile it ends (reason "profile"), and opening it again answers 404 unless the
+    // run belongs to whoever is there now.
+    await streamRunEvents(app.store, run.id, response, after, { owner: run.owner, scopeNow: () => scopeWhileUnlocked(app) });
     return true;
   }
   // One kept picture or sound, so the gallery can show it. Anything outside the artifacts folder
@@ -4457,6 +4379,23 @@ export async function trajectoryOptions(app: Branch, runId: string) {
       return { amount: estimate.amount, display: formatCost(estimate) };
     },
   };
+}
+/** Pass 17: what GET /api/runs/:id/steps reads — the prices, the questions waiting, the answers given, the chain. */
+async function stepsOf(app: Branch, runId: string) {
+  const owner = app.runtime.owner, run = app.store.run(runId)!;
+  const { price } = await trajectoryOptions(app, runId);
+  const helperName = (agent: string): string | null => {
+    if (agent.startsWith("mode:")) { try { return app.interop.modes.find(agent.slice(5)).name; } catch { return agent.slice(5); } }
+    const saved = app.store.get("specialists", owner, agent)?.data as { definition?: { name?: unknown }; name?: unknown } | undefined;
+    const name = saved?.definition?.name ?? saved?.name;
+    return typeof name === "string" && name ? name : agent;
+  };
+  return runSteps(app.store, runId, {
+    price, waiting: app.runtime.approvals.waiting(),
+    decided: app.store.audit.list(owner, { action: "approval.decided", from: run.createdAt, limit: 1000 }),
+    chain: { mode: safetyMode(app.store, owner, "activity-chain"), entries: app.safetyExtras.chain.forRun(owner, runId) },
+    thinkingOf: (id) => app.runtime.thinkingOf(id), helperName, cost: (id) => runCost(app, id),
+  });
 }
 /** What the metering export needs: the ledger, the workspace it may write into, and the prices. */
 function meteringDeps(app: Branch) {

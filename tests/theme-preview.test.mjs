@@ -11,7 +11,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openSettings } from "./places.mjs";
+import { openSettings } from "./places.mjs"; // the old window's helper, for the skipped bodies only
 
 async function appearance(t, width) {
   const root = await mkdtemp(join(tmpdir(), "branch-theme-preview-"));
@@ -28,7 +28,7 @@ async function appearance(t, width) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
   await openSettings(page, "appearance");
   await page.mouse.move(0, 0); // nothing pointed at, so the preview shows the chosen theme
@@ -41,7 +41,48 @@ const drawn = (page) => page.waitForFunction(() => [...document.querySelectorAll
   .filter((figure) => figure.getBoundingClientRect().height > 0)
   .every((figure) => figure.querySelector("iframe").contentDocument?.body?.children.length > 0));
 
-test("DG-039 wide: Moonlight above Daylight beside the choices, each a live copy with the sample's chip", async (t) => {
+/* Redesign: prototype.html's Appearance previews are its "Light or dark" mirrors (settings/pages/appearance.js mirror()):
+   a light and a dark picture of this window beside "Match this computer", each drawn from the open conversation's own
+   words (its title and last line), never made-up ones. They are pictures, not live copies in frames; the old strip, the
+   side-by-side and the one-at-a-time flip are not in the design. */
+test("DG-039 the Light and Dark mirrors show this window's own conversation, at every width", async (t) => {
+  for (const width of [1440, 1100, 400]) {
+    const root = await mkdtemp(join(tmpdir(), "branch-theme-preview-"));
+    const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+    const run = app.store.createRun(app.runtime.owner, "Plan the allotment");
+    app.store.message(run.sessionId, { role: "user", content: run.prompt });
+    app.store.message(run.sessionId, { role: "assistant", content: "Beans by the fence, squash in the sun." });
+    const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+    const browser = await chromium.launch({ headless: true });
+    t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+    await fetch(new URL("/api/onboarding", server.url), {
+      method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }),
+    });
+    const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: "reduce", serviceWorkers: "block" });
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(server.url);
+    await page.getByLabel("Session token", { exact: true }).fill(server.token);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+    if (width <= 760) await page.locator('[data-act="side"]').filter({ visible: true }).first().click();
+    await page.locator('#side [data-act="view"][data-v="settings"]').click();
+    await page.locator('[data-act="setpage"][data-v="appearance"]').click();
+    const mirrors = page.locator('.set-col .mirrors [data-act="themeset"]');
+    await mirrors.first().waitFor();
+    for (const mode of ["light", "dark"]) {
+      const text = await page.locator(`.set-col .mirrors [data-act="themeset"][data-v="${mode}"]`).innerText();
+      assert.match(text, /Plan the allotment/, `${width} ${mode}: the open conversation's title`);
+      assert.match(text, /Beans by the fence, squash in the sun\./, `${width} ${mode}: and its last line`);
+    }
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth <= 1), `${width}: nothing scrolls sideways`);
+    assert.deepEqual(errors, []);
+  }
+});
+
+// Redesign: replaced by the new window (prototype.html's mirrors are pictures beside "Match this computer", not framed live
+// copies with chips, a strip or a flip; checked live above).
+test.skip("DG-039 wide: Moonlight above Daylight beside the choices, each a live copy with the sample's chip", async (t) => {
   const { page, errors } = await appearance(t, 1440);
   await drawn(page);
   const mirrors = await shown(page);
@@ -71,7 +112,9 @@ test("DG-039 wide: Moonlight above Daylight beside the choices, each a live copy
   assert.deepEqual(errors, []);
 });
 
-test("DG-039 narrower: a strip names the theme and opens both mirrors side by side", async (t) => {
+// Redesign: replaced by the new window (prototype.html's mirrors are pictures beside "Match this computer", not framed live
+// copies with chips, a strip or a flip; checked live above).
+test.skip("DG-039 narrower: a strip names the theme and opens both mirrors side by side", async (t) => {
   /* The breakpoints are the page's width, not the window's. Since DG-174 Settings keeps its 272px list down to 761px,
      as the sample's does, so an 860px window leaves a page under 540px (one mirror, as in the sample); 1100px leaves
      about 720px, between the phone's one mirror and the wide column. */
@@ -100,7 +143,10 @@ test("DG-039 narrower: a strip names the theme and opens both mirrors side by si
   assert.deepEqual(errors, []);
 });
 
-test("DG-039 on a phone one mirror shows at a time, and a button flips to the other", async (t) => {
+// Redesign: replaced by the new window (prototype.html's mirrors are pictures beside "Match this computer", not framed live
+// copies with chips, a strip or a flip; checked live above).
+// Its French is Coming soon (sw:lang), checked at e5b8a610.
+test.skip("DG-039 on a phone one mirror shows at a time, and a button flips to the other", async (t) => {
   const { page, errors } = await appearance(t, 400);
   await page.locator(".sg-strip").click();
   await drawn(page);

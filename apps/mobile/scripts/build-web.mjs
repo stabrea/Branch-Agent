@@ -1,7 +1,8 @@
 /**
- * Puts the phone app's page together in www/: the app's own screens (web/), and the pieces of
- * Branch's window they reuse, copied from public/ so the phone always carries the current design
- * (tokens, the 44 themes, the oak, the words, the fonts and the mark). Run by `npm run web` and by
+ * Puts the phone app's page together in www/: the app's own screens (web/, which also keeps its own
+ * copies of the stylesheet, theme bridge, oak and words it used to take from the old window, removed in
+ * #291), and the pieces of Branch it still reuses, copied from public/ so the phone carries the current
+ * tokens, the 44 themes, the language files, the fonts and the mark. Run by `npm run web` and by
  * scripts/package-mobile.mjs. The root project must have been built once (npm run build) for fonts.
  */
 import { cp, mkdir, readdir, rm } from "node:fs/promises";
@@ -14,9 +15,8 @@ const repo = join(app, "..", "..");
 const out = join(app, "www");
 /** Files from Branch's window that the phone screens use, as [from public/, to www/]. */
 export const REUSED = [
-  ["tokens.css", "tokens.css"], ["style.css", "style.css"], ["theme-catalogue.js", "theme-catalogue.js"],
-  ["theme-bridge.js", "theme-bridge.js"],
-  ["grove.js", "grove.js"], ["i18n.js", "i18n.js"], ["locales", "locales"], ["fonts", "fonts"],
+  ["tokens.css", "tokens.css"], ["theme-catalogue.js", "theme-catalogue.js"],
+  ["locales", "locales"], ["fonts", "fonts"],
   ["assets/keepoak-mark.png", "assets/keepoak-mark.png"],
 ];
 

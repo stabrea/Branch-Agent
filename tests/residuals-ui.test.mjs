@@ -17,6 +17,8 @@ async function fixture(t, { viewport = { width: 1440, height: 1000 }, before, pr
   const root = await mkdtemp(join(tmpdir(), "branch-residuals-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...(provider ? { provider } : {}) });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true, args });
   let page = null;
   t.after(async () => {
@@ -33,11 +35,12 @@ async function fixture(t, { viewport = { width: 1440, height: 1000 }, before, pr
   await page.getByRole("button", { name: "Connect", exact: true }).click({ noWaitAfter: true });
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   // layout.js marks lx-ready as the page loads, before the key is taken (ci-flakes-3).
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   return { app, server, page, errors, browser };
 }
 
-test("5. the fallback list warns when a Codex program is in it next to a ChatGPT sign-in", async (t) => {
+// Redesign: replaced by the new window (the prototype's Models page has no fallback list).
+test.skip("5. the fallback list warns when a Codex program is in it next to a ChatGPT sign-in", async (t) => {
   const presets = [
     { id: "chatgpt-main", name: "ChatGPT", provider: "chatgpt", model: "gpt-5", reasoning: null, thinking: [], local: false, coolingDownUntil: null },
     { id: "cli-codex", name: "Codex (installed on this computer)", provider: "cli-agent:codex", model: "codex", reasoning: null, thinking: [], local: false, coolingDownUntil: null },
@@ -71,7 +74,8 @@ function silentWav() {
   return Buffer.concat([head, data]);
 }
 
-test("14. Read aloud on a reply really plays: a blob: sound, no content-rule refusal, played to the end", async (t) => {
+// Redesign: replaced by the new window (the prototype's replies have no Read aloud).
+test.skip("14. Read aloud on a reply really plays: a blob: sound, no content-rule refusal, played to the end", async (t) => {
   const provider = { name: "scripted", async complete() { return { content: "The kettle is on.", toolCalls: [] }; } };
   const { page, errors } = await fixture(t, { provider, args: ["--autoplay-policy=no-user-gesture-required"], before: async (page) => {
     // The voice service is stood in for; everything after the answer is the window's own.
@@ -109,7 +113,8 @@ test("14. Read aloud on a reply really plays: a blob: sound, no content-rule ref
   assert.deepEqual(errors, []);
 });
 
-test("7. the mode menu and the usage list are as opaque as the glass dropdown", async (t) => {
+// Redesign: replaced by the new window (the old window's glass-list, mode-menu and usage-pop classes are gone; the prototype's popovers are .pop).
+test.skip("7. the mode menu and the usage list are as opaque as the glass dropdown", async (t) => {
   const { page } = await fixture(t);
   for (const theme of ["light", "dark"]) {
     const backgrounds = await page.evaluate((theme) => {
@@ -129,7 +134,8 @@ test("7. the mode menu and the usage list are as opaque as the glass dropdown", 
   }
 });
 
-test("11. Overview and People keep room at their end as tall as the floating ask box", async (t) => {
+// Redesign: replaced by the new window (the prototype has no floating ask box in its places).
+test.skip("11. Overview and People keep room at their end as tall as the floating ask box", async (t) => {
   const { page } = await fixture(t, { viewport: { width: 390, height: 700 } });
   for (const view of ["overview:here", "household:people"]) {
     await page.evaluate((v) => globalThis.branchLayout.go(v), view);
@@ -152,7 +158,8 @@ test("11. Overview and People keep room at their end as tall as the floating ask
   }
 });
 
-test("12. with the strip switched off, a browser that knew so never gives the strip room, even before the first answer", async (t) => {
+// Redesign: replaced by the new window (the prototype has no Trunks strip).
+test.skip("12. with the strip switched off, a browser that knew so never gives the strip room, even before the first answer", async (t) => {
   const { page, server } = await fixture(t);
   const post = (path, body) => page.evaluate(async ([path, body, token]) => (await fetch(path, { method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })).json(), [path, body, server.token]);
@@ -160,7 +167,7 @@ test("12. with the strip switched off, a browser that knew so never gives the st
   await page.reload();
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   // layout.js marks lx-ready as the page loads, before the key is taken (ci-flakes-3).
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => localStorage.getItem("branch-strip") === "off");
   // Next time the window opens, anything that gives the strip room is written down as it happens.
   await page.addInitScript(() => {
@@ -172,12 +179,13 @@ test("12. with the strip switched off, a browser that knew so never gives the st
   await page.reload();
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   // layout.js marks lx-ready as the page loads, before the key is taken (ci-flakes-3).
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForTimeout(500);
   assert.deepEqual(await page.evaluate(() => globalThis.__stripSeen), [], "the strip's room was never taken");
 });
 
-test("8. switched to French, the window asks for the achievements in French and shows them so", async (t) => {
+// Redesign: Coming soon (sw:lang, the Language select in Settings › Appearance), checked at fc541c24.
+test.skip("8. switched to French, the window asks for the achievements in French and shows them so", async (t) => {
   const { page, server } = await fixture(t);
   await page.evaluate(async (token) => {
     await fetch("/api/delight/settings", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -194,7 +202,8 @@ test("8. switched to French, the window asks for the achievements in French and 
   assert.ok(asked.includes("?lang=fr"), asked.join(" "));
 });
 
-test("18. in French, Settings search names a setting whose control is not drawn yet in French too", async (t) => {
+// Redesign: Coming soon (sw:lang, the Language select in Settings › Appearance), checked at fc541c24.
+test.skip("18. in French, Settings search names a setting whose control is not drawn yet in French too", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
   await page.waitForFunction(() => document.documentElement.lang === "fr");
@@ -214,7 +223,53 @@ test("18. in French, Settings search names a setting whose control is not drawn 
   assert.deepEqual(errors, []);
 });
 
-test("2 (integration). a Trunk's message waiting on the owner has a card: which Trunk, whose message, Answer and Not now", async (t) => {
+/* Redesign: a Trunk's message waiting on the owner is a row of the prototype's Inbox › Needs you
+   (public/app/places/inbox.js messageRow): the message, which Trunk to which, "Don’t" and "Allow" (data-act="tmsg"). */
+test("2 (new window). a Trunk's message waiting on the owner is in Inbox › Needs you: which Trunks, the message, Allow and Don't", async (t) => {
+  let ann, ben;
+  const { app, page, errors } = await newWindow(t, (app) => {
+    for (const part of ["trunks", "messages"]) app.trunks.setMode(part, { mode: "on" });
+    ann = app.trunks.create({ name: "Ann" }); ben = app.trunks.create({ name: "Ben" });
+    const now = new Date().toISOString();
+    app.store.save("settings", app.runtime.owner, "trunk-receipts", { items: [{ id: "0f8fad5b-d9cb-469f-a165-70867728950e", kind: "message",
+      from: ann.id, to: ben.id, sessionId: ben.chatSessionId, prompt: "Message from Ann (@ann):\nCan you check the invoice?", status: "waiting",
+      depth: 1, attempts: 1, runId: null, fromRunId: null, reply: null, error: null, at: now, updatedAt: now }] });
+  });
+  await page.locator('#side [data-act="view"][data-v="inbox"]').click();
+  const row = page.locator("#main .prow").filter({ has: page.locator('[data-act="tmsg"]') });
+  await row.waitFor({ timeout: 30000 });
+  assert.match(await row.innerText(), /Ann → Ben/, "which Trunk, whose message");
+  assert.match(await row.innerText(), /Can you check the invoice\?/);
+  await row.locator('[data-act="tmsg"][data-v="answer"]').click();
+  for (let i = 0; i < 100 && !app.trunks.messages.waiting()[0]?.armed; i++) await page.waitForTimeout(100);
+  assert.equal(app.trunks.messages.waiting()[0].armed, true, "the route was told");
+  await page.locator("#main .prow").filter({ has: page.locator('[data-act="tmsg"]') }).locator('[data-act="tmsg"][data-v="decline"]').click();
+  await page.locator('#main [data-act="tmsg"]').first().waitFor({ state: "detached", timeout: 10000 });
+  assert.deepEqual(app.trunks.messages.waiting(), [], "ended; the sender is told (tests/residuals.test.mjs 2)");
+  assert.equal(app.trunks.messages.receipts(ben.id).find((r) => r.kind === "message").status, "failed");
+  assert.deepEqual(errors, []);
+});
+async function newWindow(t, before) {
+  const root = await mkdtemp(join(tmpdir(), "branch-residuals-ui-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  before?.(app);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: "block" });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  return { app, page, errors };
+}
+
+// Redesign: replaced by the new window (Inbox › Needs you, checked above; the prototype's row has Allow and Don’t).
+test.skip("2 (integration). a Trunk's message waiting on the owner has a card: which Trunk, whose message, Answer and Not now", async (t) => {
   let ann, ben;
   const { app, page } = await fixture(t, { before: async (_page, app) => {
     for (const part of ["trunks", "messages"]) app.trunks.setMode(part, { mode: "on" });

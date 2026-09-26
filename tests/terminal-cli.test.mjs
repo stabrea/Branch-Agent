@@ -17,8 +17,18 @@ const run = promisify(execFile);
 async function workspace(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-term-cli-"));
   t.after(() => discardTemp(root));
-  return { ...process.env, BRANCH_WORKSPACE: join(root, "ws"), BRANCH_DATA_DIR: join(root, "data"), FORCE_TTY: "0", NO_COLOR: undefined, BRANCH_PORT: "0" };
+  // BRANCH_PROVIDER=demo names the scripted test fixture: without a model named, Branch has none and refuses every task.
+  return { ...process.env, BRANCH_PROVIDER: "demo", BRANCH_WORKSPACE: join(root, "ws"), BRANCH_DATA_DIR: join(root, "data"), FORCE_TTY: "0", NO_COLOR: undefined, BRANCH_PORT: "0" };
 }
+
+test("with no model set up, branch run is refused in plain words and no model is listed", async (t) => {
+  const env = { ...(await workspace(t)), BRANCH_PROVIDER: undefined, BRANCH_MODEL_PRESETS: undefined };
+  const task = await branch(env, "run", "say hello");
+  assert.notEqual(task.code, 0);
+  assert.match(task.out + task.err, /No model yet\. Choose one in setup or in Settings › Models\./);
+  assert.doesNotMatch((await branch(env, "models")).out, /demo|Test fixture/i);
+  assert.match((await branch(env, "demo")).err, /I do not know the command "demo"/);
+});
 async function branch(env, ...args) {
   try {
     const { stdout, stderr } = await run(process.execPath, ["dist/cli.js", ...args], { env, maxBuffer: 20e6 });
@@ -96,7 +106,7 @@ test("places and Settings pages print by name when there is no terminal", async 
   assert.equal(inbox.code, 0, inbox.err);
   assert.match(inbox.out, /^# inbox:history\nNothing here yet\./);
   const models = await branch(env, "config", "models", "defaults");
-  assert.match(models.out, /^# settings:models:defaults\n● Offline demonstration|^# settings:models:defaults\n/);
+  assert.match(models.out, /^# settings:models:defaults\n● Test fixture|^# settings:models:defaults\n/);
   const appearance = JSON.parse((await branch(env, "settings", "appearance", "--json")).out);
   assert.equal(appearance.rows[0].command, "/theme list");
   assert.match(appearance.rows[0].title, /Theme: Slate/, "redesign phase 1: a new install wears Slate (owner decision)");
@@ -122,7 +132,7 @@ test("theme, version, lockdown, permissions and model work from the command line
   assert.match((await branch(env, "lockdown", "off")).out, /^Lockdown is off\./);
   assert.match((await branch(env, "permissions", "read-only")).out, /when to check with me: Read only/);
   assert.match((await branch(env, "approvals")).out, /\* read-only/);
-  assert.match((await branch(env, "models")).out, /^\* default\tOffline demonstration/m);
+  assert.match((await branch(env, "models")).out, /^\* default\tTest fixture/m);
   const wrong = await branch(env, "model", "use", "nope");
   assert.match(wrong.err, /no model called nope/);
 });

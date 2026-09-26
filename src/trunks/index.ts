@@ -5,11 +5,13 @@ import type { Scheduler } from "../scheduler.js";
 import { noAccounts, keyPlan, type TrunkAccountsPort } from "./accounts.js";
 import { pictureAddress } from "./avatar.js";
 import { TrunkMessages, registerTrunkMessage } from "./messages.js";
+import { registerTrunkPropose, trunkProposeTool } from "./propose.js";
 import { setSharedFacts, trunkAgent } from "./memory-scope.js";
 import { TrunkCreateSchema, TrunkEditSchema, TrunkRecords, TrunkSchema, type Trunk } from "./record.js";
 import { StartsInSchema, cannotStartThere, checkStartsIn, requireStartsHere, startTarget, type Computer, type ComputersPort, type StartElsewhere } from "./starts-in.js"; // Q44
 import { TrunkRooms } from "./rooms.js";
 import { TrunkConversations } from "./conversations.js"; // phase2/rooms
+import { TrunkPause } from "./pause.js"; // eng-trunk-controls
 
 /** Which Trunk a conversation belongs to, and how (phase2/rooms: `room` and `chosen`). */
 export interface Owned { trunkId: string; canonical: boolean; room?: boolean; chosen?: boolean }
@@ -62,6 +64,8 @@ export class Trunks {
   readonly accounts: TrunkAccountsPort;
   /** phase2/rooms: who answers in each conversation the owner chose a Trunk for (src/trunks/conversations.ts). */
   readonly conversations: TrunkConversations;
+  /** eng-trunk-controls: pausing one Trunk or all of them (src/trunks/pause.ts). */
+  readonly pause: TrunkPause;
   /** `room`: a Trunk's side of a room; `chosen`: an ordinary conversation the owner chose it for (phase2/rooms). */
   private owned = new Map<string, Owned>();
   /** phase2/rooms: a room member's conversation → the room's own conversation (whose mode it follows). */
@@ -85,8 +89,11 @@ export class Trunks {
     this.routines = new TrunkRoutines(store, owner, this.records, scheduler, runtime);
     this.teaching = new TrunkTeaching({ store, owner, records: this.records, routines: this.routines, workflows: deps.workflows,
       scrub: (value) => runtime.hideSecrets(value) });
+    this.pause = new TrunkPause({ store, owner, records: this.records, runsOf: (id) => runtime.runsOfTrunk(id),
+      cancel: (runId) => runtime.cancel(runId) });
     this.refresh();
     runtime.trunkShape = (options) => this.shapeOf(options);
+    runtime.trunkPaused = (id) => this.pause.refusal(id); // eng-trunk-controls
     runtime.trunkKeysFor = (id) => this.records.find(id)?.keys ?? null; // Q114
     runtime.trunkPermissionsFor = (id) => this.shapeOf({ prompt: "", trunkId: id })?.permissions ?? null; // Q119
     runtime.trunkStartsElsewhere = (id) => { // Q144
@@ -96,9 +103,12 @@ export class Trunks {
     runtime.queueGuard = (sessionId) => this.requireQueueable(sessionId); // Q44: every queued message, whoever queues it
     runtime.followUpNotSent = (sessionId, prompt, reason) => this.messages.notSent(sessionId, prompt, reason); // Q44
     runtime.modeFollows = (sessionId) => this.followsRoom.get(sessionId) ?? null; // phase2/rooms
+    runtime.roomPattern = (sessionId) => this.rooms.list().find((room) => room.sessionId === sessionId)?.pattern ?? null; // eng-trunk-controls
     byRuntime.set(runtime, this);
-    scheduler.routeRun = (id) => this.routines.route(id, this.mode("routines") !== "off");
-    scheduler.trunkHeld = () => (this.mode("trunks") === "off" ? "Trunks are switched off, so this schedule a Trunk made did not run." : null);
+    scheduler.routeRun = (id) => this.routines.route(id, this.mode("routines") !== "off",
+      (trunk) => this.pause.refusal(trunk.id, "this routine did not run")); // eng-trunk-controls
+    scheduler.trunkHeld = (trunkId) => (this.mode("trunks") === "off" ? "Trunks are switched off, so this schedule a Trunk made did not run."
+      : this.pause.refusal(trunkId, "this schedule it made did not run")); // eng-trunk-controls
     this.syncTools();
     if (this.mode("rooms") !== "off") this.rooms.resumeAll();
   }
@@ -122,6 +132,9 @@ export class Trunks {
   private syncTools(): void {
     for (const part of trunkParts) for (const name of trunkTools[part]) this.deps.registry.unregister(name);
     if (this.mode("messages") !== "off") registerTrunkMessage(this.deps.registry, this.messages);
+    // "Have Branch make a Trunk": the assistant may propose one while Trunks are on; the owner makes it.
+    this.deps.registry.unregister(trunkProposeTool);
+    if (this.mode("trunks") !== "off") registerTrunkPropose(this.deps.registry, () => this.require("trunks"));
   }
 
   /** Which conversations belong to a Trunk; asked on every task, so it is kept in memory. */
@@ -158,6 +171,16 @@ export class Trunks {
   requireQueueable(sessionId: string): void {
     const trunk = this.records.find(this.owned.get(sessionId)?.trunkId ?? "");
     if (trunk) requireStartsHere(trunk, this.computers());
+    const paused = trunk ? this.pause.refusal(trunk.id, "this message was not sent") : null; // eng-trunk-controls
+    if (paused) throw new Error(paused);
+  }
+  /**
+   * eng-trunk-controls: why nothing may start in this conversation now because the Trunk it belongs to is
+   * paused, in words, or null. Triggers, standing orders and chat apps ask it before they start anything.
+   */
+  pausedForConversation(sessionId: string, what: string): string | null {
+    const owned = this.owned.get(sessionId);
+    return owned ? this.pause.refusal(owned.trunkId, what) : null;
   }
 
   /** The runtime's hook: a task in a Trunk's conversation, or a routine it owns, runs as that Trunk. */
@@ -187,10 +210,12 @@ export class Trunks {
       const lastRun = this.store.runs(this.owner).find((run) => run.sessionId === trunk.chatSessionId);
       return { ...trunk, latest: last ? { role: last.role, text: last.content.slice(0, 160) } : null,
         at: lastRun?.updatedAt ?? trunk.updatedAt, unread: Math.max(0, replies - (seen[trunk.id] ?? 0)),
-        working: lastRun?.status === "running" };
+        working: lastRun?.status === "running",
+        running: this.deps.runtime.runsOfTrunk(trunk.id).length }; // eng-trunk-controls: every task running as it, for "pause now"
     });
     return { trunks, rooms: this.rooms.list().map((room) => ({ id: room.id, name: room.name, members: room.members, people: room.people, needsYou: room.needsYou,
       pinned: room.pinned, section: room.section, order: room.order, picture: room.picture, sessionId: room.sessionId,
+      rule: room.rule, pattern: room.pattern, // eng-trunk-controls
       latest: room.events.filter((e) => e.kind === "user" || e.kind === "member").at(-1)?.text.slice(0, 160) ?? null, at: room.updatedAt })) };
   }
   /** What the Trunk said in words, not the steps in between. */
@@ -232,7 +257,7 @@ export class Trunks {
     return trunk;
   }
   private introduce(trunk: Trunk): void {
-    const work = this.deps.runtime.run({ prompt: introPrompt, sessionId: trunk.chatSessionId, onTextDelta: () => undefined })
+    const work = this.deps.runtime.run({ prompt: introPrompt, system: "trunk-intro", sessionId: trunk.chatSessionId, onTextDelta: () => undefined })
       .then((run) => {
         if (run.status !== "completed")
           this.store.message(trunk.chatSessionId, { role: "assistant", content: `Hello, I am ${trunk.name}${trunk.title ? `, ${trunk.title}` : ""}.` });

@@ -587,10 +587,12 @@ test("hostile input: prototype names and deep nesting in TOML, links out of a fo
   assert.match((await response.json()).error, /damaged|could not/);
 });
 
-test("the move-in switch ships off and keeps only the three settings", async (t) => {
+test("the move-in switch ships at when needed and keeps only the three settings", async (t) => {
   const { app, owner } = await fixture(t);
   const { moveInMode, saveMoveInMode, requireMoveInAllowed } = await import("../dist/migrate/switch.js");
-  assert.equal(moveInMode(app.store, owner), "off");
+  // p17: it ships at "when needed" (it looks at nothing until asked). Mutation note: returning "off" as the
+  // default in moveInMode (src/migrate/switch.ts) turns this line and the API test below red.
+  assert.equal(moveInMode(app.store, owner), "when-needed");
   assert.throws(() => requireMoveInAllowed("off"), /switched off/);
   assert.doesNotThrow(() => requireMoveInAllowed("when-needed"));
   assert.equal(saveMoveInMode(app.store, owner, { mode: "on" }), "on");
@@ -640,8 +642,10 @@ test("the move-in screens: list, preview, bring over, and what came, behind the 
     return { status: response.status, body: await response.json() };
   };
   assert.equal((await api("GET", "/api/move-in", undefined, "wrong")).status, 401);
-  // It ships off: nothing is looked at, nothing is offered, and a preview is refused.
-  assert.deepEqual((await api("GET", "/api/move-in/switch")).body, { mode: "off" });
+  // p17: it ships at "when needed": nothing is looked at or offered until asked. Off refuses a preview.
+  assert.deepEqual((await api("GET", "/api/move-in/switch")).body, { mode: "when-needed" });
+  assert.deepEqual((await api("GET", "/api/move-in")).body, { mode: "when-needed", sources: [], offer: null });
+  assert.deepEqual((await api("POST", "/api/move-in/switch", { mode: "off" })).body, { mode: "off" });
   assert.deepEqual((await api("GET", "/api/move-in")).body, { mode: "off", sources: [], offer: null });
   const refused = await api("POST", "/api/move-in/preview", { source: "claude-code" });
   assert.equal(refused.status, 403);
@@ -689,13 +693,22 @@ test("the move-in screens: list, preview, bring over, and what came, behind the 
   assert.equal(record.body.settings.model.value, "claude-opus-4");
   assert.equal((await api("POST", "/api/move-in/import", { source: "claude-code", items: [] })).status, 400);
   assert.equal((await api("GET", "/api/move-in/nothing")).status, 404);
+  // The old window's move-in script is checked on its own below (the new window has no move-in card).
+});
 
+// Redesign: replaced by the new window (public/move-in.js is gone; the prototype has no move-in card).
+test.skip("the move-in card's script is served to the window", async (t) => {
+  const made = await fixture(t);
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(made.app, { dataDir: join(made.root, "data"), port: 0, presence: "daemon" });
+  t.after(() => server.close());
   const script = await fetch(server.url + "/move-in.js");
   assert.equal(script.status, 200);
   assert.match(await script.text(), /action\.movein-bring/);
 });
 
-test("every word the move-in card shows is on file in English and in real French", async () => {
+// Redesign: replaced by the new window (public/move-in.js is gone; the prototype has no move-in card).
+test.skip("every word the move-in card shows is on file in English and in real French", async () => {
   const script = await readFile(new URL("../public/move-in.js", import.meta.url), "utf8");
   const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
   const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
@@ -712,7 +725,8 @@ test("every word the move-in card shows is on file in English and in real French
 /** Opens one place in the window, through the redesigned window's own controls (tests/places.mjs). */
 const openScreen = (page, place) => openPlace(page, place);
 
-test("the move-in card works at 400 pixels wide, with no sideways scroll and no page errors", async (t) => {
+// Redesign: replaced by the new window (the prototype has no move-in card or first-run offer to bring chats over).
+test.skip("the move-in card works at 400 pixels wide, with no sideways scroll and no page errors", async (t) => {
   const { chromium } = await import("playwright");
   const made = await fixture(t);
   await claudeHome(made.home);
@@ -720,6 +734,8 @@ test("the move-in card works at 400 pixels wide, with no sideways scroll and no 
   const server = await startServer(made.app, { dataDir: join(made.root, "data"), port: 0 });
   const previous = process.env.BRANCH_MOVE_IN_HOME;
   process.env.BRANCH_MOVE_IN_HOME = made.home;
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     if (previous === undefined) delete process.env.BRANCH_MOVE_IN_HOME; else process.env.BRANCH_MOVE_IN_HOME = previous;
@@ -732,7 +748,7 @@ test("the move-in card works at 400 pixels wide, with no sideways scroll and no 
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   // Off by default: the card shows only its switch, and the first-run card offers nothing.
   await openScreen(page, "settings:data");
   const choice = page.locator("#move-in-mode");

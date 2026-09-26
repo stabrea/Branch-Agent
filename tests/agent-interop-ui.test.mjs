@@ -10,7 +10,8 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
 /* mac4/bucket-20: the two cards, opened the way a person opens them, at 400 px wide. */
-test("the switches live in Customize → Connections, modes in Specialists, and both fit 400 px", async (t) => {
+// Redesign: replaced by the new window (the prototype has no interop switches card or mode editor; custom modes are the file .branch/modes.json in Settings › Advanced, and other agents are Customize › Tools › Agents).
+test.skip("the switches live in Customize → Connections, modes in Specialists, and both fit 400 px", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-interop-ui-"));
   const app = await createBranch({
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
@@ -20,13 +21,15 @@ test("the switches live in Customize → Connections, modes in Specialists, and 
   app.store.message(sessionId, { role: "user", content: "action.save" });
   app.interop.setMode("handoff", { mode: "on" });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 400, height: 900 } });
   await page.goto(server.url + "/");
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
 
   await openPlace(page, "customize:connections");
   const card = page.locator("#lx-slot-customize-connections #interop-card");

@@ -78,7 +78,7 @@ export class Conversation {
     const say = (key: string, english: string): string => words?.t(key, english) ?? english;
     const summary = this.runtime.models.summary(this.runtime.owner);
     const id = this.model ?? summary.activePreset ?? summary.defaultPreset;
-    const preset = this.runtime.models.presets.get(id);
+    const preset = this.runtime.models.find(id);
     const policy = readPolicy(this.runtime.store, this.runtime.owner).preset;
     const label = policyPresets().find((entry) => entry.id === policy)?.label ?? policy;
     return [preset?.name ?? id, label, ...this.attachments.map((file) => `+ ${file.name}`),

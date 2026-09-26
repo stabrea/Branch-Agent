@@ -26,7 +26,6 @@ export const ROUTES = {
   "/ap/v1/agent/tasks/:id/steps": "task POST",
   "/ap/v1/agent/tasks/:id/steps/:id": "look",
   "/mcp": "task POST,DELETE",
-  "/mcp.js": "look",
   "/v1/chat/completions": "task POST",
   "/v1/models": "look",
 
@@ -48,12 +47,15 @@ export const ROUTES = {
   "/api/adapt": "look",
   "/api/adapt/": "prefix",
   "/api/adapt/go": "owner POST",
+  "/api/adapt/leave": "owner POST", // p17: "Leave it stopped" keeps the stop, no longer offered
   "/api/adapt/plan": "owner POST",
   "/api/adapt/stopped": "owner POST",
   "/api/adapt/switch": "owner POST",
   "/api/action": "task POST",
   "/api/activity": "look",
   "/api/alive": "look",
+  // p17: what each part of the assistant holds is looking; the whole-agent file is the owner's.
+  "/api/agent-export": "owner POST",
   "/api/agents": "prefix",
   "/api/agents/": "prefix",
   "/api/agents/discover": "look",
@@ -151,12 +153,13 @@ export const ROUTES = {
   "/api/connections/oauth/sample/cancel": "owner POST",
   "/api/connections/oauth/start": "owner POST",
   "/api/context-files": "owner POST",
-  "/api/credentials/settings": "owner POST",
+  "/api/credentials/settings": "secret-read", // Q255: the owner's password-manager setup, read and write
   "/api/dashboard": "look",
   "/api/dashboard/": "prefix",
   "/api/dashboard/automations": "owner POST",
   "/api/dashboard/restart": "owner POST",
   "/api/dashboard/settings": "owner POST",
+  "/api/data/ask": "owner POST", // p17: Ask a spreadsheet opens a file in the owner's workspace
   "/api/deferred": "look",
   "/api/deferred/settle": "task POST",
   // phase2/delight: somebody else is told only that there is nothing here for them; the achievements
@@ -179,6 +182,8 @@ export const ROUTES = {
   "/api/deployment/restore-points": "look",
   // Redesign phase 1: which suggestion bar to show; others are offered nothing, and Don't ask again is the owner's.
   "/api/deployment/suggestion": "owner POST",
+  // unhold-control: "Ask before opening an app it hasn't used" (src/desktop-app-ask.ts); reading it is a look.
+  "/api/desktop/app-ask": "owner POST",
   "/api/desktop/settings": "owner POST",
   "/api/developer": "prefix",
   "/api/developer/": "prefix",
@@ -366,6 +371,7 @@ export const ROUTES = {
   "/api/autonomy/orders/:id/update": "owner POST",
   "/api/autonomy/procedures": "owner POST",
   "/api/autonomy/procedures/:id/pause": "owner POST",
+  "/api/autonomy/procedures/:id/propose": "owner POST",
   "/api/autonomy/procedures/:id/remove": "owner POST",
   "/api/autonomy/procedures/:id/resume": "owner POST",
   "/api/autonomy/procedures/:id/run": "owner POST",
@@ -398,6 +404,11 @@ export const ROUTES = {
   "/api/trunks/:id/routines": "owner POST",
   "/api/trunks/:id/watch": "owner POST",
   "/api/trunks/:id/teach": "owner POST",
+  // eng-trunk-controls: pausing and resuming a Trunk, or all of them, is the owner's.
+  "/api/trunks/:id/pause": "owner POST",
+  "/api/trunks/:id/resume": "owner POST",
+  "/api/trunks/pause-all": "owner POST",
+  "/api/trunks/resume-all": "owner POST",
   "/api/trunks/rooms/:id": "owner POST",
   "/api/trunks/rooms/:id/remove": "owner POST",
   "/api/trunks/rooms/:id/send": "task POST",
@@ -501,6 +512,7 @@ export const ROUTES = {
   "/api/reach/usb/remove": "owner POST",
   "/api/reach/usb/rules": "owner POST",
   "/api/reach/video/settings": "owner POST",
+  "/api/read-marks": "other POST", // pass 17: which conversations and Inbox items were seen; never answers anything
   // ---- end of the r17-i block ----
   // ---- r17-h: flows and boards (src/flows-boards/api.ts); reading is looking, every change is the owner's ----
   "/api/flows-boards": "look",
@@ -584,6 +596,7 @@ export const ROUTES = {
   "/api/knowledge/export": "other POST",
   "/api/knowledge/extras": "look",
   "/api/knowledge/graph": "other POST",
+  "/api/knowledge/graph/names": "other POST", // p17: Ask the map's starting names
   "/api/knowledge/import": "other POST",
   "/api/knowledge/manage": "other POST",
   "/api/knowledge/map": "other POST",
@@ -636,6 +649,7 @@ export const ROUTES = {
   "/api/local-models/switch": "owner POST",
   "/api/local-models/unload": "owner POST",
   "/api/lock": "owner POST",
+  "/api/lock/pin": "owner POST", // App lock: setting, changing or removing the PIN
   "/api/lock/settings": "owner POST",
   "/api/lock/unlock": "owner POST",
   // mac7/learn: reading the switch only looks; a map reads the whole folder and a tour may ask a model.
@@ -677,6 +691,7 @@ export const ROUTES = {
   "/api/memory": "prefix",
   "/api/memory/": "prefix",
   "/api/memory/archive": "look",
+  "/api/memory/archive/purge": "owner POST", // Purge all removes archived facts for good: the owner's alone
   "/api/memory/archive/sample/restore": "other POST",
   "/api/memory/capacity": "owner POST",
   "/api/memory/checkpoints": "other POST",
@@ -724,8 +739,10 @@ export const ROUTES = {
   "/api/never-break": "owner POST",
   "/api/never-break/": "prefix",
   "/api/never-break/last-update": "secret-read", // Q55: what the owner's last update did is the owner's alone
+  "/api/never-break/journal": "secret-read", // p17: every update tried, kept or rolled back, the owner's alone too
   "/api/never-break/proposal/accept": "owner POST",
   "/api/never-break/proposal/discard": "owner POST",
+  "/api/never-break/rollback": "owner POST", // rolls back the last accepted gateway change: the owner's alone
   "/api/never-break/snapshot": "owner POST",
   "/api/never-break/telegram": "owner POST",
   "/api/obsidian": "owner POST",
@@ -914,6 +931,7 @@ export const ROUTES = {
   "/api/runs/:id/result": "look",
   "/api/runs/:id/resume": "task POST",
   "/api/runs/:id/steer": "task POST",
+  "/api/runs/:id/steps": "look", // pass 17: the Timeline and Helpers read one task's steps, like inspect beside it
   "/api/runs/:id/stream": "look",
   "/api/runs/:id/timeline": "look",
   "/api/runs/:id/trace": "look",
@@ -927,6 +945,7 @@ export const ROUTES = {
   "/api/schedules/:id/gate": "owner POST",
   "/api/schedules/:id/remove": "other POST",
   "/api/schedules/:id/trigger": "task POST",
+  "/api/schedules/propose": "owner POST", // words to a schedule: may ask the model in use, so the owner's alone
   "/api/sdk-kit": "owner POST", // bucket 21: the switch for building on Branch
   // FQ-collaboration.unified-search: one query across conversations, workflows and the audit
   // record is a wider window than any one of those alone, so it is refused like a secret read.
@@ -947,19 +966,23 @@ export const ROUTES = {
   "/api/self-development/requests": "secret-read",
   "/api/self-development/requests/:id/approve": "owner POST",
   "/api/self-development/requests/:id/decline": "owner POST",
+  "/api/self-development/requests/:id/diff": "secret-read", // the change to Branch's own source, for the owner to read before a yes
   "/api/sessions": "look",
   "/api/sessions/": "prefix",
   "/api/sessions/:id": "look",
+  "/api/sessions/:id/branch": "other POST", // pass 17: a named path of the conversation, copied like duplicate
   "/api/sessions/:id/context": "look",
   "/api/sessions/:id/cost": "look", // DG-101: what the conversation probably cost, for the line under the box
   "/api/sessions/:id/discard": "other POST",
   "/api/sessions/:id/duplicate": "other POST",
   "/api/sessions/:id/export": "look",
   "/api/sessions/:id/followups": "task POST",
+  "/api/sessions/:id/left-out": "other POST", // pass 17: kept in the conversation, never sent to the model
   "/api/sessions/:id/goal": "task POST",
   "/api/sessions/:id/memory-policy": "owner POST",
   "/api/sessions/:id/merge-note": "other POST",
   "/api/sessions/:id/model": "task POST",
+  "/api/sessions/:id/paths": "look",
   "/api/sessions/:id/pins": "other POST",
   "/api/sessions/:id/rewind": "other POST",
   "/api/sessions/:id/share": "owner POST",

@@ -56,7 +56,9 @@ async function failedUpdate(t, before = async () => {}, model = provider) {
 test("the first Fix update makes the Update keeper, switches Trunks on and says so, and hands it the cleaned record", async (t) => {
   const { app, call } = await failedUpdate(t);
   const owner = app.runtime.owner;
-  assert.equal(trunkMode(app.store, owner, "trunks"), "off", "Trunks ships off");
+  // #327 (the owner's rule): Trunks ship "when needed"; the Fix is tested from off, as a switched-off install has it.
+  app.trunks.setMode("trunks", { mode: "off" });
+  assert.equal(trunkMode(app.store, owner, "trunks"), "off", "Trunks switched off");
   const fix = (await call("updates/fix", {})).body;
   assert.deepEqual([fix.name, fix.made, fix.trunksSwitchedOn], [keeperName, true, true]);
   assert.equal(trunkMode(app.store, owner, "trunks"), "when-needed");
@@ -106,7 +108,9 @@ test("a household profile and a short-lived key can neither fix an update nor ch
   assert.equal(app.trunks.records.list().length, 0, "nothing was made");
 });
 
-test("in the app: Fix update opens the keeper's conversation with the record sent as your own message", async (t) => {
+// Redesign: replaced by the new window (the prototype has no failed-update card and no Fix update; the engine's side is
+// checked above).
+test.skip("in the app: Fix update opens the keeper's conversation with the record sent as your own message", async (t) => {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: true });
   const { server } = await failedUpdate(t, () => browser.close());
@@ -116,7 +120,7 @@ test("in the app: Fix update opens the keeper's conversation with the record sen
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await openSettingFor(page, "#updates-card");
   await page.locator("#updates-failed-fix").waitFor({ state: "visible" });
   assert.equal(await page.locator("#updates-keeper").inputValue(), "", "the Update keeper until another Trunk is chosen");
@@ -155,7 +159,9 @@ test("the update's own steps always reach the keeper, their end kept, however lo
   assert.match(text, /## What the last update did/);
 });
 
-test("in the app: Fix update waits while another task is working, and says so", async (t) => {
+// Redesign: replaced by the new window (the prototype has no failed-update card and no Fix update; the engine's side is
+// checked above).
+test.skip("in the app: Fix update waits while another task is working, and says so", async (t) => {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: true });
   let release;
@@ -172,7 +178,7 @@ test("in the app: Fix update waits while another task is working, and says so", 
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#prompt").fill("hold on while I work");
   await page.locator("#prompt").press("Enter");
   await page.waitForFunction(() => document.getElementById("send")?.disabled === true);

@@ -12,7 +12,19 @@
  *   gets another turn.
  * - A member may pass. A round where nobody speaks settles the discussion.
  * - At most 3 rounds and 10 member messages for one message from the owner.
+ *
+ * eng-trunk-controls: the room's rule changes only who answers in the first round. "mention" is the
+ * rule above and the default. "all": everyone answers, whoever is mentioned. "lead": the members the
+ * owner @mentioned answer; with nobody mentioned, only the lead does, and it brings the others in by
+ * @name. Later rounds work the same under every rule.
  */
+export const roomRules = ["mention", "lead", "all"] as const;
+export type RoomRule = (typeof roomRules)[number];
+export interface RoomPlanOptions {
+  rule?: RoomRule;
+  /** Under "lead": the member who answers first. */
+  lead?: string | undefined;
+}
 export const maxRoomMembers = 6;
 export const minRoomMembers = 2;
 export const maxRounds = 3;
@@ -127,7 +139,7 @@ function speaker(event: RoomEvent, members: readonly RoomMember[]): string {
 }
 
 /** The turn's message: what is new since this member last spoke, and the rules of the room. */
-export function roomPrompt(roomName: string, member: RoomMember, members: readonly RoomMember[], messages: readonly RoomEvent[], seen: number, context = ""): string {
+export function roomPrompt(roomName: string, member: RoomMember, members: readonly RoomMember[], messages: readonly RoomEvent[], seen: number, context = "", leads = false): string {
   const peers = members.filter((m) => m.id !== member.id).map((m) => `@${m.handle}`).join(", ");
   // phase2/rooms: a room made from a conversation hands its members what came before, once, on their first turn.
   const earlier = seen === 0 && context
@@ -139,6 +151,7 @@ export function roomPrompt(roomName: string, member: RoomMember, members: readon
     '- If you have nothing new to add, reply with exactly "(pass)".',
     "- Mention another Trunk by its @name to bring it into the next round; do not repeat what was said.",
     "- Write @you when only the owner can decide something.",
+    ...(leads ? ["- You lead this room: answer first, and @mention the Trunks who should take part."] : []),
     "- Never reveal anything from a private conversation. Your reply is shown to the whole room as written."];
   let room = maxPromptChars - [...opening, ...rules].join("\n").length;
   const lines: string[] = [];
@@ -155,8 +168,17 @@ export function roomPrompt(roomName: string, member: RoomMember, members: readon
   return [...opening, ...lines.reverse(), ...rules].join("\n");
 }
 
+/** eng-trunk-controls: who answers the owner's message in the first round, under the room's rule. */
+function firstResponders(text: string, members: readonly RoomMember[], options: RoomPlanOptions): RoomMember[] {
+  if (options.rule === "all") return [...members];
+  if (options.rule !== "lead") return resolveMentions([text], members);
+  const named = resolveMentions([text], members, false);
+  const lead = members.find((m) => m.id === options.lead);
+  return named.length ? named : lead ? [lead] : [];
+}
+
 /** Replays the whole log and answers with at most one next turn. */
-export function nextRoomTurn(roomName: string, members: readonly RoomMember[], events: readonly RoomEvent[], context = ""): RoomDecision {
+export function nextRoomTurn(roomName: string, members: readonly RoomMember[], events: readonly RoomEvent[], context = "", options: RoomPlanOptions = {}): RoomDecision {
   const discussion = pendingDiscussion(events);
   if (!discussion) return { status: "idle" };
   const d = discussion.seq;
@@ -169,12 +191,13 @@ export function nextRoomTurn(roomName: string, members: readonly RoomMember[], e
   const history = events.filter((e) => e.kind === "user" || e.kind === "member");
   const seenThrough = Math.max(...thread.map((e) => e.seq));
   for (let round = 0; round < maxRounds; round++) {
-    const responders = round === 0 ? resolveMentions([discussion.text], members) : unaddressed(spoken, members);
+    const responders = round === 0 ? firstResponders(discussion.text, members, options) : unaddressed(spoken, members);
     for (const member of rotate(responders, round)) {
       if (done.has(`${round}:${member.id}`)) continue;
       const seen = watermark(events, member.id);
       if (!history.some((e) => e.seq > seen && e.seq <= seenThrough)) continue;
-      const prompt = roomPrompt(roomName, member, members, history.filter((e) => e.seq <= seenThrough), seen, context);
+      const prompt = roomPrompt(roomName, member, members, history.filter((e) => e.seq <= seenThrough), seen, context,
+        options.rule === "lead" && member.id === options.lead);
       return { status: "task", task: { memberId: member.id, round, discussion: d, seen: seenThrough, prompt,
         ...(discussion.personId ? { personId: discussion.personId } : {}),
         ...(discussion.byKey ? { byKey: discussion.byKey } : {}) } };

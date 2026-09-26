@@ -1,85 +1,166 @@
-/* Settings › models: bind real engine data and wire controls. */
+/* Settings › Models, 1:1 with the prototype's five tabs, each drawn from the engine:
+   Connections: every connection that can have several accounts, with its accounts (GET /api/accounts, flows/account.js);
+   Defaults: the engine's model presets (GET /api/state models); On this computer: what Ollama has installed, and
+   "Get another model", which downloads one of the engine's recommendations (POST /api/local-models/pull) and follows
+   GET /api/local-models/downloads until it is done, with Stop (POST /api/local-models/stop). */
+import { esc, renderNow, $ } from "../../core/dom.js";
 import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { on } from "../../core/actions.js";
+import { markLive } from "../../core/features.js";
+import { ic, toast, openDlg, dialog } from "../../core/ui.js";
+import { logo } from "../../core/logos.js";
+import { ctl } from "../parts.js";
+import { A, loadAccounts, ownerOnly } from "../../flows/account.js";
+import { L, loadLocal, gb, DOWNLOAD_ICON } from "./local.js";
+import { sections17, init17 } from "../p17-models.js";
+import { t } from "../../../i18n.js";
+import { say } from "../../core/words.js";
 
-let accounts = null;
+const TABS = [["connections", "Connections"], ["defaults", "Defaults"], ["local", "On this computer"], ["second", "Second opinion"], ["media", "Media"]];
+let tab = "connections";
+/* The download the dialog is following, by its Ollama name. */
+let following = null;
 
-async function loadAccounts() {
-  try {
-    const data = await api("accounts");
-    accounts = data;
-  } catch (err) {
-    console.error("Failed to load accounts:", err);
-    accounts = { accounts: [] };
-  }
+function group(p) {
+  const n = p.accounts.length;
+  const rows = p.accounts.map((a) => `<div class="acct-r"><span class="grow"><b>${esc(a.label)}</b><small>${esc(p.name ?? p.pool)}</small></span>${p.defaultAccount === a.id ? `<span class="pill ok"><i></i>${t("window.settings.models.answers-first")}</span>` : `<span class="pill idle"><i></i>${t("window.settings.models.next-in-line")}</span>`}<button class="icon-btn" type="button" aria-label="${t("window.settings.accounts.more-for-label", { label: esc(a.label) })}" data-act="acct-menu" data-pool="${esc(p.pool)}" data-id="${esc(a.id)}">${ic("more", "s")}</button></div>`).join("");
+  return `<div class="acct-g"><div class="acct-gh">${logo(p.pool, p.name, 30)}<b>${esc(p.name ?? p.pool)}</b><span class="n6">${n ? `${n} ${n === 1 ? "account" : "accounts"}` : t("vault-autofill.managers.off")}</span></div>${rows}
+    <button class="add-row" type="button" data-act="addacct" data-v="${esc(p.pool)}" ${ownerOnly()}>${ic("plus", "s")}${n ? t("window.settings.models.add-another-value-account", { value: esc(p.name ?? p.pool) }) : t("window.settings.models.sign-in-to-value", { value: esc(p.name ?? p.pool) })}</button></div>`;
 }
 
-function getAccountsByProvider(provider) {
-  if (!accounts || !accounts.accounts) return [];
-  return accounts.accounts.filter(a => a.provider === provider);
+function connections() {
+  return `<p class="hint" data-css="margin:2px 0 12px">${t("window.settings.models.you-can-sign-in-to-the")} <button class="link" type="button" data-act="setpage" data-v="accounts">${t("window.settings.models.settings-accounts")}</button>.</p>
+    <div class="acct-gs">${(A.view?.pools ?? []).map(group).join("")}</div>
+    <div class="acts" data-css="margin-top:14px"><button class="btn pri" type="button" data-act="addacct" ${ownerOnly()}>${ic("plus", "s")}${t("window.settings.accounts.add-an-account")}</button></div>`;
 }
 
-function renderAccountGroup(provider, logoColor, logoSvg) {
-  const accts = getAccountsByProvider(provider);
-  const hasAccounts = accts.length > 0;
-
-  let html = `<div class="acct-g"><div class="acct-gh"><span class="logo" data-css="width:30px;height:30px;background:${logoColor}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">${logoSvg}</svg></span><b>${provider}</b><span class="n6">${hasAccounts ? `${accts.length} account${accts.length !== 1 ? 's' : ''}` : 'Not set up'}</span></div>`;
-
-  if (hasAccounts) {
-    accts.forEach((acct, i) => {
-      const status = i === 0 ? 'ok' : 'idle';
-      const statusText = i === 0 ? 'Answers first' : 'Next in line';
-      html += `<div class="acct-r"><span class="grow"><b>${acct.label || `${provider} Account ${i + 1}`}</b><small>${acct.plan || 'Plan'} · used by anyone</small></span><span class="pill ${status}"><i></i>${statusText}</span><button class="icon-btn" type="button" aria-label="More for ${acct.label}" data-act="acct-menu" data-i="${i}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="18" cy="12" r="1"></circle></svg></button></div>`;
-    });
-    html += `<button class="add-row" type="button" data-act="addacct" data-v="${provider.toLowerCase().replace(' ', '')}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add another ${provider} account</button>`;
-  } else {
-    html += `<button class="add-row" type="button" data-act="addacct" data-v="${provider.toLowerCase().replace(' ', '')}"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Sign in to ${provider}</button>`;
-  }
-
-  html += `</div>`;
-  return html;
+function defaults() {
+  const m = E.state?.models;
+  const presets = m?.presets ?? [];
+  return [[t("window.settings.models.everyday-answers"), t("window.settings.models.most-conversations")], [t("window.settings.models.planning-and-hard-problems"), t("window.settings.models.when-a-task-has-many-steps")], [t("window.settings.models.quick-and-cheap-jobs"), t("window.settings.models.sorting-tagging-short-replies")], [t("window.settings.models.summaries"), t("window.settings.models.keeping-long-conversations-short")]]
+    .map(([n, s], i) => `<div class="ctl"><b>${n}</b><span class="right"><span class="seg">${presets.map((p) => `<button type="button" data-act="seg" aria-pressed="${i === 0 && p.id === m.defaultPreset}">${esc(p.name)}</button>`).join("")}</span></span><small>${s}</small></div>`).join("");
 }
+
+function local() {
+  const have = L.data?.ollama?.models ?? [];
+  const ready = have[0] ? `<div class="status"><span class="sdot"></span><div><b>${t("window.settings.models.name-is-ready-on-this-computer", { name: esc(have[0].name) })}</b><p>${t("window.settings.models.loaded-when-first-asked-nothing-leaves")}</p></div></div>` : "";
+  const rows = have.map((x) => `<div class="prow"><span class="ico-tile">${ic("cpu", "s")}</span><span class="grow"><b>${esc(x.name)}</b><small>${gb(x.size)}</small></span><button class="btn sm" type="button" data-act="toast">${t("window.settings.models.use-this")}</button></div>`).join("");
+  return `${ready}<div class="rows" data-css="margin-top:10px">${rows}</div><div class="acts" data-css="margin-top:12px"><button class="btn" type="button" data-act="download">${DOWNLOAD_ICON}${t("window.settings.models.get-another-model")}</button></div>`;
+}
+
+const BODIES = {
+  connections, defaults, local,
+  second: () => ctl("m-second", t("window.settings.models.ask-a-second-model-on-hard"), t("window.settings.models.shows-both-answers-side-by-side"), false),
+  media: () => ctl("m-img", t("window.settings.models.make-pictures"), t("window.settings.models.uses-your-chatgpt-account"), false) + ctl("m-vid", t("window.settings.models.make-short-videos"), t("window.settings.models.off-until-you-choose-a-service"), false),
+};
 
 export function draw() {
   const lv = level();
-
-  let html = `<h1>Models</h1><p class="lede">Which models answer, and where they run.</p><div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="true" data-act="mtab" data-v="connections">Connections</button><button class="tab" role="tab" type="button" aria-selected="false" data-act="mtab" data-v="defaults">Defaults</button><button class="tab" role="tab" type="button" aria-selected="false" data-act="mtab" data-v="local">On this computer</button><button class="tab" role="tab" type="button" aria-selected="false" data-act="mtab" data-v="second">Second opinion</button><button class="tab" role="tab" type="button" aria-selected="false" data-act="mtab" data-v="media">Media</button></div><p class="hint" data-css="margin:2px 0 12px">You can sign in to the same service more than once. When one account runs low, Branch moves to the next. The order is in <button class="link" type="button" data-act="setpage" data-v="accounts">Settings › Accounts</button>.</p><div class="acct-gs">`;
-
-  // Render account groups
-  html += renderAccountGroup('ChatGPT', '#0F0F0F', '<path d="M12 3.2l7.6 4.4v8.8L12 20.8 4.4 16.4V7.6z" fill="none" stroke="#fff" stroke-width="1.7"></path><path d="M12 7.6l3.8 2.2v4.4L12 16.4l-3.8-2.2V9.8z" fill="#fff"></path>');
-  html += renderAccountGroup('Claude', '#D97757', '<path d="M12 4v16M4 12h16M6.4 6.4l11.2 11.2M17.6 6.4L6.4 17.6" stroke="#fff" stroke-width="2.2" stroke-linecap="round"></path>');
-  html += renderAccountGroup('Gemini', '#1E1F24', '<path d="M12 3c.8 4.6 4.4 8.2 9 9-4.6.8-8.2 4.4-9 9-.8-4.6-4.4-8.2-9-9 4.6-.8 8.2-4.4 9-9z" fill="#8AB4F8"></path>');
-  html += renderAccountGroup('OpenRouter', '#6566F1', '<b data-css="font:700 11px var(--sans);color:#fff">OR</b>');
-  html += renderAccountGroup('GitHub Copilot', '#181717', '<path d="M12 4a8 8 0 0 0-2.5 15.6c.4 0 .5-.2.5-.4v-1.5c-2.2.5-2.7-1-2.7-1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.3.7.1-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-3.9 0-.9.3-1.6.8-2.1-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7.6 7.6 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.4 1.1.2 1.9.1 2.1.5.6.8 1.3.8 2.1 0 3.1-1.9 3.7-3.6 3.9.3.3.5.8.5 1.5v2.2c0 .2.1.5.6.4A8 8 0 0 0 12 4z" fill="#fff"></path>');
-
-  html += `</div><div class="acts" data-css="margin-top:14px"><button class="btn pri" type="button" data-act="addacct"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add an account</button></div>`;
-
-  // Advanced sections (only show for level >= 1)
-  if (lv >= 1) {
-    html += `<div class="sec x15-sec"><h2>Budgets</h2><div class="ctl"><b>Most steps in one task</b><span class="right num15"><input class="inp" value="60" aria-label="Most steps in one task"><small>steps</small></span><small>It stops and asks when it gets there.</small></div><div class="ctl"><b>Spend cap per task</b><span class="right num15"><input class="inp" value="2.00" aria-label="Spend cap per task"><small>USD</small></span><small>Only for accounts that bill per use.</small></div><div class="ctl"><b>Sub-tasks at once</b><span class="right"><span class="seg" role="group" aria-label="Sub-tasks at once"><button type="button" aria-pressed="false" data-act="seg">1</button><button type="button" aria-pressed="true" data-act="seg">3</button><button type="button" aria-pressed="false" data-act="seg">5</button></span></span><small>Parts of a big task that can run side by side.</small></div></div><div class="sec x15-sec"><h2>Models for smaller jobs</h2><div class="ctl"><b>Sub-tasks and side jobs</b><span class="right"><span class="seg" role="group" aria-label="Sub-tasks and side jobs"><button type="button" aria-pressed="false" data-act="seg">Same model</button><button type="button" aria-pressed="true" data-act="seg">GPT-6 Mini</button><button type="button" aria-pressed="false" data-act="seg">Qwen3.6 here</button></span></span><small>Titles, summaries and searches inside a task.</small></div><div class="ctl"><b>Pick the model per task</b><input class="sw" type="checkbox" id="f15-pick-the-model-per-task" checked="" aria-label="Pick the model per task" data-sw="set"><small>Easy tasks go to a quick model, hard ones to the best you have.</small></div><div class="ctl"><b>Planning model</b><span class="right"><span class="seg" role="group" aria-label="Planning model"><button type="button" aria-pressed="true" data-act="seg">Same model</button><button type="button" aria-pressed="false" data-act="seg">Claude Opus</button><button type="button" aria-pressed="false" data-act="seg">GPT-6 Sol</button></span></span><small>Writes the plan in Plan first.</small></div><div class="ctl"><b>Mix models on hard questions</b><input class="sw" type="checkbox" id="f15-mix-models-on-hard-questions" aria-label="Mix models on hard questions" data-sw="set"><small>Asks two and merges the best of each. Off until you choose: it doubles the cost.</small></div></div><div class="sec x15-sec"><h2>Compare models</h2><div class="ctl"><b>Model arena</b><span class="right"><button class="btn sm" type="button" data-act="toast" data-msg="Arena: GPT-6 Sol 1,242 · Claude Opus 1,238 · Qwen3.6 1,106, from 38 of your picks.">Open the arena</button></span><small>The same task to two models, you pick the better. Ratings build up over time.</small></div><div class="ctl"><b>Test suites</b><span class="right"><button class="btn sm" type="button" data-act="toast" data-msg="Everyday · 20: 18 right today, 18 last week, 17 in August.">See history</button></span><small>Your own tasks with a check for each, with history.</small></div></div>`;
-  }
-
-  // Technical sections (only show for level >= 2)
-  if (lv >= 2) {
-    html += `<div class="sec x15-sec"><h2>Retries and timeouts</h2><div class="ctl"><b>Retries when a service fails</b><span class="right num15"><input class="inp" value="3" aria-label="Retries when a service fails"></span><small></small></div><div class="ctl"><b>Wait for the first word</b><span class="right num15"><input class="inp" value="60" aria-label="Wait for the first word"><small>s</small></span><small>Then it tries the next account.</small></div><div class="ctl"><b>Model rounds per step</b><span class="right num15"><input class="inp" value="25" aria-label="Model rounds per step"></span><small></small></div><div class="ctl"><b>Tool and command timeout</b><span class="right num15"><input class="inp" value="120" aria-label="Tool and command timeout"><small>s</small></span><small></small></div><div class="ctl"><b>Largest tool answer kept whole</b><span class="right num15"><input class="inp" value="32" aria-label="Largest tool answer kept whole"><small>KB</small></span><small>Bigger answers are saved to a file and summarised.</small></div></div><div class="sec x15-sec"><h2>Per connection</h2><div class="ctl"><b>Thinking effort</b><span class="right"><span class="seg" role="group" aria-label="Thinking effort"><button type="button" aria-pressed="false" data-act="seg">Low</button><button type="button" aria-pressed="true" data-act="seg">Medium</button><button type="button" aria-pressed="false" data-act="seg">High</button></span></span><small>For the connection in use; others keep their own.</small></div><div class="ctl"><b>Service tier</b><span class="right"><span class="seg" role="group" aria-label="Service tier"><button type="button" aria-pressed="true" data-act="seg">Standard</button><button type="button" aria-pressed="false" data-act="seg">Priority</button><button type="button" aria-pressed="false" data-act="seg">Flex</button></span></span><small>Priority costs more; flex is cheaper and slower.</small></div><div class="ctl"><b>Slow down near a rate limit</b><input class="sw" type="checkbox" id="f15-slow-down-near-a-rate-limit" checked="" aria-label="Slow down near a rate limit" data-sw="set"><small>Spreads requests out instead of hitting the wall.</small></div><div class="ctl"><b>Keep Claude's cache warm</b><input class="sw" type="checkbox" id="f15-keep-claude-s-cache-warm" checked="" aria-label="Keep Claude's cache warm" data-sw="set"><small>A tiny request every 4 minutes during long tasks, so repeats cost less. On because a Claude account is connected.</small></div><div class="ctl"><b>OpenRouter picks</b><span class="right"><span class="seg" role="group" aria-label="OpenRouter picks"><button type="button" aria-pressed="true" data-act="seg">Cheapest</button><button type="button" aria-pressed="false" data-act="seg">Fastest</button><button type="button" aria-pressed="false" data-act="seg">Only ones I list</button></span></span><small>Which provider serves an OpenRouter model.</small></div><div class="ctl"><b>Fewer rounds</b><input class="sw" type="checkbox" id="f15-fewer-rounds" checked="" aria-label="Fewer rounds" data-sw="set"><small>Groups tool calls that don't depend on each other.</small></div></div>`;
-  }
-
-  return html;
+  let html = `<h1>${t("layout.modelTabs")}</h1><p class="lede">${t("window.settings.models.which-models-answer-and-where-they")}</p><div class="tabs" role="tablist">${TABS.map(([id, l]) => `<button class="tab" role="tab" type="button" aria-selected="${tab === id}" data-act="mtab" data-v="${id}">${say(l)}</button>`).join("")}</div>${BODIES[tab]()}`;
+  if (lv >= 1) html += advanced();
+  if (lv >= 2) html += TECHNICAL();
+  return html + sections17(lv, tab);
 }
 
-export async function load() {
-  await loadAccounts();
+/* ---------- Get another model ---------- */
+function downloadBody() {
+  const recs = L.data?.recommendations ?? [];
+  return `<div class="rows">${recs.map((r) => `<div class="prow"><span class="ico-tile">${ic("cpu", "s")}</span><span class="grow"><b>${esc(r.model)}</b><small>${gb(r.downloadBytes)} · ${esc(r.expectation)}</small></span><button class="btn sm" type="button" data-act="dl-go" data-m="${esc(r.model)}" ${r.fits ? "" : "disabled"}>${t("window.settings.models.download")}</button></div>`).join("")}</div>
+    <div class="progress" id="dl-p" hidden><u id="dl-bar"></u></div><p class="hint" id="dl-t" data-css="margin:0"></p><div class="acts" id="dl-stop" data-css="display:none"><button class="btn ghost sm" type="button" data-act="lm-stop">${t("action.local-stop-setup")}</button></div>`;
+}
+
+async function openDownload() {
+  following = null;
+  if (!L.data) await loadLocal();
+  openDlg({ title: t("window.settings.models.get-another-model"), body: downloadBody() });
+}
+
+/* Draws the engine's own report of the download into the dialog: how far, and its words when it failed. */
+function show(d) {
+  const p = $("#dl-p"), bar = $("#dl-bar"), text = $("#dl-t"), stop = $("#dl-stop");
+  if (!p || !d) return;
+  p.hidden = false;
+  bar.style.width = `${Math.max(0, Math.min(100, Math.round(d.percent ?? 0)))}%`;
+  text.textContent = d.error ? d.error : d.done ? t("window.models.ready") : t("window.models.downloaded", { percent: Math.round(d.percent ?? 0) });
+  stop.style.display = d.done ? "none" : "";
+}
+
+async function follow(model) {
+  while (following === model && dialog()) {
+    const { downloads } = await api("local-models/downloads");
+    const d = (downloads ?? []).find((x) => x.model === model);
+    show(d);
+    if (!d || d.done) break;
+    await new Promise((done) => setTimeout(done, 700));
+  }
+  if (following === model) { following = null; await loadLocal(); }
+}
+
+async function startDownload(el) {
+  const model = el.dataset.m;
+  try {
+    show(await api("local-models/pull", { model }));
+    following = model;
+    await follow(model);
+  } catch (error) { toast(error.message); }
+}
+
+async function stopDownload() {
+  if (!following) return;
+  try {
+    const { stopped } = await api("local-models/stop", { model: following });
+    if (stopped) toast(t("window.settings.models.stopped-the-part-already-downloaded-is"));
+  } catch (error) { toast(error.message); }
+}
+
+/* Most steps in one task: the engine's own limit (GET /api/knobs values.limits.maxSteps), saved with
+   POST /api/knobs { card: "limits", values: { maxSteps } }, which keeps the card's other values. */
+let knobs = null;
+async function loadKnobs() {
+  try { knobs = await api("knobs"); } catch (error) { knobs = null; toast(error.message); }
+  renderNow();
+}
+async function saveSteps(box) {
+  if (!/^\d+$/.test(box.value.trim())) { renderNow(); return; }
+  try { knobs = await api("knobs", { card: "limits", values: { maxSteps: Number(box.value) } }); } catch (error) { toast(error.message); }
+  renderNow();
 }
 
 export function init() {
-  // Set up event handlers here if needed
+  init17();
+  loadAccounts();
+  loadLocal();
+  loadKnobs();
+  document.addEventListener("change", (e) => { if (e.target.id === "m-steps") saveSteps(e.target); });
+  on("mtab", (el) => { tab = el.dataset.v; renderNow(); });
+  on("download", () => openDownload());
+  on("dl-go", (el) => startDownload(el));
+  on("lm-stop", () => stopDownload());
+  markLive(["mtab", "download", "dl-go", "lm-stop"]);
 }
 
-export const live = {
-  // Keys of controls that are wired to real routes
+export function load() { loadAccounts(); loadKnobs(); return loadLocal(); }
+
+export const live = { mtab: true, download: true, "dl-go": true, "lm-stop": true, "sw:m-steps": true };
+
+/* The Advanced and Technical sections: drawn in place and greyed until each has its engine setting wired. */
+const seg = (label, opts) => `<span class="right"><span class="seg" role="group" aria-label="${label}">${opts.map((o) => `<button type="button" aria-pressed="false" data-act="seg">${o}</button>`).join("")}</span></span>`;
+const num = (label, unit) => `<span class="right num15"><input class="inp" aria-label="${label}" disabled>${unit ? `<small>${unit}</small>` : ""}</span>`;
+const steps = () => {
+  const value = knobs?.values?.limits?.maxSteps;
+  /* A plain box, as the prototype's num15; nothing is shown until the engine has said what it keeps. */
+  return value == null ? ""
+    : `<span class="right num15"><input class="inp" id="m-steps" value="${esc(value)}" aria-label="${t("knobs.field.maxSteps")}"><small>${t("window.settings.models.steps")}</small></span>`;
 };
+const row = (b, right, small = "") => `<div class="ctl"><b>${b}</b>${right}<small>${small}</small></div>`;
+const sw = (id, b, small) => `<div class="ctl"><b>${esc(say(b))}</b><input class="sw" type="checkbox" id="${id}" aria-label="${esc(say(b))}" data-sw="set"><small>${esc(say(small))}</small></div>`;
 
-export function after(col) {
-  // Wire up controls after DOM is rendered
-}
+/* The model choices are "Same model" and the engine's own model presets (GET /api/state models). */
+const presetNames = () => (E.state?.models?.presets ?? []).map((p) => esc(p.name));
+const advanced = () => `<div class="sec x15-sec"><h2>${t("window.settings.models.budgets")}</h2>${row(t("knobs.field.maxSteps"), steps(), t("window.settings.models.it-stops-and-asks-when-it"))}${row(t("window.settings.models.spend-cap-per-task"), num(t("window.settings.models.spend-cap-per-task"), "USD"), t("window.settings.models.only-for-accounts-that-bill-per"))}${row(t("window.settings.models.sub-tasks-at-once"), seg(t("window.settings.models.sub-tasks-at-once"), ["1", "3", "5"]), t("window.settings.models.parts-of-a-big-task-that"))}</div>`
+  + `<div class="sec x15-sec"><h2>${t("window.settings.models.models-for-smaller-jobs")}</h2>${row(t("knobs.subtasks.title"), seg(t("knobs.subtasks.title"), [t("window.settings.models.same-model"), ...presetNames()]), t("window.settings.models.titles-summaries-and-searches-inside-a"))}${sw("f15-pick-the-model-per-task", "Pick the model per task", "Easy tasks go to a quick model, hard ones to the best you have.")}${row(t("window.settings.models.planning-model"), seg(t("window.settings.models.planning-model"), [t("window.settings.models.same-model"), ...presetNames()]), t("window.settings.models.writes-the-plan-in-plan-first"))}${sw("f15-mix-models-on-hard-questions", "Mix models on hard questions", "Asks two and merges the best of each. Off until you choose: it doubles the cost.")}</div>`
+  + `<div class="sec x15-sec"><h2>${t("window.settings.p17-models.compare-models")}</h2>${row(t("reach.arena.title"), `<span class="right"><button class="btn sm" type="button" data-act="soon">${t("window.settings.models.open-the-arena")}</button></span>`, t("window.settings.models.the-same-task-to-two-models"))}${row(t("window.settings.models.test-suites"), `<span class="right"><button class="btn sm" type="button" data-act="compareb17">${t("window.settings.models.see-history")}</button></span>`, t("window.settings.models.your-own-tasks-with-a-check"))}</div>`;
+
+const TECHNICAL = () => `<div class="sec x15-sec"><h2>${t("window.settings.models.retries-and-timeouts")}</h2>${row(t("window.settings.models.retries-when-a-service-fails"), num(t("window.settings.models.retries-when-a-service-fails"), ""))}${row(t("window.settings.models.wait-for-the-first-word"), num(t("window.settings.models.wait-for-the-first-word"), "s"), t("window.settings.models.then-it-tries-the-next-account"))}${row(t("window.settings.models.model-rounds-per-step"), num(t("window.settings.models.model-rounds-per-step"), ""))}${row(t("window.settings.models.tool-and-command-timeout"), num(t("window.settings.models.tool-and-command-timeout"), "s"))}${row(t("window.settings.models.largest-tool-answer-kept-whole"), num(t("window.settings.models.largest-tool-answer-kept-whole"), "KB"), t("window.settings.models.bigger-answers-are-saved-to-a"))}</div>`
+  + `<div class="sec x15-sec"><h2>${t("window.settings.models.per-connection")}</h2>${row(t("window.settings.models.thinking-effort"), seg(t("window.settings.models.thinking-effort"), [t("knobs.option.effort-low"), t("appearance.textSize.medium"), t("knobs.option.effort-high")]), t("window.settings.models.for-the-connection-in-use-others"))}${row(t("window.settings.models.service-tier"), seg(t("window.settings.models.service-tier"), [t("window.settings.models.standard"), t("window.settings.models.priority"), t("window.settings.models.flex")]), t("window.settings.models.priority-costs-more-flex-is-cheaper"))}${sw("f15-slow-down-near-a-rate-limit", "Slow down near a rate limit", "Spreads requests out instead of hitting the wall.")}${sw("f15-keep-claude-s-cache-warm", "Keep Claude’s cache warm", "A tiny request every 4 minutes during long tasks, so repeats cost less.")}${row(t("window.settings.models.openrouter-picks"), seg(t("window.settings.models.openrouter-picks"), [t("settings-kit.preset.cheapest"), t("window.settings.models.fastest"), t("window.settings.models.only-ones-i-list")]), t("window.settings.models.which-provider-serves-an-openrouter-model"))}${sw("f15-fewer-rounds", "Fewer rounds", "Groups tool calls that don’t depend on each other.")}</div>`;

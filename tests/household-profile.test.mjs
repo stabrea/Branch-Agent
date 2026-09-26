@@ -24,8 +24,9 @@ import { ROUTES, SAMPLE_ID, entry } from "./short-lived-key-routes.mjs";
 
 const concrete = (path) => path.replaceAll(":id", SAMPLE_ID);
 const rows = Object.entries(ROUTES).map(([path, value]) => ({ path, ...entry(value) }));
-/** The two ways out of a profile: they are "owner" rows, and a household person must still reach them. */
-const WAYS_OUT = new Set(["POST /api/profiles/switch", "POST /api/lock"]);
+/** The two ways out of a profile: they are "owner" rows, and a household person must still reach them.
+    App lock: and unlocking with the PIN, the way back in, the PIN itself its guard (src/session-lock.ts). */
+const WAYS_OUT = new Set(["POST /api/profiles/switch", "POST /api/lock", "POST /api/lock/unlock"]);
 /** Reads a short-lived key is refused that answer a household person with a thinned view of their own. */
 const VIEWS = new Set(["/api/voice/wake", "/api/voice/dictation", "/api/voice/dictation/listen"]);
 /** Asked of the owner only through the rule, never over HTTP: they quit, restart, restore or remove Branch. */

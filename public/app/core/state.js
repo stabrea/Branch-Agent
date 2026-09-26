@@ -23,6 +23,8 @@ export const S = {
 export const E = {
   state: null,
   trunks: [],
+  trunkModes: {},
+  rooms: [],
   sessions: [],
   conversation: null,
   profiles: null,
@@ -51,11 +53,34 @@ export async function refresh() {
   E.profiles = profiles;
   E.state = state;
   E.trunks = trunks?.trunks ?? (Array.isArray(trunks) ? trunks : []);
+  E.trunkModes = trunks?.modes ?? {};
+  E.rooms = Array.isArray(trunks?.rooms) ? trunks.rooms : [];
   E.sessions = sessions?.sessions ?? [];
   E.loaded = true;
   render();
 }
 
+/* Who is using Branch now: GET /api/profiles answers `active` as the person's profile ({ id, name, … }), or null for the
+   owner, whose name is the engine's owner label. */
+export const activeId = () => E.profiles?.active?.id ?? null;
+export const personHere = () => E.profiles?.active?.name || E.profiles?.roleLabels?.owner?.label || "";
+/* Whether the one at the window is the owner, as the engine says (GET /api/profiles isOwner). Owner-only controls are drawn
+   only then: not while the answer is missing, and never for a household person (they are not theirs to use, not "coming soon"). */
+export const ownerHere = () => E.profiles?.isOwner === true;
+
 /* The level control: Regular 0, Advanced 1, Technical 2. */
 export const LEVELS = { regular: 0, advanced: 1, technical: 2 };
 export const level = () => LEVELS[S.level] ?? 0;
+
+/* A conversation that is a Trunk's own (or one it retired) or a room's is named and drawn for it, as the prototype's
+   rowHtml and av(c) do: the Trunk's face, or a room's stack of two member faces (GET /api/trunks rooms[].members). */
+const ownTrunkOf = (id) => (id ? E.trunks.find((t) => t.chatSessionId === id || (t.retiredChats ?? []).includes(id)) : undefined);
+const roomOf = (id) => (id ? E.rooms.find((r) => r.sessionId === id) : undefined);
+export const ownName = (id) => ownTrunkOf(id)?.name || roomOf(id)?.name || "";
+export const roomFace = (room) => ({ kind: "room", members: (room?.members ?? []).map((m) => E.trunks.find((t) => t.id === m)).filter(Boolean) });
+export const chatFace = (id) => ownTrunkOf(id) ?? (roomOf(id) ? roomFace(roomOf(id)) : { kind: "main" });
+
+/* The engine's own ask that has a new Trunk introduce itself carries system: "trunk-intro" (src/trunks/index.ts). A
+   conversation saved before that marker has the ask unmarked, so only a message with no marker is matched by its words. */
+const OLD_INTRO = "Introduce yourself to the owner in two or three short sentences: your name, your role, and what you can help with. This is the first message of your own conversation.";
+export const trunkIntro = (m) => m.role === "user" && (m.system === "trunk-intro" || (!m.system && m.content === OLD_INTRO));

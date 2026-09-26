@@ -11,7 +11,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openSettings } from "./places.mjs";
+import { openSettings } from "./places.mjs"; // the old window's helper, for the skipped bodies only
 import { THEMES, TOKEN_NAMES } from "../public/theme-catalogue.js";
 
 function contrast(theme, mode) {
@@ -23,6 +23,68 @@ function contrast(theme, mode) {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
+/* Redesign: the new window's theme cards are in prototype.html's Themes gallery (shell/themes.js card()): a swatch of the
+   theme's own colours, its name and its group, named by the theme alone and pressed when worn. The old 70px miniature
+   window, its measures and its "Default" / "High contrast" / "Easy in daylight" words are not in the design. */
+async function gallery(t, width) {
+  const root = await mkdtemp(join(tmpdir(), "branch-theme-tiles-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  await fetch(new URL("/api/onboarding", server.url), {
+    method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify({ done: true }),
+  });
+  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: "reduce", serviceWorkers: "block" });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  errors.length = 0; // what failed before the key was given is the login page's business
+  if (width <= 760) await page.locator('[data-act="side"]').filter({ visible: true }).first().click();
+  await page.locator('#side [data-act="view"][data-v="settings"]').click();
+  await page.locator('[data-act="setpage"][data-v="appearance"]').click();
+  await page.locator('.set-col [data-act="skins"]').click();
+  await page.locator('.dlg .themes6 [data-act="skin"]').first().waitFor();
+  return { page, errors };
+}
+
+test("DG-037 each card shows its theme's own colours and its name, inside the window at three widths", async (t) => {
+  for (const width of [1440, 860, 400]) {
+    const { page, errors } = await gallery(t, width);
+    const seen = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('.dlg .themes6 [data-act="skin"]')], box = document.querySelector(".dlg").getBoundingClientRect();
+      const fills = (card) => [...card.querySelectorAll("*")].map((node) => getComputedStyle(node).backgroundColor).filter((c) => c !== "rgba(0, 0, 0, 0)").join("|");
+      return { named: cards.every((card) => card.querySelector(":scope > b")?.textContent.trim() === card.getAttribute("aria-label")),
+        painted: cards.every((card) => fills(card).length > 0),
+        distinct: new Set(cards.map(fills)).size > cards.length / 2,
+        inside: cards.every((card) => { const r = card.getBoundingClientRect(); return r.width === 0 || (r.left >= box.left - 0.5 && r.right <= box.right + 0.5); }),
+        over: document.documentElement.scrollWidth - innerWidth };
+    });
+    assert.equal(seen.named, true, `${width}: each card is named by its theme and shows the name`);
+    assert.equal(seen.painted, true, `${width}: each card is painted`);
+    assert.equal(seen.distinct, true, `${width}: in its own theme's colours, not one look for all`);
+    assert.equal(seen.inside, true, `${width}: every card is inside the gallery`);
+    assert.ok(seen.over <= 1, `${width}: the page is no wider than the window (${seen.over}px over)`);
+    assert.deepEqual(errors, []);
+  }
+});
+
+test("DG-037 the worn theme's card is pressed, and a card is named by its theme alone", async (t) => {
+  const { page, errors } = await gallery(t, 1440);
+  const pressedCards = () => page.$$eval('.dlg [data-act="skin"][aria-pressed="true"]', (cards) => cards.map((card) => card.dataset.v));
+  assert.deepEqual(await pressedCards(), ["slate"], "Branch Slate is worn at first");
+  assert.equal(await page.getByRole("button", { name: "Branch Slate", exact: true }).count(), 1);
+  await page.getByRole("button", { name: "Forest", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.dlg [data-act="skin"][data-v="forest"]')?.getAttribute("aria-pressed") === "true");
+  assert.deepEqual(await pressedCards(), ["forest"], "one pressed at a time");
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.palette), "forest");
+  assert.deepEqual(errors, []);
+});
+
+/* The old window's tiles, for the skipped bodies below. */
 async function appearance(t, width) {
   const root = await mkdtemp(join(tmpdir(), "branch-theme-tiles-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
@@ -38,7 +100,7 @@ async function appearance(t, width) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   errors.length = 0; // what failed before the key was given is the login page's business
   await openSettings(page, "appearance");
   await page.locator("#lx-theme-gallery .lx-tile").first().waitFor();
@@ -65,7 +127,9 @@ const measure = (page) => page.evaluate(() => {
   };
 });
 
-test("DG-037 each tile is the sample's miniature window with its name, at three widths", async (t) => {
+// Redesign: replaced by the new window (prototype.html's theme cards are swatches with a name and a group, not 70px
+// miniature windows with Default / High contrast words; checked live above).
+test.skip("DG-037 each tile is the sample's miniature window with its name, at three widths", async (t) => {
   for (const width of [1440, 860, 400]) {
     const { page, errors } = await appearance(t, width);
     const seen = await measure(page);
@@ -85,7 +149,9 @@ test("DG-037 each tile is the sample's miniature window with its name, at three 
   }
 });
 
-test("DG-037 the tiles carry the sample's words, and only where they are true", async (t) => {
+// Redesign: replaced by the new window (prototype.html's theme cards are swatches with a name and a group, not 70px
+// miniature windows with Default / High contrast words; checked live above).
+test.skip("DG-037 the tiles carry the sample's words, and only where they are true", async (t) => {
   const { page, errors } = await appearance(t, 1440);
   const words = await page.$$eval("#lx-theme-gallery .lx-tile", (tiles) => Object.fromEntries(tiles.map((tile) =>
     [tile.dataset.family, [...tile.querySelectorAll(".lx-tile-badge")].map((badge) => badge.textContent)])));

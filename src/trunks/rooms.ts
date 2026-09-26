@@ -7,10 +7,12 @@ import type { Store } from "../store.js";
 import { shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "../key-context.js"; // phase2/rooms
 import { asPerson } from "../people/context.js";
 import type { TrunkRecords } from "./record.js";
+import { pausedWords } from "./pause.js"; // eng-trunk-controls
 import {
-  asksForOwner, isPass, maxRoomMembers, minRoomMembers, nextRoomTurn,
-  type RoomDecision, type RoomEvent, type RoomMember, type RoomTask,
+  asksForOwner, isPass, maxRoomMembers, minRoomMembers, nextRoomTurn, roomRules,
+  type RoomDecision, type RoomEvent, type RoomMember, type RoomRule, type RoomTask,
 } from "./room-plan.js";
+import { TeamPatternSchema, type TeamPattern } from "../team-pattern.js"; // eng-trunk-controls
 
 /**
  * R17-009 (T-09): rooms where two to six Trunks and the owner talk in one transcript.
@@ -27,6 +29,10 @@ export const RoomCreateSchema = z.object({
   name: z.string().trim().min(1).max(60),
   members: z.array(z.string().uuid()).min(minRoomMembers).max(maxRoomMembers),
   people: z.array(z.string().uuid()).max(8).default([]),
+  /** eng-trunk-controls: who answers the owner's message (src/trunks/room-plan.ts); mentions only, as always, by default. */
+  rule: z.enum(roomRules).default("mention"),
+  /** eng-trunk-controls: this room's own way of working together; null follows the owner's default. */
+  pattern: TeamPatternSchema.nullable().default(null),
 }).strict();
 export const RoomEditSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
@@ -36,6 +42,8 @@ export const RoomEditSchema = z.object({
   pinned: z.boolean().optional(),
   section: z.string().trim().max(40).optional(),
   order: z.number().int().min(0).max(10000).optional(),
+  rule: z.enum(roomRules).optional(), // eng-trunk-controls
+  pattern: TeamPatternSchema.nullable().optional(), // eng-trunk-controls
 }).strict();
 const RoomArtifactSchema = z.object({
   name: z.string().trim().min(1).max(120)
@@ -74,6 +82,10 @@ export interface Room {
   order: number;
   /** phase2/rooms: what came before, when the room was made from a conversation; each member reads it on its first turn. */
   context?: string;
+  /** eng-trunk-controls: who answers; a room saved before this reads as "mention". */
+  rule: RoomRule;
+  /** eng-trunk-controls: how its Trunks work together; null follows the owner's default. */
+  pattern: TeamPattern | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,7 +113,7 @@ export class TrunkRooms {
   constructor(private readonly deps: RoomDeps) {}
 
   private normalize(room: Room): Room {
-    return { ...room, people: room.people ?? [], artifacts: room.artifacts ?? [] };
+    return { ...room, people: room.people ?? [], artifacts: room.artifacts ?? [], rule: room.rule ?? "mention", pattern: room.pattern ?? null };
   }
 
   list(): Room[] {
@@ -162,6 +174,7 @@ export class TrunkRooms {
     const room: Room = { id: randomUUID(), name: value.name, members: value.members, people: value.people,
       sessionId: this.conversation(`Room: ${value.name}`), memberSessions: {}, artifacts: [], events: [], seq: 0,
       needsYou: false, picture: null, pinned: false, section: "", order: 0, createdAt: now, updatedAt: now,
+      rule: value.rule, pattern: value.pattern, // eng-trunk-controls
       ...(options.context ? { context: options.context.slice(0, 3000) } : {}) }; // phase2/rooms
     for (const id of room.members) room.memberSessions[id] = this.conversation(`Room ${value.name}: ${this.deps.records.get(id).name}`);
     this.deps.store.message(room.sessionId, { role: "system", content: `Room "${room.name}". ${this.roster(room).map((m) => `@${m.handle}`).join(", ")} and you.` });
@@ -282,11 +295,16 @@ export class TrunkRooms {
     // Each round has a hard cap, so this bound is only a guard against a log that cannot settle.
     for (let step = 0; step < 40 && !this.closing; step++) {
       const room = this.get(id);
-      const decision: RoomDecision = nextRoomTurn(room.name, this.roster(room), room.events, this.sharedContext(room));
+      const decision: RoomDecision = nextRoomTurn(room.name, this.roster(room), room.events, this.sharedContext(room),
+        { rule: room.rule, lead: this.lead(room) });
       if (decision.status === "waiting") return this.flag(room, "A Trunk in the room is waiting for your answer");
       if (decision.status !== "task") return;
       await this.turn(room, decision.task);
     }
+  }
+  /** eng-trunk-controls: under "a lead Trunk decides", the first Trunk seated that is not paused. */
+  private lead(room: Room): string | undefined {
+    return room.members.find((id) => { const trunk = this.deps.records.find(id); return trunk && !trunk.paused; });
   }
   private sharedContext(room: Room): string {
     return room.context ?? "";
@@ -295,6 +313,8 @@ export class TrunkRooms {
     const member = this.deps.records.find(task.memberId);
     const sessionId = room.memberSessions[task.memberId];
     if (!member || !sessionId) { this.append(room.id, { kind: "failed", text: "This Trunk is gone", memberId: task.memberId, round: task.round, discussion: task.discussion, seen: task.seen }); return; }
+    // eng-trunk-controls: a paused Trunk sits the turn out and says so; the room carries on without it.
+    if (member.paused) { this.append(room.id, { kind: "failed", text: pausedWords(member, "it did not answer"), memberId: member.id, round: task.round, discussion: task.discussion, seen: task.seen }); return; }
     let run: Run;
     // phase2/rooms: the planner carries the sender; authority never falls back through a capped log.
     const prompt = task.prompt + this.artifactContext(room, task.personId ?? null);

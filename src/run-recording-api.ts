@@ -105,7 +105,7 @@ function shareable(recording: RunRecording): RunRecording {
 const pictureTypes: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
 
 /** The language the window asked the page to be written in; only a language file the app ships. */
-const pageLanguages = new Set(["en", "fr"]);
+const pageLanguages = new Set(["en", "fr", "es"]);
 function pageLanguage(request: IncomingMessage): string {
   const asked = new URL(request.url ?? "/", "http://local").searchParams.get("lang") ?? "en";
   return pageLanguages.has(asked) ? asked : "en";

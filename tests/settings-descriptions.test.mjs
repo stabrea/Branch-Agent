@@ -47,7 +47,7 @@ async function fixture(t, viewport = { width: 1440, height: 1000 }) {
   await page.getByRole("button", { name: "Connect", exact: true }).click({ noWaitAfter: true });
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 }); // phase2/accounts: was #settings-kit-files
   return { page, errors };
 }
@@ -85,7 +85,45 @@ function auditOpenPage(where) {
   return problems;
 }
 
-test("R17-S01/S04: every Settings control has a description, and every Settings card a purpose and a scope chip", async (t) => {
+/* The new window: walked the way a person walks it, at Technical (every page and every Models tab), every control on show
+   in Settings has a name that says what it is, and every row of the prototype's (.ctl) has its title. */
+test("R17-S01: every control in the new window's Settings is named, and every row has its title", async (t) => {
+  const { settingsWindow, openSettingsPage, setLevel } = await import("./settings-window.mjs");
+  const { page, errors } = await settingsWindow(t, { name: "describe" });
+  await openSettingsPage(page, "general");
+  await setLevel(page, "technical");
+  const ids = await page.locator('.set-nav [data-act="setpage"]').evaluateAll((all) => all.map((node) => node.dataset.v));
+  assert.ok(ids.length >= 18, "the Settings pages moved; this test is looking in the wrong place");
+  const problems = [];
+  let checked = 0;
+  for (const id of ids) {
+    await openSettingsPage(page, id);
+    const tabs = id === "models" ? await page.locator('.set-col [role="tab"]').count() : 1;
+    for (let at = 0; at < tabs; at++) {
+      if (id === "models") await page.locator('.set-col [role="tab"]').nth(at).click();
+      await page.waitForTimeout(300);
+      const found = await page.evaluate((where) => {
+        const shown = (node) => node.getClientRects().length > 0;
+        const named = (node) => (node.getAttribute("aria-label") || "").trim() || (node.getAttribute("aria-labelledby") || "").trim()
+          || [...(node.labels ?? [])].some((label) => label.textContent.trim() || (label.getAttribute("aria-label") || "").trim()) || (node.getAttribute("title") || "").trim();
+        const controls = [...document.querySelectorAll(".set-col :is(input:not([type=hidden]), select, textarea)")].filter(shown);
+        const rows = [...document.querySelectorAll(".set-col .ctl")].filter(shown);
+        return { count: controls.length,
+          problems: [...controls.filter((node) => !named(node)).map((node) => `${where}: ${node.tagName.toLowerCase()}#${node.id || "?"} has no name`),
+            ...rows.filter((row) => !row.querySelector(":scope > b")?.textContent.trim()).map((row) => `${where}: a row has no title`)] };
+      }, id === "models" ? `models:${at}` : id);
+      checked += found.count;
+      problems.push(...found.problems);
+    }
+  }
+  assert.ok(checked > 60, `only ${checked} controls were found; the walk is not reaching the pages`);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the prototype's rows carry their own sentence in <small>, with no scope chips and
+// no cards with headings; re-pointed above).
+test.skip("R17-S01/S04: every Settings control has a description, and every Settings card a purpose and a scope chip", async (t) => {
   const { page, errors } = await fixture(t);
   const pages = await page.evaluate(() => [...document.querySelectorAll(".lx-page")].map((node) => node.dataset.page));
   assert.ok(pages.length >= 12, "the Settings pages moved; this test is looking in the wrong place");
@@ -123,7 +161,9 @@ test("R17-S04: a headless card passes only inside a section with a heading and a
   ]);
 });
 
-test("R17-S01: the descriptions are in English and real French, and show in the language chosen", async (t) => {
+// Redesign: replaced by the new window (public/settings-descriptions.js is gone; the loop guard is Coming soon, sw:p-loop),
+// and French waits on sw:lang, Coming soon, checked at fc541c24.
+test.skip("R17-S01: the descriptions are in English and real French, and show in the language chosen", async (t) => {
   const en = JSON.parse(await readFile(join(LOCALES, "en.json"), "utf8"));
   const fr = JSON.parse(await readFile(join(LOCALES, "fr.json"), "utf8"));
   const { descriptions, switchDescription } = await import("../public/settings-descriptions.js");
@@ -148,7 +188,8 @@ test("R17-S01: the descriptions are in English and real French, and show in the 
   assert.ok(chips.length && chips.every((words) => words.startsWith("S'applique")), "the scope chips follow the language");
 });
 
-test("R17-S04: the scope chip says project for project cards, this computer for appearance, everything otherwise", async (t) => {
+// Redesign: replaced by the new window (the prototype has no scope chips).
+test.skip("R17-S04: the scope chip says project for project cards, this computer for appearance, everything otherwise", async (t) => {
   const { page } = await fixture(t);
   await openSettings(page, "general");
   const scopeOf = (id) => page.evaluate((cardId) => document.getElementById(cardId)?.querySelector(":scope > .kit-scope")?.dataset.scope, id);
@@ -163,7 +204,8 @@ test("R17-S04: the scope chip says project for project cards, this computer for 
   await page.waitForFunction(() => document.querySelector("#settings-kit-presets > .kit-scope")?.dataset.scope === "trunk");
 });
 
-test("R17-S01: controls rebuilt on the page are described as they are rebuilt, not 60ms later", async (t) => {
+// Redesign: replaced by the new window (no describing pass; the prototype's controls are drawn with their names).
+test.skip("R17-S01: controls rebuilt on the page are described as they are rebuilt, not 60ms later", async (t) => {
   // Integration review (mac7/wake-pins): renderModels() throws the fallback checkboxes away and
   // makes new ones, which arrive with no aria-describedby. Until this fix the only thing that put
   // the description back was settings-describe.js's debounce, so anything looking at the page in

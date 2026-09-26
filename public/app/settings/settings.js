@@ -27,6 +27,8 @@ import * as advanced from "./pages/advanced.js";
 import * as developer from "./pages/developer.js";
 import * as achievements from "./pages/achievements.js";
 import * as self from "./pages/self.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 const PAGES = {
   general, people, appearance, notifications, instructions, models, local,
@@ -34,9 +36,12 @@ const PAGES = {
   advanced, developer, achievements, self
 };
 
-const NAV = [
+/* Whether the window has a Settings page by this id (an engine command may name one). */
+export const hasPage = (id) => Object.hasOwn(PAGES, id);
+
+export const NAV = [
   ["General", [["general", "General"], ["people", "People"], ["appearance", "Appearance"], ["notifications", "Notifications"]]],
-  ["Your assistant", [["instructions", "Instructions & personality"], ["models", "Models"], ["local", "On this computer"], ["accounts", "Accounts"], ["voice", "Voice"]]],
+  ["Your assistant", [["instructions", "Instructions & personality"], ["models", "Models"], ["accounts", "Accounts"], ["local", "On this computer"], ["voice", "Voice"]]],
   ["Safety", [["permissions", "Permissions"], ["computer", "Computer & browser"], ["secrets", "Saved sign-ins"]]],
   ["Care", [["usage", "Data & usage"], ["gateway", "Gateway"], ["self", "Branch itself"], ["updates", "Updates & about"], ["achievements", "Achievements"]]]
 ];
@@ -44,49 +49,60 @@ const NAV = [
 let searchText = "";
 
 /* A page starts (registers its actions, fetches its data) the first time it is opened after sign-in, and re-reads its
-   data each time it is opened again; nothing is fetched before the engine has accepted the window. */
+   data each time it is opened again; nothing is fetched before the engine has accepted the window. A page that draws a
+   choice from what the engine keeps (waitFirst) is shown once its read has come back, so it never shows none pressed. */
 const started = new Set();
 function open(id) {
   const page = PAGES[id];
-  if (!page || !E.loaded) return;
-  if (!started.has(id)) { started.add(id); page.init?.(); }
-  else page.load?.();
+  if (!page || !E.loaded) return undefined;
+  if (!started.has(id)) { started.add(id); return page.init?.(); }
+  return page.load?.();
+}
+/* Only the latest choice is shown: a page still reading when another is picked does not pull the person back. */
+let asked = null;
+async function go(id) {
+  asked = id;
+  const reading = open(id);
+  if (PAGES[id]?.waitFirst) await reading;
+  if (asked !== id) return;
+  S.setPage = id;
+  renderNow();
 }
 
 export function draw() {
   const lv = level();
   if (!started.has(S.setPage)) open(S.setPage);
   const q = searchText.trim().toLowerCase();
-  const extra = [lv >= 1 ? ["advanced", "Advanced"] : null, lv >= 2 ? ["developer", "Developer"] : null].filter(Boolean);
-  const groups = [...NAV, ...(extra.length ? [["More", extra]] : [])]
-    .map(([g, items]) => [g, items.filter(([, l]) => !q || l.toLowerCase().includes(q))])
+  const extra = [lv >= 1 ? ["advanced", t("settings.page.advanced")] : null, lv >= 2 ? ["developer", t("settings.card.developer")] : null].filter(Boolean);
+  const groups = [...NAV, ...(extra.length ? [[t("more.label"), extra]] : [])]
+    .map(([g, items]) => [g, items.filter(([, l]) => !q || say(l).toLowerCase().includes(q))])
     .filter(([, items]) => items.length);
   if ((S.setPage === "advanced" && lv < 1) || (S.setPage === "developer" && lv < 2)) S.setPage = "general";
 
   const nav = groups
     .map(([g, items]) =>
-      `<div class="grp">${esc(g)}</div>${items
-        .map(([id, l]) => `<button class="nav" type="button" data-act="setpage" data-v="${id}" aria-current="${S.setPage === id}">${esc(l)}</button>`)
+      `<div class="grp">${esc(say(g))}</div>${items
+        .map(([id, l]) => `<button class="nav" type="button" data-act="setpage" data-v="${id}" aria-current="${S.setPage === id}">${esc(say(l))}</button>`)
         .join("")}`
     )
-    .join("");
+    .join("") || `<p class="hint" data-css="padding:0 10px">${t("window.settings.settings.no-page-matches")}</p>`;
 
   const page = PAGES[S.setPage];
   const pageContent = page?.draw?.() ?? "";
 
   return `<div class="settings">
-    <nav class="set-nav" aria-label="Settings pages">
-      <button class="set-back" type="button" data-act="view" data-v="chat">${ic("back", "s")}Back to Branch</button>
-      <label class="set-search">${ic("search", "s")}<input id="set-q" placeholder="Search settings" value="${esc(searchText)}" aria-label="Search settings"></label>
+    <nav class="set-nav" aria-label="${t("dashboard.pages.title")}">
+      <button class="set-back" type="button" data-act="chat" ${S.chat ? `data-id="${esc(S.chat)}"` : ""}>${ic("back", "s")}${t("window.settings.settings.back-to-value", { value: esc(E.state?.identity?.name || "Branch") })}</button>
+      <label class="set-search">${ic("search", "s")}<input id="set-q" placeholder="${t("settings.search")}" value="${esc(searchText)}" aria-label="${t("settings.search")}"></label>
       ${nav}
       <div class="set-level" data-css="display:grid;gap:6px">
-        <span>How much to show</span>
-        <span class="seg" role="group" aria-label="How much to show">
-          ${[["regular", "Regular"], ["advanced", "Advanced"], ["technical", "Technical"]]
+        <span>${t("appearance.howMuch")}</span>
+        <span class="seg" role="group" aria-label="${t("appearance.howMuch")}">
+          ${[["regular", t("settingsGrown.level.regular")], ["advanced", t("settings.page.advanced")], ["technical", t("settingsGrown.level.technical")]]
             .map(([v, l]) => `<button type="button" data-act="setlevel" data-v="${v}" aria-pressed="${S.level === v}" data-tip="${
-              v === "regular" ? "The essentials, in plain words."
-              : v === "advanced" ? "Every feature and the fine controls."
-              : "File paths, raw keys, launch variables, config and logs."
+              v === "regular" ? t("settingsGrown.level.regular.note")
+              : v === "advanced" ? t("settingsGrown.level.advanced.note")
+              : t("window.settings.settings.file-paths-raw-keys-launch-variables")
             }">${esc(l)}</button>`)
             .join("")}
         </span>
@@ -100,8 +116,22 @@ export function init() {
   if (has("setpage")) return;
 
   on("setpage", (el) => {
-    S.setPage = el.dataset.v;
     closePop();
+    go(el.dataset.v);
+  });
+
+  on("setgo", (el) => {
+    S.view = "settings";
+    closePop();
+    go(el.dataset.v);
+  });
+
+  /* The status bar's update menu: close it and open Settings › Updates & about (navigation only). The menu is drawn
+     by the shell (shell/usage.js), which marks the item live when it draws it. */
+  on("updmenu-go", () => {
+    closePop();
+    S.view = "settings";
+    S.setPage = "updates";
     open(S.setPage);
     renderNow();
   });
@@ -134,7 +164,7 @@ export function init() {
   for (const page of Object.values(PAGES)) {
     live.push(...(page.live ? Object.keys(page.live) : []));
   }
-  markLive(["setpage", "setlevel", ...live]);
+  markLive(["setpage", "setgo", "setlevel", "sw:set-q", ...live]);
 }
 
 export function after(main) {

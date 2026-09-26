@@ -55,6 +55,10 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
   // The two ways out: switching back to the owner (or to somebody else), and locking the window.
   ...own("/api/profiles/switch"),
   ...own("/api/lock"),
+  // App lock: and the way back in. While Branch is locked with a PIN nothing else is answered, a
+  // switch back to the owner included, so a window left on a household profile would stay shut for
+  // good. The PIN is the guard here (src/session-lock.ts); setting or removing it stays the owner's.
+  ...own("/api/lock/unlock"),
   // The table's "other" rows: a person's own conversations, memory, documents, notes and lists.
   ...[
     own("/api/asks/analytics/event"),
@@ -96,6 +100,7 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/knowledge/attach"),
     own("/api/knowledge/export"),
     own("/api/knowledge/graph"),
+    own("/api/knowledge/graph/names"), // p17: the names a map mentions most, a read like the one above
     own("/api/knowledge/import"),
     own("/api/knowledge/manage"),
     own("/api/knowledge/map"),
@@ -171,6 +176,7 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/reflection/new-skills/try"),
     own("/api/reflection/retire"),
     own("/api/reports"),
+    own("/api/read-marks"), // pass 17: a person's own read marks
     own("/api/request-cache/clear"),
     own("/api/retrieval/context"),
     own("/api/retrieval/pipelines"),
@@ -179,8 +185,10 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/safety-extras/wasm/run"),
     own("/api/schedules"),
     own("/api/schedules/:id/remove"),
+    own("/api/sessions/:id/branch"), // pass 17: named paths, leaving a message out of context
     own("/api/sessions/:id/discard"),
     own("/api/sessions/:id/duplicate"),
+    own("/api/sessions/:id/left-out"),
     own("/api/sessions/:id/merge-note"),
     own("/api/sessions/:id/pins"),
     own("/api/sessions/:id/rewind"),

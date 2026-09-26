@@ -19,7 +19,7 @@ import { saveVoiceSettings, voiceSettings } from "../dist/voice.js";
 import { addPolicyRule } from "../dist/policy.js";
 import { chromium } from "playwright";
 import { startServer } from "../dist/server.js";
-import { toPcm16, readAudioFrame as readAudioFrameInBrowser } from "../public/voice-live.js";
+// Redesign: public/voice-live.js (the old window's half of Talk live) is gone; the one test that reads it imports it itself.
 
 /**
  * Nothing here opens a microphone, plays a sound, or reaches the internet. Both services are
@@ -750,7 +750,10 @@ test("the note on the Voice screen now says what a live conversation needs", () 
 
 /* ---------- V3: the browser's own half ---------- */
 
-test("the browser's sound and the server's sound are the same sound", () => {
+// Redesign: Coming soon (voice, Talk live with voice in the composer), checked at fc541c24; public/voice-live.js, the old
+// window's half, is gone.
+test.skip("the browser's sound and the server's sound are the same sound", async () => {
+  const { toPcm16, readAudioFrame: readAudioFrameInBrowser } = await import("../public/voice-live.js");
   // What the microphone hands the browser, turned into the whole numbers both services want.
   assert.deepEqual([...toPcm16(new Float32Array([0, 1, -1, 0.5]))], [0, 32767, -32768, 16383]);
   assert.deepEqual([...toPcm16(new Float32Array([4, -4]))], [32767, -32768], "anything too loud is clipped, not wrapped");
@@ -763,13 +766,16 @@ test("the browser's sound and the server's sound are the same sound", () => {
   assert.deepEqual([...read.pcm16], [5, -5, 300], "the browser's reader and the server's writer agree");
 });
 
-test("the Talk live button appears only on a connection that can hold a live conversation", async (t) => {
+// Redesign: Coming soon (voice, Talk live with voice in the composer), checked at fc541c24.
+test.skip("the Talk live button appears only on a connection that can hold a live conversation", async (t) => {
   const service = await fakeSocketService(t);
   const scratch = join(tmpdir(), "Codex-session-files");
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-live-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     await browser.close(); await server.close(); await app.close();
@@ -789,7 +795,7 @@ test("the Talk live button appears only on a connection that can hold a live con
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   /* Since 0.18.1 the calm window shows the voice buttons once voice is switched on. */
   await showEverything(page, { showVoice: true });
 

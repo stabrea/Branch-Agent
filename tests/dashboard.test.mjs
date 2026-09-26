@@ -45,8 +45,9 @@ test("the dashboard ships off: its page is not served and its summary refuses un
   for (const path of ["/dashboard", "/dashboard/dashboard.js", "/dashboard/dashboard.css"])
     assert.equal((await fetch(f.server.url + path)).status, 404, `${path} is served while the switch is off`);
   assert.equal((await f.call("/api/dashboard")).status, 404);
-  /* The switch card is part of the window, so it is served either way. */
-  assert.equal((await fetch(f.server.url + "/dashboard-card.js")).status, 200);
+  // Redesign: the old window's switch card (/dashboard-card.js) left with that window; the new window follows the
+  // dashboard's links itself (public/app/main.js followLink), so nothing of the dashboard is served while it is off.
+  assert.notEqual((await fetch(f.server.url + "/dashboard-card.js")).status, 200);
   assert.deepEqual(await (await f.call("/api/dashboard/settings")).json(), { mode: "off", access: "full" });
 
   const saved = await f.call("/api/dashboard/settings", f.server.token, { mode: "when-needed" });
@@ -70,15 +71,17 @@ test("every file the dashboard loads is served, and nothing it links to is missi
     for (const m of source.matchAll(/^import\s+[^"']*["'](\/[a-z0-9/-]+\.js)["']/gm)) referenced.add(m[1]);
   }
   for (const name of await readdir(DASHBOARD))
-    referenced.add(name === "index.html" ? "/dashboard" : name === "card.js" ? "/dashboard-card.js" : `/dashboard/${name}`);
+    referenced.add(name === "index.html" ? "/dashboard" : `/dashboard/${name}`);
   const missing = [];
   for (const path of referenced) {
     const response = await fetch(f.server.url + path);
     if (response.status !== 200) missing.push(`${path} → ${response.status}`);
   }
   assert.deepEqual(missing, []);
+  // Redesign: the new window's page loads one module (public/app/main.js), which follows /#open= and /#task= links.
   const index = await readFile(join(PUBLIC, "index.html"), "utf8");
-  assert.match(index, /<script src="\/dashboard-card\.js" type="module"><\/script>\s*<script src="\/layout\.js"/);
+  assert.match(index, /<script type="module" src="\/app\/main\.js"><\/script>/);
+  assert.equal(index.includes("/dashboard-card.js"), false, "the old window's card is not loaded");
 });
 
 test("the summary answers Now, Health, Spend and Activity from what Branch already keeps", async (t) => {
@@ -376,7 +379,25 @@ test("Stop ends a working task, Lockdown switches from the page, and when-needed
   await quiet.locator("#db-off:not([hidden])").waitFor();
 });
 
-test("the switch lives in Customize → Channels, and the dashboard's links open the right place in the window", async (t) => {
+test("the dashboard's links open the right place in the new window", async (t) => {
+  // Redesign: the dashboard page is kept (public/dashboard); its links come back to the window as /#open=<place:tab>
+  // (public/dashboard/card.js, sections.js). Settings › Data & usage is the new window's "usage" page.
+  const f = await fixture(t);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });
+  await page.goto(f.server.url + "/#open=settings:data");
+  await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  /* The link waited for the sign-in, then opened Settings → Data & usage and tidied the address. */
+  await page.locator('[data-act="setpage"][data-v="usage"][aria-current="true"]').waitFor({ timeout: 15000 });
+  assert.equal(new URL(page.url()).hash, "");
+});
+
+// Redesign: replaced by the new window (prototype.html has no "Dashboard in the browser" card in Customize ›
+// Channels; its Overview place holds the dashboard's areas).
+test.skip("the switch lives in Customize → Channels, and the dashboard's links open the right place in the window", async (t) => {
   const f = await fixture(t);
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
@@ -384,7 +405,7 @@ test("the switch lives in Customize → Channels, and the dashboard's links open
   await page.goto(f.server.url + "/#open=settings:data");
   await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   /* The link waited for the sign-in, then opened Settings → Data & usage and tidied the address. */
   await page.locator('.lx-settings-link[data-page="data"][aria-current="true"]').waitFor();
   assert.equal(new URL(page.url()).hash, "");

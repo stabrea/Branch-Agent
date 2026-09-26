@@ -44,7 +44,7 @@ async function openApp(t, width = 1280, usages = undefined, beforeLoad = undefin
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
   await showEverything(page);
   await page.locator("#savings-mixtures-card").waitFor({ state: "attached" });
@@ -60,7 +60,9 @@ const undescribed = (page, id) => page.evaluate((cardId) => {
 }, id);
 
 for (const width of [1440, 860, 400]) {
-  test(`DG-008 model Settings headings retain native hierarchy at ${width}px`, async (t) => {
+  // Redesign: replaced by the new window (the model cards are gone; their counterparts are rows on Settings › Models at
+  // Advanced and Technical; the French half also waits on the Language select, Coming soon (sw:lang), checked at fc541c24).
+  test.skip(`DG-008 model Settings headings retain native hierarchy at ${width}px`, async (t) => {
     const { page, errors } = await openApp(t, width);
     await page.emulateMedia({ reducedMotion: "reduce" });
     for (const language of ["en", "fr"]) {
@@ -92,7 +94,9 @@ for (const width of [1440, 860, 400]) {
   });
 }
 
-test("each model card is in its home, every control has its own sentence, and saving reaches the server", async (t) => {
+// Redesign: Coming soon (sw:f15-keep-claude-s-cache-warm, sw:f15-mix-models-on-hard-questions and
+// sw:f15-pick-the-model-per-task on Settings › Models), checked at fc541c24.
+test.skip("each model card is in its home, every control has its own sentence, and saving reaches the server", async (t) => {
   const { app, page, errors } = await openApp(t);
   for (const [id, host] of Object.entries(homes)) {
     await page.waitForFunction(([card, slot]) => document.getElementById(card)?.closest(slot), [id, host]);
@@ -133,7 +137,9 @@ test("each model card is in its home, every control has its own sentence, and sa
   assert.deepEqual(errors, []);
 });
 
-test("the French words are real, and the cards fit at 400 px", async (t) => {
+// Redesign: replaced by the new window (the model cards are gone), and French waits on the Language select, Coming soon
+// (sw:lang), checked at fc541c24.
+test.skip("the French words are real, and the cards fit at 400 px", async (t) => {
   const { page } = await openApp(t, 400);
   for (const id of ["savings-openrouter-card", "savings-mixtures-card", "savings-keep-alive-card"]) {
     await openSettingFor(page, `#${id}`);
@@ -158,7 +164,9 @@ async function openDataAndUsage(page) {
   await page.locator("#usage-left-card").waitFor({ state: "attached" });
 }
 
-test("R17-049 the round-by-round chart appears in Data & usage only when switched on", async (t) => {
+// Redesign: replaced by the new window (the prototype's Data & usage has no round chart; the prototype draws "Round by
+// round" in the conversation's room menu, which the new window at fc541c24 does not draw at all).
+test.skip("R17-049 the round-by-round chart appears in Data & usage only when switched on", async (t) => {
   const { app, page, errors } = await openApp(t);
   const run = await app.runtime.run({ prompt: "hello" });
   await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
@@ -180,7 +188,9 @@ test("R17-049 the round-by-round chart appears in Data & usage only when switche
   assert.deepEqual(errors, []);
 });
 
-test("a round whose service never reported the cache is said to be unknown, never drawn or counted as none", async (t) => {
+// Redesign: replaced by the new window (the prototype's Data & usage has no round chart; the prototype draws "Round by
+// round" in the conversation's room menu, which the new window at fc541c24 does not draw at all).
+test.skip("a round whose service never reported the cache is said to be unknown, never drawn or counted as none", async (t) => {
   const { app, page, errors } = await openApp(t, 1280, [{ input: 700, output: 20 }, reportedUsage, { input: 700, output: 20, cachedInput: 0 }]);
   saveSavings(app.store, "local", "roundChart", { mode: "on" });
   const first = await app.runtime.run({ prompt: "hello" });
@@ -215,7 +225,9 @@ test("a round whose service never reported the cache is said to be unknown, neve
   assert.deepEqual(errors, []);
 });
 
-test("R17-049 the chart asks for rounds only while Data & usage is on screen", async (t) => {
+// Redesign: replaced by the new window (the prototype's Data & usage has no round chart; the prototype draws "Round by
+// round" in the conversation's room menu, which the new window at fc541c24 does not draw at all).
+test.skip("R17-049 the chart asks for rounds only while Data & usage is on screen", async (t) => {
   const { app, page, errors } = await openApp(t);
   const run = await app.runtime.run({ prompt: "hello" });
   await page.evaluate((id) => { document.getElementById("conversation").dataset.sessionId = id; }, run.sessionId);
@@ -232,7 +244,9 @@ test("R17-049 the chart asks for rounds only while Data & usage is on screen", a
   assert.deepEqual(errors, []);
 });
 
-test("Q196 opening Data & usage draws the round chart at once, not at its next four-second look (NAS b613f63)", async (t) => {
+// Redesign: replaced by the new window (the prototype's Data & usage has no round chart; the prototype draws "Round by
+// round" in the conversation's room menu, which the new window at fc541c24 does not draw at all).
+test.skip("Q196 opening Data & usage draws the round chart at once, not at its next four-second look (NAS b613f63)", async (t) => {
   // Its four-second look never comes in this window, so only drawing on opening can show the chart.
   const { app, page, errors } = await openApp(t, 1280, undefined, () => {
     const every = window.setInterval.bind(window);

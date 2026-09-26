@@ -32,11 +32,38 @@ async function fixture(t, contextOptions = {}) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   return { app, page, errors };
 }
 
-test("every ordinary single-choice select is dressed while segmented sources stay native", async (t) => {
+/* The new window: the prototype's tips. An icon-only button explains itself on hover and on keyboard focus, in one tip
+   of the window's own (never the system's title as well), gone on the next click; a button that says its own words
+   needs none. */
+test("an icon-only button explains itself in the window's tip on hover and on focus, once, and never with a system tip", async (t) => {
+  const { settingsWindow } = await import("./settings-window.mjs");
+  const { page, errors } = await settingsWindow(t, { name: "glass" });
+  const gear = page.locator('[aria-label="Settings"][data-act="view"]');
+  const tip = page.locator(".tipx");
+  await gear.hover();
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), "Settings");
+  assert.equal(await tip.count(), 1, "one tip");
+  assert.equal(await gear.getAttribute("title"), null, "the system's tooltip is not shown as well");
+  await page.mouse.move(700, 300);
+  await page.mouse.down();
+  await page.mouse.up();
+  await tip.waitFor({ state: "detached" });
+  await page.locator('.side-nav [data-act="view"][data-v="inbox"]').hover();
+  await page.waitForTimeout(700);
+  assert.equal(await tip.count(), 0, "a button that says its own words needs no tip");
+  await gear.focus();
+  await tip.waitFor({ state: "visible" });
+  assert.equal(await tip.innerText(), "Settings", "keyboard focus shows the same help");
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("every ordinary single-choice select is dressed while segmented sources stay native", async (t) => {
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   const written = [...html.matchAll(/<select\b[^>]*>/g)].filter((m) => !/\bmultiple\b/.test(m[0])).length;
   assert.ok(written >= 50, `index.html has its selects (${written})`);
@@ -58,7 +85,8 @@ test("every ordinary single-choice select is dressed while segmented sources sta
   assert.deepEqual(f.errors, []);
 });
 
-test("a select opens the glass list; arrows, Enter and type-ahead choose through the select itself", async (t) => {
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("a select opens the glass list; arrows, Enter and type-ahead choose through the select itself", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   const select = f.page.locator("#policy-preset");
@@ -102,7 +130,8 @@ test("a select opens the glass list; arrows, Enter and type-ahead choose through
   assert.deepEqual(f.errors, []);
 });
 
-test("pressing the select again closes the list, and a click elsewhere does too", async (t) => {
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("pressing the select again closes the list, and a click elsewhere does too", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   const select = f.page.locator("#policy-preset"), list = f.page.locator("#glass-list");
@@ -126,7 +155,8 @@ test("pressing the select again closes the list, and a click elsewhere does too"
   assert.deepEqual(f.errors, []);
 });
 
-test("an icon-only button explains itself in glass on hover, once, and never shows the system's own tip too", async (t) => {
+// Redesign: replaced by the new window (the prototype's tip is not linked by aria-describedby; re-pointed above).
+test.skip("an icon-only button explains itself in glass on hover, once, and never shows the system's own tip too", async (t) => {
   const f = await fixture(t);
   const plus = f.page.locator("#lx-plus");
   await plus.waitFor({ state: "visible" });
@@ -150,7 +180,9 @@ test("an icon-only button explains itself in glass on hover, once, and never sho
   assert.deepEqual(f.errors, []);
 });
 
-test("a described control reuses its live English and French help without changing its accessibility link", async (t) => {
+// Redesign: replaced by the new window (no described-control glass help); its French half also waits on the Language
+// select, Coming soon (sw:lang), checked at fc541c24.
+test.skip("a described control reuses its live English and French help without changing its accessibility link", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   const control = f.page.locator("#policy-preset"), tip = f.page.locator("#glass-tip");
@@ -180,7 +212,9 @@ test("a described control reuses its live English and French help without changi
   assert.deepEqual(f.errors, []);
 });
 
-test("a described text button moves its native title so only the glass help appears", async (t) => {
+// Redesign: replaced by the new window (the prototype's tips come from data-tip or an icon button's label; there is no
+// described-control glass help).
+test.skip("a described text button moves its native title so only the glass help appears", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {
     const button = document.createElement("button");
@@ -199,7 +233,9 @@ test("a described text button moves its native title so only the glass help appe
   assert.deepEqual(f.errors, []);
 });
 
-test("keyboard focus shows the same help and Escape closes it", async (t) => {
+// Redesign: Coming soon (sw:lang, the Language select it is about), checked at fc541c24; the prototype's tips close on a
+// click, not Escape. Keyboard focus showing an icon button's tip is re-pointed above.
+test.skip("keyboard focus shows the same help and Escape closes it", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#appearance-language");
   /* Focus help is synchronous. Read it and close it in the same browser turn so the Settings
@@ -231,7 +267,9 @@ test("keyboard focus shows the same help and Escape closes it", async (t) => {
   assert.deepEqual(f.errors, []);
 });
 
-test("a mouse-focused text field keeps delayed help while keyboard focus is immediate", async (t) => {
+// Redesign: replaced by the new window (the prototype's tips come from data-tip or an icon button's label; there is no
+// described-control glass help).
+test.skip("a mouse-focused text field keeps delayed help while keyboard focus is immediate", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {
     const input = document.createElement("input");
@@ -250,7 +288,9 @@ test("a mouse-focused text field keeps delayed help while keyboard focus is imme
   assert.deepEqual(f.errors, []);
 });
 
-test("hover help covers the text of a wrapping control label", async (t) => {
+// Redesign: replaced by the new window (the prototype's tips come from data-tip or an icon button's label; there is no
+// described-control glass help).
+test.skip("hover help covers the text of a wrapping control label", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {
     const label = document.createElement("label");
@@ -265,7 +305,9 @@ test("hover help covers the text of a wrapping control label", async (t) => {
   assert.deepEqual(f.errors, []);
 });
 
-test("a segmented control shows the description linked to its native source", async (t) => {
+// Redesign: replaced by the new window (the prototype's tips come from data-tip or an icon button's label; there is no
+// described-control glass help).
+test.skip("a segmented control shows the description linked to its native source", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {
     const note = document.createElement("p");
@@ -287,7 +329,9 @@ test("a segmented control shows the description linked to its native source", as
   assert.deepEqual(f.errors, []);
 });
 
-test("keyboard help for a segmented source is anchored to its visible control", async (t) => {
+// Redesign: replaced by the new window (the prototype's tips come from data-tip or an icon button's label; there is no
+// described-control glass help).
+test.skip("keyboard help for a segmented source is anchored to its visible control", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {
     const note = document.createElement("p");
@@ -315,7 +359,9 @@ test("keyboard help for a segmented source is anchored to its visible control", 
   assert.deepEqual(f.errors, []);
 });
 
-test("a disabled segmented control shows no hover help", async (t) => {
+// Redesign: replaced by the new window (the prototype's tips come from data-tip or an icon button's label; there is no
+// described-control glass help).
+test.skip("a disabled segmented control shows no hover help", async (t) => {
   const f = await fixture(t);
   await f.page.evaluate(() => {
     const note = document.createElement("p");
@@ -333,7 +379,8 @@ test("a disabled segmented control shows no hover help", async (t) => {
   assert.deepEqual(f.errors, []);
 });
 
-test("on a touch-only phone the select keeps its own picker and no hover help appears", async (t) => {
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("on a touch-only phone the select keeps its own picker and no hover help appears", async (t) => {
   const f = await fixture(t, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   assert.equal(await f.page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches), true);
   await openSettingFor(f.page, "#policy-preset");
@@ -346,7 +393,9 @@ test("on a touch-only phone the select keeps its own picker and no hover help ap
   assert.deepEqual(f.errors, []);
 });
 
-test("a touch-primary device still shows help for a hardware keyboard", async (t) => {
+// Redesign: replaced by the new window (the prototype's tips come from data-tip or an icon button's label; there is no
+// described-control glass help).
+test.skip("a touch-primary device still shows help for a hardware keyboard", async (t) => {
   const f = await fixture(t, { viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true });
   assert.equal(await f.page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches), true);
   await f.page.evaluate(() => {
@@ -367,7 +416,8 @@ test("a touch-primary device still shows help for a hardware keyboard", async (t
 
 /* ---------------------------------------------------------------- integration review */
 
-test("integration review: the list sits flush under the select and fully covers the help line under it", async (t) => {
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("integration review: the list sits flush under the select and fully covers the help line under it", async (t) => {
   for (const viewport of [{ width: 1440, height: 950 }, { width: 390, height: 844 }]) {
     const f = await fixture(t, { viewport });
     await openSettingFor(f.page, "#policy-preset");
@@ -405,7 +455,8 @@ test("integration review: the list sits flush under the select and fully covers 
   }
 });
 
-test("integration review: groups, greyed choices, one change event, the form's value, and a list that changes while open", async (t) => {
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("integration review: groups, greyed choices, one change event, the form's value, and a list that changes while open", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   await f.page.evaluate(() => {
@@ -443,7 +494,8 @@ test("integration review: groups, greyed choices, one change event, the form's v
   assert.deepEqual(f.errors, []);
 });
 
-test("an open list stays open when the window's refresh writes the same choices again", async (t) => {
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("an open list stays open when the window's refresh writes the same choices again", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   const select = f.page.locator("#policy-preset"), list = f.page.locator("#glass-list");
@@ -462,7 +514,9 @@ test("an open list stays open when the window's refresh writes the same choices 
   assert.deepEqual(f.errors, []);
 });
 
-test("the window's refresh leaves a half-filled ceiling, half-filled connection minutes and the category choosers alone", async (t) => {
+// Redesign: replaced by the new window (the tool-call ceiling, the per-kind choosers and the connection minutes are not in
+// the prototype).
+test.skip("the window's refresh leaves a half-filled ceiling, half-filled connection minutes and the category choosers alone", async (t) => {
   const f = await fixture(t);
   /* ci-flakes-3 listed three more places where the window's refresh every 3 s wrote over what somebody
      was in the middle of. Each is driven here by the very call that refresh makes, with no sleep. */
@@ -500,7 +554,8 @@ test("the window's refresh leaves a half-filled ceiling, half-filled connection 
   assert.deepEqual(f.errors, []);
 });
 
-test("phase2/settings integration: a list opened while the Settings window is still rising lands flush under its select", async (t) => {
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("phase2/settings integration: a list opened while the Settings window is still rising lands flush under its select", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   await f.page.locator(".lx-settings-close").click();
@@ -547,7 +602,8 @@ test("phase2/settings integration: a list opened while the Settings window is st
   assert.deepEqual(f.errors, []);
 });
 
-test("a moving window settles its open list even when the browser misses placement frames", async (t) => {
+// Redesign: replaced by the new window (the prototype's selects are plain native selects; there is no glass list).
+test.skip("a moving window settles its open list even when the browser misses placement frames", async (t) => {
   const f = await fixture(t);
   await openSettingFor(f.page, "#policy-preset");
   await f.page.locator(".lx-settings-close").click();

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { handOffHold } from "./coding/hand-off.js"; // code.hand_off: asked every time
+import { newAppHold, newAppHoldReason } from "./desktop-app-ask.js"; // unhold-control
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
 import { memoryAgent } from "./trunks/memory-scope.js"; // FQ-routing.isolated-agents
 import { mixtureProviderName } from "./model-savings/mixture.js"; // NAS cc72768
@@ -137,7 +138,8 @@ import { isOutOfRoomThinking } from "./provider-stream.js"; // mac7/coding-gap
 import * as savings from "./model-savings/hook.js";
 import { KeepAlive } from "./model-savings/keep-alive.js";
 // --- end R17-E ---
-import { Orchestration, PlanOnlyAnswer, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
+import { Orchestration, PlanOnlyAnswer, orchestrationSettings, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
+import { patternNote, patternOfTool, patternQuestion, type TeamPattern } from "./team-pattern.js"; // eng-trunk-controls
 import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand, saveSessionPlanAct } from "./plan-act.js";
 import { heldMode, policyForMode, readConversationMode, saveConversationMode, type ConversationMode, type ConversationModeRecord } from "./conversation-mode.js"; // redesign phase 1
 import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
@@ -159,7 +161,7 @@ import { advisedPreload } from "./fly-core/apply.js";
 import { autonomyPrompt } from "./autonomy/hooks.js"; // r17-b
 import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
 import { walkCheck, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
-import { underTask } from "./task-scope.js"; // mac7/walk-rules
+import { insideModelCall, underModelCall, underTask } from "./task-scope.js"; // mac7/walk-rules, Q250
 import { posix, resolve as resolvePath } from "node:path"; // mac7/walk-rules
 import { finishSetupOnFirstAnswer } from "./onboarding.js"; // dogfood B7
 
@@ -343,6 +345,8 @@ export interface RunOptions {
   source?: RunSource;
   /** Ask for a short plan first and work through it step by step. */
   plan?: boolean;
+  /** The engine's own ask, marked on the saved message (src/contracts.ts Message.system); never the person's words. */
+  system?: "trunk-intro";
   /** Have a reviewer check the finished answer before it is given. */
   verify?: boolean;
   /** Redesign phase 1: the mode a conversation started here is given (src/conversation-mode.ts). */
@@ -374,6 +378,11 @@ export interface RunOptions {
 }
 /** Q182: why only the owner gives a standing yes. */
 export const ownersStandingYes = "A standing yes is the owner's to give. Answer this just now, or for this conversation.";
+/**
+ * unhold-approvals: while Lockdown is on the saved rules are Lockdown's own, and it puts the owner's back when it ends,
+ * so a standing yes kept now would do nothing and then be lost. It is refused, and the question keeps waiting.
+ */
+export const lockdownStandingYes = "Lockdown is on, so a yes cannot be kept for good. Answer this just now, or for this conversation.";
 /** Q182: whether a standing yes may be given here: by the owner at the window, never with a short-lived key (NAS 68eb8b2). */
 export const mayGiveStandingYes = (store: Store): boolean => store.profiles.isOwner() && !startedWithShortLivedKey();
 
@@ -402,6 +411,8 @@ export class Runtime {
   /** Dogfood B7: set once a real model has answered and the first-run card is done with. */
   private setupFinished = false;
   private readonly activeSessions = new Set<string>();
+  /** eng-trunk-controls: each running task that is a Trunk's turn → that Trunk, so "pause now" can stop it. */
+  private readonly trunkRuns = new Map<string, string>();
   /** Notes the owner sent to a task that is still working, waiting for its next round. */
   private readonly steers = new Map<string, { note: string; from: string | undefined }[]>();
   /** The catalog each running task is showing the model, so a tool it found stays loaded. */
@@ -774,7 +785,9 @@ export class Runtime {
     let status: Run["status"] = "completed";
     try {
       // --- mac5/manual-actions: never-break, Lockdown, folder trust, the rules and the sandbox wall.
-      const scoped = { ...context, ...this.gateManual(run.id, name, args, context, options) };
+      // Q250: one call, its own task, so read-before-edit cannot hold it (ToolContext.readFirstExempt), unless a
+      // model's own call started it (a workflow it ran): then it is held, so a model cannot write round the guard.
+      const scoped = { ...context, ...this.gateManual(run.id, name, args, context, options), readFirstExempt: !insideModelCall() };
       // --- end mac5/manual-actions ---
       result = this.hideSecrets(await this.registry.execute(name, args, scoped));
       this.store.event(run.id, "tool.completed", { name, result });
@@ -1071,6 +1084,9 @@ ${run.output.slice(0, 6000)}`;
     const budget = parent?.budget ?? new Budget(options.budget ?? knobs.taskBudget(this.store, this.owner)); // R17-S09
     // ── R17-A (Trunks): a Trunk's turn carries its own instructions, memory scope, tools and model. ──
     const trunk = parent ? null : this.trunkShape(options);
+    // eng-trunk-controls: a paused Trunk starts nothing new, whoever asks; said in words, above the first await.
+    const paused = trunk ? this.trunkPaused(trunk.trunkId) : null;
+    if (paused) throw new Error(paused);
     if (trunk) {
       instructions += trunk.instructions;
       options = { ...options, permissions: trunk.permissions,
@@ -1086,6 +1102,7 @@ ${run.output.slice(0, 6000)}`;
     // A file the conversation will refuse is refused before the task starts, so nothing is left running (#190).
     if (options.attachments?.length && this.attachments) this.attachments.check(options.attachments);
     const run = this.prepareRun(options);
+    if (trunk) this.trunkRuns.set(run.id, trunk.trunkId); // eng-trunk-controls
     this.joinSpend(run.id, parent?.runId); // R17-S09
     if (inlet?.applied.length) this.store.event(run.id, "filter.applied", { stage: "inlet", filters: inlet.applied });
     const controller = new AbortController();
@@ -1126,6 +1143,7 @@ ${run.output.slice(0, 6000)}`;
         role: "user",
         content: options.prompt + picturesNote(options.images) + attachmentsNote(attached),
         ...(attached.length ? { attachments: attached } : {}),
+        ...(options.system ? { system: options.system } : {}),
       });
       options.onUserMessageId?.(userMessageId);
     }
@@ -1135,6 +1153,8 @@ ${run.output.slice(0, 6000)}`;
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
+      // Pass 17 (Helpers): which specialist or mode a helper works as, so the parent's Activity can name it.
+      ...(parent && context.agent ? { agent: context.agent } : {}),
       // bucket-18 (A0300): where the task came from, kept on the task so later work can read it.
       ...this.originMarks(options, context, parent),
       // What this task was allowed to reach, so "Do this again" can hand it the very same tools.
@@ -1360,6 +1380,7 @@ ${run.output.slice(0, 6000)}`;
     } finally {
       this.controllers.delete(run.id);
       this.activeSessions.delete(run.sessionId);
+      this.trunkRuns.delete(run.id); // eng-trunk-controls
       this.steers.delete(run.id);
       this.recordToolWork(run, context, status);
       // What this conversation is carrying is written down at the end of every task, so closing the
@@ -1404,6 +1425,12 @@ ${run.output.slice(0, 6000)}`;
   trunkPermissionsFor: (id: string) => string[] | null = () => null;
   /** Q144: Q44's refusal of a Trunk set to start on another computer, as its own error, or null (set by src/trunks). */
   trunkStartsElsewhere: (id: string) => Error | null = () => null;
+  /** eng-trunk-controls: why a Trunk may not start anything now (it is paused), in words, or null (set by src/trunks). */
+  trunkPaused: (id: string) => string | null = () => null;
+  /** eng-trunk-controls: the tasks running as this Trunk right now. */
+  runsOfTrunk(trunkId: string): string[] {
+    return [...this.trunkRuns].filter(([, id]) => id === trunkId).map(([runId]) => runId);
+  }
   /** Q114: the Trunk whose work is going on here (a turn, or something it set going), if any. */
   trunkAtWork(): string | undefined { return currentAccountCall()?.trunk?.id; }
   /** Q122: why a Trunk's work cannot be carried on from here, or null when it can: asTrunkWork's own checks, asked first. */
@@ -1975,7 +2002,8 @@ ${run.output.slice(0, 6000)}`;
           cannotRunInstructions(codeRunSettings(this.store, context.owner).enabled, run.prompt) +
           steerNote +
           identityInstructions(identity) + instructions + this.store.projects.instructions(context.owner) + skillInstructions(this.store, context) + pinnedSkillInstructions(this.store, context) +
-          autonomyPrompt(this, context), // r17-b: standing orders and "from now on" instructions (src/autonomy/hooks.ts)
+          autonomyPrompt(this, context) + // r17-b: standing orders and "from now on" instructions (src/autonomy/hooks.ts)
+          patternNote(this.teamPattern(run.sessionId)), // eng-trunk-controls: how Trunks work together, when the owner chose
       },
     ];
     // Read under whoever is using the app: with a household profile switched on, their task is
@@ -2490,8 +2518,9 @@ ${run.output.slice(0, 6000)}`;
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
               // integrate/empty-completion: only within the reply's room and a bounded window.
-              onReasoningDelta: thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
-                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }), this.firstReplyWait(run, preset, firstCapMs))
+              onReasoningDelta: this.thinkingShown(run, thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
+                forMs: this.reliability.modelStallMs * thinkingStallWindows })) }), this.firstReplyWait(run, preset, firstCapMs))
+            .finally(() => this.thinkingNow.delete(run.id))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -2545,6 +2574,28 @@ ${run.output.slice(0, 6000)}`;
     return { firstMs, ...(capMs === undefined ? {} : { capMs }), quiet: { afterMs: Math.min(localQuietMs, this.reliability.modelStallMs), notify: () =>
       this.store.event(run.id, "model.loading", { preset: preset.id, model: preset.model, waitSeconds: Math.round(firstMs / 1000),
         message: "Waiting for the model on this computer to start. It may be loading into memory." }) } };
+  }
+  /**
+   * Dogfood B1 ("no thought process shown while it works"): with "show reasoning" on (its default), the newest part of
+   * what a task's model is thinking is held here, in memory only, for the live row (`thinkingOf`). It is never written
+   * to the record, the conversation or the disk (integrate/empty-completion), and it goes when the model call ends.
+   * With it off, the thinking is only heard, as before.
+   */
+  private readonly thinkingNow = new Map<string, string>();
+  private thinkingShown(run: Run, heard: (text: string) => void): (text: string) => void {
+    this.thinkingNow.delete(run.id);
+    if (!knobs.showsReasoning(this.store, this.owner)) return heard;
+    let text = "";
+    return (delta) => {
+      heard(delta);
+      text = (text + delta).slice(-600);
+      this.thinkingNow.set(run.id, text);
+    };
+  }
+  /** Dogfood B1: what the task's model is thinking right now (the newest 300 characters, secrets hidden), or nothing. */
+  thinkingOf(runId: string): string | undefined {
+    const text = this.thinkingNow.get(runId)?.trim();
+    return text ? this.hideSecrets(text.slice(-300)) : undefined;
   }
   /** R17-S12: with "show reasoning" off, no caller (task, side question, debate turn) gets the thinking. */
   private shownThinking(completion: Completion): Completion {
@@ -2783,8 +2834,9 @@ ${run.output.slice(0, 6000)}`;
     const personal = personalHold(tool, args, source) ?? settingsHold(tool, args) ?? contractHold(tool, args) ?? handOffHold(tool); // Q12: a self-development contract, first or wider
     // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
     const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null)
-      ?? this.scriptHold(tool, context.runId); // mac7/residuals (4b)
-    const held = (personal || hold?.reason === scriptAskFirstHold) && tightened.decision === "allow" ? "ask" : tightened.decision;
+      ?? this.scriptHold(tool, context.runId) // mac7/residuals (4b)
+      ?? newAppHold(this.store, this.owner, tool, args, context.trunk); // unhold-control: a program this Trunk has not opened
+    const held = (personal || hold?.reason === scriptAskFirstHold || hold?.reason === newAppHoldReason) && tightened.decision === "allow" ? "ask" : tightened.decision;
     const guarded = held === "allow" && lockdownActive(this.store, this.owner) && !lowersRiskOnly(tool) ? "ask" : held; // mac7/lockdown-fix
     if (hold?.onceOnly && guarded === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
     // --- end R17-C ---
@@ -2918,6 +2970,8 @@ ${run.output.slice(0, 6000)}`;
     // Q182 (NAS 68eb8b2): a flow carried on by a key or away from the owner takes its question's "always" as
     // "for this conversation": it may carry on, but never writes a standing rule into the owner's policy.
     if (remember === "always" && !mayGiveStandingYes(this.store)) remember = "session";
+    // unhold-approvals: under Lockdown the same holds, since a rule written into Lockdown's list is lost when it ends.
+    if (remember === "always" && lockdownActive(this.store, this.owner)) remember = "session";
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     if (remember === "always" && this.registry.noStandingTarget(about.tool, about.target)) throw new Error(unkeyedAlwaysRefusal);
@@ -3014,8 +3068,11 @@ ${run.output.slice(0, 6000)}`;
     const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
     // Wave 9: two things the owner asked to be stopped for even when the rules would let them past
     // — work the agreed plan did not mention, and a command that already failed being tried again.
+    const patternNo = decision === "deny" ? null : this.patternRefusal(call, context); // eng-trunk-controls
+    if (patternNo) return { refusal: { ok: false, error: patternNo }, ...held };
     const aside = decision === "deny" ? null
-      : this.offPlanQuestion(context, { label, target, readOnly }) ?? this.retriedCommandQuestion(call, args, context);
+      : this.offPlanQuestion(context, { label, target, readOnly }) ?? this.retriedCommandQuestion(call, args, context)
+        ?? this.patternAside(call, context); // eng-trunk-controls
     if (aside) {
       this.orchestration.pausePlan(this.sessionOf(context));
       return this.askApproval(context, { tool: call.name, label: aside, target, source: this.sourceOf(context),
@@ -3068,6 +3125,40 @@ ${run.output.slice(0, 6000)}`;
       proposed: next.join(" "), difference: commandDifference(failed, next) });
     return correctionLabel(failed, next);
   }
+  /**
+   * eng-trunk-controls: a multi-worker tool that works another way than the one the owner chose for how Trunks work
+   * together. The owner is asked on an approval card until they answer; only their answer (`approve`) is kept, for
+   * this conversation: a yes lets that tool go ahead, a no refuses it (`patternRefusal`). The model cannot give either.
+   */
+  private patternAside(call: ToolCall, context: ToolContext): string | null {
+    const sessionId = this.sessionOf(context);
+    const question = patternQuestion(this.teamPattern(sessionId), call.name);
+    if (!question || this.patternAnswers.has(`${sessionId}\u0000${call.name}`)) return null;
+    this.store.event(context.runId, "pattern.asked", { tool: call.name });
+    return question;
+  }
+  /** eng-trunk-controls: the owner said no to this way of working together in this conversation. */
+  private patternRefusal(call: ToolCall, context: ToolContext): string | null {
+    const sessionId = this.sessionOf(context);
+    if (!patternQuestion(this.teamPattern(sessionId), call.name)) return null;
+    return this.patternAnswers.get(`${sessionId}\u0000${call.name}`) === "deny"
+      ? "The owner said no to working together this way in this conversation. Use the way they chose, or ask them in words." : null;
+  }
+  /** eng-trunk-controls: keeps the owner's answer to a pattern question, by conversation and tool. */
+  private notePatternAnswer(sessionId: string, tool: string, decision: "allow" | "deny"): void {
+    if (!patternOfTool(tool)) return;
+    if (this.patternAnswers.size > 500) this.patternAnswers.clear();
+    this.patternAnswers.set(`${sessionId}\u0000${tool}`, decision);
+  }
+  /** eng-trunk-controls: the owner's answers to pattern questions, `${sessionId}\0${tool}` → allow or deny. */
+  private readonly patternAnswers = new Map<string, "allow" | "deny">();
+  /** eng-trunk-controls: the way Trunks work together here: the room's own choice, else the owner's default. */
+  teamPattern(sessionId: string): TeamPattern {
+    const room = this.roomPattern(this.modeFollows(sessionId) ?? sessionId);
+    return room ?? orchestrationSettings(this.store, this.owner).pattern;
+  }
+  /** eng-trunk-controls: a room's own way of working together, by the room's conversation, or null (set by src/trunks). */
+  roomPattern: (sessionId: string) => TeamPattern | null = () => null;
   /** True the first time a conversation is asked one particular thing, false every time after. */
   private askOnce(sessionId: string, key: string): boolean {
     if (this.askedAside.size > 500) this.askedAside.clear();
@@ -3183,6 +3274,7 @@ ${run.output.slice(0, 6000)}`;
     // at the window (a household profile) answers just now or for the conversation; setting Branch up is the owner's.
     if (remember === "always" && !mayGiveStandingYes(this.store)) throw new Error(ownersStandingYes);
     if (remember === "always" && waiting.noStanding) throw new Error(noStandingRefusal); // Q59
+    if (remember === "always" && lockdownActive(this.store, this.owner)) throw new Error(lockdownStandingYes); // unhold-approvals
     // FQ-execution.browser: checked before anything is kept, so a refused "always" leaves the question waiting.
     if (remember === "always" && this.registry.noStandingTarget(waiting.tool, waiting.target)) throw new Error(unkeyedAlwaysRefusal);
     // An answer that names a request must land on that request and no other. The only way to get
@@ -3198,6 +3290,7 @@ ${run.output.slice(0, 6000)}`;
     // Wave mac3 (tool-safety): a request the safety check advised against may be allowed only this once.
     this.approvals.settleOverrule(sessionId, waiting, decision, remember, askerOf(runOrigin(this.store, waiting.runId))); // dogfood A6
     this.approvals.resolve(sessionId, waiting.fingerprint);
+    this.notePatternAnswer(sessionId, waiting.tool, decision); // eng-trunk-controls
     if (remember !== "never")
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
         fingerprint: waiting.fingerprint, label: waiting.label,
@@ -3442,7 +3535,8 @@ ${run.output.slice(0, 6000)}`;
     // wave mac3 (os-sandbox, integration review): the wall comes only from wallContextFor below, never
     // from whatever context this call was handed, so an outer wall (and its key sites) cannot ride along.
     const { osSandbox: _outerWall, ...unwalled } = context;
-    const scoped: ToolContext = { ...unwalled, askable: true, signal: AbortSignal.any([context.signal, timeout]),
+    // Q250: a model's own call is always held to read-before-edit, whatever context it was started from.
+    const scoped: ToolContext = { ...unwalled, askable: true, readFirstExempt: false, signal: AbortSignal.any([context.signal, timeout]),
       ...(gated.sandbox ? { sandbox: gated.sandbox } : {}),
       ...(gated.backend ? { sandboxBackend: gated.backend } : {}),
       ...(gated.paths?.length ? { sandboxPaths: gated.paths } : {}),
@@ -3459,7 +3553,7 @@ ${run.output.slice(0, 6000)}`;
       if (!validArgs) throw new Error("Invalid JSON tool arguments");
       // Scrubbing happens before the receipt is signed, so the recorded result and its proof match.
       // mac2/leak-guard: key-shaped values the locker never saw are hidden here too.
-      const result = this.hideSecrets(this.leakGuard.toolResult(context.runId, call.name, await this.asTrunk(context, () => this.registry.execute(call.name, args, scoped))));
+      const result = this.hideSecrets(this.leakGuard.toolResult(context.runId, call.name, await this.asTrunk(context, () => underModelCall(context.runId, () => this.registry.execute(call.name, args, scoped)))));
       const handedOver = this.noteDeferred(call, context, result);
       if (handedOver) return { ok: true, result: handedOver };
       this.noteApp(call, context, result);

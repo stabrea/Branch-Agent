@@ -37,7 +37,7 @@ import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 // 0.18.1: "Branch stopped responding — Restart" relaunches the app, and with it the local server.
 import { ipcMain } from "electron";
 import { registerRestartIpc } from "./restart-ipc.js";
-import { minimumSize, openingFor, readWindowState, writeWindowState } from "./window-state.js";
+import { minimumSize, openingFor, readWindowState, restoreBounds, writeWindowState } from "./window-state.js";
 import { overlayFor, registerWindowLookIpc } from "./window-chrome-ipc.js";
 import { registerEditMenu } from "./context-menu.js";
 import { recordDesktopCrash, type SpanStore } from "../tracing.js";
@@ -56,6 +56,9 @@ import { refreshShortcutsFlag, refreshWindowsIdentity, windowsAppId } from "../i
 // Redesign phase 1: asking before a Quit that would stop work (src/desktop/quit-guard.ts).
 import { asksBeforeQuit, quitChoice, quitQuestion, runningTaskCount, type QuitReason } from "./quit-guard.js";
 import { signedHeaders } from "./signed-headers.js";
+// Pass 17: the quick-ask keys, from any app (src/desktop/quick-ask.ts).
+import { globalShortcut } from "electron";
+import { quickAskKeys, registerQuickAsk } from "./quick-ask.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -158,7 +161,9 @@ async function createWindow(
       partition: "persist:branch-agent",
     },
   });
-  // DG-177: the first launch fills the screen; later ones open the way the owner left the window.
+  // DG-177: the first launch fills the screen; later ones open the way the owner left the window. The size is put
+  // back before maximising and before anything is remembered, so un-maximising returns to it.
+  if (opening.bounds) restoreBounds(window, opening.bounds);
   if (opening.maximized) window.maximize();
   const remember = () => {
     if (window && !window.isDestroyed() && !window.isMinimized())
@@ -185,6 +190,8 @@ async function createWindow(
     quitReason = "restart";
     app.quit();
   });
+  registerQuickAsk({ shortcuts: globalShortcut, ipc: ipcMain, window, origin: url, keys: () => quickAskKeys(url, token),
+    log: (line) => console.error(line) });
   // Redesign phase 1 (integration review): Windows ending the session never waits for the quit question.
   window.on("query-session-end", () => { quitReason = "system"; });
   window.on("session-end", () => { quitReason = "system"; });
@@ -307,7 +314,7 @@ async function start(): Promise<void> {
   const branch = await createBranch({
     dataDir,
     workspace,
-    presets: [defaultPreset(desktopProvider(settings), settings.summary().model || undefined)],
+    presets: desktopPresets(settings),
     chatgpt,
     bannerWindow: electronBannerWindow({
       create: (options) => new BrowserWindow(options),
@@ -451,8 +458,13 @@ function desktopProvider(settings: DesktopSettings) {
     return providerFromEnv(settings.environment());
   } catch {
     settings.reportConnectionIssue();
-    return providerFromEnv({ BRANCH_PROVIDER: "demo" });
+    return null;
   }
+}
+/** The saved connection as the one preset, or none: then every message is refused in plain words until a model is set up. */
+function desktopPresets(settings: DesktopSettings) {
+  const provider = desktopProvider(settings);
+  return provider ? [defaultPreset(provider, settings.summary().model || undefined)] : [];
 }
 
 app.setName("Branch Agent");
@@ -471,6 +483,7 @@ else {
     window?.focus();
   });
   app.on("activate", () => window?.show());
+  app.on("will-quit", () => globalShortcut.unregisterAll()); // pass 17: quick-ask keys go with the app
   app.on("before-quit", (event) => {
     if (quitting) return;
     event.preventDefault();

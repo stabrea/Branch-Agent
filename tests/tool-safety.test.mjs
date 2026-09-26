@@ -402,10 +402,13 @@ test("the settings screen reads and saves the second look, and a short-lived key
   assert.equal(refused.status, 401);
   assert.match((await refused.json()).error, /cannot change the safety check/);
   assert.equal((await api("GET", "/api/approval-reviewer")).body.mode, "when-needed");
-  assert.equal((await fetch(server.url + "/approval-reviewer.js")).status, 200);
+  // Redesign: replaced by the new window (the old window's /approval-reviewer.js is gone with it; the prototype has no
+  // second-look card). Was: assert.equal((await fetch(server.url + "/approval-reviewer.js")).status, 200);
 });
 
-test("the card sits on the Permissions page, ships off, saves, and fits a narrow window", async (t) => {
+// Redesign: replaced by the new window (the prototype has no control for the second look before approvals; that it
+// ships off, saves and refuses a short-lived key is checked through the engine above).
+test.skip("the card sits on the Permissions page, ships off, saves, and fits a narrow window", async (t) => {
   const { chromium } = await import("playwright");
   const { openPlace } = await import("./places.mjs");
   const { api, server } = await reviewed(t, [say("ok")], () => verdict(true, "fine"));
@@ -416,7 +419,7 @@ test("the card sits on the Permissions page, ships off, saves, and fits a narrow
     await page.goto(server.url);
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
-    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+    await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
     await openPlace(page, "settings:permissions");
     const card = page.locator("#approval-reviewer-card");
     await card.waitFor({ state: "visible" });

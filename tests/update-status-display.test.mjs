@@ -50,11 +50,12 @@ async function openApp(t) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
   return { app, page, errors };
 }
 
-test("Q73: the provenance sentence persists in the update card while unpacking", async (t) => {
+// Redesign: replaced by the new window (the prototype's Updates & about has no update card or provenance sentence).
+test.skip("Q73: the provenance sentence persists in the update card while unpacking", async (t) => {
   const { page, errors } = await openApp(t);
 
   // Set up provenance status and navigate to updates card.
@@ -97,7 +98,8 @@ test("Q73: the provenance sentence persists in the update card while unpacking",
   assert.deepEqual(errors, []);
 });
 
-test("Q73: the provenance sentence is hidden when checking starts a new update check", async (t) => {
+// Redesign: replaced by the new window (the prototype's Updates & about has no update card or provenance sentence).
+test.skip("Q73: the provenance sentence is hidden when checking starts a new update check", async (t) => {
   const { page, errors } = await openApp(t);
 
   // Set up provenance status and navigate to updates card.
@@ -125,7 +127,8 @@ test("Q73: the provenance sentence is hidden when checking starts a new update c
   assert.deepEqual(errors, []);
 });
 
-test("Q73: provenance displays correctly in French", async (t) => {
+// Redesign: replaced by the new window (the prototype's Updates & about has no update card or provenance sentence), and French waits on sw:lang, Coming soon, checked at fc541c24.
+test.skip("Q73: provenance displays correctly in French", async (t) => {
   const { page, errors } = await openApp(t);
 
   // Read the French locales to verify translation is used.
@@ -159,7 +162,8 @@ test("Q73: provenance displays correctly in French", async (t) => {
   assert.deepEqual(errors, []);
 });
 
-test("Q73: a retried download without a record hides the previous attempt's provenance sentence", async (t) => {
+// Redesign: replaced by the new window (the prototype's Updates & about has no update card or provenance sentence).
+test.skip("Q73: a retried download without a record hides the previous attempt's provenance sentence", async (t) => {
   const { page, errors } = await openApp(t);
   await page.evaluate(({ PROVENANCE_CHECKED }) => {
     globalThis.__provenanceStatus = { outcome: "checked", message: PROVENANCE_CHECKED };

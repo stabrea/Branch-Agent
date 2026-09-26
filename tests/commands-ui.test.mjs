@@ -15,33 +15,38 @@ import { startServer } from "../dist/server.js";
 import { saveCommandSettings, commandSettings } from "../dist/commands/settings.js";
 import { saveDashboardSettings } from "../dist/dashboard-api.js";
 import { lockdownState } from "../dist/lockdown.js";
-import { openPlace } from "./places.mjs";
+import { openPlace } from "./places.mjs"; // used by the skipped old-window tests
 
 async function fixture(t, viewport = { width: 1280, height: 900 }, mode = "on") {
   const root = await mkdtemp(join(tmpdir(), "branch-commands-ui-"));
-  const provider = { name: "commands-ui", complete: async () => ({ content: "Done", toolCalls: [] }) };
+  const provider = { name: "commands-ui", calls: 0, complete: async () => { provider.calls += 1; return { content: "Done", toolCalls: [] }; } };
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   if (mode) saveCommandSettings(app.store, app.runtime.owner, { mode });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).then((r) => r.json());
+  await call("/api/onboarding", { done: true });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
-  const page = await browser.newPage({ viewport });
+  const page = await browser.newPage({ viewport, serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
-  await page.locator("body.lx-ready").waitFor({ state: "attached" });
-  return { app, server, page, errors };
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  return { app, server, page, errors, provider };
 }
-const submit = (page) => page.locator("#chat-form").evaluate((form) => form.requestSubmit());
+const submit = (page) => page.locator("#send").click();
+/** The command's answer, drawn in the conversation (public/app/chat/chat.js command()). */
+const answered = (page, text) => page.locator("#conversation").getByText(text).first().waitFor({ timeout: 20000 });
 
+/* Redesign: the new window's "/" list is the prototype's (.slash6 over the composer, public/app/chat/messages.js). */
 test("typing / lists the window's commands, and Tab fills one in", async (t) => {
   const { page, errors } = await fixture(t);
-  await openPlace(page, "chat");
-  await page.locator("#prompt").fill("/to");
-  const menu = page.locator("#slash-menu");
+  await page.locator("#prompt").fill("/");
+  await page.locator("#prompt").press("End");
+  await page.keyboard.type("to");
+  const menu = page.locator(".slash6");
   await menu.waitFor({ state: "visible" });
   assert.match(await menu.textContent(), /\/tokens/);
   assert.doesNotMatch(await menu.textContent(), /\/switch|\/exit/, "terminal-only commands are not offered here");
@@ -51,39 +56,50 @@ test("typing / lists the window's commands, and Tab fills one in", async (t) => 
   assert.deepEqual(errors, []);
 });
 
+/* Redesign: a command's answer is drawn in the conversation, not in a toast. */
 test("a command runs without reaching the model, and a place command opens the place", async (t) => {
-  const { app, page, errors } = await fixture(t);
-  await openPlace(page, "chat");
+  const { app, page, errors, provider } = await fixture(t);
   await page.locator("#prompt").fill("/status");
   await submit(page);
-  await page.locator("#toast").filter({ hasText: "When to check with you" }).waitFor();
-  assert.equal(await page.locator("#conversation .message").count(), 0, "nothing was sent to the model");
-  await page.locator("#prompt").fill("/go library memory");
-  await submit(page);
-  await page.locator("#library").waitFor({ state: "visible" });
-  await openPlace(page, "chat");
+  await answered(page, "When to check with you");
+  assert.equal(provider.calls, 0, "nothing was sent to the model");
+  assert.equal(app.store.runs(app.runtime.owner).length, 0, "no task was started");
   await page.locator("#prompt").fill("/lockdown on");
   await submit(page);
-  await page.waitForFunction(() => document.getElementById("toast").textContent.includes("Lockdown is on"));
+  await answered(page, "Lockdown is on");
   assert.equal(lockdownState(app.store, app.runtime.owner).on, true);
+  await page.locator("#prompt").fill("/go library memory");
+  await submit(page);
+  // As in the prototype, a place command opens the place at once and says nothing there (the lead, 2026-09-26).
+  await page.locator('#main [data-act="ptab"][data-place="library"][data-v="memory"][aria-selected="true"]').waitFor({ timeout: 10000 });
+  assert.equal(provider.calls, 0, "no command reached the model");
   assert.deepEqual(errors, []);
 });
 
-test("with the switch off there is no menu, and /help lists the two commands the window always had", async (t) => {
+/* Redesign: with the switch off the prototype's list still opens, and offers only what the engine lists for the window
+   when off: the commands the window always had (GET /api/commands?surface=window, listed). */
+test("with the switch off the list offers only the commands the window always had, and /help lists them", async (t) => {
   const { page, errors } = await fixture(t, undefined, null);
-  await openPlace(page, "chat");
   await page.locator("#prompt").fill("/");
-  await page.waitForTimeout(300);
-  assert.equal(await page.locator("#slash-menu").count(), 0);
+  await page.locator("#prompt").dispatchEvent("input");
+  const menu = page.locator(".slash6");
+  await menu.waitFor({ state: "visible" });
+  assert.deepEqual(await menu.locator("[role=option] b").allTextContents(), ["/help", "/model", "/goal"]);
+  await page.locator("#prompt").fill("/to");
+  await page.locator("#prompt").dispatchEvent("input");
+  await page.waitForTimeout(500);
+  assert.equal(await menu.count(), 0, "/tokens is not offered with the switch off");
   await page.locator("#prompt").fill("/help");
   await submit(page);
-  await page.waitForFunction(() => document.getElementById("toast").textContent.includes("Commands you can type here"));
-  const lines = (await page.locator("#toast").textContent()).split("\n").slice(1).map((line) => line.split(" ")[0]);
+  await answered(page, "Commands you can type here");
+  const text = await page.locator("#conversation").innerText();
+  const lines = text.slice(text.lastIndexOf("Commands you can type here")).split("\n").slice(1).filter((line) => line.startsWith("/")).map((line) => line.split(" ")[0]);
   assert.deepEqual(lines, ["/help", "/model", "/goal"], "goal mode (public/goal.js) brought /goal to the window before this table");
   assert.deepEqual(errors, []);
 });
 
-test("the commands card is in Settings › General, saves the switch, and fits 400 pixels", async (t) => {
+// Redesign: replaced by the new window (the prototype's Settings › General has no Typed commands card; the list over the composer says where commands work).
+test.skip("the commands card is in Settings › General, saves the switch, and fits 400 pixels", async (t) => {
   const { app, page, errors } = await fixture(t, { width: 400, height: 900 }, null);
   await openPlace(page, "settings:general");
   const card = page.locator("#commands-card");
@@ -109,7 +125,8 @@ test("the commands card is in Settings › General, saves the switch, and fits 4
   assert.deepEqual(errors, []);
 });
 
-test("the commands card is written in French when French is chosen", async (t) => {
+// Redesign: Coming soon (sw:lang, the Language select in Settings › Appearance), checked at fc541c24; the card itself is replaced by the new window.
+test.skip("the commands card is written in French when French is chosen", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
   await openPlace(page, "settings:general");
@@ -138,12 +155,13 @@ test("the dashboard's command line answers, and a key that may only look can sti
   assert.deepEqual(errors, []);
 });
 
-test("the phone app's window asks for the phone's list", async (t) => {
+// Redesign: replaced by the new window (the phone is a separate app, design doc A.15; the window always asks GET /api/commands?surface=window).
+test.skip("the phone app's window asks for the phone's list", async (t) => {
   const { page, errors } = await fixture(t);
   await page.evaluate(() => sessionStorage.setItem("branch-phone", JSON.stringify({ at: Date.now() })));
   const asked = page.waitForRequest((request) => request.url().includes("/api/commands?surface=phone"));
   await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 }).catch(() => undefined);
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 }).catch(() => undefined);
   await asked;
   assert.equal(await page.evaluate(() => globalThis.branchSlashCommands.surface()), "phone");
   assert.deepEqual(errors, []);

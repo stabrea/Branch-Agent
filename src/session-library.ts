@@ -49,6 +49,8 @@ const StoredMessageSchema = z.object({
    * are taken off again just below.
    */
   attachments: z.array(AttachmentRefSchema).max(maximumAttachmentsPerTurn).optional(),
+  /** The engine's own ask (src/contracts.ts Message.system), so a Trunk's conversation still copies. */
+  system: z.literal("trunk-intro").optional(),
 }).strict().superRefine((message, context) => {
   if ((message.toolCalls !== undefined && message.role !== "assistant") ||
       (message.role === "tool") !== (message.toolCallId !== undefined))
