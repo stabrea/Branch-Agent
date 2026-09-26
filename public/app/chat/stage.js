@@ -11,7 +11,7 @@
 
 import { $, esc, applyCss, onRender } from "../core/dom.js";
 import { ic, av, toast, app, closePop } from "../core/ui.js";
-import { S, E, refresh } from "../core/state.js";
+import { S, E, refresh, trunkIntro } from "../core/state.js";
 import { api, token } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive, greyOut } from "../core/features.js";
@@ -91,7 +91,7 @@ function top(kind, steps) {
 const STEP = { done: "done", working: "now", failed: "", waiting: "" };
 function dock(steps) {
   const plan = steps.length ? `<ul class="dk7-plan">${steps.map((s) => { const c = STEP[s.status] ?? ""; return `<li class="${c}">${ic(c === "done" ? "check" : c === "now" ? "spin" : "info", c === "now" ? "s spin" : "s")}${esc(s.title)}</li>`; }).join("")}</ul>` : "";
-  const said = G.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.content).slice(-3)
+  const said = G.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.content && !trunkIntro(m)).slice(-3)
     .map((m) => `<div class="dk7-m ${m.role === "user" ? "me7" : ""}">${esc(String(m.content).slice(0, 180))}</div>`).join("");
   return `<aside class="st7-dock" aria-label="${t("onscreen.group.middle")}"><div class="dk7-h">${av({ kind: "main" }, 28)}<b>${esc(name())}</b></div>${plan}<div class="dk7-msgs">${said}</div></aside>`;
 }

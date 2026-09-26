@@ -6,7 +6,7 @@
 
 import { esc } from "../core/dom.js";
 import { ic, av, openDlg, closeDlg, toast } from "../core/ui.js";
-import { E, refresh } from "../core/state.js";
+import { E, refresh, ownName, chatFace, trunkIntro } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -23,8 +23,7 @@ const hl = (text, q) => {
   return (a ? "…" : "") + esc(s.slice(0, j)) + "<mark>" + esc(s.slice(j, j + q.length)) + "</mark>" + esc(s.slice(j + q.length)) + (i + q.length + 60 < t.length ? "…" : "");
 };
 const idOf = (s) => s.sessionId ?? s.id;
-/* A Trunk's or a room's own conversation is found and shown by its name, as the list's rows are (shell.js ownName). */
-const ownName = (id) => (id ? E.trunks.find((t) => t.chatSessionId === id || (t.retiredChats ?? []).includes(id))?.name || E.rooms.find((r) => r.sessionId === id)?.name : "");
+/* A Trunk's or a room's own conversation is found and shown by its name and face, as the list's rows are (core/state.js). */
 const titleOf = (s) => ownName(idOf(s)) || s.opening || s.title || "";
 const trunkOf = (s) => E.trunks.find((t) => t.id === s.trunkId || t.id === s.trunk?.id || (t.chatSessionId && t.chatSessionId === (s.sessionId ?? s.id)));
 const day = (t) => (t ? new Date(t).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
@@ -57,9 +56,9 @@ export function searchHTML() {
   const chips = `<div class="sq-chips">${[["all", "All"], ["chats", "Chats"], ["msgs", "Messages"], ["sessions", "Past"], ["files", "Files"]].map(([v, l]) => `<button type="button" data-act="sq-f" data-v="${v}" aria-pressed="${f === v}">${l}${count[v] ? ` <em>${count[v]}</em>` : ""}</button>`).join("")}</div>`;
   const sec = (k, title, html) => ((f === "all" || f === k) && html ? `<div class="lh">${title}</div>${html}` : "");
   const session = (id) => E.sessions.find((s) => idOf(s) === id);
-  const body = sec("chats", "Chats and Trunks", r.chats.map((s) => `<button type="button" class="sr-row" data-act="chat" data-id="${esc(idOf(s))}">${av(trunkOf(s) ?? { kind: "main" }, 34)}<span><b>${hl(titleOf(s), q)}</b><small>${esc(trunkOf(s)?.name ?? "")}</small></span></button>`).join(""))
-    + sec("msgs", "Messages", r.msgs.slice(0, 40).map((m) => `<button type="button" class="sr-row msg9" data-act="sr-msg" data-id="${esc(m.id)}">${av(trunkOf(session(m.id) ?? {}) ?? { kind: "main" }, 34)}<span><b>${esc(titleOf(session(m.id) ?? {}))}</b><small>${hl(m.snippet, q)}</small></span></button>`).join(""))
-    + sec("sessions", "Past sessions", r.sessions.map((s) => `<button type="button" class="sr-row" data-act="sr-sess" data-v="${esc(s.sessionId)}"><span class="ico-tile sm9">${ic("clock", "s")}</span><span><b>${hl(s.preview, q)}<time>${esc(day(s.createdAt))}</time></b></span></button>`).join(""))
+  const body = sec("chats", "Chats and Trunks", r.chats.map((s) => `<button type="button" class="sr-row" data-act="chat" data-id="${esc(idOf(s))}">${av(trunkOf(s) ?? chatFace(idOf(s)), 34)}<span><b>${hl(titleOf(s), q)}</b><small>${esc(trunkOf(s)?.name ?? "")}</small></span></button>`).join(""))
+    + sec("msgs", "Messages", r.msgs.slice(0, 40).map((m) => `<button type="button" class="sr-row msg9" data-act="sr-msg" data-id="${esc(m.id)}">${av(trunkOf(session(m.id) ?? {}) ?? chatFace(m.id), 34)}<span><b>${esc(titleOf(session(m.id) ?? {}))}</b><small>${hl(m.snippet, q)}</small></span></button>`).join(""))
+    + sec("sessions", "Past sessions", r.sessions.map((s) => `<button type="button" class="sr-row" data-act="sr-sess" data-v="${esc(s.sessionId)}"><span class="ico-tile sm9">${ic("clock", "s")}</span><span><b>${hl(ownName(s.sessionId) || s.preview, q)}<time>${esc(day(s.createdAt))}</time></b></span></button>`).join(""))
     + sec("files", "Files and memory", r.memory.map((m) => `<button type="button" class="sr-row" data-act="view" data-v="library"><span class="ico-tile sm9">${ic("book", "s")}</span><span><b>${hl(m.data?.text ?? m.data?.fact ?? m.data?.content ?? "", q)}</b><small>Memory</small></span></button>`).join(""));
   return chips + (body || `<p class="sq-none">No chats, messages or files with “${esc(q)}”.<br><button class="link" type="button" data-act="sq-f" data-v="sessions">Look in past sessions</button></p>`);
 }
@@ -69,8 +68,8 @@ async function showSession(id) {
   let messages = [];
   try { messages = (await api("sessions/" + encodeURIComponent(id))).messages ?? []; } catch (error) { toast(error.message); return; }
   const s = SQ.past.find((x) => x.sessionId === id), q = SQ.q.trim();
-  const lines = messages.filter((m) => m.role === "user" || m.role === "assistant").map((m) => `<div class="${m.role === "user" ? "me9" : ""}">${m.role === "user" ? "" : av({ kind: "main" }, 22)}<span>${q ? hl(m.content, q) : esc(m.content)}</span></div>`).join("");
-  openDlg({ title: `${s?.preview ?? ""} · ${day(s?.createdAt)}`, wide: true, body: `<p class="hint" data-css="margin:0">Read it here, or carry it on as a new conversation with everything it knew.</p><div class="sess9">${lines}</div>`,
+  const lines = messages.filter((m) => (m.role === "user" || m.role === "assistant") && !trunkIntro(m)).map((m) => `<div class="${m.role === "user" ? "me9" : ""}">${m.role === "user" ? "" : av({ kind: "main" }, 22)}<span>${q ? hl(m.content, q) : esc(m.content)}</span></div>`).join("");
+  openDlg({ title: `${ownName(id) || s?.preview || ""} · ${day(s?.createdAt)}`, wide: true, body: `<p class="hint" data-css="margin:0">Read it here, or carry it on as a new conversation with everything it knew.</p><div class="sess9">${lines}</div>`,
     foot: `<button class="btn ghost" type="button" data-act="dlg-close">Close</button><button class="btn pri" type="button" data-act="sess-carry" data-v="${esc(id)}">Carry it on</button>` });
 }
 

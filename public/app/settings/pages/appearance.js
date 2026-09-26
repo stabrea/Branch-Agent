@@ -4,7 +4,7 @@
    engine's delight switches (shell/scene.js). The painted scene, its season and where the pet walks are this window's.
    Your own background's file stays in this window's storage (shell/ownbg.js); the engine keeps how it fits. */
 
-import { E, S, refresh } from "../../core/state.js";
+import { E, S, refresh, ownName } from "../../core/state.js";
 import { esc, renderNow } from "../../core/dom.js";
 import { on } from "../../core/actions.js";
 import { ic, toast, openDlg, closeDlg } from "../../core/ui.js";
@@ -31,7 +31,7 @@ function mirror(mode) {
     ? { bg: "#F8FAFB", side: "#EFF3F5", u: "#7A8791", bub: "#E6ECEF", ink: "#16212A", edge: "#C9D3D9" }
     : { bg: "#11161A", side: "#0C1013", u: "#7D8A93", bub: "#1A2228", ink: "#E8EEF2", edge: "#2D3840" };
   const rows = ["#2F8C86", "#D8612A", "#8A5AA8", "#5E8C4A"].map((d) => `<span class="mm-r"><i data-css="background:${d}"></i><u data-css="background:${c.u};opacity:.5"></u></span>`).join("");
-  const s = current(), name = s?.opening || E.state?.identity?.name || "";
+  const s = current(), name = (s && ownName(s.sessionId ?? s.id)) || s?.opening || E.state?.identity?.name || "";
   return `<button class="mirror" type="button" data-act="themeset" data-v="${mode}" ${pressed(document.documentElement.dataset.theme === mode)}><span class="mm" data-css="background:${c.bg}"><span class="mm-s" data-css="background:${c.side}">${rows}</span><span class="mm-m"><span><span class="mm-b" data-css="background:${c.bub};color:${c.ink};display:block">${esc(s?.opening ?? "")}</span><span class="mm-t" data-css="color:${c.ink};display:block">${esc((s?.lastMessage ?? "").slice(0, 90))}</span></span><span class="mm-c" data-css="border:1px solid ${c.edge}"><i data-css="background:#E07033"></i></span></span></span><b>${mode === "light" ? "Light" : "Dark"} · live mirror of ${esc(name)}</b></button>`;
 }
 
