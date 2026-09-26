@@ -9,6 +9,7 @@ import { markLive } from "../../core/features.js";
 import { toast, ic } from "../../core/ui.js";
 import { secrets17 } from "../p17-more.js";
 import { level as level17 } from "../../core/state.js";
+import { t } from "../../../i18n.js";
 
 const MASK = "••••••••";
 let vault = null;
@@ -23,7 +24,7 @@ async function loadAll() {
 
 async function remove(name) {
   const logins = (vault?.logins ?? []).filter((x) => x.name !== name);
-  try { await api("vault-autofill/settings", { logins }); toast(`${name} removed from what Branch may fill.`); } catch (error) { toast(error.message); }
+  try { await api("vault-autofill/settings", { logins }); toast(t("window.settings.secrets.name-removed-from-what-branch-may", { name })); } catch (error) { toast(error.message); }
   await loadAll();
 }
 
@@ -38,11 +39,11 @@ export async function load() { await loadAll(); }
 export const live = { "secret-rm": true };
 
 function rows() {
-  return (vault?.logins ?? []).map((s) => `<div class="prow"><span class="ico-tile">${ic("key", "s")}</span><span class="grow"><b>${esc(s.name)}</b><small>${esc(s.site)}</small></span><span class="meta">${MASK}</span><button class="btn ghost sm" type="button" data-act="secret-rm" data-name="${esc(s.name)}">Remove</button></div>`).join("");
+  return (vault?.logins ?? []).map((s) => `<div class="prow"><span class="ico-tile">${ic("key", "s")}</span><span class="grow"><b>${esc(s.name)}</b><small>${esc(s.site)}</small></span><span class="meta">${MASK}</span><button class="btn ghost sm" type="button" data-act="secret-rm" data-name="${esc(s.name)}">${t("accounts.action.remove")}</button></div>`).join("");
 }
 
 export function draw() {
   const bitwarden = credentials?.enabled && (credentials.services ?? []).includes("bitwarden");
-  const status = bitwarden ? `<div class="status"><span class="sdot "></span><div><b>Bitwarden is connected</b><p>Branch asks Bitwarden to fill a sign-in; you approve each one the first time.</p></div></div>` : "";
-  return `<h1>Saved sign-ins</h1><p class="lede">Sign-ins Branch may fill for you. It never sees or stores the passwords.</p>${status}<div class="sec"><h2>Branch may fill</h2><div class="rows">${rows()}</div></div>${secrets17(level17(), credentials?.services)}`;
+  const status = bitwarden ? `<div class="status"><span class="sdot "></span><div><b>${t("window.settings.secrets.bitwarden-is-connected")}</b><p>${t("window.settings.secrets.branch-asks-bitwarden-to-fill-a")}</p></div></div>` : "";
+  return `<h1>${t("window.settings.secrets.saved-sign-ins")}</h1><p class="lede">${t("window.settings.secrets.sign-ins-branch-may-fill-for")}</p>${status}<div class="sec"><h2>${t("window.settings.secrets.branch-may-fill")}</h2><div class="rows">${rows()}</div></div>${secrets17(level17(), credentials?.services)}`;
 }

@@ -4,6 +4,7 @@
    so no two builders edit this list at once. */
 
 import { has } from "./actions.js";
+import { t } from "../../i18n.js";
 
 export const FEATURES = {
   "aa-back": "ready",
@@ -417,7 +418,7 @@ export const isLive = (id) => LIVE.has(id);
 function soon(el) {
   el.setAttribute("aria-disabled", "true");
   el.classList.add("soon");
-  el.dataset.tip = "Coming soon";
+  el.dataset.tip = t("window.places.automations.coming-soon");
   el.tabIndex = -1;
 }
 

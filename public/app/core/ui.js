@@ -5,6 +5,7 @@ import { ICONS } from "./icons.js";
 import { $, esc, applyCss } from "./dom.js";
 import { greyOut } from "./features.js";
 import { look17 } from "./art17.js";
+import { t } from "../../i18n.js";
 
 export const app = () => document.getElementById("app");
 
@@ -136,7 +137,7 @@ export function openDlg({ title, body, foot = "", wide = false }) {
   closeDlg();
   dlgEl = document.createElement("div");
   dlgEl.className = fresh ? "scrim in17" : "scrim"; /* pass 17: a fresh dialog eases in once */
-  dlgEl.innerHTML = `<div class="dlg ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="dlg-h"><h2>${esc(title)}</h2><button class="icon-btn" type="button" aria-label="Close" data-act="dlg-close">${ic("x")}</button></div><div class="dlg-b">${body}</div>${foot ? `<div class="dlg-f">${foot}</div>` : ""}</div>`;
+  dlgEl.innerHTML = `<div class="dlg ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="dlg-h"><h2>${esc(title)}</h2><button class="icon-btn" type="button" aria-label="${t("delight.ach.close")}" data-act="dlg-close">${ic("x")}</button></div><div class="dlg-b">${body}</div>${foot ? `<div class="dlg-f">${foot}</div>` : ""}</div>`;
   applyCss(dlgEl);
   greyOut(dlgEl);
   app().appendChild(dlgEl);
@@ -153,7 +154,7 @@ export function toast(message, undo) {
   const el = document.createElement("div");
   el.className = "toast";
   el.setAttribute("role", "status");
-  el.innerHTML = `<span>${esc(message)}</span>${undo ? '<button type="button" data-act="undo">Undo</button>' : ""}`;
+  el.innerHTML = `<span>${esc(message)}</span>${undo ? `<button type="button" data-act="undo">${t("strip.undo")}</button>` : ""}`;
   toast.undo = undo ?? null;
   app().appendChild(el);
   clearTimeout(toastTimer);

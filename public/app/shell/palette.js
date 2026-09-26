@@ -10,6 +10,8 @@ import { app, ic, closePop, closeDlg } from "../core/ui.js";
 import { openConversation, startConversation } from "../chat/chat.js";
 import { NAV } from "../settings/settings.js";
 import { pressed, binding, spoken } from "./keys.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 const P = { el: null, sel: 0, items: [] };
 const PLACES = [["overview", "Overview", "home"], ["inbox", "Inbox", "inbox"], ["automations", "Automations", "clock"], ["library", "Library", "book"], ["customize", "Customize", "sliders"]];
@@ -24,13 +26,13 @@ function openPage(id) {
 }
 
 function all() {
-  const actions = [go("New conversation", spoken(binding("newConversation")), "chat", () => startConversation()),
-    ...ACTIONS.filter(([, , , a]) => has(a) && isLive(a)).map(([l, sub, i, a]) => go(l, sub, i, () => run(a)))];
+  const actions = [go(t("comfort.field.newConversation"), spoken(binding("newConversation")), "chat", () => startConversation()),
+    ...ACTIONS.filter(([, , , a]) => has(a) && isLive(a)).map(([l, sub, i, a]) => go(say(l), sub, i, () => run(a)))];
   return [
-    ["Actions", actions],
-    ["Conversations", E.sessions.map((s) => go(ownName(s.sessionId ?? s.id) || s.opening || s.title || "", "", "chat", () => openConversation(s.sessionId ?? s.id)))],
-    ["Places", PLACES.map(([v, l, i]) => go(l, "Place", i, () => { S.view = v; renderNow(); }))],
-    ["Settings", NAV.flatMap((g) => g[1]).map(([id, l]) => go(l, "Settings", "gear", () => openPage(id)))],
+    [t("terminal.palette.actions"), actions],
+    [t("people.home.list"), E.sessions.map((s) => go(ownName(s.sessionId ?? s.id) || s.opening || s.title || "", "", "chat", () => openConversation(s.sessionId ?? s.id)))],
+    [t("ew.places"), PLACES.map(([v, l, i]) => go(say(l), t("window.shell.palette.place"), i, () => { S.view = v; renderNow(); }))],
+    [t("memory.movein.kind.setting"), NAV.flatMap((g) => g[1]).map(([id, l]) => go(say(l), t("memory.movein.kind.setting"), "gear", () => openPage(id)))],
   ];
 }
 
@@ -41,14 +43,14 @@ function paint(q) {
   for (const [group, items] of all()) {
     const found = items.filter((i) => i.label && (!ql || i.label.toLowerCase().includes(ql) || i.sub.toLowerCase().includes(ql)));
     if (!found.length) continue;
-    html += `<div class="ph">${group}</div>`;
+    html += `<div class="ph">${esc(group)}</div>`;
     for (const i of found) {
       const n = P.items.push(i) - 1;
       html += `<button class="mi" type="button" role="option" data-act="pal" data-i="${n}" aria-selected="${n === P.sel}"><span class="ico">${ic(i.icon, "s")}</span><span class="mi-t">${esc(i.label)}</span><span class="r">${esc(i.sub)}</span></button>`;
     }
   }
   const list = $("#pal-list");
-  list.innerHTML = html || '<p class="empty" data-css="padding:20px">Nothing matches. Try a Trunk’s name or a setting.</p>';
+  list.innerHTML = html || `<p class="empty" data-css="padding:20px">${t("window.shell.palette.nothing-matches-try-a-trunks-name")}</p>`;
   applyCss(list);
   list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
 }
@@ -59,7 +61,7 @@ export function openPalette() {
   closePalette();
   P.sel = 0;
   P.el = Object.assign(document.createElement("div"), { className: "scrim top" });
-  P.el.innerHTML = `<div class="palette" role="dialog" aria-label="Find anything"><div class="pin-in">${ic("search")}<input id="pal-in" placeholder="Find a Trunk, a conversation, a setting, or run a command" aria-label="Find anything" autocomplete="off"></div><div class="pal-list" id="pal-list" role="listbox"></div><div class="pal-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></div></div>`;
+  P.el.innerHTML = `<div class="palette" role="dialog" aria-label="${t("comfort.field.palette")}"><div class="pin-in">${ic("search")}<input id="pal-in" placeholder="${t("window.shell.palette.find-a-trunk-a-conversation-a")}" aria-label="${t("comfort.field.palette")}" autocomplete="off"></div><div class="pal-list" id="pal-list" role="listbox"></div><div class="pal-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${t("window.shell.palette.move")}</span><span><kbd>Enter</kbd> ${t("window.shell.palette.open")}</span><span><kbd>Esc</kbd> ${t("window.shell.palette.close")}</span></div></div>`;
   app().appendChild(P.el);
   paint("");
   $("#pal-in").focus();

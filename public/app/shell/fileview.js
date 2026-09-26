@@ -8,6 +8,7 @@ import { S, E } from "../core/state.js";
 import { openDlg } from "../core/ui.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 /* The change the Files list shows for that path: this conversation's tasks first, as the list reads them. */
 function changeOf(path) {
@@ -20,7 +21,7 @@ function openFile(path) {
   const change = changeOf(path);
   if (!change) return;
   const lines = String(change.diff ?? "").split("\n").map((l) => `<div class="${l[0] === "+" ? "add" : l[0] === "-" ? "del" : ""}">${esc(l)}</div>`).join("");
-  const foot = `${change.existed ? '<button class="btn" type="button" data-act="file-putback">Put back the earlier version</button>' : '<button class="btn" type="button" data-act="file-edit">Edit</button>'}<button class="btn pri" type="button" data-act="file-app">Open</button>`;
+  const foot = `${change.existed ? `<button class="btn" type="button" data-act="file-putback">${t("window.shell.fileview.put-back-the-earlier-version")}</button>` : `<button class="btn" type="button" data-act="file-edit">${t("prompts.action.edit")}</button>`}<button class="btn pri" type="button" data-act="file-app">${t("ov.open")}</button>`;
   openDlg({ title: path, wide: true, body: `<div class="diff">${lines}</div>`, foot });
 }
 

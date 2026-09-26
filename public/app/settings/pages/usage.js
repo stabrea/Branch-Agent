@@ -14,6 +14,7 @@ import { seg15 } from "../rows15.js";
 import { logo } from "../../core/logos.js";
 import { level } from "../../core/state.js";
 import { sections17, init17 } from "../p17-usage.js";
+import { t } from "../../../i18n.js";
 
 let usage = null;
 let range = "30";
@@ -27,14 +28,14 @@ function reportCard() {
   const days = usage?.data ?? [];
   const cost = days.reduce((sum, d) => sum + (d.estimatedCost ?? 0), 0);
   const tasks = days.reduce((sum, d) => sum + (d.runs ?? 0), 0);
-  const head = usage ? `<b>$${cost.toFixed(2)}</b><em>${tasks} tasks · estimated from each model’s price</em>` : "";
-  return `<div class="rep15"><div class="rep-h15"><span><small>Last ${range} days</small>${head}</span><span class="seg" role="group" aria-label="Period">${["7", "30", "90"].map((d) => `<button type="button" aria-pressed="${range === d}" data-act="rep15" data-v="${d}">${d} days</button>`).join("")}</span></div><button class="btn sm" type="button" data-act="repopen15">Open the report</button></div>`;
+  const head = usage ? `<b>$${cost.toFixed(2)}</b><em>${t("window.settings.usage.tasks-tasks-estimated-from-each-models", { tasks })}</em>` : "";
+  return `<div class="rep15"><div class="rep-h15"><span><small>${t("window.settings.usage.last-range-days", { range })}</small>${head}</span><span class="seg" role="group" aria-label="${t("window.settings.usage.period")}">${["7", "30", "90"].map((d) => `<button type="button" aria-pressed="${range === d}" data-act="rep15" data-v="${d}">${t("window.settings.usage.value-days", { value: d })}</button>`).join("")}</span></div><button class="btn sm" type="button" data-act="repopen15">${t("window.settings.usage.open-the-report")}</button></div>`;
 }
 
 async function openReport() {
   try {
     const report = await api("usage/report", { range: `${range}d`, format: "markdown" });
-    openDlg({ title: `Usage · last ${range} days`, wide: true, body: `<pre class="code6" data-css="white-space:pre-wrap;margin:0">${esc(report.body)}</pre>`, foot: '<button class="btn" type="button" data-act="dlg-close">Close</button>' });
+    openDlg({ title: t("window.settings.usage.usage-last-range-days", { range }), wide: true, body: `<pre class="code6" data-css="white-space:pre-wrap;margin:0">${esc(report.body)}</pre>`, foot: `<button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });
   } catch (error) { toast(error.message); }
 }
 
@@ -77,41 +78,41 @@ function took(run) {
 function result(run) {
   const s = run.summary ?? {};
   /* The engine never lets a figure worked out from its own token count read as a bill; the page's own words say so. */
-  const cost = s.dollars == null ? "" : ` · cost $${s.dollars.toFixed(2)}${run.costBasis === "reported" ? "" : " · estimated from each model’s price"}`;
+  const cost = s.dollars == null ? "" : ` · ${t("window.settings.usage.cost-amount", { amount: `$${s.dollars.toFixed(2)}` })}${run.costBasis === "reported" ? "" : ` · ${t("window.settings.usage.estimated-from-each-models-price")}`}`;
   const time = took(run);
-  const title = `${s.passed} of ${s.total} right${cost}${time ? ` · ${time}` : ""}`;
+  const title = `${t("window.settings.usage.passed-of-total-right", { passed: s.passed, total: s.total })}${cost}${time ? ` · ${time}` : ""}`;
   const regressions = run.regressions ?? [];
-  const said = run.regressionNote ? run.regressionNote : regressions.length ? "" : "Nothing that used to work stopped working.";
+  const said = run.regressionNote ? run.regressionNote : regressions.length ? "" : t("window.settings.usage.nothing-that-used-to-work-stopped");
   const missed = (run.tasks ?? []).filter((t) => !t.passed).map((t) => t.problem ?? t.id);
-  const text = [said, missed.length ? `Missed: ${missed.join("; ")}` : ""].filter(Boolean).join(" ");
+  const text = [said, missed.length ? t("window.settings.usage.missed-list", { list: missed.join("; ") }) : ""].filter(Boolean).join(" ");
   return statusBox(title, text, regressions.length > 0);
 }
 
 function evalCard() {
   const current = (suites ?? []).find((s) => s.id === suiteId);
   const picks = (suites ?? []).map((s) => `<button type="button" aria-pressed="${s.id === suiteId}" data-act="eval-set" data-v="${esc(s.id)}">${esc(s.name)} · ${s.tasks.length}</button>`).join("");
-  const state = running && current ? `<p class="hint">${ic("spin", "s spin")} Running ${current.tasks.length} tasks…</p>` : lastRun && !running ? result(lastRun) : "";
-  return `<div class="sec"><h2>Test the model you use</h2><p class="hint" data-css="margin:0 0 6px">Run a ready-made set of tasks against the model you use now, see which it got right, what it cost, and whether anything that used to work has stopped.</p>
-  <div class="ctl ev15"><b>Test set</b><span class="right"><span class="seg" role="group" aria-label="Test set">${picks}</span></span><small>Each task is checked the same way every time.</small></div>
+  const state = running && current ? `<p class="hint">${ic("spin", "s spin")} ${t("window.settings.usage.running-tasks-tasks", { tasks: current.tasks.length })}</p>` : lastRun && !running ? result(lastRun) : "";
+  return `<div class="sec"><h2>${t("window.settings.usage.test-the-model-you-use")}</h2><p class="hint" data-css="margin:0 0 6px">${t("window.settings.usage.run-a-ready-made-set-of")}</p>
+  <div class="ctl ev15"><b>${t("window.settings.usage.test-set")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.settings.usage.test-set")}">${picks}</span></span><small>${t("window.settings.usage.each-task-is-checked-the-same")}</small></div>
   ${state}
-  <div class="acts" data-css="margin-top:8px"><button class="btn" type="button" data-act="eval-run" ${running || !suiteId ? "disabled" : ""}>${lastRun ? "Run again" : "Run the test"}</button></div></div>`;
+  <div class="acts" data-css="margin-top:8px"><button class="btn" type="button" data-act="eval-run" ${running || !suiteId ? "disabled" : ""}>${lastRun ? t("window.places.library17.run-again") : t("window.settings.usage.run-the-test")}</button></div></div>`;
 }
 
 /* ---------- What each connection has left (GET /api/usage/glance), 1:1 with the status bar's list ---------- */
 let glance = null;
 let limits = null;
-const CHIP = { measured: '<span class="pill ok">Measured</span>', estimated: '<span class="pill warn">Estimate</span>', not_published: '<span class="pill idle">Not published</span>' };
+const CHIP = () => ({ measured: `<span class="pill ok">${t("glance.measured")}</span>`, estimated: `<span class="pill warn">${t("glance.estimate")}</span>`, not_published: `<span class="pill idle">${t("glance.notPublished")}</span>` });
 const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
 function windowRow(w, estimated) {
   if (w.kind === "money" || !w.limit || w.remaining == null) return `<div class="lim-w"><span>${esc(w.title)}</span><span></span><span>${w.remaining == null ? "" : esc(String(w.remaining))}</span></div>`;
   const pct = Math.max(0, Math.min(100, Math.round((w.remaining / w.limit) * 100)));
-  return `<div class="lim-w"><span>${esc(w.title)}</span><span class="lim-bar ${estimated ? "est" : ""}"><i data-css="width:${pct}%;${pct < 15 ? "background:var(--warn)" : ""}"></i></span><span>${pct}% left${w.resetAt ? " · resets " + esc(clock(w.resetAt)) : ""}</span></div>`;
+  return `<div class="lim-w"><span>${esc(w.title)}</span><span class="lim-bar ${estimated ? "est" : ""}"><i data-css="width:${pct}%;${pct < 15 ? "background:var(--warn)" : ""}"></i></span><span>${t("glance.left", { percent: pct })}${w.resetAt ? ` · ${t("window.shell.usage.resets-time", { time: esc(clock(w.resetAt)) })}` : ""}</span></div>`;
 }
 
 function limitRow(r) {
   const body = (r.windows ?? []).map((w) => windowRow(w, w.state === "estimated")).join("") + `<small>${esc(r.note)}</small>`;
-  return `<div class="lim">${logo(r.connection, r.connectionName, 28)}<div><div class="lim-h"><b>${esc(r.connectionName)}</b><span class="muted">${esc(r.accountLabel ?? "")}</span>${CHIP[r.state] ?? ""}${r.inUse ? '<span class="pill ok">used next</span>' : ""}</div>${body}</div></div>`;
+  return `<div class="lim">${logo(r.connection, r.connectionName, 28)}<div><div class="lim-h"><b>${esc(r.connectionName)}</b><span class="muted">${esc(r.accountLabel ?? "")}</span>${CHIP()[r.state] ?? ""}${r.inUse ? `<span class="pill ok">${t("glance.usedNext")}</span>` : ""}</div>${body}</div></div>`;
 }
 
 async function loadGlance() {
@@ -131,17 +132,17 @@ const WIRES = {
 const checked = (id) => (WIRES[id][0]() ? "checked" : "");
 
 function limitsSec() {
-  return `<div class="sec"><h2>What each connection has left</h2><p class="hint" data-css="margin:0 0 6px">How much of each service’s allowance is still there: one row per connection, one row per account. Every figure arrived on traffic Branch was already sending.</p><div class="lims flat">${(glance?.rows ?? []).map(limitRow).join("")}</div>
-    <div class="ctl"><b>The ring bottom right</b><input class="sw" type="checkbox" id="u-ring" ${checked("u-ring")} aria-label="Show the ring" data-sw="ring"><small>The connection used next, how much of its window is left, and when it refills.</small></div>
-    <div class="ctl"><b>Offer to save progress at 95%</b><input class="sw" type="checkbox" id="u-ckpt" ${checked("u-ckpt")} aria-label="Offer to save progress at 95%" data-sw="ckpt"><small>It only asks, once per connection per window, and never for an estimate.</small></div>
-    <div class="ctl"><b>Asking a service what is left</b><input class="sw" type="checkbox" id="u-ask" ${checked("u-ask")} aria-label="Asking a service what is left" data-sw="set"><small>Only OpenRouter documents a way to ask. Off until you switch it on. Subscriptions are never asked.</small></div>
-    <div class="ctl"><b>Show usage in the tray</b><input class="sw" type="checkbox" id="u-tray" aria-label="Show usage in the tray" data-sw="set"><small>A small ring by the clock opens the same list.</small></div></div>`;
+  return `<div class="sec"><h2>${t("glance.title")}</h2><p class="hint" data-css="margin:0 0 6px">${t("window.settings.usage.how-much-of-each-services-allowance")}</p><div class="lims flat">${(glance?.rows ?? []).map(limitRow).join("")}</div>
+    <div class="ctl"><b>${t("window.settings.usage.the-ring-bottom-right")}</b><input class="sw" type="checkbox" id="u-ring" ${checked("u-ring")} aria-label="${t("window.settings.usage.show-the-ring")}" data-sw="ring"><small>${t("window.settings.usage.the-connection-used-next-how-much")}</small></div>
+    <div class="ctl"><b>${t("window.settings.usage.offer-to-save-progress-at-95")}</b><input class="sw" type="checkbox" id="u-ckpt" ${checked("u-ckpt")} aria-label="${t("window.settings.usage.offer-to-save-progress-at-95")}" data-sw="ckpt"><small>${t("window.settings.usage.it-only-asks-once-per-connection")}</small></div>
+    <div class="ctl"><b>${t("settings-kit.name.usage-limits")}</b><input class="sw" type="checkbox" id="u-ask" ${checked("u-ask")} aria-label="${t("settings-kit.name.usage-limits")}" data-sw="set"><small>${t("window.settings.usage.only-openrouter-documents-a-way-to")}</small></div>
+    <div class="ctl"><b>${t("window.settings.usage.show-usage-in-the-tray")}</b><input class="sw" type="checkbox" id="u-tray" aria-label="${t("window.settings.usage.show-usage-in-the-tray")}" data-sw="set"><small>${t("window.settings.usage.a-small-ring-by-the-clock")}</small></div></div>`;
 }
 
 /* Spend by Trunk: the engine keeps no spend per Trunk, so no bars are drawn; the month's total is the engine's. */
 function spendSec() {
-  const month = glance?.month?.pricedRuns ? `<p class="hint">This month: $${Number(glance.month.cost).toFixed(2)}. Plans are billed by their own sites; work on this computer is free.</p>` : "";
-  return `<div class="sec"><h2>Spend, last 7 days</h2><div class="bars"></div>${month}</div>`;
+  const month = glance?.month?.pricedRuns ? `<p class="hint">${t("window.settings.usage.this-month-value-plans-are-billed", { value: Number(glance.month.cost).toFixed(2) })}</p>` : "";
+  return `<div class="sec"><h2>${t("window.settings.usage.spend-last-7-days")}</h2><div class="bars"></div>${month}</div>`;
 }
 
 /* Keeping conversations deletes older ones for good, and checkpoints have no list here yet, so both stay greyed; the
@@ -150,7 +151,7 @@ let retention = null;
 function keeping() {
   const r = retention;
   const cur = !r ? null : !r.enabled || !r.keepDays ? "forever" : r.keepDays === 30 ? "30" : r.keepDays === 365 ? "365" : null;
-  return `<div class="sec"><h2>Keeping things</h2>${seg15("Keep conversations", "Older ones are deleted for good.", [["30", "30 days"], ["365", "1 year"], ["forever", "Forever"]], cur)}<div class="ctl"><b>Checkpoints</b><span class="right"><button class="btn sm" type="button" data-act="soon">See all</button></span><small>Kept before a Trunk changes files. Put any of them back.</small></div></div>`;
+  return `<div class="sec"><h2>${t("window.settings.usage.keeping-things")}</h2>${seg15(t("window.settings.usage.keep-conversations"), t("window.settings.usage.older-ones-are-deleted-for-good"), [["30", t("window.settings.usage.30-days")], ["365", t("window.settings.usage.1-year")], ["forever", t("window.settings.usage.forever")]], cur)}<div class="ctl"><b>${t("window.settings.usage.checkpoints")}</b><span class="right"><button class="btn sm" type="button" data-act="soon">${t("window.settings.usage.see-all")}</button></span><small>${t("window.settings.usage.kept-before-a-trunk-changes-files")}</small></div></div>`;
 }
 
 async function loadRetention() {
@@ -159,7 +160,7 @@ async function loadRetention() {
 }
 
 export function draw() {
-  return `<h1>Data &amp; usage</h1><p class="lede">What each connection has left, what Branch spent, what it keeps.</p>` + reportCard() + limitsSec() + spendSec() + keeping() + evalCard() + sections17(level());
+  return `<h1>${esc(t("settings.page.data"))}</h1><p class="lede">${t("window.settings.usage.what-each-connection-has-left-what")}</p>` + reportCard() + limitsSec() + spendSec() + keeping() + evalCard() + sections17(level());
 }
 
 export function init() {

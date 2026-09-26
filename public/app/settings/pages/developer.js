@@ -11,6 +11,7 @@ import { markLive } from "../../core/features.js";
 import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
 import { developer17 } from "../p17-more.js";
 import { level as level17 } from "../../core/state.js";
+import { t } from "../../../i18n.js";
 
 const D = { ls: null, dbg: null, interop: null, counters: null, loop: null, comfort: null, tracing: null };
 const onMode = (mode) => (mode ? mode !== "off" : false);
@@ -31,29 +32,29 @@ const sw = (title, sub) => sw15(title, sub, value(id15(title)));
 
 export function draw() {
   const statusLine = D.comfort ? (D.comfort.values?.display?.statusLine == null ? "default" : null) : null;
-  let html = "<h1>Developer</h1><p class=\"lede\">For people building on Branch.</p>";
-  html += "<div class=\"sec\"><h2>Local address</h2>";
-  html += `<div class="ctl"><b>${esc(location.host)}</b><span class="right"><button class="btn sm" type="button" data-act="dv-copy">Copy</button></span><small>Only this computer can reach it. Requests need your session key.</small></div>`;
-  html += "<div class=\"ctl\"><b>Session key</b><span class=\"right\"><span data-css=\"font:12px var(--mono);color:var(--ink-3)\">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span><button class=\"btn sm\" type=\"button\" data-act=\"soon\">Make a new one</button></span><small>Never shown in full here.</small></div>";
+  let html = `<h1>${t("settings.card.developer")}</h1><p class=\"lede\">${t("settingsGrown.bucket.advanced.dev.line")}</p>`;
+  html += `<div class=\"sec\"><h2>${t("window.settings.developer.local-address")}</h2>`;
+  html += `<div class="ctl"><b>${esc(location.host)}</b><span class="right"><button class="btn sm" type="button" data-act="dv-copy">${t("asks.examples.copy")}</button></span><small>${t("window.settings.developer.only-this-computer-can-reach-it")}</small></div>`;
+  html += `<div class=\"ctl\"><b>${t("window.settings.developer.session-key")}</b><span class=\"right\"><span data-css=\"font:12px var(--mono);color:var(--ink-3)\">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span><button class=\"btn sm\" type=\"button\" data-act=\"soon\">${t("window.settings.developer.make-a-new-one")}</button></span><small>${t("window.settings.developer.never-shown-in-full-here")}</small></div>`;
   html += "</div>";
-  html += "<div class=\"sec\"><h2>Help with code</h2>";
-  html += `<div class="ctl"><b>Use language servers</b><input class="sw" type="checkbox" id="dv-ls" ${value("dv-ls") ? "checked" : ""} aria-label="Use language servers" data-sw="set"><small>Programs you already installed, one per line.</small></div>`;
-  html += `<div class="ctl"><b>Use a debugger</b><input class="sw" type="checkbox" id="dv-dbg" ${value("dv-dbg") ? "checked" : ""} aria-label="Use a debugger" data-sw="set"><small>Nothing downloads, and nothing runs until this is on.</small></div>`;
+  html += `<div class=\"sec\"><h2>${t("settings.advanced.code.title")}</h2>`;
+  html += `<div class="ctl"><b>${t("window.settings.developer.use-language-servers")}</b><input class="sw" type="checkbox" id="dv-ls" ${value("dv-ls") ? "checked" : ""} aria-label="${t("window.settings.developer.use-language-servers")}" data-sw="set"><small>${t("window.settings.developer.programs-you-already-installed-one-per")}</small></div>`;
+  html += `<div class="ctl"><b>${t("window.settings.developer.use-a-debugger")}</b><input class="sw" type="checkbox" id="dv-dbg" ${value("dv-dbg") ? "checked" : ""} aria-label="${t("window.settings.developer.use-a-debugger")}" data-sw="set"><small>${t("window.settings.developer.nothing-downloads-and-nothing-runs-until")}</small></div>`;
   html += "</div>";
-  html += sec15("Tools, technical",
-    btn15("Turn an OpenAPI file into tools", "", "Choose a file")
+  html += sec15(t("window.settings.developer.tools-technical"),
+    btn15(t("window.settings.developer.turn-an-openapi-file-into-tools"), "", t("delight.bg.choose"))
     + sw("Tool scripts and WebAssembly", "Sandboxed JavaScript and .wasm add-ons.")
     + sw("Tools that join over a WebSocket", `ws://${location.host}/api/interop/client-tools/ws`)
-    + seg15("Hardware adapters", "", [["off", "Off"], ["serial", "Serial"], ["gpio", "GPIO"], ["i2c", "I2C"], ["spi", "SPI"]], null)
+    + seg15(t("window.settings.developer.hardware-adapters"), "", [["off", t("accounts.switch.off")], ["serial", t("window.settings.developer.serial")], ["gpio", "GPIO"], ["i2c", "I2C"], ["spi", "SPI"]], null)
     + sw("Load tools only when needed", "Thousands of tools at the cost of dozens.")
-    + btn15("Playground", "Try any tool through a form.", "Open", "playground-open"));
-  html += sec15("Automations, technical",
+    + btn15(t("window.settings.developer.playground"), t("window.settings.developer.try-any-tool-through-a-form"), t("ov.open"), "playground-open"));
+  html += sec15(t("window.settings.developer.automations-technical"),
     sw("Flow search", "Tries four versions of a flow on examples and keeps the best.")
-    + code15("Loop a prompt", "Or /heartbeat for the check-in list.", "/loop 10m check the build"));
-  html += sec15("System",
+    + code15(t("window.settings.developer.loop-a-prompt"), t("window.settings.developer.or-heartbeat-for-the-check-in"), "/loop 10m check the build"));
+  html += sec15(t("window.settings.developer.system"),
     sw("Portable mode", "Data beside the program, for a USB stick.")
     + sw("Send metrics with OpenTelemetry", D.tracing?.endpoint ?? "")
-    + seg15("Status line", "", [["default", "Default"], ["minimal", "Minimal"], ["script", "My script"]], statusLine)
+    + seg15(t("comfort.field.statusLine"), "", [["default", t("voice.default")], ["minimal", t("window.settings.developer.minimal")], ["script", t("window.settings.developer.my-script")]], statusLine)
     + sw("Find Branch on other computers nearby", "Tools and models on your network.")
     + sw("Is Branch keeping up", "Warns when the engine stalls for more than 5 seconds.")
     + sw("Save task trajectories", "Every step as JSON Lines, for analysis."));
@@ -69,7 +70,7 @@ async function loadAll() {
 }
 
 async function copyAddress() {
-  try { await navigator.clipboard.writeText(location.host); toast("Copied."); } catch (error) { toast(error.message); }
+  try { await navigator.clipboard.writeText(location.host); toast(t("window.core.copied")); } catch (error) { toast(error.message); }
 }
 
 export function init() {

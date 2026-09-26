@@ -22,6 +22,8 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { pill17, when17, list17 } from "./parts17.js";
 import { onDemo17, demoPlace17, demoDlg17 } from "./demo17.js";
+import { t } from "../../i18n.js";
+import { say } from "../core/words.js";
 
 let styles = [];
 const specs = () => E.state?.specialists ?? [];
@@ -30,7 +32,7 @@ const specOf = (id) => specs().find((s) => s.id === id);
 /* ---------- the specialist rows ---------- */
 export function specLine(s) {
   const d = s.data ?? {}, def = d.definition ?? {};
-  const parts = [`${def.style ?? "default"} style`];
+  const parts = [t("window.places.customize17.value-style", { value: def.style ?? "default" })];
   if (d.activeVersion) parts.push(`version ${d.activeVersion}`);
   if (d.version !== d.activeVersion) parts.push(`version ${d.version} is a draft`);
   return `<small class="spec-b17">${esc(parts.join(" · "))}</small>`;
@@ -39,10 +41,10 @@ export function specLine(s) {
 function versionRows(s) {
   const d = s.data ?? {}, rows = [];
   const at = (v) => when17((v === d.version ? d.evidence : d.history?.find((h) => h.version === v)?.evidence)?.checkedAt ?? "");
-  const row = (v, pill, button) => `<div class="prow"><span class="grow"><b>Version ${esc(v)}</b><small>${esc(at(v))}</small></span>${pill}${button}</div>`;
-  if (d.version !== d.activeVersion) rows.push(row(d.version, pill17("work", "Draft"), `<button class="btn sm" type="button" data-act="specverb17" data-id="${esc(s.id)}" data-v="promote">Promote</button>`));
-  if (d.activeVersion) rows.push(row(d.activeVersion, pill17("ok", "In use"), ""));
-  if (d.previousActive) rows.push(row(d.previousActive, pill17("idle", "Earlier"), `<button class="btn ghost sm" type="button" data-act="specverb17" data-id="${esc(s.id)}" data-v="back">Roll back</button>`));
+  const row = (v, pill, button) => `<div class="prow"><span class="grow"><b>${t("window.places.customize17.version-value", { value: esc(v) })}</b><small>${esc(at(v))}</small></span>${pill}${button}</div>`;
+  if (d.version !== d.activeVersion) rows.push(row(d.version, pill17("work", t("window.places.customize17.draft")), `<button class="btn sm" type="button" data-act="specverb17" data-id="${esc(s.id)}" data-v="promote">${t("window.places.customize17.promote")}</button>`));
+  if (d.activeVersion) rows.push(row(d.activeVersion, pill17("ok", t("window.places.customize17.in-use")), ""));
+  if (d.previousActive) rows.push(row(d.previousActive, pill17("idle", t("window.places.customize17.earlier")), `<button class="btn ghost sm" type="button" data-act="specverb17" data-id="${esc(s.id)}" data-v="back">${t("window.places.customize17.roll-back")}</button>`));
   return rows.join("");
 }
 
@@ -56,10 +58,10 @@ function drawSpec(id) {
   const scroll = dialog()?.querySelector(".dlg-b")?.scrollTop ?? 0;
   openDlg({ title: def.name ?? "",
     body: `<p class="lead-b17">${esc(String(def.instructions ?? "").split("\n")[0])}</p>
-      <div class="ctl"><b>Working style</b><span class="right"><span class="seg" role="group" aria-label="Working style">${seg}</span></span><small>${esc(styles.find((st) => st.style === style)?.summary ?? "")}</small></div>
-      <div class="ctl"><b>Evaluation</b><span class="right">${passed ? pill17("ok", `${checks} of ${checks}`) : `<button class="btn sm" type="button" data-act="specevalb17" data-id="${esc(id)}">Run ${esc(checks)} test cases</button>`}</span><small></small></div>
+      <div class="ctl"><b>${t("window.places.customize17.working-style")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.places.customize17.working-style")}">${seg}</span></span><small>${esc(styles.find((st) => st.style === style)?.summary ?? "")}</small></div>
+      <div class="ctl"><b>${t("window.places.customize17.evaluation")}</b><span class="right">${passed ? pill17("ok", t("delight.ach.progress", { now: checks, goal: checks })) : `<button class="btn sm" type="button" data-act="specevalb17" data-id="${esc(id)}">${t("window.places.customize17.run-checks-test-cases", { checks: esc(checks) })}</button>`}</span><small></small></div>
       <div class="vers-b17">${versionRows(s)}</div>`,
-    foot: '<button class="btn" type="button" data-act="dlg-close">Done</button>' });
+    foot: `<button class="btn" type="button" data-act="dlg-close">${t("first-run-steps.done")}</button>` });
   const body = dialog()?.querySelector(".dlg-b");
   if (body) body.scrollTop = scroll;
 }
@@ -108,9 +110,9 @@ export function toolsSection(kind, selected) {
   if (kind === "plugins") T.plugin = selected ?? null;
   const set = KEEPING[kind];
   if (level() < 1 || !set) return "";
-  return `<div class="sec x15-sec"><h2>${esc(set[0])}</h2><div class="rows">${set[1].map(([k, i, w]) => demoPlace17(k, i, w)).join("")}</div></div>`;
+  return `<div class="sec x15-sec"><h2>${esc(say(set[0]))}</h2><div class="rows">${set[1].map(([k, i, w]) => demoPlace17(k, i, w)).join("")}</div></div>`;
 }
-export const codingAgentsSection = () => (level() >= 1 ? `<div class="sec x15-sec"><h2>Other coding agents</h2><div class="rows">${demoPlace17("handoffcli", "term", ["Hand coding to another agent", "A Trunk can pass a coding job to Claude Code, Codex or Gemini CLI on this computer, then check the result.", "See how"])}</div></div>` : "");
+export const codingAgentsSection = () => (level() >= 1 ? `<div class="sec x15-sec"><h2>${t("window.places.customize17.other-coding-agents")}</h2><div class="rows">${demoPlace17("handoffcli", "term", [t("window.places.customize17.hand-coding-to-another-agent"), t("window.places.customize17.a-trunk-can-pass-a-coding"), t("window.places.customize17.see-how")])}</div></div>` : "");
 
 /* A read from outside /api (the OpenAI-shaped address and the agent card), signed like every other request. */
 async function outside(path) {
@@ -121,44 +123,44 @@ async function outside(path) {
 }
 async function copy(text) {
   await navigator.clipboard.writeText(text);
-  toast(`Copied ${text}.`);
+  toast(t("window.places.customize17.copied-text", { text }));
 }
 
 function registerTools() {
   onDemo17("curator", { open: async () => {
     const view = await api("learning-more/curator");
-    demoDlg17("curator", { title: "Retire skills nobody uses", lead: view.note, rows: list17(view.skills).map((s) => [s.name, s.lastUsedAt ? when17(s.lastUsedAt) : "", s.uses ? ["ok", "Keep"] : ["warn", "Retire?"]]) });
+    demoDlg17("curator", { title: t("window.places.customize17.retire-skills-nobody-uses"), lead: view.note, rows: list17(view.skills).map((s) => [s.name, s.lastUsedAt ? when17(s.lastUsedAt) : "", s.uses ? ["ok", t("window.places.customize17.keep")] : ["warn", t("window.places.customize17.retire")]]) });
   } });
   onDemo17("installacct", { open: async () => {
     const last = list17((await api("skill-installs")).records)[0];
-    demoDlg17("installacct", { title: "A written account of each install", lead: last ? `${last.name} · ${when17(last.at)}` : "", rows: (last?.steps ?? []).map((step) => [step, "", null]) });
+    demoDlg17("installacct", { title: t("window.places.customize17.a-written-account-of-each-install"), lead: last ? `${last.name} · ${when17(last.at)}` : "", rows: (last?.steps ?? []).map((step) => [step, "", null]) });
   } });
   onDemo17("plugcheck", { open: async () => {
     const id = T.plugin ?? list17((await api("plugins")).plugins)[0]?.id;
     const shown = id ? await api(`plugins/${encodeURIComponent(id)}/inspect`, {}) : null;
-    demoDlg17("plugcheck", { title: "Check a plugin before it runs", lead: shown?.name ?? "", rows: [...(shown?.permissions ?? []).map((p) => [p, "", null]), ...(shown?.tools ?? []).map((t) => [t.name, t.description, null])] });
+    demoDlg17("plugcheck", { title: t("window.places.customize17.check-a-plugin-before-it-runs"), lead: shown?.name ?? "", rows: [...(shown?.permissions ?? []).map((p) => [p, "", null]), ...(shown?.tools ?? []).map((t) => [t.name, t.description, null])] });
   } });
   onDemo17("valves", { open: async () => {
     const { filters } = await api("plugin-catalog/add-ons");
-    demoDlg17("valves", { title: "Message filters", lead: "Filters:", rows: list17(filters).map((f) => [f.name, f.stage, f.enabled ? ["ok", "On"] : ["idle", "Off"]]) });
+    demoDlg17("valves", { title: t("window.places.customize17.message-filters"), lead: t("window.places.customize17.filters"), rows: list17(filters).map((f) => [f.name, f.stage, f.enabled ? ["ok", t("accounts.switch.on")] : ["idle", t("accounts.switch.off")]]) });
   } });
   onDemo17("examples", { open: async () => {
     const { bundled } = await api("plugin-catalog/add-ons");
-    demoDlg17("examples", { title: "Example add-ons", lead: "Examples:", go: "Copy", rows: list17(bundled).map((b) => [b.name ?? b.id, b.description ?? "", null]) });
+    demoDlg17("examples", { title: t("window.places.customize17.example-add-ons"), lead: t("window.places.customize17.examples"), go: t("asks.examples.copy"), rows: list17(bundled).map((b) => [b.name ?? b.id, b.description ?? "", null]) });
   } });
   onDemo17("asmcp", { open: async () => {
     const view = await api("mcp/settings");
-    demoDlg17("asmcp", { title: "Branch as a tool server", lead: "Other apps would see:", go: "Copy the address",
-      rows: [...view.exposedTools.map((t) => [t, view.tools.find((x) => x.name === t)?.description ?? "", ["ok", "Shared"]]), ["Address", `${location.origin}/mcp`, ["idle", "Local"]]] });
+    demoDlg17("asmcp", { title: t("window.places.customize17.branch-as-a-tool-server"), lead: t("window.places.customize17.other-apps-would-see"), go: t("window.places.customize17.copy-the-address"),
+      rows: [...view.exposedTools.map((tr) => [tr, view.tools.find((x) => x.name === tr)?.description ?? "", ["ok", t("window.places.customize17.shared")]]), [t("addons.pipelines.address"), `${location.origin}/mcp`, ["idle", t("window.places.customize17.local")]]] });
   }, go: () => copy(`${location.origin}/mcp`) });
   onDemo17("oaiapi", { open: async () => {
     const { data } = await outside("/v1/models");
-    demoDlg17("oaiapi", { title: "One address for every model", lead: "Point a program at:", go: "Copy the address",
-      rows: [["Address", `${location.origin}/v1`, ["idle", "Local"]], ...list17(data).map((m) => [m.id, m.owned_by, null])] });
+    demoDlg17("oaiapi", { title: t("window.places.customize17.one-address-for-every-model"), lead: t("window.places.customize17.point-a-program-at"), go: t("window.places.customize17.copy-the-address"),
+      rows: [[t("addons.pipelines.address"), `${location.origin}/v1`, ["idle", t("window.places.customize17.local")]], ...list17(data).map((m) => [m.id, m.owned_by, null])] });
   }, go: () => copy(`${location.origin}/v1`) });
   onDemo17("a2acard", { open: async () => {
     const card = await outside("/.well-known/agent.json");
-    demoDlg17("a2acard", { title: "Branch’s own agent card", lead: "The card says:", rows: [[card.name, card.description ?? "", null], ...list17(card.skills).map((s) => [s.name ?? s.id, s.description ?? "", null])] });
+    demoDlg17("a2acard", { title: t("window.places.customize17.branchs-own-agent-card"), lead: t("window.places.customize17.the-card-says"), rows: [[card.name, card.description ?? "", null], ...list17(card.skills).map((s) => [s.name ?? s.id, s.description ?? "", null])] });
   } });
 }
 

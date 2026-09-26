@@ -13,15 +13,16 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { toast, openDlg, closeDlg, $ } from "../core/ui.js";
 import { demos17, row17, sec17, pill17 } from "./rows17.js";
+import { t } from "../../i18n.js";
 
 const U = { sources: [], pick: null, preview: null, moved: null, parts: null };
 
 export function sections17(lv) {
-  let html = sec17("Moving in and out",
-    row17("Move in from another assistant", U.moved ? `Brought in from ${U.moved}. Everything came in as a copy.` : "Conversations, memory, instructions, skills and tool servers from Claude Code, Codex, Hermes Agent, OpenClaw or OpenCode.", "Move in…", "moveinb17")
-    + row17("Take everything with you", "Your Trunks, skills, procedures, memory and settings as one file. Keys never go in it.", "Export…", "exportb17"));
-  if (lv >= 1) html += sec17("Money and keeping, more",
-    row17("Spend caps per service", "A monthly limit for each service that bills per use; work pauses and asks when one is reached.", "Set caps", "capsb17")
+  let html = sec17(t("window.settings.p17-usage.moving-in-and-out"),
+    row17(t("window.settings.p17-usage.move-in-from-another-assistant"), U.moved ? t("window.settings.p17-usage.brought-in-from-moved-everything-came", { moved: U.moved }) : t("window.settings.p17-usage.conversations-memory-instructions-skills-and-tool"), t("window.settings.p17-usage.move-in"), "moveinb17")
+    + row17(t("window.settings.p17-usage.take-everything-with-you"), t("window.settings.p17-usage.your-trunks-skills-procedures-memory-and"), t("window.settings.p17-usage.export-2"), "exportb17"));
+  if (lv >= 1) html += sec17(t("window.settings.p17-usage.money-and-keeping-more"),
+    row17(t("window.settings.p17-usage.spend-caps-per-service"), t("window.settings.p17-usage.a-monthly-limit-for-each-service"), t("window.settings.p17-usage.set-caps"), "capsb17")
     + demos17(["balance", "projcost", "backup", "retention", "held"]));
   return html;
 }
@@ -29,11 +30,11 @@ export function sections17(lv) {
 /* ---------- move in ---------- */
 const bringable = () => (U.preview?.groups ?? []).flatMap((g) => g.items).filter((i) => !i.blocked && !i.alreadyMoved).map((i) => i.key);
 function moveDlg() {
-  const opts = U.sources.map((s) => `<button type="button" class="upd-o15" data-act="moveinpickb17" data-v="${esc(s.source)}" aria-pressed="${U.pick === s.source}" ${s.found ? "" : "disabled"}><b>${esc(s.name)}</b><small>${s.found ? "Found on this computer" : "Not found here"}</small></button>`).join("");
-  const rows = U.preview ? `<div class="rows">${U.preview.groups.map((g) => `<div class="prow"><span class="grow"><b>${esc(g.name)}</b><small>${esc(g.items.filter((i) => !i.blocked).length)}</small></span>${pill17("ok", "Comes in")}</div>`).join("")}<div class="prow"><span class="grow"><b>Keys and passwords</b><small>Never copied; you sign in again where needed</small></span>${pill17("idle", "Left out")}</div></div>`
-    : '<p class="hint" data-css="margin:0">Pick one to see what comes in.</p>';
-  openDlg({ title: "Move in from another assistant", body: `<p class="lead-b17">Branch looked on this computer. Everything comes in as a copy; the other assistant keeps working.</p><div class="opts-b17">${opts}</div>${rows}`,
-    foot: `<button class="btn ghost" type="button" data-act="dlg-close">Not now</button><button class="btn pri" type="button" data-act="moveingob17" ${bringable().length ? "" : "disabled"}>Bring it in</button>` });
+  const opts = U.sources.map((s) => `<button type="button" class="upd-o15" data-act="moveinpickb17" data-v="${esc(s.source)}" aria-pressed="${U.pick === s.source}" ${s.found ? "" : "disabled"}><b>${esc(s.name)}</b><small>${s.found ? t("window.settings.p17-usage.found-on-this-computer") : t("window.settings.p17-usage.not-found-here")}</small></button>`).join("");
+  const rows = U.preview ? `<div class="rows">${U.preview.groups.map((g) => `<div class="prow"><span class="grow"><b>${esc(g.name)}</b><small>${esc(g.items.filter((i) => !i.blocked).length)}</small></span>${pill17("ok", t("window.settings.p17-usage.comes-in"))}</div>`).join("")}<div class="prow"><span class="grow"><b>${t("window.settings.p17-usage.keys-and-passwords")}</b><small>${t("window.settings.p17-usage.never-copied-you-sign-in-again")}</small></span>${pill17("idle", t("window.settings.p17-usage.left-out"))}</div></div>`
+    : `<p class="hint" data-css="margin:0">${t("window.settings.p17-usage.pick-one-to-see-what-comes")}</p>`;
+  openDlg({ title: t("window.settings.p17-usage.move-in-from-another-assistant"), body: `<p class="lead-b17">${t("window.settings.p17-usage.branch-looked-on-this-computer-everything")}</p><div class="opts-b17">${opts}</div>${rows}`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("updates.busy.cancel")}</button><button class="btn pri" type="button" data-act="moveingob17" ${bringable().length ? "" : "disabled"}>${t("reach.git.install")}</button>` });
 }
 async function openMove() {
   try {
@@ -63,13 +64,13 @@ const summary = (names) => (U.parts ?? []).filter((p) => names.includes(p.name))
 const EXP = [["#exp-b17-skills", ["skills", "procedures"]], ["#exp-b17-memory", ["memory"]], ["#exp-b17-settings", ["routing", "permissions"]]];
 function exportDlg() {
   const tick = (id, title, sub, on, live = true) => `<label class="prow"><input type="checkbox" class="chk15" ${live ? `id="${id}"` : "disabled"} ${on ? "checked" : ""}><span class="grow"><b>${esc(title)}</b><small>${esc(sub)}</small></span></label>`;
-  const body = tick("", "Trunks and their instructions", "", false, false)
-    + tick("exp-b17-skills", "Skills and procedures", summary(["skills", "procedures"]), true)
-    + tick("exp-b17-memory", "Memory", "Personal details removed", true)
-    + tick("exp-b17-settings", "Settings", summary(["routing", "permissions"]), true)
-    + tick("", "Conversations", "", false, false);
-  openDlg({ title: "Take everything with you", body: `<p class="lead-b17">One .branch file another Branch can open. Keys, passwords and sign-ins never go in it.</p><div class="rows">${body}</div>`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Not now</button><button class="btn pri" type="button" data-act="exportgob17">Export</button>' });
+  const body = tick("", t("window.settings.p17-usage.trunks-and-their-instructions"), "", false, false)
+    + tick("exp-b17-skills", t("window.settings.p17-usage.skills-and-procedures"), summary(["skills", "procedures"]), true)
+    + tick("exp-b17-memory", t("memory.movein.kind.memory"), t("window.settings.p17-usage.personal-details-removed"), true)
+    + tick("exp-b17-settings", t("memory.movein.kind.setting"), summary(["routing", "permissions"]), true)
+    + tick("", t("people.home.list"), "", false, false);
+  openDlg({ title: t("window.settings.p17-usage.take-everything-with-you"), body: `<p class="lead-b17">${t("window.settings.p17-usage.one-branch-file-another-branch-can")}</p><div class="rows">${body}</div>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("updates.busy.cancel")}</button><button class="btn pri" type="button" data-act="exportgob17">${t("window.settings.p17-usage.export")}</button>` });
 }
 async function openExport() {
   try { U.parts = (await api("agent-export")).sections; } catch (error) { toast(error.message); return; }

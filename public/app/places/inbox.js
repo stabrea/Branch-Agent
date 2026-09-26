@@ -21,7 +21,7 @@ import { recBar } from "../chat/rec.js";
 import { prowOpen, inboxMarkAll } from "../chat/unread.js"; // pass 17: unread dots and Mark all read
 import { adaptCards, laterTab, laterCount, receiptsSection, readInbox17, initInbox17 } from "./inbox17.js";
 import { initDemo17 } from "./demo17.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 let asks = [];
 let installs = [];
@@ -33,28 +33,28 @@ const runById = (id) => (E.state.runs ?? []).find((r) => r.id === id);
 const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
 
 function askRow(q) {
-  return `${prowOpen(`ask:${q.sessionId}:${q.fingerprint || ""}`, q.createdAt ?? runById(q.runId)?.createdAt)}${av({}, 34)}<span class="grow"><b>${esc(q.question || q.label || "")}</b><small>${esc([trunkName(q.trunk), q.question ? q.label : q.target].filter(Boolean).join(" · "))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(q.sessionId)}">Open</button><button class="btn pri sm" type="button" data-act="ask" data-v="allow" data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}">Allow</button></div>`;
+  return `${prowOpen(`ask:${q.sessionId}:${q.fingerprint || ""}`, q.createdAt ?? runById(q.runId)?.createdAt)}${av({}, 34)}<span class="grow"><b>${esc(q.question || q.label || "")}</b><small>${esc([trunkName(q.trunk), q.question ? q.label : q.target].filter(Boolean).join(" · "))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(q.sessionId)}">${t("ov.open")}</button><button class="btn pri sm" type="button" data-act="ask" data-v="allow" data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}">${t("trunks.room.allow")}</button></div>`;
 }
 /* A request for a package or a tool server (GET /api/flows-boards/installs, status waiting). Answering it only writes the
    answer down: a yes comes back with the exact next step, and nothing is installed. */
 function installRow(r) {
-  return `${prowOpen(`install:${r.id}`, r.createdAt)}${av({}, 34)}<span class="grow"><b>${esc(r.ask?.why ?? "")}</b><small>${esc(r.from)} wants “${esc(r.ask?.name ?? "")}”. Nothing is installed until you allow it.</small></span><button class="btn ghost sm" type="button" data-act="xdo-no" data-id="${esc(r.id)}" data-v="denied">Don’t</button><button class="btn pri sm" type="button" data-act="xdo" data-id="${esc(r.id)}" data-v="allowed">Allow</button></div>`;
+  return `${prowOpen(`install:${r.id}`, r.createdAt)}${av({}, 34)}<span class="grow"><b>${esc(r.ask?.why ?? "")}</b><small>${t("window.places.inbox.from-wants-value-nothing-is-installed", { from: esc(r.from), value: esc(r.ask?.name ?? "") })}</small></span><button class="btn ghost sm" type="button" data-act="xdo-no" data-id="${esc(r.id)}" data-v="denied">${t("window.places.inbox.dont")}</button><button class="btn pri sm" type="button" data-act="xdo" data-id="${esc(r.id)}" data-v="allowed">${t("trunks.room.allow")}</button></div>`;
 }
 function messageRow(m) {
-  return `${prowOpen(`tmsg:${m.id}`, m.createdAt ?? m.at)}${av({}, 34)}<span class="grow"><b>${esc(m.message)}</b><small>${esc(trunkName(m.from))} → ${esc(trunkName(m.to))}</small></span><button class="btn ghost sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="decline">Don’t</button><button class="btn pri sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="answer">Allow</button></div>`;
+  return `${prowOpen(`tmsg:${m.id}`, m.createdAt ?? m.at)}${av({}, 34)}<span class="grow"><b>${esc(m.message)}</b><small>${esc(trunkName(m.from))} → ${esc(trunkName(m.to))}</small></span><button class="btn ghost sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="decline">${t("window.places.inbox.dont")}</button><button class="btn pri sm" type="button" data-act="tmsg" data-id="${esc(m.id)}" data-v="answer">${t("trunks.room.allow")}</button></div>`;
 }
 
 /* A task Branch closed on, from the engine's attention list; its name is the task's own first line. */
 function cutCard(a) {
   const trunk = a.who ? (Array.isArray(E.trunks) ? E.trunks : []).find((t) => t.name === a.who) : null;
   const name = firstLine(runById(a.runId)?.prompt) || a.question;
-  return `<div class="cut15" role="status">${trunk ? av(trunk, 30) : av({ kind: "main" }, 30)}<span class="grow"><b>Pick up what the update cut off</b><small>${esc(name)}</small></span><button class="btn ghost sm" type="button" data-act="cutno15" data-id="${esc(a.runId)}">Leave it</button><button class="btn pri sm" type="button" data-act="cutgo15" data-id="${esc(a.runId)}" data-sid="${esc(a.sessionId)}">Pick it up</button></div>`;
+  return `<div class="cut15" role="status">${trunk ? av(trunk, 30) : av({ kind: "main" }, 30)}<span class="grow"><b>${t("window.places.inbox.pick-up-what-the-update-cut")}</b><small>${esc(name)}</small></span><button class="btn ghost sm" type="button" data-act="cutno15" data-id="${esc(a.runId)}">${t("window.places.inbox.leave-it")}</button><button class="btn pri sm" type="button" data-act="cutgo15" data-id="${esc(a.runId)}" data-sid="${esc(a.sessionId)}">${t("window.places.inbox.pick-it-up")}</button></div>`;
 }
 const cutCards = () => (E.state.attention ?? []).filter((a) => a.canContinue && !a.parentRunId).map(cutCard).join(""); // not a helper (FEATURES17C §4)
 
 function selfCard(r) {
-  const stage = r.status === "approved" ? "edits approved, ready to publish" : "waiting for you";
-  return `<div class="self15"><span class="ico-tile">${ic("branch", "s")}</span><span class="grow"><b>Branch wants to improve itself</b><small>${esc(firstLine(r.text))} · ${stage}</small></span><button class="btn sm" type="button" data-act="selfrev15" data-id="${esc(r.id)}">Review</button></div>`;
+  const stage = r.status === "approved" ? t("window.places.inbox.edits-approved-ready-to-publish") : t("flowsBoards.installs.waiting");
+  return `<div class="self15"><span class="ico-tile">${ic("branch", "s")}</span><span class="grow"><b>${t("window.places.inbox.branch-wants-to-improve-itself")}</b><small>${esc(firstLine(r.text))} · ${stage}</small></span><button class="btn sm" type="button" data-act="selfrev15" data-id="${esc(r.id)}">${t("window.places.inbox.review")}</button></div>`;
 }
 /* Waiting for the owner's yes, or prepared and so showing its edits before a draft is published. */
 const waitingChanges = () => changeRequests.filter((r) => r.status === "waiting" || r.status === "approved");
@@ -63,7 +63,7 @@ const waitingCount = () => asks.length + E.state.trunkWaiting.length + installs.
 function needsTab() {
   const count = waitingCount();
   let html = `<div class="rows">`;
-  if (count > 1) html += `<div class="acts" data-css="margin:4px 0 6px"><button class="btn" type="button" data-act="allowall">Allow all ${count}…</button></div>`;
+  if (count > 1) html += `<div class="acts" data-css="margin:4px 0 6px"><button class="btn" type="button" data-act="allowall">${t("window.places.inbox.allow-all-count", { count })}</button></div>`;
   html += asks.map(askRow).join("");
   html += installs.map(installRow).join("");
   html += E.state.trunkWaiting.map(messageRow).join("");
@@ -73,7 +73,7 @@ function needsTab() {
 
 function finishedTab() {
   const finished = E.state.runs?.filter((r) => r.status === "completed") || [];
-  const rows = finished.slice(0, 20).map((r) => `${prowOpen(`run:${r.id}`, r.updatedAt)}${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(firstLine(r.output))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(r.sessionId || "")}">Open</button></div>`);
+  const rows = finished.slice(0, 20).map((r) => `${prowOpen(`run:${r.id}`, r.updatedAt)}${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(firstLine(r.output))}</small></span><button class="btn sm" type="button" data-act="chat" data-id="${esc(r.sessionId || "")}">${t("ov.open")}</button></div>`);
   return `<div class="rows">${rows.join("")}</div>`;
 }
 
@@ -87,16 +87,16 @@ function replayTile() {
   if (!last) return "";
   const before = done.find((r) => r !== last && r.prompt === last.prompt);
   const day = before ? dayWord(before.createdAt) : "";
-  const compare = before ? `<button class="btn ghost sm" type="button" data-act="compare" data-id="${esc(last.id)}" data-v="${esc(before.id)}">Compare it with ${esc(day.charAt(0).toLowerCase() + day.slice(1))}’s</button>` : "";
-  return `<div class="tile" data-css="margin:10px 0 12px"><div class="th"><b>Watch a task again</b></div><p>Step through what a task did, see the path it took, and keep it as a page or a workflow that repeats it.</p><div class="acts"><button class="btn sm" type="button" data-act="replay" data-id="${esc(last.id)}">${ic("play", "s")}Watch “${esc(firstLine(last.prompt))}”</button>${compare}</div></div>`;
+  const compare = before ? `<button class="btn ghost sm" type="button" data-act="compare" data-id="${esc(last.id)}" data-v="${esc(before.id)}">${t("window.places.inbox.compare-it-with-value-s", { value: esc(day.charAt(0).toLowerCase() + day.slice(1)) })}</button>` : "";
+  return `<div class="tile" data-css="margin:10px 0 12px"><div class="th"><b>${t("recordings.title")}</b></div><p>${t("window.places.inbox.step-through-what-a-task-did")}</p><div class="acts"><button class="btn sm" type="button" data-act="replay" data-id="${esc(last.id)}">${ic("play", "s")}${t("window.places.inbox.watch-prompt", { prompt: esc(firstLine(last.prompt)) })}</button>${compare}</div></div>`;
 }
 
 /* A task's day as the prototype names it: Today, Last <weekday> within the week, else the date. */
 function dayWord(iso) {
   const d = new Date(iso), now = new Date();
-  if (d.toDateString() === now.toDateString()) return "Today";
-  if (now.getTime() - d.getTime() < 7 * 86400000) return `Last ${d.toLocaleDateString([], { weekday: "long" })}`;
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  if (d.toDateString() === now.toDateString()) return t("dashboard.today.title");
+  if (now.getTime() - d.getTime() < 7 * 86400000) return t("window.places.inbox.last-day", { day: d.toLocaleDateString(language(), { weekday: "long" }) });
+  return d.toLocaleDateString(language(), { month: "short", day: "numeric" });
 }
 
 /* Two tasks side by side, both read from GET /api/runs/<id>/inspect (the record the inspector reads): the cost, the time,
@@ -105,20 +105,20 @@ async function openCompare(el) {
   let older, newer;
   try { [older, newer] = await Promise.all([api(`runs/${encodeURIComponent(el.dataset.v)}/inspect`), api(`runs/${encodeURIComponent(el.dataset.id)}/inspect`)]); } catch (error) { toast(error.message); return; }
   const secs = (s) => { const n = Math.round(Number(s) || 0); return n >= 60 ? `${Math.floor(n / 60)}m ${n % 60}s` : `${n}s`; };
-  const rows = [["Cost", older.cost?.display ?? "", newer.cost?.display ?? ""], ["Time", secs(older.seconds), secs(newer.seconds)], ["Rounds", older.rounds?.length ?? 0, newer.rounds?.length ?? 0], ["Tools used", older.calls?.length ?? 0, newer.calls?.length ?? 0]];
+  const rows = [[t("window.settings.p17-models.cost"), older.cost?.display ?? "", newer.cost?.display ?? ""], [t("comfort.status.item.time"), secs(older.seconds), secs(newer.seconds)], [t("window.places.inbox.rounds"), older.rounds?.length ?? 0, newer.rounds?.length ?? 0], [t("window.places.inbox.tools-used"), older.calls?.length ?? 0, newer.calls?.length ?? 0]];
   const table = `<table class="cmp6"><thead><tr><th></th><th>${esc(dayWord(older.run.createdAt))}</th><th>${esc(dayWord(newer.run.createdAt))}</th></tr></thead><tbody>${rows.map(([n, a, b]) => `<tr><th>${n}</th><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join("")}</tbody></table>`;
   const was = String(older.run.output ?? "").split("\n"), now = String(newer.run.output ?? "").split("\n");
   const diff = [...was.filter((l) => !now.includes(l)).map((l) => `<span class="d-del">- ${esc(l)}</span>`), ...now.map((l) => (was.includes(l) ? `<span>  ${esc(l)}</span>` : `<span class="d-add">+ ${esc(l)}</span>`))].join("");
-  openDlg({ title: "Two tasks side by side", wide: true, body: `${table}<pre class="diff6">${diff}</pre><p class="hint">Read from the same “Look inside” record the inspector uses; nothing new is worked out.</p>`, foot: '<button class="btn pri" type="button" data-act="dlg-close">Done</button>' });
+  openDlg({ title: t("activity.compareTitle"), wide: true, body: `${table}<pre class="diff6">${diff}</pre><p class="hint">${t("window.places.inbox.read-from-the-same-look-inside")}</p>`, foot: `<button class="btn pri" type="button" data-act="dlg-close">${t("first-run-steps.done")}</button>` });
 }
 
 function historyTab() {
-  const verify = `<button type="button" class="rec15" data-act="verify15" data-tip="Every entry is linked to the one before it, so a removed or rewritten entry shows.">${ic("shield15", "s")}<span>${chain?.ok ? t("window.inbox.intact") : ""}</span><u>Verify</u></button>`;
+  const verify = `<button type="button" class="rec15" data-act="verify15" data-tip="${t("window.places.inbox.every-entry-is-linked-to-the")}">${ic("shield15", "s")}<span>${chain?.ok ? t("window.inbox.intact") : ""}</span><u>${t("window.places.inbox.verify")}</u></button>`;
   const rows = (E.state.runs || []).slice(0, 50).map((r) => {
     const cost = typeof r.cost?.amount === "number" ? "$" + r.cost.amount.toFixed(2) : r.cost?.display ?? "";
-    return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(when(r.createdAt))}</small></span><span class="meta">${[duration(r), cost].filter(Boolean).map(esc).join(" · ")}</span><button class="btn ghost sm" type="button" data-act="replay" data-id="${esc(r.id)}">Watch again</button></div>`;
+    return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(when(r.createdAt))}</small></span><span class="meta">${[duration(r), cost].filter(Boolean).map(esc).join(" · ")}</span><button class="btn ghost sm" type="button" data-act="replay" data-id="${esc(r.id)}">${t("window.places.inbox.watch-again")}</button></div>`;
   });
-  return `${replayTile()}<div class="rows"><div class="nl"><input class="inp" id="histq" placeholder="Search what ran" value="" aria-label="Search history">${verify}</div>${rows.join("")}</div>`;
+  return `${replayTile()}<div class="rows"><div class="nl"><input class="inp" id="histq" placeholder="${t("window.places.inbox.search-what-ran")}" value="" aria-label="${t("window.places.inbox.search-history")}">${verify}</div>${rows.join("")}</div>`;
 }
 
 export function draw() {
@@ -127,10 +127,10 @@ export function draw() {
 
   const count = waitingCount();
   const body = cutCards() + (tab === "needs" ? adaptCards() + needsTab() : tab === "finished" ? finishedTab() : tab === "history" ? historyTab() + receiptsSection() : tab === "later" ? laterTab() : "");
-  let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>Lockdown is on. Trunks can read, but nothing leaves this computer and nothing is changed.<button type="button" data-act="lock">Turn it off</button></div><div class="scroll"><div class="place">
+  let html = `<main class="main enter11" id="main"><div class="lock-banner"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"></path></svg>${t("window.places.automations.lockdown-is-on-trunks-can-read")}<button type="button" data-act="lock">${t("lockdown.turnOff")}</button></div><div class="scroll"><div class="place">
     ${recBar()}
-    <h1>Inbox</h1><p class="lede">Everything a Trunk is waiting on you for, what finished, and a record of what ran.</p>
-    <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === "needs" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="needs">Needs you<span class="n">${count}</span></button><button class="tab" role="tab" type="button" aria-selected="${tab === "finished" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="finished">Finished</button><button class="tab" role="tab" type="button" aria-selected="${tab === "history" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="history">History</button><button class="tab" role="tab" type="button" aria-selected="${tab === "later" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="later">Later${laterCount() ? `<span class="n">${laterCount()}</span>` : ""}</button>${inboxMarkAll()}</div>`;
+    <h1>${t("place.inbox")}</h1><p class="lede">${t("window.places.inbox.everything-a-trunk-is-waiting-on")}</p>
+    <div class="tabs" role="tablist"><button class="tab" role="tab" type="button" aria-selected="${tab === "needs" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="needs">${t("dashboard.needs.title")}<span class="n">${count}</span></button><button class="tab" role="tab" type="button" aria-selected="${tab === "finished" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="finished">${t("place.inbox.finished")}</button><button class="tab" role="tab" type="button" aria-selected="${tab === "history" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="history">${t("place.inbox.history")}</button><button class="tab" role="tab" type="button" aria-selected="${tab === "later" ? "true" : "false"}" data-act="ptab" data-place="inbox" data-v="later">${t("window.places.inbox.later")}${laterCount() ? `<span class="n">${laterCount()}</span>` : ""}</button>${inboxMarkAll()}</div>`;
 
   html += body;
 
@@ -189,7 +189,7 @@ export async function after() {
 
 /* Checking the record: the engine walks the whole chain and answers whether it is unbroken, and where not. */
 async function verifyRecord() {
-  openDlg({ title: "Checking the record", body: `<div class="ver15"><div class="ver-ring15"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="27"/><circle class="ver-arc15" cx="32" cy="32" r="27" pathLength="100"/></svg>${ic("shield15")}</div><b id="ver-t15"></b><p class="hint" id="ver-s15">Each entry carries a fingerprint of the one before it.</p></div>`, foot: '<button class="btn" type="button" data-act="dlg-close">Close</button>' });
+  openDlg({ title: t("window.places.inbox.checking-the-record"), body: `<div class="ver15"><div class="ver-ring15"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="27"/><circle class="ver-arc15" cx="32" cy="32" r="27" pathLength="100"/></svg>${ic("shield15")}</div><b id="ver-t15"></b><p class="hint" id="ver-s15">${t("window.places.inbox.each-entry-carries-a-fingerprint-of")}</p></div>`, foot: `<button class="btn" type="button" data-act="dlg-close">${t("delight.ach.close")}</button>` });
   let check;
   try { check = (await api("safety-extras/activity/verify", {})).check; } catch (error) { toast(error.message); return; }
   chain = check;
@@ -218,8 +218,8 @@ async function openReplay(id) {
   try { recording = await api(`runs/${encodeURIComponent(id)}/recording`); } catch (error) { toast(error.message); return; }
   stopReplay();
   RP.frames = recording.frames ?? [];
-  openDlg({ title: "Watch a task again", wide: true, body: '<div class="replay6"></div>',
-    foot: `<button class="btn ghost" type="button" data-act="rp" data-v="step">Step</button><button class="btn" type="button" data-act="rp" data-v="play">${ic("play", "s")}Play</button><span class="grow"></span><button class="btn ghost" type="button" data-act="toast">Save as a page</button><button class="btn" type="button" data-act="toast">Make a workflow</button>` });
+  openDlg({ title: t("recordings.title"), wide: true, body: '<div class="replay6"></div>',
+    foot: `<button class="btn ghost" type="button" data-act="rp" data-v="step">${t("window.places.inbox.step")}</button><button class="btn" type="button" data-act="rp" data-v="play">${ic("play", "s")}${t("recording.page.play")}</button><span class="grow"></span><button class="btn ghost" type="button" data-act="toast">${t("recordings.save-page")}</button><button class="btn" type="button" data-act="toast">${t("window.places.inbox.make-a-workflow")}</button>` });
   drawReplay(0);
 }
 /* Step moves one frame on; Play runs from here (or from the start, once at the end) through the frames already loaded. */
@@ -250,10 +250,10 @@ async function reviewChange(id) {
   let diff;
   try { diff = await api(`self-development/requests/${encodeURIComponent(r.id)}/diff`); } catch (error) { toast(error.message); return; }
   const editing = r.status === "approved";
-  const stages = [["Approve the edits", editing], ["Publish a draft pull request", false]].map(([t, d], i) => `<li class="${d ? "done" : (i === 0 && !editing) || (i === 1 && editing) ? "now" : ""}"><em>${d ? ic("check", "s") : i + 1}</em>${t}</li>`).join("");
-  const foot = editing ? `<button class="btn pri" type="button" data-act="selfdo15" data-v="published" data-id="${esc(r.id)}">Publish the draft</button>`
-    : `<button class="btn ghost" type="button" data-act="selfdo15" data-v="gone" data-id="${esc(r.id)}">Decline</button><button class="btn pri" type="button" data-act="selfdo15" data-v="editing" data-id="${esc(r.id)}">Approve the edits</button>`;
-  openDlg({ title: "A change to Branch’s own code", wide: true,
+  const stages = [[t("window.places.inbox.approve-the-edits"), editing], [t("window.places.inbox.publish-a-draft-pull-request"), false]].map(([t, d], i) => `<li class="${d ? "done" : (i === 0 && !editing) || (i === 1 && editing) ? "now" : ""}"><em>${d ? ic("check", "s") : i + 1}</em>${t}</li>`).join("");
+  const foot = editing ? `<button class="btn pri" type="button" data-act="selfdo15" data-v="published" data-id="${esc(r.id)}">${t("window.places.inbox.publish-the-draft")}</button>`
+    : `<button class="btn ghost" type="button" data-act="selfdo15" data-v="gone" data-id="${esc(r.id)}">${t("flowsBoards.installs.decline")}</button><button class="btn pri" type="button" data-act="selfdo15" data-v="editing" data-id="${esc(r.id)}">${t("window.places.inbox.approve-the-edits")}</button>`;
+  openDlg({ title: t("window.places.inbox.a-change-to-branchs-own-code"), wide: true,
     body: `<p data-css="margin:0 0 10px">${esc(r.text)}</p><p class="hint">${esc([r.from?.senderName, r.from?.channel, when(r.at)].filter(Boolean).join(" · "))}</p>${r.problem ? `<p class="hint">${esc(r.problem)}</p>` : ""}${diffBlocks(diff)}<ol class="stages15">${stages}</ol>`,
     foot });
 }

@@ -12,6 +12,8 @@ import { toast } from "../core/ui.js";
 import { effMode } from "./look.js";
 import { OWN, loadOwn } from "./ownbg.js";
 import { pet17, media17 } from "../core/art17.js";
+import { t } from "../../i18n.js";
+import { say as inWords } from "../core/words.js";
 
 const KEY = "branch-scene";
 export const W = { bg: "painted", scene: "auto", season: "auto", petWhere: "side" };
@@ -129,7 +131,7 @@ export function petShown() { const p = D.settings?.pets; return !!(p?.on && (PET
 export function petHTML(where) {
   if (!petShown() || W.petWhere !== where) return "";
   const p = D.settings.pets, speaking = P.say && Date.now() < P.until, pic = pet17(p.kind);
-  const label = `${esc(p.name)} the ${esc(petName(p.kind).toLowerCase())}. Click for a tip.`;
+  const label = esc(t("window.shell.scene.name-the-kind-click-for-a", { name: p.name, kind: inWords(petName(p.kind)).toLowerCase() }));
   const body = pic ? `<span class="pet17" role="button" tabindex="0" aria-label="${label}" data-act="pat">${media17(pic.still, pic.walk, "pet-vid11 pet12")}</span>`
     : `<canvas id="pet-cv" width="24" height="20" role="button" tabindex="0" aria-label="${label}" data-act="pat"></canvas>`;
   const box = `<div class="petbox ${P.dir < 0 ? "flip" : ""}" data-hide="pet" ${where === "side" ? `data-css="left:${8 + P.x}px"` : ""}><span class="pet-say" id="pet-say" ${speaking ? "" : "hidden"}>${esc(P.say)}</span>${body}</div>`;
@@ -148,8 +150,8 @@ export function drawPet() {
 /* What the pet says: a Trunk that needs a yes first, else a tip that is true of this window. */
 function petWords() {
   const waiting = (E.state?.attention ?? []).find((w) => !w.parentRunId); // a helper's question is not in the Inbox
-  if (waiting) return `${waiting.who || "Branch"} needs a yes. It’s in your Inbox.`;
-  return ["Ctrl K finds anything, even settings.", "Hover anything to see what it does."][Math.floor(Date.now() / 60000) % 2];
+  if (waiting) return t("window.shell.scene.who-needs-a-yes-its-in", { who: waiting.who || "Branch" });
+  return [t("window.shell.scene.ctrl-k-finds-anything-even-settings"), t("window.shell.scene.hover-anything-to-see-what-it")][Math.floor(Date.now() / 60000) % 2];
 }
 function say(text) {
   P.say = text;

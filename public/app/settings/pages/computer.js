@@ -75,27 +75,27 @@ const removeBtn = (d) => `<button class="btn ghost sm" type="button" data-act="d
 
 function computers() {
   const others = (D.devices?.devices ?? []).filter((d) => DESKTOP.includes(d.platform));
-  const mine = card("monitor", "This computer", "Your Windows desktop", `<span class="c7-reach">Your screen, mouse and apps. It asks before an app it hasn’t used, and you can take over any time.</span>`);
-  const theirs = others.length ? `<div class="grp8">Your other computers</div><div class="comps7">${others.map((d) => card("monitor", esc(d.name), esc(PLATFORM[d.platform] ?? d.platform), "", removeBtn(d))).join("")}</div>` : "";
-  const cloud = `<div class="grp8">In the cloud</div><div class="comps7"><div class="comp7-card off7"><span class="ico-tile">${ic("globe", "s")}</span><span class="grow"><b>KeepOak computer</b><small>Linux · in the cloud · stays on</small><span class="c7-reach">Keeps working while this PC sleeps. Hermes Agent and OpenClaw run there too.</span></span><button class="btn sm" type="button" data-act="ko-start">Connect keepoak.com</button></div></div>`;
-  return `<div class="sec"><h2>Computers they may use</h2><div class="grp8">On this PC</div><div class="comps7">${mine}</div>${theirs}${cloud}
-    <div class="acts" data-css="margin-top:10px"><button class="btn pri" type="button" data-act="comp-add">${ic("plus", "s")}Add a computer</button></div></div>`;
+  const mine = card("monitor", t("dashboard.computer.title"), t("window.settings.computer.your-windows-desktop"), `<span class="c7-reach">${t("window.settings.computer.your-screen-mouse-and-apps-it")}</span>`);
+  const theirs = others.length ? `<div class="grp8">${t("settings.card.remote-computers")}</div><div class="comps7">${others.map((d) => card("monitor", esc(d.name), esc(PLATFORM[d.platform] ?? d.platform), "", removeBtn(d))).join("")}</div>` : "";
+  const cloud = `<div class="grp8">${t("window.settings.computer.in-the-cloud")}</div><div class="comps7"><div class="comp7-card off7"><span class="ico-tile">${ic("globe", "s")}</span><span class="grow"><b>${t("window.settings.computer.keepoak-computer")}</b><small>${t("window.settings.computer.linux-in-the-cloud-stays-on")}</small><span class="c7-reach">${t("window.settings.computer.keeps-working-while-this-pc-sleeps")}</span></span><button class="btn sm" type="button" data-act="ko-start">${t("window.settings.computer.connect-keepoak-com")}</button></div></div>`;
+  return `<div class="sec"><h2>${t("window.settings.computer.computers-they-may-use")}</h2><div class="grp8">${t("window.settings.computer.on-this-pc")}</div><div class="comps7">${mine}</div>${theirs}${cloud}
+    <div class="acts" data-css="margin-top:10px"><button class="btn pri" type="button" data-act="comp-add">${ic("plus", "s")}${t("window.settings.computer.add-a-computer")}</button></div></div>`;
 }
 
 /* Which Trunk uses which: the engine keeps no list of computers per Trunk, nor a limit, so the chips stay greyed. */
 function trunkRow(trunk) {
   const id = esc(trunk.id ?? trunk.name ?? "");
   const nums = [1, 2, 3, 4].map((n) => `<button type="button" data-act="comp-max" data-id="${id}" data-v="${n}" aria-pressed="false">${n}</button>`).join("");
-  return `<div class="prow percomp8">${av(trunk, 32)}<span class="grow"><b>${esc(trunk.name ?? "")}</b><span class="chips8"><button type="button" class="chip6" data-act="comp-chip" data-id="${id}" data-v="this" aria-pressed="false">This computer</button></span></span><label class="max8"><small>At once</small><span class="seg">${nums}</span></label></div>`;
+  return `<div class="prow percomp8">${av(trunk, 32)}<span class="grow"><b>${esc(trunk.name ?? "")}</b><span class="chips8"><button type="button" class="chip6" data-act="comp-chip" data-id="${id}" data-v="this" aria-pressed="false">${t("dashboard.computer.title")}</button></span></span><label class="max8"><small>${t("window.settings.computer.at-once")}</small><span class="seg">${nums}</span></label></div>`;
 }
 
 function whichTrunk() {
-  return `<div class="sec"><h2>Which Trunk uses which</h2><p class="hint" data-css="margin:0 0 8px">A Trunk can use several computers, one task on each, side by side.</p><div class="rows">${(E.trunks ?? []).map(trunkRow).join("")}</div></div>`;
+  return `<div class="sec"><h2>${t("window.settings.computer.which-trunk-uses-which")}</h2><p class="hint" data-css="margin:0 0 8px">${t("window.settings.computer.a-trunk-can-use-several-computers")}</p><div class="rows">${(E.trunks ?? []).map(trunkRow).join("")}</div></div>`;
 }
 
-const ON_A_COMPUTER = `<div class="sec"><h2>On a computer</h2><div class="ctl"><b>See the screen and use the mouse</b><input class="sw" type="checkbox" id="c-screen" aria-label="See the screen and use the mouse" data-sw="set"><small>Needed for apps without a connection. You can always take over.</small></div><div class="ctl"><b>Ask before opening an app it hasn’t used</b><input class="sw" type="checkbox" id="c-ask" aria-label="Ask before opening an app it hasn’t used" data-sw="set"><small>Once per app, per Trunk.</small></div>${seg15("Where scripts run", "A sealed box keeps scripts away from your files unless a task needs them.", [["sealed", "Sealed box"], ["this", "This computer"]], null)}</div>`;
+const ON_A_COMPUTER = () => `<div class="sec"><h2>${t("window.settings.computer.on-a-computer")}</h2><div class="ctl"><b>${t("window.settings.computer.see-the-screen-and-use-the")}</b><input class="sw" type="checkbox" id="c-screen" aria-label="${t("window.settings.computer.see-the-screen-and-use-the")}" data-sw="set"><small>${t("window.settings.computer.needed-for-apps-without-a-connection")}</small></div><div class="ctl"><b>${t("window.settings.computer.ask-before-opening-an-app-it")}</b><input class="sw" type="checkbox" id="c-ask" aria-label="${t("window.settings.computer.ask-before-opening-an-app-it")}" data-sw="set"><small>${t("window.settings.computer.once-per-app-per-trunk")}</small></div>${seg15(t("settings.card.where-scripts-run"), t("window.settings.computer.a-sealed-box-keeps-scripts-away"), [["sealed", t("window.settings.computer.sealed-box")], ["this", t("dashboard.computer.title")]], null)}</div>`;
 
-const BROWSER = `<div class="sec"><h2>The browser</h2>${seg15("Which browser", "Its own profile keeps your tabs and sign-ins separate.", [["own", "Branch’s own"], ["chrome", "Your Chrome"]], null)}<div class="ctl"><b>Ask before a site it hasn’t visited</b><input class="sw" type="checkbox" id="b-new" aria-label="Ask before a site it hasn’t visited" data-sw="set"><small>You say yes once per site.</small></div><div class="ctl"><b>Open the browser full size when a task starts</b><input class="sw" type="checkbox" id="b-watch" aria-label="Open the browser full size when a task starts" data-sw="set"><small>Otherwise it stays small in the corner.</small></div></div>`;
+const BROWSER = () => `<div class="sec"><h2>${t("settingsGrown.bucket.computer.browser")}</h2>${seg15(t("window.settings.computer.which-browser"), t("window.settings.computer.its-own-profile-keeps-your-tabs"), [["own", t("window.settings.computer.branchs-own")], ["chrome", t("window.settings.computer.your-chrome")]], null)}<div class="ctl"><b>${t("window.settings.computer.ask-before-a-site-it-hasnt")}</b><input class="sw" type="checkbox" id="b-new" aria-label="${t("window.settings.computer.ask-before-a-site-it-hasnt")}" data-sw="set"><small>${t("window.settings.computer.you-say-yes-once-per-site")}</small></div><div class="ctl"><b>${t("window.settings.computer.open-the-browser-full-size-when")}</b><input class="sw" type="checkbox" id="b-watch" aria-label="${t("window.settings.computer.open-the-browser-full-size-when")}" data-sw="set"><small>${t("window.settings.computer.otherwise-it-stays-small-in-the")}</small></div></div>`;
 
 /* Phones lent to Branch: every paired phone, with what it lends in the engine's words, so one lending nothing can
    still be removed. */
@@ -104,11 +104,11 @@ const capLabel = (id) => (D.devices?.capabilities ?? []).find((c) => c.id === id
 function phones() {
   const rows = phoneList().map((d) => {
     const lent = d.enabled ?? [];
-    const stop = lent.length ? `<button class="btn ghost sm" type="button" data-act="lend15" data-v="${esc(d.id)}">Stop lending</button>` : "";
-    return `<div class="prow"><span class="ico-tile">${ic("phone", "s")}</span><span class="grow"><b>${esc(d.name)}</b><small>${esc(lent.map(capLabel).join(", ") || "nothing switched on")}</small></span>${stop}${removeBtn(d)}</div>`;
+    const stop = lent.length ? `<button class="btn ghost sm" type="button" data-act="lend15" data-v="${esc(d.id)}">${t("window.settings.computer.stop-lending")}</button>` : "";
+    return `<div class="prow"><span class="ico-tile">${ic("phone", "s")}</span><span class="grow"><b>${esc(d.name)}</b><small>${esc(lent.map(capLabel).join(", ") || t("window.settings.computer.nothing-switched-on"))}</small></span>${stop}${removeBtn(d)}</div>`;
   }).join("");
-  const empty = D.devices && !rows ? '<p class="empty">No phone is lent. Turn it on from the phone: Settings › Lend this phone.</p>' : "";
-  return `<div class="sec x15-sec"><h2>Phones lent to Branch</h2><div class="rows">${rows}${empty}</div></div>`;
+  const empty = D.devices && !rows ? `<p class="empty">${t("window.settings.computer.no-phone-is-lent-turn-it")}</p>` : "";
+  return `<div class="sec x15-sec"><h2>${t("window.settings.computer.phones-lent-to-branch")}</h2><div class="rows">${rows}${empty}</div></div>`;
 }
 
 /* Stop lending: everything the phone lends goes off, one switch at a time, as the engine keeps them. */
@@ -117,7 +117,7 @@ async function stopLending(id) {
   if (!device) return;
   try {
     for (const capability of device.enabled ?? []) await api(`devices/${encodeURIComponent(id)}/switch`, { capability, on: false });
-    toast("Stopped. Branch can’t use this phone’s camera, location or photos now.");
+    toast(t("window.settings.computer.stopped-branch-cant-use-this-phones"));
   } catch (error) { toast(error.message); }
   await loadAll();
 }
@@ -127,7 +127,7 @@ function removeDialog(id) {
   const device = (D.devices?.devices ?? []).find((d) => d.id === id);
   if (!device) return;
   openDlg({ title: t("devices.device.remove"), body: `<p data-css="margin:0"><b>${esc(device.name)}</b></p>`,
-    foot: `<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn bad" type="button" data-act="dev-remove-yes" data-v="${esc(id)}">${esc(t("devices.paired.remove"))}</button>` });
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn bad" type="button" data-act="dev-remove-yes" data-v="${esc(id)}">${esc(t("devices.paired.remove"))}</button>` });
 }
 async function removeDevice(id) {
   try { await api(`devices/${encodeURIComponent(id)}/revoke`, {}); } catch (error) { toast(error.message); return; }
@@ -135,15 +135,15 @@ async function removeDevice(id) {
   await loadAll();
 }
 
-const browserMore = () => sec15("The browser, more",
-  seg15("Run the browser in a sandbox", "", [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]], null)
+const browserMore = () => sec15(t("window.settings.computer.the-browser-more"),
+  seg15(t("window.settings.computer.run-the-browser-in-a-sandbox"), "", [["off", t("accounts.switch.off")], ["when-needed", t("accounts.switch.when-needed")], ["on", t("accounts.switch.on")]], null)
   + sw("Record browser tasks", "A step-by-step trace you can replay.")
   + sw("Number the clickable things", "Faster and steadier on busy pages.")
   // The engine has no list or count of site skills, so the prototype's "See N sites" button is not drawn.
-  + `<div class="ctl"><b>Site skills</b><small>What Branch learned about the sites you use.</small></div>`
+  + `<div class="ctl"><b>${t("window.settings.computer.site-skills")}</b><small>${t("window.settings.computer.what-branch-learned-about-the-sites")}</small></div>`
   + sw("Page notes and “Send to Branch”", "A right-click in Chrome or Edge sends the page to a Trunk. Turns on when the browser extension is installed."));
 
-const code = () => sec15("Code",
+const code = () => sec15(t("window.settings.computer.code"),
   sw("Try ideas on a branch", "A plan can be tried, compared and merged; a forked conversation gets its own copy.")
   + sw("Code map", "A ranked outline of a repository so a Trunk finds its way.")
   + sw("Check and format files after editing", "")
@@ -151,24 +151,24 @@ const code = () => sec15("Code",
   + sw("Draft a pull request from a task", "Never merged by Branch.")
   + sw("Remember the shell", "PATH, aliases and functions, so commands behave as in your terminal."));
 
-const codeTechnical = () => sec15("Code, technical",
-  code15("Files Branch never reads", "Like .gitignore.", ".branchignore")
+const codeTechnical = () => sec15(t("window.settings.computer.code-technical"),
+  code15(t("window.settings.computer.files-branch-never-reads"), t("window.settings.computer.like-gitignore"), ".branchignore")
   + sw("Read a file before editing it", "Refuses an edit to a file it hasn’t read in this task.")
   + sw("Keep large tool outputs", "Saved to a file instead of cut off.")
-  + btn15("Branch in CI", "A GitHub Action and a GitLab component.", "Copy the setup"));
+  + btn15(t("window.settings.computer.branch-in-ci"), t("window.settings.computer.a-github-action-and-a-gitlab"), t("window.settings.computer.copy-the-setup")));
 
-const computerMore = () => sec15("On a computer, more",
+const computerMore = () => sec15(t("window.settings.computer.on-a-computer-more"),
   sw("Work in apps in the background", "Through the accessibility tree, without taking the screen.")
   + sw("Read Jupyter notebooks", "Cells, outputs and charts.")
   + sw("Review checks and a checklist per task", "Checks you write run before a task says it’s done; the checklist shows in the task.")
-  + code15("Write AGENTS.md for a project", "Branch reads the project and writes its house rules.", "/init"));
+  + code15(t("window.settings.computer.write-agents-md-for-a-project"), t("window.settings.computer.branch-reads-the-project-and-writes"), "/init"));
 
 export function draw() {
   const lev = level();
-  let html = `<h1>Computer &amp; browser</h1><p class="lede">The computers your Trunks may use, and the browser they work in. Which Branch you talk to is the switcher at the top of the list.</p>`;
-  html += computers() + whichTrunk() + ON_A_COMPUTER + BROWSER;
-  if (lev < 2) html += `<p class="hint">Switch to Technical (bottom left) to see file paths, ports and raw settings.</p>`;
-  else html += `<div class="sec"><h2>Technical</h2><dl class="kv"></dl></div>`; // the engine gives no sandbox, profile or screen facts
+  let html = `<h1>${esc(t("settings.page.computer"))}</h1><p class="lede">${t("window.settings.computer.the-computers-your-trunks-may-use")}</p>`;
+  html += computers() + whichTrunk() + ON_A_COMPUTER() + BROWSER();
+  if (lev < 2) html += `<p class="hint">${t("window.settings.computer.switch-to-technical-bottom-left-to")}</p>`;
+  else html += `<div class="sec"><h2>${t("settingsGrown.level.technical")}</h2><dl class="kv"></dl></div>`; // the engine gives no sandbox, profile or screen facts
   html += phones();
   if (lev >= 1) html += browserMore() + code();
   if (lev >= 2) html += codeTechnical();

@@ -16,32 +16,32 @@ import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
 import { t } from "../../i18n.js";
 
-const CHIP = { measured: '<span class="pill ok">Measured</span>', estimated: '<span class="pill warn">Estimate</span>', not_published: '<span class="pill idle">Not published</span>' };
+const CHIP = () => ({ measured: `<span class="pill ok">${t("glance.measured")}</span>`, estimated: `<span class="pill warn">${t("glance.estimate")}</span>`, not_published: `<span class="pill idle">${t("glance.notPublished")}</span>` });
 const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
 function windowRow(w, estimated) {
   if (w.kind === "money" || !w.limit || w.remaining == null) return `<div class="lim-w"><span>${esc(w.title)}</span><span></span><span>${w.remaining == null ? "" : esc(String(w.remaining))}</span></div>`;
   const pct = Math.max(0, Math.min(100, Math.round((w.remaining / w.limit) * 100)));
-  return `<div class="lim-w"><span>${esc(w.title)}</span><span class="lim-bar ${estimated ? "est" : ""}"><i data-css="width:${pct}%;${pct < 15 ? "background:var(--warn)" : ""}"></i></span><span>${pct}% left${w.resetAt ? " · resets " + esc(clock(w.resetAt)) : ""}</span></div>`;
+  return `<div class="lim-w"><span>${esc(w.title)}</span><span class="lim-bar ${estimated ? "est" : ""}"><i data-css="width:${pct}%;${pct < 15 ? "background:var(--warn)" : ""}"></i></span><span>${t("glance.left", { percent: pct })}${w.resetAt ? ` · ${t("window.shell.usage.resets-time", { time: esc(clock(w.resetAt)) })}` : ""}</span></div>`;
 }
 
 function limitRow(r) {
   const body = r.windows?.length
     ? r.windows.map((w) => windowRow(w, w.state === "estimated")).join("") + `<small>${esc(r.note)}</small>`
     : `<small>${esc(r.note)}</small>`;
-  return `<div class="lim">${logo(r.connection, r.connectionName, 28)}<div><div class="lim-h"><b>${esc(r.connectionName)}</b><span class="muted">${esc(r.accountLabel ?? "")}</span>${CHIP[r.state] ?? ""}${r.inUse ? '<span class="pill ok">used next</span>' : ""}</div>${body}</div></div>`;
+  return `<div class="lim">${logo(r.connection, r.connectionName, 28)}<div><div class="lim-h"><b>${esc(r.connectionName)}</b><span class="muted">${esc(r.accountLabel ?? "")}</span>${CHIP()[r.state] ?? ""}${r.inUse ? `<span class="pill ok">${t("glance.usedNext")}</span>` : ""}</div>${body}</div></div>`;
 }
 
 function popHTML(g) {
-  const month = g?.month?.pricedRuns ? `<span>This month: <b>$${Number(g.month.cost).toFixed(2)}</b></span>` : "";
-  return `<div class="lims"><div class="ph" data-css="padding:4px 6px 6px">What each connection has left</div>${(g?.rows ?? []).map(limitRow).join("")}
+  const month = g?.month?.pricedRuns ? `<span>${t("glance.thisMonth")} <b>$${Number(g.month.cost).toFixed(2)}</b></span>` : "";
+  return `<div class="lims"><div class="ph" data-css="padding:4px 6px 6px">${t("glance.title")}</div>${(g?.rows ?? []).map(limitRow).join("")}
     <p data-css="font-size:12px;color:var(--ink-3);margin:8px 6px 4px">${esc(g?.summary ?? "")}</p>
-    <div class="lim-foot">${month}<span class="tb-grow"></span><button class="btn sm" type="button" data-act="setgo" data-v="usage">Open Usage</button></div></div>`;
+    <div class="lim-foot">${month}<span class="tb-grow"></span><button class="btn sm" type="button" data-act="setgo" data-v="usage">${t("glance.openUsage")}</button></div></div>`;
 }
 
 function updatePop(plan) {
   const version = E.state?.version ?? "";
-  return `<div class="pt">Branch ${esc(version)}</div><p class="pp">${esc(plan?.reason ?? "")}</p>${mi("install", "check", "Install when nothing is running")}${mi("closepop", "clock", "Remind me tomorrow")}`;
+  return `<div class="pt">Branch ${esc(version)}</div><p class="pp">${esc(plan?.reason ?? "")}</p>${mi("install", "check", t("window.settings.updates.install-when-nothing-is-running"))}${mi("closepop", "clock", t("window.shell.usage.remind-me-tomorrow"))}`;
 }
 
 /* ---------- the save-progress offer ---------- */
@@ -60,8 +60,8 @@ function fresh(g, key) {
 }
 function offerHTML(c, justNow) {
   return `<svg class="ck-ring" width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--line-2)" stroke-width="3"/><circle class="ck-arc" cx="18" cy="18" r="15" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-dasharray="94.2" stroke-dashoffset="0" transform="rotate(-90 18 18)"/><text x="18" y="22" text-anchor="middle" class="ck-n">5</text></svg>
-    <div class="grow"><b>Almost out on ${esc(c.connectionName)}. Ask running tasks to save their progress?</b><small>${esc(String(c.percentUsed))}% of this window is used. ${justNow ? "Measured, as of just now." : "Measured."} Nothing is paused.</small></div>
-    <button class="btn pri sm" type="button" data-act="ckpt-save">Save progress</button><button class="btn ghost sm" type="button" data-act="ckpt-no">Not now</button>`;
+    <div class="grow"><b>${t("glance.almostOut", { name: esc(c.connectionName) })}</b><small>${justNow ? t("window.shell.usage.percent-used-measured-just-now", { percent: esc(String(c.percentUsed)) }) : t("window.shell.usage.percent-used-measured", { percent: esc(String(c.percentUsed)) })}</small></div>
+    <button class="btn pri sm" type="button" data-act="ckpt-save">${t("glance.save")}</button><button class="btn ghost sm" type="button" data-act="ckpt-no">${t("updates.busy.cancel")}</button>`;
 }
 /* The prototype's five-second ring: the offer goes away by itself when it runs out. */
 function countDown(el) {
@@ -94,7 +94,7 @@ async function saveProgress() {
   document.querySelector(".ckpt-q")?.remove();
   try {
     const { asked } = await api("usage/save-progress", {});
-    toast(`Asked ${asked} running task${asked === 1 ? "" : "s"} to save progress. Nothing was paused.`);
+    toast((asked === 1 ? t("window.shell.usage.asked-one-running-task") : t("window.shell.usage.asked-count-running-tasks", { count: asked })));
   } catch (error) { toast(error.message); }
 }
 
@@ -109,7 +109,7 @@ function tasksPop(bgListed) {
     const on = (a.task?.state ?? "working") === "working", said = (on ? "" : a.task?.reason) || a.current || a.working ||String(a.prompt ?? "").split("\n")[0];
     return `<div class="mi" role="menuitem"><span class="ico">${ic(on ? "spin" : "clock", on ? "s spin" : "s")}</span><span><span class="mi-t">${esc(t?.name || s?.opening || s?.title || "")}</span><span class="mi-s">${esc(said)}</span></span></div>`;
   }).join("");
-  return `<div class="ph">Running in the background</div>${rows}<hr>${mi(bgListed ? "bg-new" : "bg-new-off", "plus", "Start something in the background", "<kbd>/bg</kbd>")}`;
+  return `<div class="ph">${t("window.shell.usage.running-in-the-background")}</div>${rows}<hr>${mi(bgListed ? "bg-new" : "bg-new-off", "plus", t("window.shell.usage.start-something-in-the-background"), "<kbd>/bg</kbd>")}`;
 }
 async function openTasks(el) {
   let listed = false;

@@ -10,7 +10,7 @@
    rw4-language: the locale files are cached (an ETag, 304 when unchanged, no-cache so a new build comes fresh), and
    Settings › Appearance › Language is live: picking Français saves it to the engine (GET /api/look says fr) and to this
    browser, and the window redraws in French; after a reload, and in a new browser with nothing saved, it is still
-   French and the select shows Français; Español cannot be picked; English again says "English." (the prototype's toast).
+   French and the select shows Français; only English and Français are offered (Español cannot be picked); English again says "English." (the prototype's toast).
    rw4-i18n-chat: the conversation and the flows (public/app/chat, public/app/flows) speak through t(). With a conversation
    the engine's demo model answered (POST /api/run), each pass opens it, the + menu, the model and mode menus, Find, the
    side panel, the Add an account wizard and the tour, and checks 20 of those words (visible text, aria-label, placeholder,
@@ -45,8 +45,10 @@ async function open(browser, lang) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(BASE + "/");
-  await page.getByLabel("Session token", { exact: true }).fill(TOKEN);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  // rw4-i18n-places: the sign-in form is drawn in the saved language too.
+  const W = lang === "fr" ? await words("fr") : null;
+  await page.getByLabel(W ? W["field.session-token"] : "Session token", { exact: true }).fill(TOKEN);
+  await page.getByRole("button", { name: W ? W["action.connect"] : "Connect", exact: true }).click();
   return { context, page, errors };
 }
 
@@ -165,9 +167,9 @@ async function languageSelect(browser, W, E) {
   const before = await shown(page);
   check("select: shows the language in force (English), live", before.value === "en" && before.text === "English" && !before.disabled, JSON.stringify(before));
   const options = await page.locator("#lang option").evaluateAll((os) => os.map((o) => ({ v: o.value, t: o.textContent, off: o.disabled, tip: o.dataset.tip ?? "" })));
-  check("select: the prototype's five, in its words", options.map((o) => o.t).join("|") === "English|Français|Español|Deutsch|Yorùbá", options.map((o) => o.t).join("|"));
-  check("select: English and Français can be picked", options.filter((o) => ["en", "fr"].includes(o.v)).every((o) => !o.off));
-  check("select: Español, Deutsch, Yorùbá are greyed with Coming soon", options.filter((o) => !["en", "fr"].includes(o.v)).every((o) => o.off && o.tip === "Coming soon"), JSON.stringify(options));
+  // Only the languages with words on file are offered (public/i18n.js LANGUAGES); nothing is listed greyed.
+  check("select: only the languages with words on file, in their own names", options.map((o) => o.t).join("|") === "English|Français", options.map((o) => o.t).join("|"));
+  check("select: every option can be picked", options.every((o) => !o.off && !o.tip), JSON.stringify(options));
 
   await page.locator("#lang").selectOption("fr");
   await page.waitForFunction(() => document.documentElement.lang === "fr", null, { timeout: 15000 });
@@ -187,9 +189,9 @@ async function languageSelect(browser, W, E) {
   let refused = false;
   try { await page.locator("#lang").selectOption("es", { timeout: 2000 }); } catch { refused = true; }
   now = await shown(page);
-  check("Español: cannot be picked", refused && now.value === "fr", `refused=${refused}, value=${now.value}`);
+  check("Español: not offered, so it cannot be picked", refused && now.value === "fr", `refused=${refused}, value=${now.value}`);
   check("Español: the engine still says fr", (await api("look")).language === "fr");
-  // A script can still set a disabled option; the window's own guard refuses it and draws the choice in force again.
+  // A script can still set a value that is not offered; the window's own guard refuses it and draws the choice in force again.
   await page.locator("#lang").evaluate((s) => { s.value = "es"; s.dispatchEvent(new Event("change", { bubbles: true })); });
   await page.waitForFunction(() => document.getElementById("lang")?.value === "fr", null, { timeout: 5000 }).catch(() => null);
   now = await shown(page);
