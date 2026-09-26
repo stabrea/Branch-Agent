@@ -76,7 +76,7 @@ export function draw() {
 
   return `<div class="settings">
     <nav class="set-nav" aria-label="Settings pages">
-      <button class="set-back" type="button" data-act="view" data-v="chat">${ic("back", "s")}Back to Branch</button>
+      <button class="set-back" type="button" data-act="chat" ${S.chat ? `data-id="${esc(S.chat)}"` : ""}>${ic("back", "s")}Back to ${esc(E.state?.identity?.name || "Branch")}</button>
       <label class="set-search">${ic("search", "s")}<input id="set-q" placeholder="Search settings" value="${esc(searchText)}" aria-label="Search settings"></label>
       ${nav}
       <div class="set-level" data-css="display:grid;gap:6px">
