@@ -15,6 +15,7 @@ import { logo } from "../core/logos.js";
 import { t, language, LANGUAGES } from "../../i18n.js";
 import { say } from "../core/words.js";
 import { canSpeak, chooseLanguage } from "../shell/language.js";
+import { toolsStep, initToolsStep } from "./setup-tools.js";
 
 const STEPS = ["window.flows.setup.step-welcome", "window.flows.setup.step-where", "layout.modelTabs", "window.flows.setup.step-yours", "window.flows.setup.step-trunks", "window.flows.setup.step-reach", "dashboard.filter.tools",
   "window.flows.setup.step-keep", "people.admin.people", "window.flows.setup.step-more", "settings.card.health-check"];
@@ -117,11 +118,8 @@ function reach(o) {
   return `<h2 tabindex="-1">${t("window.flows.setup.reach")}</h2><p>${t("window.flows.setup.reach-lede", { count: o.channels.length })}</p><div class="ch-grid12 ob-ch12">${tiles}</div><div class="prow" data-css="margin-top:12px"><span class="ico-tile">${ic("phone", "s")}</span><span class="grow"><b>${t("studio.tab.phone")}</b><small>${t("window.flows.setup.scan")}</small></span><button class="btn sm" type="button" data-act="pair">${t("phoneApp.show")}</button></div>`;
 }
 
-function tools(o) {
-  /* The engine's own tool servers only (GET /api/mcp); with none, the list is empty rather than filled with examples. */
-  const rows = o.servers.map((s) => [s.id ?? s.name, s.name ?? s.id, s.description ?? ""]);
-  return `<h2 tabindex="-1">${t("window.flows.setup.tools")}</h2><p>${t("window.flows.setup.tools-lede")}</p><div class="rows">${rows.map(([id, n, s]) => `<div class="prow">${logo(id, n, 28)}<span class="grow"><b>${esc(n)}</b><small>${esc(s)}</small></span><input class="sw" type="checkbox" data-sw="set" aria-label="${esc(n)}"></div>`).join("")}</div>`;
-}
+/* What this Branch can use, every row from the engine (flows/setup-tools.js). */
+const tools = (o) => toolsStep(o, draw);
 
 /* Step 8, Keep it running: three on/off switches, read from the engine when the step opens (loadKeep).
    - The gateway: GET/POST /api/never-break. "when-needed" and "on" both run it (src/never-break/gateway-config.ts), so
@@ -463,6 +461,7 @@ export function init() {
   on("ob-login-items", () => openLoginItems());
   const KEEP_IDS = { "ob-gw": "gw", "ob-boot": "boot", "ob-upd": "upd" };
   document.addEventListener("change", (e) => { const name = KEEP_IDS[e.target.id]; if (name && S.ob) saveKeep(S.ob, name, e.target.checked); });
+  initToolsStep(draw);
   document.addEventListener("change", (e) => { if (e.target.id === "ob-trust" && S.ob) { S.ob.trust = e.target.checked; draw(); } });
   document.addEventListener("change", (e) => { if (e.target.id === "ob-lang" && S.ob) pickLanguage(e.target.value); });
   /* The language can also change while setup is open without it being picked here (the engine's saved choice arriving

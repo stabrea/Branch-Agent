@@ -18,6 +18,7 @@ import { pressed } from "../shell/keys.js";
 import { timelineBody, initTimeline } from "./timeline.js";
 import { helpersSection, initHelpers } from "./helpers.js";
 import { t } from "../../i18n.js";
+import { resizerHTML } from "../shell/resize.js";
 
 const TABS = [["activity", "dashboard.area.activity"], ["tl17c", "window.chat.pane.timeline"], ["plan", "pane.plan"], ["files", "pane.files"], ["memory", "memory.movein.kind.memory"], ["browser", "pane.browser"], ["terminal", "pane.terminal"]];
 const REAL = new Set(["activity", "tl17c", "plan", "files", "memory", "terminal"]);
@@ -81,7 +82,7 @@ export function drawPane() {
   if (!open) { pane.innerHTML = ""; return; }
   const extra = extraShown(), own = extra.find(([id]) => id === S.pane);
   const tab = REAL.has(S.pane) || own ? S.pane : "activity";
-  pane.innerHTML = `<div class="pane-h"><div class="ptabs" role="tablist">${[...TABS, ...extra].map(([id, l]) => `<button class="ptab" role="tab" type="button" aria-selected="${tab === id}" data-act="${tabAct(id)}" data-p="${id}" data-v="${id}">${t(l)}</button>`).join("")}</div><button class="icon-btn" type="button" aria-label="${t("pane.close")}" data-act="pane" data-p="close">${ic("x")}</button></div><div class="pane-b">${own ? own[2]() : BODY[tab]()}</div>`;
+  pane.innerHTML = `${resizerHTML("pane")}<div class="pane-h"><div class="ptabs" role="tablist">${[...TABS, ...extra].map(([id, l]) => `<button class="ptab" role="tab" type="button" aria-selected="${tab === id}" data-act="${tabAct(id)}" data-p="${id}" data-v="${id}">${t(l)}</button>`).join("")}</div><button class="icon-btn" type="button" aria-label="${t("pane.close")}" data-act="pane" data-p="close">${ic("x")}</button></div><div class="pane-b">${own ? own[2]() : BODY[tab]()}</div>`;
   applyCss(pane);
   greyOut(pane);
   // The tab row scrolls when its tabs outgrow the card (pass 17 adds Timeline and Branches); keep the chosen one in view.
