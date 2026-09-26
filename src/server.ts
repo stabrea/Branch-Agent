@@ -3785,7 +3785,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
       // Wave 8: the same socket also carries a live voice conversation, when the browser asks for
       // one. Nothing is opened until it does, so an ordinary task is unchanged.
-      await serveRunSocket(app.store, run.id, request, socket, liveHooks(app.live, run.id, run.sessionId));
+      // Q254: the socket follows who is at the window, as /api/events/stream does since #339. Once the
+      // window switches profile it ends, and opening it again is refused unless the run is theirs.
+      await serveRunSocket(app.store, run.id, request, socket, {
+        ...liveHooks(app.live, run.id, run.sessionId), owner: run.owner, scopeNow: () => app.store.profiles.scope() });
     })().catch(() => socket.destroy());
   };
   server.on("upgrade", (request, socket) => upgrade(request, socket, false));
@@ -3997,7 +4000,10 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     const run = app.store.run(stream[1]!);
     if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
-    await streamRunEvents(app.store, run.id, response, after);
+    // Q254: the stream follows who is at the window, as /api/events/stream does since #339. Once the
+    // window switches profile it ends (reason "profile"), and opening it again answers 404 unless the
+    // run belongs to whoever is there now.
+    await streamRunEvents(app.store, run.id, response, after, { owner: run.owner, scopeNow: () => app.store.profiles.scope() });
     return true;
   }
   // One kept picture or sound, so the gallery can show it. Anything outside the artifacts folder
