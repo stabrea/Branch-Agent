@@ -35,7 +35,7 @@ async function fixture(t, width = 1440) {
     await browser.close(); await server.close(); await app.close(); await discardTemp(root);
     useGraphicsReader(() => readGraphicsCard()); useMemoryReaders(null);
   });
-  const page = await browser.newPage({ viewport: { width, height: 1000 } });
+  const page = await browser.newPage({ viewport: { width, height: 1000 }, serviceWorkers: "block" });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
@@ -45,7 +45,27 @@ async function fixture(t, width = 1440) {
   return { page, errors, app };
 }
 
-test("U1 the block is in Settings → Models → On this computer, starts off, and the switch saves", async (t) => {
+/* Redesign: the one-click block and its off / when-needed switches are replaced by the prototype's Settings › On this
+   computer page (public/app/settings/pages/local.js): each model with its sizes and one Install button. Looking at it
+   starts nothing, downloads nothing and switches nothing on; it fits 400 px. */
+test("Settings › On this computer lists each model's sizes, looking changes nothing, and it fits 400 px", async (t) => {
+  for (const width of [1440, 400]) {
+    const { page, errors, app } = await fixture(t, width);
+    await page.locator('[data-act="side"]').first().evaluate((button) => { if (innerWidth <= 760) button.click(); });
+    await page.locator('#side [data-act="view"][data-v="settings"]').click();
+    await page.locator('[data-act="setpage"][data-v="local"]').click();
+    await page.locator('#main [data-act="lm-get"]').first().waitFor({ state: "visible", timeout: 15000 });
+    assert.ok(await page.locator('#main [data-act="lm-v"]').count() > 0, `${width}: each size is offered`);
+    assert.match(await page.locator('#main [data-act="lm-get"]').first().innerText(), /^Install \d/, `${width}: Install says how much`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${width}: nothing sideways`);
+    assert.equal(localModelsMode(app.store, app.runtime.owner), "off", "looking switches nothing on");
+    assert.equal(app.store.get("settings", app.runtime.owner, "local-runner-install"), undefined, "nothing was saved by looking");
+    assert.deepEqual(errors, []);
+  }
+});
+
+// Redesign: replaced by the new window (Settings › On this computer, checked above; the prototype has no off / when-needed switch there).
+test.skip("U1 the block is in Settings → Models → On this computer, starts off, and the switch saves", async (t) => {
   const { page, errors, app } = await fixture(t);
   await openSettingFor(page, "#local-oneclick");
   await page.locator("#local-models-mode").waitFor({ state: "visible", timeout: 15000 });
@@ -60,7 +80,8 @@ test("U1 the block is in Settings → Models → On this computer, starts off, a
   assert.deepEqual(errors, []);
 });
 
-test("U2 at 400 px nothing scrolls sideways, and every word has a key and French", async (t) => {
+// Redesign: replaced by the new window (the page fits 400 px, checked above); its French is Coming soon (sw:lang, the Language select in Settings › Appearance), checked at fc541c24.
+test.skip("U2 at 400 px nothing scrolls sideways, and every word has a key and French", async (t) => {
   const { page, errors } = await fixture(t, 400);
   await openSettingFor(page, "#local-oneclick");
   await page.locator("#local-models-mode").waitFor({ state: "visible", timeout: 15000 });
@@ -89,7 +110,8 @@ test("U2 at 400 px nothing scrolls sideways, and every word has a key and French
 
 /* mac7/one-click (issue #107): the "Set one up for me" block. Nothing is installed: the fixture's
    launcher says Ollama is already there, so the plan is never even worked out. */
-test("U3 the install switch ships off, every control says what it does, and it fits 400 px in French", async (t) => {
+// Redesign: replaced by the new window (the prototype's page has no install switch or "Show me what this would do"); its French is Coming soon (sw:lang), checked at fc541c24.
+test.skip("U3 the install switch ships off, every control says what it does, and it fits 400 px in French", async (t) => {
   const { page, errors, app } = await fixture(t, 400);
   await openSettingFor(page, "#local-oneclick");
   await page.locator("#local-models-mode").waitFor({ state: "visible", timeout: 15000 });
