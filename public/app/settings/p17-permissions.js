@@ -10,14 +10,20 @@
    one-way door in the window.
    Every change to what Branch may reach: the engine's record (GET /api/audit), and Export as CSV saves
    GET /api/audit/export.csv.
-   Security-held, greyed: the two switches here (one loosens approvals, one hides keys), the app lock (a PIN) and the
-   emergency stop; the rows under "Guards that are always on" have no readout yet. */
+   A second look before approvals: the engine's approval_reviewer switch, from GET /api/settings-kit. On is POST
+   /api/settings-kit/apply { plan: { source: "set", key: "approval_reviewer", field: "mode", value: "on" } }, which only
+   tightens. Off makes Branch less careful, so it is sent first without confirmLoosening; the engine refuses it and its
+   words are shown in a confirm, and only "Turn it off" there sends it again with confirmLoosening. Lockdown refuses
+   both in its own words. The switch is drawn again from the engine after every answer.
+   Greyed: "Hold back keys found in answers" (the engine's leak guard is always on and has no switch; an off switch
+   would weaken a guard), the app lock (a PIN) and the emergency stop; the rows under "Guards that are always on" have
+   no readout yet. */
 import { esc, render } from "../core/dom.js";
 import { api, token } from "../core/api.js";
 import { onDemo17 } from "../places/demo17.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
-import { toast, openDlg, dialog, $ } from "../core/ui.js";
+import { toast, openDlg, closeDlg, dialog, $ } from "../core/ui.js";
 import { sw15, seg15 } from "./rows15.js";
 import { demos17, demo17, row17, sec17, pill17 } from "./rows17.js";
 import { t } from "../../i18n.js";
@@ -127,6 +133,25 @@ async function putBack(el) {
   render();
 }
 
+/* ---------- A second look before approvals ---------- */
+const REVIEWER = "f15-a-second-look-before-approvals";
+const reviewerPlan = (value) => ({ plan: { source: "set", key: "approval_reviewer", field: "mode", value }, accept: ["approval_reviewer.mode"] });
+async function setReviewer(on, confirmLoosening = false) {
+  try {
+    const done = await api("settings-kit/apply", { ...reviewerPlan(on ? "on" : "off"), ...(confirmLoosening ? { confirmLoosening } : {}) });
+    const why = done.skipped?.[0]?.why ?? done.refused?.[0]?.why ?? done.refused?.[0]?.reason;
+    if (!done.applied?.length && why) toast(why);
+    if (done.overview) P.kit = done.overview;
+  } catch (error) {
+    // Turning it off without the owner's yes: the engine says what would loosen, and the owner decides here.
+    if (!on && !confirmLoosening && /less careful/.test(error.message)) {
+      openDlg({ title: "A second look before approvals", body: `<p data-css="margin:0">${esc(error.message)}</p>`,
+        foot: '<button class="btn ghost" type="button" data-act="revkeepb17">Cancel</button><button class="btn pri" type="button" data-act="revoffb17">Turn it off</button>' });
+    } else toast(error.message);
+  }
+  await load17();
+}
+
 /* ---------- the record of every widening or narrowing ---------- */
 async function openAudit() {
   const { entries } = await api("audit?limit=100");
@@ -158,11 +183,15 @@ export function init17() {
   on("fwtestb17", () => testFw());
   on("whyb17", () => openWhy());
   on("whyputb17", (el) => putBack(el));
+  on("revoffb17", () => { closeDlg(); setReviewer(false, true); });
+  on("revkeepb17", () => { closeDlg(); render(); });
+  document.addEventListener("change", (e) => { if (e.target?.id === REVIEWER) setReviewer(e.target.checked); });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     if (e.target?.id === "rule-in-b17") { e.preventDefault(); runRule(); }
     if (e.target?.id === "fw-in-b17") { e.preventDefault(); testFw(); }
   });
-  markLive(["ruletestb17", "rulerunb17", "rulepickb17", "fwb17", "fwtestb17", "whyb17", "whyputb17", "sw:rule-in-b17", "sw:fw-in-b17"]);
+  markLive(["ruletestb17", "rulerunb17", "rulepickb17", "fwb17", "fwtestb17", "whyb17", "whyputb17", "sw:rule-in-b17", "sw:fw-in-b17",
+    "sw:" + REVIEWER, "revoffb17", "revkeepb17"]);
   load17();
 }
