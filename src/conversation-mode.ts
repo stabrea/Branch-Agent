@@ -124,15 +124,19 @@ export function saveConversationModeSettings(store: Pick<Store, "get" | "save">,
 }
 
 /**
- * How loose a new conversation's start is. "follow" is as loose as the owner's preset; their own rules
- * ("custom") can hold a broad yes that every mode but "follow" drops, so that counts as the loosest.
+ * How loose a new conversation's start is, weighed so that "follow" can never loosen unasked. A conversation
+ * that follows the owner's setting keeps every yes the owner wrote or remembered, which each mode drops some of
+ * (`policyForMode`: Ask first and Plan drop them all, Auto and No approvals drop a broad yes). So moving TO
+ * "follow" counts as looser than any mode, and moving AWAY from it is weighed against the owner's preset alone
+ * (their own rules as Ask before changes), so a mode looser than that preset still asks.
  */
 type NewConversationChoice = (typeof newConversationChoices)[number];
-const startRank = (choice: NewConversationChoice, preset: PolicyPresetName): number =>
-  choice !== "follow" ? modeRank[choice] : preset === "custom" ? modeRank.full : presetRank[preset];
+const followAfterRank = modeRank.full + 1;
+const startRank = (choice: NewConversationChoice, preset: PolicyPresetName, after: boolean): number =>
+  choice !== "follow" ? modeRank[choice] : after ? followAfterRank : presetRank[preset];
 /** True when starting new conversations on `after` instead of `before` lets them do more. */
 export const newConversationLooser = (before: NewConversationChoice, after: NewConversationChoice, preset: PolicyPresetName): boolean =>
-  startRank(after, preset) > startRank(before, preset);
+  startRank(after, preset, true) > startRank(before, preset, false);
 const startNames: Record<NewConversationChoice, string> = { ask: "Ask first", plan: "Plan", auto: "Auto", full: "No approvals", follow: "the owner's own setting" };
 /** The start named in the words the mode picker uses. */
 export const newConversationName = (choice: NewConversationChoice): string => startNames[choice];

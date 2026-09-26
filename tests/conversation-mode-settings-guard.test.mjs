@@ -12,7 +12,8 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { savePolicy } from "../dist/policy.js";
+import { readPolicy, savePolicy } from "../dist/policy.js";
+import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 
 const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
 const path = "/api/conversation-mode/settings";
@@ -75,18 +76,34 @@ test("under Lockdown nothing new conversations start on changes, even with the o
   assert.equal((await call("POST", path, { newConversation: "auto", confirmLoosening: true })).status, 200, "control: unlocked, the yes saves it");
 });
 
-/* Mutation M4: make startRank rank "follow" as Ask first (`modeRank.ask`) → following an owner's No approvals is saved without the yes. */
-test("following the owner's setting is weighed as that setting: No approvals and the owner's own rules count as loosest", async (t) => {
-  const off = await served(t, "off");
-  const refused = await off.call("POST", path, { newConversation: "follow" });
-  assert.equal(refused.status, 409);
+/* Mutation M4: rank "follow" as the new start by its preset (`presetRank[preset]`) → following Ask before changes, whose
+   remembered yes Ask first drops, is saved without the yes. */
+test("moving to follow the owner's setting always asks: it keeps every yes the owner remembered, which each mode drops", async (t) => {
+  const { app, call, saved } = await served(t);
+  const policy = readPolicy(app.store, app.runtime.owner);
+  savePolicy(app.store, app.runtime.owner, { ...policy, rules: [{ tool: "files.write", match: "notes.txt", decision: "allow" }, ...policy.rules] });
+  const refused = await call("POST", path, { newConversation: "follow" });
+  assert.equal(refused.status, 409, "Ask before changes with a remembered yes: following it is looser than Ask first");
   assert.match(refused.body.error, /start on the owner's own setting instead of Ask first/);
-  assert.equal(await off.saved(), "ask");
-  const custom = await served(t, "custom");
-  assert.equal((await custom.call("POST", path, { newConversation: "follow" })).status, 409, "the owner's own rules may hold a broad yes");
-  const careful = await served(t, "read-only");
-  assert.equal((await careful.call("POST", path, { newConversation: "follow" })).status, 200, "control: following Read only asks more");
-  assert.equal(await careful.saved(), "follow");
+  assert.equal(await saved(), "ask");
+  const off = await served(t, "off");
+  assert.equal((await off.call("POST", path, { newConversation: "follow" })).status, 409, "following No approvals");
+  assert.equal((await call("POST", path, { newConversation: "full", confirmLoosening: true })).status, 200);
+  assert.equal((await call("POST", path, { newConversation: "follow" })).status, 409, "even from No approvals, which drops a broad yes");
+});
+
+/* Mutation M5: rank "follow" as the old start as the loosest (`followAfterRank`) → leaving the owner's own strict rules
+   for Auto is saved without the yes. */
+test("moving away from follow is weighed against the owner's preset, so a looser mode still asks", async (t) => {
+  const { app, call, saved } = await served(t, "custom");
+  saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
+  assert.equal((await call("POST", path, { newConversation: "auto" })).status, 409, "the owner's own rules count as Ask before changes, so Auto loosens");
+  assert.equal(await saved(), "follow");
+  assert.equal((await call("POST", path, { newConversation: "plan" })).status, 200, "control: Plan asks more than any setting");
+  const off = await served(t, "off");
+  saveConversationModeSettings(off.app.store, off.app.runtime.owner, { newConversation: "follow" });
+  assert.equal((await off.call("POST", path, { newConversation: "auto" })).status, 200, "control: from following No approvals, Auto asks more");
+  assert.equal(await off.saved(), "auto");
 });
 
 /* The owner-only door still answers first: a household person is refused, with or without the yes. */
