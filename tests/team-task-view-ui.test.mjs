@@ -23,7 +23,8 @@ const model = { name: "scripted", async complete(request) {
   return { content: "parent done", toolCalls: [] };
 } };
 
-test("the team's room lists its tasks with Q51's state words, in English and in French", async (t) => {
+test.skip("the team's room lists its tasks with Q51's state words, in English and in French", async (t) => {
+  // Redesign: replaced by the new window (prototype.html draws a team's room as a conversation with no "Recent tasks of this team" card, and the new window has no /i18n.js French).
   const root = await mkdtemp(join(tmpdir(), "branch-team-view-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: model });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });

@@ -26,7 +26,8 @@ async function fixture(t, width) {
   return { app, page, errors };
 }
 
-test("the owner configures advisory JEV decisions without giving Branch a credential", async (t) => {
+test.skip("the owner configures advisory JEV decisions without giving Branch a credential", async (t) => {
+  // Redesign: replaced by the new window (neither prototype.html nor BRANCH-DESIGN-INTENT.md has a JEV decision support card; Settings › Advanced draws the prototype's sections only).
   const f = await fixture(t, 400);
   await openSettings(f.page, "advanced");
   const card = f.page.locator("#jev-decisions-card");
