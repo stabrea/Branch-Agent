@@ -6,7 +6,12 @@
      stream, so the chip says "Now", never "Live".
    - the steps are the task's plan (GET /api/runs/<id>/plan); showing the screen at an earlier step needs recorded frames
      with their pictures, which the engine does not hand the window, so those chips stay greyed.
-   - Stop is POST /api/runs/<id>/cancel. Take over stays greyed (separate security review).
+   - Stop is POST /api/runs/<id>/cancel.
+   - Take over and Hand back are the engine's only take-over: the shared Linux desktop Branch drives (GET /api/linux-desktop,
+     POST /api/linux-desktop/take-over and /hand-back, each the owner's alone). Take over is drawn on the computer view only
+     while that desktop runs with Branch in control; while the owner holds it, "You have control" and Hand back are drawn on
+     both views, so control can always be given back. The viewer's address and password are never fetched here. Branch's
+     own browser has no live hand-over, so the browser view offers no Take over.
    Which view is open, picture in picture and the side conversation are window state only. */
 
 import { $, esc, applyCss, onRender } from "../core/dom.js";
@@ -18,7 +23,7 @@ import { markLive, greyOut } from "../core/features.js";
 import { work, loadWork } from "./terminal.js";
 import { t } from "../../i18n.js";
 
-const G = { kind: null, pip: null, dock: true, sid: null, messages: [], plan: null, at: 0 };
+const G = { kind: null, pip: null, dock: true, sid: null, messages: [], plan: null, at: 0, desk: null };
 const SHOT = new Map(); // picture path → its bytes as a blob: address ("" while loading or after the engine refused it)
 const STOPPABLE = new Set(["running", "needs_input", "interrupted"]);
 
@@ -75,11 +80,17 @@ function screen(kind) {
   return `<div class="desk7 brfull7"><div class="dk-win br7">${bar}${page}</div></div>`;
 }
 
+/* Who holds the shared Linux desktop, as the engine last said: "agent", "user" or "none". */
+const holder = () => (G.desk?.running ? G.desk.control : "none");
+
 function top(kind, steps) {
-  const run = runsHere()[0], now = steps.findIndex((s) => s.status === "working");
+  const run = runsHere()[0], now = steps.findIndex((s) => s.status === "working"), yours = holder() === "user";
   const title = kind === "browser" ? t("window.chat.stage.browser-of", { name: esc(name()) }) : t("window.chat.stage.computer-of", { name: esc(name()) });
-  const pill = working() ? `<span class="pill work"><i></i>${t("strip.status.working")}${now >= 0 ? ` · ${t("window.chat.stage.step-of", { n: now + 1, total: steps.length })}` : ""}</span>` : `<span class="pill idle"><i></i>${t("window.chat.stage.idle")}</span>`;
-  const ctl = run && STOPPABLE.has(run.status) ? `<button class="btn pri sm" type="button" data-act="takeover" data-id="${esc(run.id)}">${t("action.take-over")}</button><button class="btn ghost sm" type="button" data-act="stage-stop" data-id="${esc(run.id)}">${t("dashboard.stop")}</button>` : "";
+  const pill = yours ? `<span class="pill you"><i></i>${t("window.chat.stage.you-control")}</span>`
+    : working() ? `<span class="pill work"><i></i>${t("strip.status.working")}${now >= 0 ? ` · ${t("window.chat.stage.step-of", { n: now + 1, total: steps.length })}` : ""}</span>` : `<span class="pill idle"><i></i>${t("window.chat.stage.idle")}</span>`;
+  const take = kind === "computer" && holder() === "agent" ? `<button class="btn pri sm" type="button" data-act="takeover">${t("action.take-over")}</button>` : "";
+  const stop = run && STOPPABLE.has(run.status) ? `<button class="btn ghost sm" type="button" data-act="stage-stop" data-id="${esc(run.id)}">${t("dashboard.stop")}</button>` : "";
+  const ctl = yours ? `<button class="btn pri sm" type="button" data-act="handback">${t("window.chat.stage.hand-back-to", { name: esc(name()) })}</button>` : take + stop;
   const sw = [["computer", "monitor", t("strip.kind.computer")], ["browser", "globe", t("pane.browser")]].map(([v, i, l]) => `<button type="button" data-act="stage" data-v="${v}" aria-pressed="${kind === v}">${ic(i, "s")}${l}</button>`).join("");
   return `<div class="st7-top"><button class="st7-back" type="button" data-act="stage-close">${ic("back", "s")}${esc(name())}</button>
     <span class="st7-title"><b>${title}</b></span>${pill}<span class="tb-grow"></span>${ctl}
@@ -149,9 +160,9 @@ async function load() {
   G.at = Date.now();
   const newest = runsHere()[0];
   try {
-    const [session, planned] = await Promise.all([api(`sessions/${encodeURIComponent(sid)}`), newest ? api(`runs/${encodeURIComponent(newest.id)}/plan`) : null]);
-    const next = { sid, messages: session?.messages ?? [], plan: planned?.plan ?? null, said: "" };
-    const same = JSON.stringify([G.sid, G.messages, G.plan]) === JSON.stringify([next.sid, next.messages, next.plan]);
+    const [session, planned, desk] = await Promise.all([api(`sessions/${encodeURIComponent(sid)}`), newest ? api(`runs/${encodeURIComponent(newest.id)}/plan`) : null, api("linux-desktop")]);
+    const next = { sid, messages: session?.messages ?? [], plan: planned?.plan ?? null, desk: { running: desk?.running === true, control: desk?.control }, said: "" };
+    const same = JSON.stringify([G.sid, G.messages, G.plan, G.desk]) === JSON.stringify([next.sid, next.messages, next.plan, next.desk]);
     Object.assign(G, next);
     if (!same && S.chat === sid) drawStage();
   } catch (error) {
@@ -170,6 +181,16 @@ async function stop(el) {
   drawStage();
 }
 
+/* Take over or Hand back: the engine's answer is the desktop's state now, drawn straight away. */
+async function hold(path, done) {
+  try {
+    const desk = await api(path, {});
+    G.desk = { running: desk?.running === true, control: desk?.control };
+    if (done) toast(done);
+  } catch (error) { toast(error.message); }
+  drawStage();
+}
+
 /* Opens the full-size view (from the side panel's Browser tab or the view's own switch). */
 export function openStage(kind) {
   G.kind = kind === "browser" ? "browser" : "computer";
@@ -179,13 +200,15 @@ export function openStage(kind) {
 }
 
 export function initStage() {
-  markLive(["stage", "stage-close", "stage-dock", "stage-pip", "pip-x", "stage-stop"]);
+  markLive(["stage", "stage-close", "stage-dock", "stage-pip", "pip-x", "stage-stop", "takeover", "handback"]);
   on("stage", (el) => openStage(el.dataset.v));
   on("stage-close", () => { G.kind = null; drawStage(); });
   on("stage-pip", () => { G.pip = { kind: G.kind, chat: S.chat }; G.kind = null; drawStage(); });
   on("pip-x", () => { G.pip = null; drawStage(); });
   on("stage-dock", () => { G.dock = !G.dock; drawStage(); });
   on("stage-stop", (el) => stop(el));
+  on("takeover", () => hold("linux-desktop/take-over"));
+  on("handback", () => hold("linux-desktop/hand-back", t("window.chat.stage.handed-back")));
   onRender(drawStage);
   // Before the window's own Escape (which closes a menu or dialog first), as the prototype listens.
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && G.kind && !document.querySelector(".dlg, .pop")) { G.kind = null; drawStage(); } }, true);
