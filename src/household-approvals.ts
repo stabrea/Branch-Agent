@@ -20,6 +20,18 @@ export function mayAnswerHere(store: Store, asked: { runId?: string | undefined;
 }
 
 /**
+ * Q258: whether a task was started for whoever is at the window (the owner: every task). A task that is working has
+ * its conversation lent to the owner for as long as it works (src/collab-server.ts runForCurrentPerson), so while it
+ * works only where it was started from says whose it is; `/status` counts working tasks with this.
+ */
+export function startedForHere(store: Store, runId: string): boolean {
+  const profiles = store.profiles;
+  if (profiles.isOwner()) return true;
+  const person = profiles.active();
+  return person !== null && runOrigin(store, runId).personProfileId === person.id;
+}
+
+/**
  * What a household person is told when a question is not theirs to answer: the words the engine already says when
  * nothing is waiting (src/safety-extras/api.ts), with the same 404, so a live question, one answered already, a
  * made-up fingerprint and a conversation that does not exist all read the same, and nothing is learned by asking.

@@ -2,6 +2,7 @@ import type { Run } from "../contracts.js";
 import { lockdownState } from "../lockdown.js";
 import { policyPresets, readPolicy } from "../policy.js";
 import type { Call } from "./handlers.js";
+import { mayAnswerHere, startedForHere } from "../household-approvals.js";
 
 /** `/status` and `/whoami`, in words, for any surface. */
 
@@ -19,9 +20,22 @@ function stepLine(call: Call, run: Run): string {
   return `Working for ${ago(run.createdAt)}, ${steps.length} ${steps.length === 1 ? "step" : "steps"} so far. Latest: ${label}.`;
 }
 
+/**
+ * Q258: what the person at the window may count. Through the window, the phone and the dashboard (POST /api/commands/run)
+ * a household person counts only their own tasks: the ones started for them, and the questions GET /api/policy shows
+ * them (src/household-approvals.ts). A chat app and the terminal are the owner's, whatever the window is switched to.
+ */
+function countedHere(call: Call): { working: Run[]; waiting: number } {
+  const { store, owner, approvals } = call.host.runtime;
+  const atWindow = call.surface === "window" || call.surface === "phone" || call.surface === "dashboard";
+  const working = store.runs(owner).filter((run) => run.status === "running" && (!atWindow || startedForHere(store, run.id)));
+  const waiting = approvals.waiting().filter((asked) => !atWindow || mayAnswerHere(store, asked)).length;
+  return { working, waiting };
+}
+
 export function statusLines(call: Call): string[] {
   const { runtime } = call.host, { store, owner } = runtime;
-  const working = store.runs(owner).filter((run) => run.status === "running");
+  const { working, waiting } = countedHere(call);
   const policy = readPolicy(store, owner);
   const lines: string[] = [];
   if (call.sessionId) {
@@ -36,7 +50,6 @@ export function statusLines(call: Call): string[] {
     lines.push(working.length ? `${working.length} ${working.length === 1 ? "task is" : "tasks are"} working:` : "Nothing is working right now.");
     lines.push(...runningLines(working));
   }
-  const waiting = runtime.approvals.waiting().length;
   if (waiting) lines.push(`${waiting} ${waiting === 1 ? "question waits" : "questions wait"} for your yes in Inbox.`);
   lines.push(`When to check with you: ${policyPresets().find((entry) => entry.id === policy.preset)?.label ?? "Rules you set yourself"}.`);
   if (lockdownState(store, owner).on) lines.push("Lockdown is on: commands are refused and everything else waits for your yes.");
