@@ -95,6 +95,11 @@ async function loadPane() {
   if (!same && S.chat === sid) drawPane();
 }
 
+/* The header's side panel button says whether the panel is open (the prototype's aria-pressed). */
+function pressedNow() {
+  for (const b of document.querySelectorAll('[data-act="pane"][data-p="activity"][aria-pressed]')) b.setAttribute("aria-pressed", String(!!S.pane && S.pane !== "browser"));
+}
+
 export function initPane() {
   initStage();
   markLive(["pane", "ptabp"]);
@@ -102,9 +107,10 @@ export function initPane() {
     const p = el.dataset.p, inHead = !!el.closest(".head");
     S.pane = p === "close" ? null : inHead && S.pane ? null : p;
     drawPane();
+    pressedNow();
   });
   on("ptabp", (el) => { S.pane = el.dataset.p; drawPane(); });
   document.addEventListener("keydown", (e) => {
-    if (pressed(e, "sidePane")) { e.preventDefault(); S.pane = S.pane ? null : "activity"; drawPane(); }
+    if (pressed(e, "sidePane")) { e.preventDefault(); S.pane = S.pane ? null : "activity"; drawPane(); pressedNow(); }
   });
 }

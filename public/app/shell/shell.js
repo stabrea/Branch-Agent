@@ -60,7 +60,7 @@ function row(s) {
 let searchTimer;
 function searchInside(q) {
   clearTimeout(searchTimer);
-  if (!q.trim()) return;
+  if (q.trim().length < 2) return;
   searchTimer = setTimeout(async () => {
     if (!(await askEngine(q.trim()))) return;
     const box = $("#side-q"), typing = document.activeElement === box, from = box?.selectionStart, to = box?.selectionEnd;

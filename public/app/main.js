@@ -5,11 +5,13 @@ import { $, onRender, render, renderNow, paint } from "./core/dom.js";
 import { S, E, loadSaved, refresh, activeId } from "./core/state.js";
 import { api, stream, link } from "./core/api.js";
 import { listen, on } from "./core/actions.js";
-import { listenTips, closePop, closeDlg } from "./core/ui.js";
+import { listenTips, closePop, closeDlg, dialog } from "./core/ui.js";
 import { greyOut } from "./core/features.js";
 import { VIEWS } from "./views.js";
 import { drawShell, initShell } from "./shell/shell.js";
 import { showSignIn } from "./shell/signin.js";
+import { openConversation } from "./chat/chat.js";
+import { goHome } from "./chat/goto.js";
 
 /* A place draws its own <main class="main" id="main">; inside the shell's #main that would be a second main and a second
    #main, so it becomes a <div> with the same classes and children (the styles are by class). */
@@ -52,8 +54,31 @@ async function boot() {
   onRender(drawShell);
   onRender(drawMain);
   onRender(drawWidth);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closePop(); closeDlg(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") escape(); });
   await connect();
+}
+
+/* Escape, as the prototype's: the popover, else the dialog, else Focus mode; and the phone's list closes. */
+function escape() {
+  const app = $("#app");
+  if (document.querySelector(".pop")) closePop();
+  else if (dialog()) closeDlg();
+  else if (app?.classList.contains("focus")) app.classList.remove("focus");
+  app?.classList.remove("side-open");
+}
+
+/* The dashboard's way back in: /#open=<home> (a place and tab, or a Settings page) or /#open=<conversation id>, and
+   /#task=<run id>, which opens the conversation that task belongs to. Only names the window knows are followed. */
+const UUID = /^[a-f0-9-]{36}$/;
+async function followLink() {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const route = hash.get("open"), task = hash.get("task");
+  if (!route && !task) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  if (route && UUID.test(route)) await openConversation(route);
+  else if (route && goHome(route)) renderNow();
+  const run = task && UUID.test(task) ? (E.state?.runs ?? []).find((r) => r.id === task) : null;
+  if (run?.sessionId) await openConversation(run.sessionId);
 }
 
 /* First load; a browser without a valid session token is asked for one (the engine's words say why it refused). */
@@ -70,6 +95,8 @@ async function connect(refusal = "") {
     queued = setTimeout(() => refresh().then(render, () => {}), 250);
   });
   watchPerson();
+  followLink();
+  addEventListener("hashchange", () => followLink());
 }
 
 /* Who is using Branch can change from anywhere (a switch through POST /api/profiles/switch sends no event), so the window
