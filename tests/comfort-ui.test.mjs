@@ -89,7 +89,8 @@ async function assertSectionHeading(page, id, home) {
 }
 
 for (const width of [1440, 860, 400]) {
-  test(`DG-008 comfort Settings headings remain native and described at ${width}px`, async (t) => {
+  // Redesign: replaced by the new window (the comfort cards and their headings are gone; the prototype's Settings pages draw their own sections).
+  test.skip(`DG-008 comfort Settings headings remain native and described at ${width}px`, async (t) => {
     const { page, errors } = await openApp(t, width);
     await page.emulateMedia({ reducedMotion: "reduce" });
     for (const language of ["en", "fr"]) {
@@ -125,7 +126,142 @@ for (const width of [1440, 860, 400]) {
   });
 }
 
-test("each comfort card is in its home, says what it is for, and every control has its own sentence", async (t) => {
+/* ---------- the new window (public/app/**, design/redesign/prototype.html) ---------- */
+/* Redesign: the comfort cards are replaced by the prototype's pages. Shortcuts are changed in "Keyboard shortcuts"
+   (data-act="shortcuts", in the menu of the person at the foot of the side list): click one (key15), press the keys; the engine keeps them in
+   its "keys" card (public/app/shell/keys.js). Sound, banner and updates are Settings › Notifications. */
+async function newApp(t, { width = 1280, mac = false, windows = false, keys = null } = {}) {
+  const { chromium } = await import("playwright");
+  const root = await mkdtemp(join(tmpdir(), "branch-comfort-ui-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  if (keys) saveComfort(app.store, "local", "keys", keys);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const page = await browser.newPage({ viewport: { width, height: 900 }, serviceWorkers: "block" });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  if (mac) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "platform", { get: () => "MacIntel" }));
+  if (windows) await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "platform", { get: () => "Win32" }));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#app #side").waitFor({ state: "visible", timeout: 120000 });
+  await page.waitForTimeout(500); // the engine's keys have been read
+  return { app, page, errors };
+}
+const hidden = (page) => page.evaluate(() => document.getElementById("app").classList.contains("side-hidden"));
+/** Presses keys away from any field, and says whether the side list changed. */
+async function folds(page, keys) {
+  await page.evaluate(() => document.activeElement?.blur());
+  const before = await hidden(page);
+  await page.keyboard.press(keys);
+  await page.waitForTimeout(150);
+  const after = await hidden(page);
+  if (after !== before) { await page.keyboard.press(keys); await page.waitForTimeout(150); } // and back
+  return after !== before;
+}
+/** Keyboard shortcuts, from the menu of the person at the foot of the side list. */
+async function openShortcuts(page) {
+  await page.locator('#side [data-act="owner"]').click();
+  await page.locator('.pop [data-act="shortcuts"]').click();
+  await page.locator(".dlg .keys15").waitFor();
+}
+/** Keyboard shortcuts, one action listening for its keys. */
+async function listenFor(page, action) {
+  if (!(await page.locator(".dlg .keys15").count())) await openShortcuts(page);
+  await page.locator(`.dlg [data-act="key15"][data-v="${action}"]`).click();
+  await page.locator(`.dlg .listen15[data-v="${action}"]`).waitFor();
+}
+
+test("R17-S15 (new window): a rebound shortcut works, and the old keys stop", async (t) => {
+  const { page, errors } = await newApp(t, { keys: { sideList: "Ctrl+J" } });
+  assert.equal(await folds(page, "Control+b"), false, "Ctrl+B no longer folds the side list");
+  assert.equal(await folds(page, "Control+j"), true, "Ctrl+J does");
+  assert.deepEqual(errors, []);
+});
+
+test("R17-S15 (new window): keys pressed into Keyboard shortcuts are kept by the engine and work", async (t) => {
+  const { app, page, errors } = await newApp(t);
+  assert.equal(await folds(page, "Control+b"), true, "as shipped, Ctrl+B folds the side list");
+  await listenFor(page, "sideList");
+  const before = await hidden(page);
+  await page.keyboard.press("Alt+b");
+  await page.waitForFunction(() => !document.querySelector(".dlg .listen15"));
+  assert.equal(await hidden(page), before, "a press being set does not fold the side list");
+  await page.waitForFunction(() => document.querySelector('.dlg [data-act="key15"][data-v="sideList"]')?.textContent.includes("Alt"));
+  assert.equal(readComfort(app.store, "local", "keys").sideList, "Alt+B");
+  await page.locator('.dlg [data-act="dlg-close"]').first().click();
+  assert.equal(await folds(page, "Control+b"), false, "Ctrl+B no longer folds the side list");
+  assert.equal(await folds(page, "Alt+b"), true, "Alt+B does");
+  await openShortcuts(page);
+  await page.locator('.dlg [data-act="keyreset15"][data-v="sideList"]').click();
+  await page.waitForFunction(() => !document.querySelector('.dlg [data-act="keyreset15"][data-v="sideList"]'));
+  assert.equal(readComfort(app.store, "local", "keys").sideList, "Ctrl+B", "put back as shipped");
+  assert.deepEqual(errors, []);
+});
+
+test("R17-S15 on a Mac (new window): Cmd+B folds the side list as shipped, and Control+B is a different key the owner can choose", async (t) => {
+  const { app, page, errors } = await newApp(t, { mac: true });
+  assert.equal(await folds(page, "Control+b"), false, "Control+B moves the cursor on a Mac; it does not fold the list");
+  assert.equal(await folds(page, "Meta+b"), true, "Cmd+B does");
+  await listenFor(page, "sideList");
+  await page.keyboard.press("Control+b");
+  await page.waitForFunction(() => !document.querySelector(".dlg .listen15"));
+  await page.waitForFunction(() => document.querySelector('.dlg [data-act="key15"][data-v="sideList"]')?.textContent.includes("Control"));
+  assert.equal(readComfort(app.store, "local", "keys").sideList, "Control+B", "kept apart from Cmd+B");
+  await page.locator('.dlg [data-act="dlg-close"]').first().click();
+  assert.equal(await folds(page, "Meta+b"), false, "Cmd+B no longer folds it");
+  assert.equal(await folds(page, "Control+b"), true, "the owner's Control+B does");
+  assert.deepEqual(errors, []);
+});
+
+test("R17-S15 on Windows (new window): the Windows key belongs to the system and cannot be given away", async (t) => {
+  const { app, page, errors } = await newApp(t, { windows: true });
+  await listenFor(page, "newConversation");
+  await page.keyboard.press("Meta+r");
+  await page.waitForFunction(() => !document.querySelector(".dlg .listen15"));
+  await listenFor(page, "newConversation");
+  await page.keyboard.press("Meta+Shift+e");
+  await page.waitForFunction(() => !document.querySelector(".dlg .listen15"));
+  assert.equal(readComfort(app.store, "local", "keys").newConversation, "Ctrl+N", "the Windows key never reached the settings");
+  await listenFor(page, "newConversation");
+  await page.keyboard.press("Control+r");
+  await page.waitForFunction(() => document.querySelector('.dlg [data-act="key15"][data-v="newConversation"]')?.textContent.includes("R"));
+  assert.equal(readComfort(app.store, "local", "keys").newConversation, "Ctrl+R", "Ctrl still sets a shortcut here");
+  assert.deepEqual(errors, []);
+});
+
+for (const mac of [false, true]) {
+  test(`R17-S15${mac ? " on a Mac" : ""} (new window): the side list folds with the keys it has always had, and not with the other modifier`, async (t) => {
+    const { page, errors } = await newApp(t, { mac, windows: !mac });
+    assert.equal(await folds(page, mac ? "Meta+b" : "Control+b"), true, mac ? "Cmd+B folds it" : "Ctrl+B folds it");
+    assert.equal(await folds(page, mac ? "Control+b" : "Meta+b"), false, "the other modifier does not");
+    assert.equal(await folds(page, mac ? "Meta+Shift+b" : "Control+Shift+b"), false, "nor Shift as well");
+    assert.deepEqual(errors, []);
+  });
+}
+
+test("R17-S17 (new window): the sound, the banner and the release channel are kept by the engine", async (t) => {
+  const { app, page, errors } = await newApp(t);
+  await page.locator('#side [data-act="view"][data-v="settings"]').click();
+  await page.locator('[data-act="setpage"][data-v="notifications"]').click();
+  const press = async (act, v) => {
+    await page.locator(`#main [data-act="${act}"][data-v="${v}"]`).click();
+    await page.waitForFunction(([a, value]) => document.querySelector(`#main [data-act="${a}"][data-v="${value}"]`)?.getAttribute("aria-pressed") === "true", [act, v]);
+  };
+  await press("n-method", "window");
+  await press("n-sound", "knock");
+  assert.deepEqual([readComfort(app.store, "local", "notify").method, readComfort(app.store, "local", "notify").sound], ["window", "knock"]);
+  await press("n-channel", "beta");
+  assert.equal(readComfort(app.store, "local", "notify").releaseChannel, "beta");
+  await press("n-channel", "stable");
+  assert.equal(readComfort(app.store, "local", "notify").releaseChannel, "stable");
+  assert.deepEqual(errors, []);
+});
+
+// Redesign: replaced by the new window (the comfort cards are gone; shortcuts, sound and updates are checked above in the prototype's places).
+test.skip("each comfort card is in its home, says what it is for, and every control has its own sentence", async (t) => {
   const { app, page, errors } = await openApp(t);
   for (const [id, host] of Object.entries(homes)) {
     await page.waitForFunction(([card, slot]) => document.getElementById(card)?.closest(slot), [id, host]);
@@ -156,7 +292,8 @@ test("each comfort card is in its home, says what it is for, and every control h
   assert.deepEqual(errors, []);
 });
 
-test("R17-S15: a rebound shortcut works, the old keys stop, and vim keys move and edit in the message box", async (t) => {
+// Redesign: Coming soon (sw:f15-vim-keys-in-the-message-box, Settings › General), checked at fc541c24; the rebound shortcut is checked above.
+test.skip("R17-S15: a rebound shortcut works, the old keys stop, and vim keys move and edit in the message box", async (t) => {
   const { app, page } = await openApp(t);
   saveComfort(app.store, "local", "keys", { newConversation: "Ctrl+J", vim: true });
   await refresh(page);
@@ -188,7 +325,8 @@ test("R17-S15: a rebound shortcut works, the old keys stop, and vim keys move an
   assert.deepEqual(moved, [1, 4, 3, 4]);
 });
 
-test("R17-S15: keys pressed into Settings set every window action, and the side list keeps Ctrl+B until given others", async (t) => {
+// Redesign: replaced by the new window (Keyboard shortcuts, checked above; the prototype's list holds five changeable actions, not focusPrompt, newTrunk, searchHistory, stopTask or lookInside).
+test.skip("R17-S15: keys pressed into Settings set every window action, and the side list keeps Ctrl+B until given others", async (t) => {
   const { app, page, errors } = await openApp(t);
   const clicks = (id) => page.evaluate((target) => {
     globalThis.__clicks ??= {};
@@ -259,7 +397,8 @@ test("R17-S15: keys pressed into Settings set every window action, and the side 
   assert.deepEqual(errors, []);
 });
 
-test("R17-S15 on a Mac: Cmd+B folds the side list as shipped, and Control+B is a different key the owner can choose", async (t) => {
+// Redesign: replaced by the new window (Keyboard shortcuts, checked above).
+test.skip("R17-S15 on a Mac: Cmd+B folds the side list as shipped, and Control+B is a different key the owner can choose", async (t) => {
   const { app, page, errors } = await openApp(t, 1280, { mac: true });
   await page.evaluate(() => {
     globalThis.__folds = 0;
@@ -292,7 +431,8 @@ test("R17-S15 on a Mac: Cmd+B folds the side list as shipped, and Control+B is a
   assert.deepEqual(errors, []);
 });
 
-test("R17-S15 on a Mac: Option shortcuts are set and work from what a Mac keyboard really sends, and ordinary keys keep their characters", async (t) => {
+// Redesign: replaced by the new window (Keyboard shortcuts take keys from real key events, checked above; the prototype's list has no focusPrompt, newTrunk, searchHistory or lookInside).
+test.skip("R17-S15 on a Mac: Option shortcuts are set and work from what a Mac keyboard really sends, and ordinary keys keep their characters", async (t) => {
   const { app, page, errors } = await openApp(t, 1280, { mac: true });
   await openSettingFor(page, "#comfort-keys-card");
   /* The events a Mac keyboard really sends. Playwright's own Alt+B sends a plain "b", which is why the
@@ -338,7 +478,8 @@ test("R17-S15 on a Mac: Option shortcuts are set and work from what a Mac keyboa
   assert.deepEqual(errors, []);
 });
 
-test("R17-S15: keys kept from the owner do nothing owner-only while the window is a household member's", async (t) => {
+// Redesign: replaced by the new window (the prototype's changeable shortcuts have no owner-only action (no new Trunk or history search key)).
+test.skip("R17-S15: keys kept from the owner do nothing owner-only while the window is a household member's", async (t) => {
   const { app, page, errors } = await openApp(t);
   saveComfort(app.store, "local", "keys", { newTrunk: "Alt+T", searchHistory: "Alt+H" });
   await refresh(page);
@@ -364,7 +505,8 @@ test("R17-S15: keys kept from the owner do nothing owner-only while the window i
   assert.deepEqual(errors, []);
 });
 
-test("R17-S16: the status line shows the pieces picked, and each message shows its time", async (t) => {
+// Redesign: replaced by the new window (the prototype has no picked status line or per-message times).
+test.skip("R17-S16: the status line shows the pieces picked, and each message shows its time", async (t) => {
   const { app, page } = await openApp(t);
   assert.equal(await page.locator("#comfort-status").isVisible().catch(() => false), false, "as shipped there is no extra line");
   saveComfort(app.store, "local", "display", { statusLine: ["model", "context", "cost"], timestamps: true });
@@ -383,7 +525,8 @@ test("R17-S16: the status line shows the pieces picked, and each message shows i
   await page.waitForFunction(() => document.getElementById("comfort-status").hidden && !document.querySelector(".message-time"));
 });
 
-test("R17-S17/S18: the owner's sound and banner-only choice, push-to-talk, and the longest recording", async (t) => {
+// Redesign: replaced by the new window (Settings › Notifications keeps the sound and banner choice, checked above; push-to-talk and Talk are Coming soon (voice)).
+test.skip("R17-S17/S18: the owner's sound and banner-only choice, push-to-talk, and the longest recording", async (t) => {
   const { app, page } = await openApp(t);
   assert.equal(await page.evaluate(() => globalThis.branchComfort.attention({ runId: "a" })), "default", "as shipped, the computer is told and nothing is heard");
   assert.deepEqual(await page.evaluate(() => globalThis.__sounds), []);
@@ -412,7 +555,8 @@ test("R17-S17/S18: the owner's sound and banner-only choice, push-to-talk, and t
   assert.deepEqual(await page.evaluate(() => globalThis.__sounds), ["knock", "knock"]);
 });
 
-test("R17-S17: updating by itself looks once, and installs only through the Update button's own path", async (t) => {
+// Redesign: replaced by the new window (public/comfort.js's autoUpdate is gone; Settings › Notifications keeps the choice, checked above).
+test.skip("R17-S17: updating by itself looks once, and installs only through the Update button's own path", async (t) => {
   const { app, page } = await openApp(t);
   await page.evaluate(() => {
     globalThis.__desktop = [];
@@ -454,7 +598,8 @@ test("R17-S17: updating by itself looks once, and installs only through the Upda
   await page.evaluate(() => { globalThis.__desktop = []; globalThis.__phase = undefined; window.branchDesktop = undefined; });
 });
 
-test("the owner can choose beta in Updates and return to stable", async (t) => {
+// Redesign: replaced by the new window (Settings › Notifications' Release channel, checked above, keeps the choice; the prototype's control does not check for updates at once).
+test.skip("the owner can choose beta in Updates and return to stable", async (t) => {
   const { app, page, errors } = await openApp(t);
   await page.evaluate(() => {
     globalThis.__channelChecks = 0;
@@ -473,7 +618,8 @@ test("the owner can choose beta in Updates and return to stable", async (t) => {
   assert.deepEqual(errors, []);
 });
 
-test("automatic checks schedule after settling and install retries stay brief", async (t) => {
+// Redesign: replaced by the new window (public/comfort.js's update schedule is gone).
+test.skip("automatic checks schedule after settling and install retries stay brief", async (t) => {
   const { app, page, errors } = await openApp(t);
   await page.evaluate(() => {
     const schedule = window.setTimeout.bind(window);
@@ -494,7 +640,8 @@ test("automatic checks schedule after settling and install retries stay brief", 
   assert.deepEqual(errors, []);
 });
 
-test("at 400 px the comfort cards fit without sideways scrolling", async (t) => {
+// Redesign: replaced by the new window (the comfort cards are gone).
+test.skip("at 400 px the comfort cards fit without sideways scrolling", async (t) => {
   const { page } = await openApp(t, 400);
   for (const id of ["comfort-keys-card", "comfort-display-card", "comfort-network-card"]) {
     await openSettingFor(page, `#${id}`);
@@ -509,7 +656,8 @@ test("at 400 px the comfort cards fit without sideways scrolling", async (t) => 
  * system's and a shortcut written with one could never fire. Nothing held that refusal before: removing
  * the line left every test green.
  */
-test("R17-S15 on Windows: the Windows key belongs to the system and cannot be given away", async (t) => {
+// Redesign: replaced by the new window (Keyboard shortcuts, checked above).
+test.skip("R17-S15 on Windows: the Windows key belongs to the system and cannot be given away", async (t) => {
   const { app, page, errors } = await openApp(t, 1280, { windows: true });
   await openSettingFor(page, "#comfort-keys-card");
   const send = (id, init) => page.locator(id).evaluate((box, i) => {
@@ -533,7 +681,8 @@ test("R17-S15 on Windows: the Windows key belongs to the system and cannot be gi
 });
 
 for (const mac of [false, true]) {
-  test(`R17-S15${mac ? " on a Mac" : ""}: a window without the owner's keys still folds the side list with the keys it has always had`, async (t) => {
+  // Redesign: replaced by the new window (public/comfort.js is gone; the keys the window always had are checked above).
+  test.skip(`R17-S15${mac ? " on a Mac" : ""}: a window without the owner's keys still folds the side list with the keys it has always had`, async (t) => {
     // Not a Mac is said outright: the computer running the tests may be one.
     const { page, errors } = await openApp(t, 1280, { mac, windows: !mac });
     await page.evaluate(() => {
