@@ -18,7 +18,7 @@
      every Pause are drawn greyed.
    Which view is open, picture in picture and the docked conversation (and its width) are window state only. */
 
-import { $, esc, applyCss, onRender } from "../core/dom.js";
+import { $, esc, applyCss, onRender, render } from "../core/dom.js";
 import { ic, av, toast, app, closePop } from "../core/ui.js";
 import { S, E, refresh, trunkIntro } from "../core/state.js";
 import { api, token } from "../core/api.js";
@@ -87,10 +87,10 @@ function shotUrl(path) {
 
 /* Branch's browser as the engine last saw it: its tabs, its address and the frame (painted in by paintFrames, so a new
    frame never redraws the view). */
-function liveWindow(view) {
+function liveWindow(view, src = "") {
   const tabs = view.tabs.map((tab) => `<span class="${tab.active ? "on7" : ""}">${esc(tab.title || tab.url)}</span>`).join("");
   const bar = view.url ? `<div class="dk-url">${ic("lock", "s")}${esc(view.url)}</div>` : "";
-  return `<div class="desk7 brfull7 live7"><div class="dk-win br7"><div class="dk-tabs">${tabs}</div>${bar}<img class="shot7 live7-img" alt="${esc(view.title)}"></div></div>`;
+  return `<div class="desk7 brfull7 live7"><div class="dk-win br7"><div class="dk-tabs">${tabs}</div>${bar}<img class="shot7 live7-img"${src ? ` src="${esc(src)}"` : ""} alt="${esc(view.title)}"></div></div>`;
 }
 /* The screen: the live frame, else the picture as it was taken; "" when there is nothing to show. */
 function screen(kind) {
@@ -189,11 +189,33 @@ function fit(root) {
 }
 const refit = () => { for (const id of ["stage7", "pip7"]) { const el = document.getElementById(id); if (el) fit(el); } };
 
+/* The card in the conversation while its task works in Branch's browser (the prototype's computer card): a small live
+   picture and Watch full size. chat.js draws it under the conversation's messages. */
+export function stageCard() {
+  const now = live(), view = now?.browser;
+  if (!S.chat || !view?.live || !view.frame || now.status !== "running" || G.kind === "browser") return "";
+  const sub = now.doing ? `<div class="sub">${esc(now.doing)}</div>` : "";
+  return `<div class="b"><div class="gut"></div><div><div class="card comp7"><div class="card-h"><b>${ic("globe", "s")}${t("window.chat.stage.browser-of", { name: esc(name()) })}</b><span class="pill work ml"><i></i>${t("strip.status.working")}</span></div>${sub}
+    <button type="button" class="comp7-thumb" data-act="stage" data-v="browser" aria-label="${t("window.chat.stage.full-size")}"><span class="st7-scale">${liveWindow(view, view.frame)}</span></button>
+    <div class="acts"><button class="btn pri sm" type="button" data-act="stage" data-v="browser">${ic("monitor", "s")}${t("window.chat.stage.watch-full")}</button></div></div></div></div>`;
+}
+const cardKey = (v) => JSON.stringify([v?.runId, v?.status, v?.doing, v?.browser?.live, !!v?.browser?.frame, v?.browser?.url, v?.browser?.title]);
+/* A new answer: the conversation is drawn again when its card changes; otherwise only the view (a frame is painted in). */
+function onLive(before, now) {
+  if (cardKey(before) !== cardKey(now)) render(); else drawStage();
+}
+function fitCards() {
+  for (const card of document.querySelectorAll("#main .comp7-thumb")) {
+    const s = card.querySelector(".st7-scale");
+    if (s) s.style.transform = `scale(${card.clientWidth / 1280})`;
+  }
+}
+
 /* The newest frame, set straight onto the picture: a frame alone never redraws the view. */
 function paintFrames() {
   const frame = live()?.browser?.frame;
   if (!frame) return;
-  for (const img of document.querySelectorAll("#stage7 .live7-img, #pip7 .live7-img")) if (img.getAttribute("src") !== frame) img.setAttribute("src", frame);
+  for (const img of document.querySelectorAll("#stage7 .live7-img, #pip7 .live7-img, #main .comp7-thumb .live7-img")) if (img.getAttribute("src") !== frame) img.setAttribute("src", frame);
 }
 
 /* Words typed in the dock's box or the address box survive a redraw: their words, focus and caret are put back. */
@@ -236,7 +258,12 @@ export function drawStage() {
   region("pip7", "pip7", here && !G.kind && !!G.pip, pipHTML);
   paintFrames();
   const browser = here && (G.kind === "browser" || (!G.kind && G.pip?.kind === "browser"));
-  watchLive(browser ? S.chat : null, drawStage);
+  // Read while the view shows the browser (twice a second), or while a task of this conversation works (every few
+  // seconds, for the card in the conversation).
+  // The frames are the owner's alone (the engine refuses anyone else), so nobody else's window asks for them.
+  const going = here && S.view === "chat" && runsHere()[0]?.status === "running", mine = E.profiles?.isOwner !== false;
+  watchLive(mine && (browser || going) ? S.chat : null, onLive, browser);
+  fitCards();
   if (here && (G.kind || G.pip)) load();
 }
 

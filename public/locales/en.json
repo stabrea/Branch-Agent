@@ -6531,6 +6531,7 @@
   "window.chat.stage.told": "Told {name}. It reads it before its next step.",
   "window.chat.stage.type-address": "Type an address first.",
   "window.chat.stage.usual-size": "Back to the usual size.",
+  "window.chat.stage.watch-full": "Watch full size",
   "window.chat.steer.chip": "Steer {name}",
   "window.chat.steer.done": "Steered {name}. It picks this up at its next step.",
   "window.chat.steer.now": "Steer now",

@@ -6531,6 +6531,7 @@
   "window.chat.stage.told": "Se lo has dicho a {name}. Lo leerá antes de su siguiente paso.",
   "window.chat.stage.type-address": "Escribe primero una dirección.",
   "window.chat.stage.usual-size": "De vuelta al tamaño habitual.",
+  "window.chat.stage.watch-full": "Ver a tamaño completo",
   "window.chat.steer.chip": "Orientar a {name}",
   "window.chat.steer.done": "Has orientado a {name}. Lo tendrá en cuenta en su próximo paso.",
   "window.chat.steer.now": "Orientar ahora",

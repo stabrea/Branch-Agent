@@ -6532,6 +6532,7 @@
   "window.chat.stage.told": "C’est dit à {name}. Il le lira avant sa prochaine étape.",
   "window.chat.stage.type-address": "Saisissez d’abord une adresse.",
   "window.chat.stage.usual-size": "Retour à la taille habituelle.",
+  "window.chat.stage.watch-full": "Regarder en plein écran",
   "window.chat.steer.chip": "Guider {name}",
   "window.chat.steer.done": "{name} a été guidé. Il en tient compte à sa prochaine étape.",
   "window.chat.steer.now": "Guider maintenant",

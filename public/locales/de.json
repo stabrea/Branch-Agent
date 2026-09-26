@@ -6531,6 +6531,7 @@
   "window.chat.stage.told": "{name} weiß Bescheid. Es liest es vor dem nächsten Schritt.",
   "window.chat.stage.type-address": "Gib zuerst eine Adresse ein.",
   "window.chat.stage.usual-size": "Wieder in der üblichen Größe.",
+  "window.chat.stage.watch-full": "In voller Größe ansehen",
   "window.chat.steer.chip": "{name} lenken",
   "window.chat.steer.done": "{name} gelenkt. Es übernimmt das beim nächsten Schritt.",
   "window.chat.steer.now": "Jetzt lenken",

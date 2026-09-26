@@ -2,14 +2,15 @@
    it, from GET /api/panels/live?session=<id> (src/live-stage.ts). The engine takes one frame of the tab the task works
    in on each read (password boxes covered) and hands back the page's address and title, the tabs beside it and what
    the task is doing now; read about twice a second while the view shows the browser and a task is going, every few
-   seconds otherwise, and not at all while the view is closed or the window is hidden. After the task ends the engine
+   seconds while a task of the open conversation works (for its card in the conversation), and not at all otherwise or
+   while the window is hidden. After the task ends the engine
    keeps its last frame in memory, and that is what is shown (not live).
    Also here: the width of the conversation docked beside the view (setDockWidth), kept in this browser only. */
 
 import { api } from "../core/api.js";
 import { toast } from "../core/ui.js";
 
-const L = { sid: null, view: null, said: "", timer: 0, busy: false, want: null, onChange: null };
+const L = { sid: null, view: null, said: "", timer: 0, busy: false, want: null, fast: false, onChange: null };
 const FAST = 500, SLOW = 2500;
 
 /** What the engine last said for this conversation (null before the first answer, or for another conversation). */
@@ -34,14 +35,16 @@ async function tick() {
     L.said = error.message;
   } finally {
     L.busy = false;
-    if (L.want) L.timer = setTimeout(tick, L.view?.runId || L.view?.browser?.live ? FAST : SLOW);
+    if (L.want) L.timer = setTimeout(tick, L.fast && (L.view?.runId || L.view?.browser?.live) ? FAST : SLOW);
   }
 }
 
-/** Reads for this conversation while the view shows the browser; null stops reading. One read is ever in flight. */
-export function watchLive(sid, onChange) {
+/** Reads for this conversation (fast while the view shows the browser); null stops reading. One read is ever in flight. */
+export function watchLive(sid, onChange, fast) {
   L.onChange = onChange;
-  if (L.want === sid) return;
+  const sooner = fast && !L.fast;
+  L.fast = !!fast;
+  if (L.want === sid) { if (sooner && L.timer) { clearTimeout(L.timer); L.timer = 0; tick(); } return; }
   L.want = sid;
   if (L.sid !== sid) { L.sid = null; L.view = null; }
   clearTimeout(L.timer);

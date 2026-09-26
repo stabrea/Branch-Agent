@@ -241,6 +241,12 @@ async function follow(page, sid) {
   await shot(page, "live-page-two");
   const runId = (await liveNow(sid)).runId;
   await page.locator("#stage7 .st7-back").click();
+  check("the conversation shows the prototype's card while the task works in the browser, with its live picture",
+    await until("the card's picture", async () => blueish(await framePixel(page, "#main .comp7 .live7-img")), 15000));
+  await shot(page, "conversation-card");
+  await page.locator('#main .comp7 .acts [data-act="stage"]').click();
+  check("the card's Watch full size opens the view", await until("the view from the card", async () => (await page.locator("#stage7 .live7-img").count()) === 1, 10000));
+  await page.locator("#stage7 .st7-back").click();
   await act(page, "view", { v: "team" });
   await page.locator(`[data-act="run-watch"][data-id="${runId}"]`).click({ timeout: 15000 });
   check("Team › Live now › Watch opens that task's browser, live", await until("the watched frame", async () => blueish(await framePixel(page, "#stage7 .live7-img")), 15000));
