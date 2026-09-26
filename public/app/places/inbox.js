@@ -21,6 +21,7 @@ import { recBar } from "../chat/rec.js";
 import { prowOpen, inboxMarkAll } from "../chat/unread.js"; // pass 17: unread dots and Mark all read
 import { adaptCards, laterTab, laterCount, receiptsSection, readInbox17, initInbox17 } from "./inbox17.js";
 import { initDemo17 } from "./demo17.js";
+import { t } from "../../i18n.js";
 
 let asks = [];
 let installs = [];
@@ -112,7 +113,7 @@ async function openCompare(el) {
 }
 
 function historyTab() {
-  const verify = `<button type="button" class="rec15" data-act="verify15" data-tip="Every entry is linked to the one before it, so a removed or rewritten entry shows.">${ic("shield15", "s")}<span>${chain?.ok ? "Record intact" : ""}</span><u>Verify</u></button>`;
+  const verify = `<button type="button" class="rec15" data-act="verify15" data-tip="Every entry is linked to the one before it, so a removed or rewritten entry shows.">${ic("shield15", "s")}<span>${chain?.ok ? t("window.inbox.intact") : ""}</span><u>Verify</u></button>`;
   const rows = (E.state.runs || []).slice(0, 50).map((r) => {
     const cost = typeof r.cost?.amount === "number" ? "$" + r.cost.amount.toFixed(2) : r.cost?.display ?? "";
     return `<div class="prow">${av({}, 34)}<span class="grow"><b>${esc(firstLine(r.prompt))}</b><small>${esc(when(r.createdAt))}</small></span><span class="meta">${[duration(r), cost].filter(Boolean).map(esc).join(" · ")}</span><button class="btn ghost sm" type="button" data-act="replay" data-id="${esc(r.id)}">Watch again</button></div>`;
@@ -195,7 +196,7 @@ async function verifyRecord() {
   const box = dialog()?.querySelector(".ver15");
   if (!box) return renderNow();
   box.classList.toggle("ok15", check.ok);
-  $("#ver-t15").textContent = check.ok ? "Record intact" : check.reason;
+  $("#ver-t15").textContent = check.ok ? t("window.inbox.intact") : check.reason;
   $("#ver-s15").innerHTML = `${check.ok ? esc(check.reason) : ""}${level() >= 2 ? `<br><code>chain head ${esc(String(check.tip).slice(0, 4))}…${esc(String(check.tip).slice(-4))} · sha-256</code>` : ""}`;
   renderNow();
 }

@@ -12,6 +12,7 @@ import { drawShell, initShell, PLACE_VIEWS, placeHead, wide } from "./shell/shel
 import { showSignIn } from "./shell/signin.js";
 import { openConversation } from "./chat/chat.js";
 import { goHome } from "./chat/goto.js";
+import { initLanguage } from "../i18n.js";
 
 /* A place draws its own <main class="main" id="main">; inside the shell's #main that would be a second main and a second
    #main, so it becomes a <div> with the same classes and children (the styles are by class). */
@@ -59,6 +60,8 @@ on("ptab", (el) => { S.view = el.dataset.place; S.tabs[el.dataset.place] = el.da
 async function boot() {
   loadSaved();
   if (S.theme) document.documentElement.dataset.theme = S.theme;
+  /* The words t() looks up (public/locales), in the saved language, before anything is drawn. */
+  await initLanguage();
   listen();
   listenTips();
   initShell();

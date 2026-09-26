@@ -6,6 +6,7 @@ import { ic } from "../core/ui.js";
 import { S } from "../core/state.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 export const FIND = { on: false, q: "", i: 0, n: 0 };
 
@@ -39,7 +40,7 @@ function show() {
   hits.forEach((m, k) => m.classList.toggle("cur9", k === FIND.i));
   hits[FIND.i]?.scrollIntoView({ block: "center" });
   const count = $("#find9-n");
-  if (count) count.textContent = FIND.q.trim() ? (FIND.n ? `${FIND.i + 1} of ${FIND.n}` : "No matches") : "";
+  if (count) count.textContent = FIND.q.trim() ? (FIND.n ? t("window.find.count", { at: FIND.i + 1, total: FIND.n }) : t("window.find.none")) : "";
 }
 
 /* After the thread is drawn: mark the matches of what is being looked for. */

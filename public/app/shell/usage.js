@@ -14,6 +14,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
+import { t } from "../../i18n.js";
 
 const CHIP = { measured: '<span class="pill ok">Measured</span>', estimated: '<span class="pill warn">Estimate</span>', not_published: '<span class="pill idle">Not published</span>' };
 const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -84,7 +85,7 @@ async function checkLimits() {
   const el = document.createElement("div");
   el.className = "ckpt-q";
   el.setAttribute("role", "alertdialog");
-  el.setAttribute("aria-label", "Save progress?");
+  el.setAttribute("aria-label", t("window.usage.save-progress"));
   el.innerHTML = offerHTML(c, fresh(g, c.key));
   app().appendChild(el);
   countDown(el);

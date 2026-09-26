@@ -8,6 +8,7 @@ import { openDlg, closeDlg, toast } from "../core/ui.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 function newPrompt() {
   openDlg({ title: "New saved prompt",
@@ -28,7 +29,7 @@ async function savePrompt() {
 function showBlanks(text) {
   const names = [...new Set([...text.matchAll(/\{\{\s*([a-z][a-z0-9_]{0,39})\s*\}\}/g)].map((m) => `{{${m[1]}}}`))];
   const line = $("#pr-blanks");
-  if (line) line.textContent = names.length ? `Asked each time: ${names.join(", ")}` : "";
+  if (line) line.textContent = names.length ? t("window.prompts.blanks", { names: names.join(", ") }) : "";
 }
 
 export function init() {
