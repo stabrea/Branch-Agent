@@ -25,6 +25,7 @@ import { besideWrap, rosterButton, initBeside } from "./beside.js";
 import { msgActs, pinnedClass, pinsBar, queueRow, loadExtras, initMessages } from "./messages.js";
 import { rememberCards, initRemember } from "./remember.js";
 import { goalStrip, loadGoal, initGoal } from "./goal.js";
+import { goHome } from "./goto.js";
 
 const C = { sessionId: null, messages: [], waiting: [], sending: false, thinking: "" };
 const WIDE = matchMedia("(min-width: 761px)");
@@ -54,9 +55,14 @@ function bot(m, first) {
    its request by session and fingerprint, and only that exact request is answered. */
 const VERBS = { files: "Change it", shell: "Run it", code: "Run it", device: "Allow", browser: "Go ahead", channels: "Send it", memory: "Save it" };
 const verbOf = (tool) => (tool === "files.read" ? "Read it" : VERBS[String(tool ?? "").split(".")[0]] ?? "Allow");
+/* The requests being answered now, by session and fingerprint: from the first press until the engine answers, the card's
+   buttons stay disabled (also when the card is drawn again meanwhile) and a second press sends nothing. */
+const answering = new Set();
+const askKey = (sid, fp) => `${sid}\n${fp || ""}`;
 function askCard(q) {
   const verb = verbOf(q.tool);
-  const id = `data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}"`;
+  const off = answering.has(askKey(q.sessionId, q.fingerprint)) ? " disabled" : "";
+  const id = `data-sid="${esc(q.sessionId)}" data-fp="${esc(q.fingerprint || "")}"${off}`;
   const trunk = q.trunk ? E.trunks.find((t) => t.id === q.trunk) : null;
   const always = trunk ? `Always allow for ${esc(trunk.name)}` : "Always allow";
   return `<div class="b"><div class="gut"></div><div><div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.question || q.label)}</span><span class="pill work ml"><i></i>Needs you</span></div>
@@ -162,7 +168,23 @@ async function command(line) {
   if (box) box.value = "";
   renderNow();
   $("#prompt")?.focus();
+  await carryOut(done.client);
   return true;
+}
+
+/* What the engine's answer asks the window to do (src/commands/handlers.ts ClientAction): open a place, open or start a
+   conversation, put words in the box or send them, read the model again. */
+async function carryOut(client) {
+  if (!client?.do) return;
+  if (client.do === "go") { if (goHome(client.home)) renderNow(); }
+  else if (client.do === "open-session" && client.id) await openConversation(client.id);
+  else if (client.do === "new") startConversation();
+  else if (client.do === "fill" && typeof client.text === "string") {
+    S.drafts[C.sessionId ?? "new"] = client.text;
+    const box = $("#prompt");
+    if (box) { box.value = client.text; box.focus(); }
+  } else if (client.do === "send" && typeof client.text === "string") await send(client.text);
+  else if (client.do === "refresh-model") { await refresh().catch((error) => toast(error.message)); renderNow(); }
 }
 
 /* Sends what is in the box, or `words` when given (an earlier message edited and sent again). */
@@ -197,15 +219,32 @@ async function send(words) {
   }
 }
 
+/* One answer per request: every button of the card (or Inbox row) is disabled from the first press until the engine
+   answers, and given back if the answer fails, so a double tap never sends a second, different answer. */
+function holdButtons(el, key, on) {
+  if (on) answering.add(key); else answering.delete(key);
+  const box = el.closest(".card, .prow") ?? el;
+  for (const b of box.querySelectorAll("button")) b.disabled = on;
+  if (!box.querySelector("button")) el.disabled = on;
+}
 async function answer(el, decision, extra = {}) {
   if (!el.dataset.sid) return;
-  await loadWaiting();
-  const q = C.waiting.find((w) => w.sessionId === el.dataset.sid && (w.fingerprint || "") === el.dataset.fp);
-  if (!q) return;
-  let said = null;
+  const key = askKey(el.dataset.sid, el.dataset.fp);
+  if (answering.has(key)) return;
+  holdButtons(el, key, true);
+  let said = null, q = null;
   try {
+    await loadWaiting();
+    q = C.waiting.find((w) => w.sessionId === el.dataset.sid && (w.fingerprint || "") === el.dataset.fp);
+    if (!q) { holdButtons(el, key, false); renderNow(); return; }
     said = await api("policy/approve", { sessionId: q.sessionId, decision, remember: "never", ...extra, ...(q.fingerprint ? { fingerprint: q.fingerprint } : {}), carryOn: true });
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    toast(error.message);
+    holdButtons(el, key, false);
+    renderNow();
+    return;
+  }
+  answering.delete(key);
   C.waiting = C.waiting.filter((w) => w !== q);
   if (said?.task === "carrying-on") await follow(q.sessionId);
   else await openConversation(q.sessionId);

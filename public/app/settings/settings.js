@@ -34,6 +34,9 @@ const PAGES = {
   advanced, developer, achievements, self
 };
 
+/* Whether the window has a Settings page by this id (an engine command may name one). */
+export const hasPage = (id) => Object.hasOwn(PAGES, id);
+
 export const NAV = [
   ["General", [["general", "General"], ["people", "People"], ["appearance", "Appearance"], ["notifications", "Notifications"]]],
   ["Your assistant", [["instructions", "Instructions & personality"], ["models", "Models"], ["local", "On this computer"], ["accounts", "Accounts"], ["voice", "Voice"]]],
