@@ -182,6 +182,8 @@ export const ROUTES = {
   "/api/deployment/restore-points": "look",
   // Redesign phase 1: which suggestion bar to show; others are offered nothing, and Don't ask again is the owner's.
   "/api/deployment/suggestion": "owner POST",
+  // unhold-control: "Ask before opening an app it hasn't used" (src/desktop-app-ask.ts); reading it is a look.
+  "/api/desktop/app-ask": "owner POST",
   "/api/desktop/settings": "owner POST",
   "/api/developer": "prefix",
   "/api/developer/": "prefix",

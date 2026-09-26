@@ -264,6 +264,7 @@ import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute,
 import { DelightError, delightRoute, handlesDelightPath } from "./delight.js"; // phase2/delight
 import { savingsRefusal } from "./short-lived-keys.js";
 import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
+import { appAskSettings, saveAppAskSettings } from "./desktop-app-ask.js"; // unhold-control
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
 import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
 import { comfortRefusal } from "./short-lived-keys.js";
@@ -1159,7 +1160,10 @@ async function api(
   if (request.method === "POST" && path === "/api/tools/try") {
     // mac5/manual-actions: the same hand-pressed gate as /api/action, with its question kept, the
     // two-minute ceiling and the secret scrub; shared with the host-bridge card (src/playground.ts).
-    return tryToolByHand(app, TryToolSchema.parse(await readBody(request)));
+    const tried = TryToolSchema.parse(await readBody(request));
+    // unhold-control: a key bound to one conversation keeps what it runs in that conversation only.
+    if (tried.sessionId) requireBoundSession(shortLivedKeyMark().sessionId, tried.sessionId);
+    return tryToolByHand(app, tried);
   }
   // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
   // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.
@@ -1379,6 +1383,18 @@ async function api(
     const desktop = await readBody(request);
     return recordedWrite(app.store, app.runtime.owner, byCard("desktop-control"), ["desktop-control"],
       () => saveDesktopSettings(app.store, app.runtime.owner, desktop));
+  }
+  // unhold-control: "Ask before opening an app it hasn't used", once per app, per Trunk (src/desktop-app-ask.ts).
+  // Reading it is a look; changing it is the owner's alone, and every change is written in the audit log.
+  if (request.method === "GET" && path === "/api/desktop/app-ask")
+    return appAskSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/desktop/app-ask") {
+    app.store.profiles.requireOwner("Asking before a new app");
+    const before = appAskSettings(app.store, app.runtime.owner);
+    const after = saveAppAskSettings(app.store, app.runtime.owner, await readBody(request));
+    audit(app.store, app.runtime.owner, { action: "policy.changed", actor: app.runtime.owner,
+      subject: `Ask before opening an app it hasn't used: ${after.on ? "on" : "off"}`, reason: `Was ${before.on ? "on" : "off"}.`, outcome: "saved" });
+    return after;
   }
   // FQ-execution.desktop: the shared Linux desktop's switch, and the owner taking it over and handing
   // it back. Reading the card is a look (it never carries the VNC password); every change is the
