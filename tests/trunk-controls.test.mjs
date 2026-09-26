@@ -215,4 +215,21 @@ test("how Trunks work together: Branch picks until the owner chooses, a room may
   assert.equal(run.status, "needs_input");
   assert.ok(app.store.events(run.id).some((event) => event.kind === "pattern.asked"));
   assert.match(JSON.stringify(app.runtime.waitingApprovals(run.sessionId)), /You chose \\"A lead and helpers\\"/);
+
+  // Only the owner's answer counts. A no, even "just this once", keeps the tool refused in this conversation.
+  const eventsIn = (sessionId) => app.store.runs(app.runtime.owner).filter((one) => one.sessionId === sessionId).flatMap((one) => app.store.events(one.id));
+  const swarmed = (sessionId) => eventsIn(sessionId).some((event) => event.kind === "swarm.finished");
+  assert.equal((await ask("/api/policy/approve", { sessionId: run.sessionId, decision: "deny", remember: "never", carryOn: true })).status, 200);
+  const again = await app.runtime.run({ prompt: "PATTERN7403", sessionId: run.sessionId });
+  assert.notEqual(again.status, "needs_input", "it is not asked again");
+  assert.equal(swarmed(run.sessionId), false, "the swarm never ran after the no");
+  assert.match(JSON.stringify(app.store.messages(run.sessionId)), /The owner said no to working together this way/);
+  // A yes, in another conversation, lets it go ahead.
+  const other = await app.runtime.run({ prompt: "PATTERN7403" });
+  assert.equal(other.status, "needs_input");
+  assert.equal((await ask("/api/policy/approve", { sessionId: other.sessionId, decision: "allow", remember: "never" })).status, 200);
+  const next = await app.runtime.run({ prompt: "PATTERN7403", sessionId: other.sessionId });
+  assert.notEqual(next.status, "needs_input", "the yes holds: it is not asked again");
+  const ran = swarmed(other.sessionId);
+  assert.equal(ran, true, "after the owner's yes the swarm ran");
 });

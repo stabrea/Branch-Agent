@@ -206,7 +206,8 @@ export class Trunks {
       const lastRun = this.store.runs(this.owner).find((run) => run.sessionId === trunk.chatSessionId);
       return { ...trunk, latest: last ? { role: last.role, text: last.content.slice(0, 160) } : null,
         at: lastRun?.updatedAt ?? trunk.updatedAt, unread: Math.max(0, replies - (seen[trunk.id] ?? 0)),
-        working: lastRun?.status === "running" };
+        working: lastRun?.status === "running",
+        running: this.deps.runtime.runsOfTrunk(trunk.id).length }; // eng-trunk-controls: every task running as it, for "pause now"
     });
     return { trunks, rooms: this.rooms.list().map((room) => ({ id: room.id, name: room.name, members: room.members, people: room.people, needsYou: room.needsYou,
       pinned: room.pinned, section: room.section, order: room.order, picture: room.picture, sessionId: room.sessionId,

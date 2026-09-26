@@ -1,7 +1,7 @@
 /* Pausing a Trunk, or all of them (src/trunks/pause.ts): POST /api/trunks/{id}/pause|resume and
    POST /api/trunks/pause-all|resume-all. A paused Trunk starts nothing new; a task it is running finishes, unless the
    owner stops it too ({now: true}). That choice is offered only while the engine says a Trunk is working
-   (GET /api/trunks `working`), in the prototype's own words. The engine writes each pause in the activity log. */
+   (GET /api/trunks `running`: tasks running as that Trunk), in the prototype's own words. The engine writes each pause in the activity log. */
 
 import { esc } from "../core/dom.js";
 import { E, refresh } from "../core/state.js";
@@ -38,7 +38,7 @@ async function pauseTrunk(id) {
   closePop();
   const t = trunkById(id);
   if (!t) return;
-  if (!t.paused && t.working) return choose("Pause this Trunk", id);
+  if (!t.paused && t.running > 0) return choose("Pause this Trunk", id);
   if (!t.paused) return send(id, false);
   try {
     await api(`trunks/${encodeURIComponent(id)}/resume`, {});
@@ -49,7 +49,7 @@ async function pauseTrunk(id) {
 
 async function pauseAll() {
   closePop();
-  if (!allPaused() && E.trunks.some((t) => !t.paused && t.working)) return choose("Pause all Trunks", "all");
+  if (!allPaused() && E.trunks.some((t) => !t.paused && t.running > 0)) return choose("Pause all Trunks", "all");
   if (!allPaused()) return send("all", false);
   try {
     await api("trunks/resume-all", {});

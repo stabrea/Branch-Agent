@@ -1,11 +1,38 @@
 // Pause a Trunk and pause all, a room's answering rule and its own way of working together, and the owner's default way
 // Trunks work together: each control made live here is clicked and its change read back through the engine's GET route.
-// Run against a fresh engine: PORT=<port> TOKEN=<hex> node design/redesign/tools/verify-trunk-controls.cjs
+// Pausing a Trunk that is working offers "let it finish" or "stop it now" (pause-go), so the engine needs a model that
+// can be kept busy: this script serves a stand-in OpenAI-shaped model on STUB_PORT that answers at once, except a
+// message holding HOLD7501, which it answers only when the script lets it go (or the engine hangs up on it).
+// Run: start this script's stand-in first by starting the script, then the engine pointed at it, both fresh:
+//   STUB_PORT=33810 PORT=3381 TOKEN=<hex> node design/redesign/tools/verify-trunk-controls.cjs   (it waits for the engine)
+//   BRANCH_PROVIDER=openai BRANCH_ENDPOINT=http://127.0.0.1:33810/v1 BRANCH_MODEL=stand-in BRANCH_API_KEY=local-test \
+//   BRANCH_DATA_DIR=<fresh> BRANCH_PORT=3381 node dist/cli.js start
 // Setup through the API (not window controls): onboarding done, Trunks and rooms switched on, two Trunks and a room made.
+const http = require("node:http");
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
 
-const PORT = process.env.PORT, TOKEN = process.env.TOKEN;
-if (!PORT || !TOKEN) { console.error("PORT and TOKEN are required"); process.exit(2); }
+const PORT = process.env.PORT, TOKEN = process.env.TOKEN, STUB_PORT = process.env.STUB_PORT;
+if (!PORT || !TOKEN || !STUB_PORT) { console.error("PORT, TOKEN and STUB_PORT are required"); process.exit(2); }
+
+/* The stand-in model. A held answer waits in `held` until let go; everything else is answered straight away. */
+const held = [];
+const letGo = () => { for (const answer of held.splice(0)) answer(); };
+function reply(res, stream, text) {
+  if (!stream) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: text }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); return; }
+  res.writeHead(200, { "content-type": "text/event-stream" });
+  res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n`);
+  res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+  res.end("data: [DONE]\n\n");
+}
+const stub = http.createServer((req, res) => {
+  let raw = "";
+  req.on("data", (chunk) => { raw += chunk; });
+  req.on("end", () => {
+    const body = JSON.parse(raw || "{}"), last = JSON.stringify((body.messages ?? []).filter((m) => m.role === "user").at(-1) ?? "");
+    if (last.includes("HOLD7501")) held.push(() => { if (!res.writableEnded && !res.destroyed) reply(res, body.stream, "Done holding."); });
+    else reply(res, body.stream, "Done.");
+  });
+});
 const base = `http://127.0.0.1:${PORT}`;
 const api = async (path, body) => {
   const r = await fetch(`${base}/api/${path}`, { method: body === undefined ? "GET" : "POST", headers: { authorization: `Bearer ${TOKEN}`, ...(body === undefined ? {} : { "content-type": "application/json" }) }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -21,6 +48,12 @@ const until = async (fn, ms = 8000) => { const end = Date.now() + ms; while (Dat
 const trunk = async (name) => (await api("trunks")).trunks.find((t) => t.name === name);
 const roomNamed = async (name) => (await api("trunks")).rooms.find((r) => r.name === name);
 const greyed = async (loc) => (await loc.getAttribute("aria-disabled")) === "true";
+/* Starts a task as Trunk B that the stand-in keeps busy, and waits until GET /api/trunks counts it running. */
+async function keepBusy(b) {
+  const said = fetch(`${base}/api/trunks/${b.id}/say`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ text: `HOLD7501 ${Date.now()}` }) }).then((r) => r.json()).catch((e) => ({ error: e.message }));
+  const busy = await until(async () => (await trunk(N.b)).running > 0, 15000);
+  return { said, busy };
+}
 
 async function setup() {
   await api("onboarding", { done: true });
@@ -121,6 +154,48 @@ async function roomRules(page) {
   await dlg.locator('.dlg-f [data-act="dlg-close"]').click();
 }
 
+/* pause-go: pausing a working Trunk offers to let its task finish or stop it, and so does pausing all of them. */
+async function working(page, b) {
+  let { said, busy } = await keepBusy(b);
+  check("a task as Trunk B is running (GET /api/trunks running)", !!busy);
+  await page.locator('[data-act="view"][data-v="customize"]').click();
+  await page.locator('#main [data-act="ptab"][data-v="trunks"]').click();
+  await page.reload();
+  await page.waitForSelector("#side .machine");
+  await page.locator('[data-act="view"][data-v="customize"]').click();
+  await page.locator(`#main [data-act="pausetrunk"][data-id="${b.id}"]`).click();
+  const finish = page.locator('.dlg [data-act="pause-go"][data-now="0"]'), stop = page.locator('.dlg [data-act="pause-go"][data-now="1"]');
+  check("pausing a working Trunk offers both choices", (await finish.count()) === 1 && (await stop.count()) === 1 && !(await greyed(stop)));
+  await finish.click();
+  check("Let them finish first: paused, and the task still runs", !!(await until(async () => { const t = await trunk(N.b); return t.paused && t.running > 0; })));
+  letGo();
+  const done = await said;
+  check("the task it was running finished", done.status === "completed", JSON.stringify(done).slice(0, 160));
+  await api(`trunks/${b.id}/resume`, {});
+
+  ({ said, busy } = await keepBusy(b));
+  await page.reload();
+  await page.waitForSelector("#side .machine");
+  await page.locator('[data-act="view"][data-v="customize"]').click();
+  await page.locator(`#main [data-act="pausetrunk"][data-id="${b.id}"]`).click();
+  await page.locator('.dlg [data-act="pause-go"][data-now="1"]').click();
+  const stopped = await said;
+  check("Stop the current task: the task was cancelled", !!busy && stopped.status === "cancelled", JSON.stringify(stopped).slice(0, 160));
+  check("and the Trunk is paused (GET /api/trunks)", (await trunk(N.b)).paused === true);
+  await api(`trunks/${b.id}/resume`, {});
+
+  ({ said, busy } = await keepBusy(b));
+  await page.reload();
+  await page.waitForSelector("#side .machine");
+  await page.locator('[data-act="view"][data-v="overview"]').first().click();
+  await page.locator('#main [data-act="pauseall"]').click();
+  await page.locator('.dlg [data-act="pause-go"][data-now="1"]').click();
+  const all = await said;
+  check("Pause all with a Trunk working, Stop the current task: cancelled, and every Trunk paused", all.status === "cancelled" && (await api("trunks")).trunks.every((t) => t.paused), JSON.stringify(all).slice(0, 160));
+  await api("trunks/resume-all", {});
+  letGo();
+}
+
 async function patterns(page) {
   await page.locator('[data-act="view"][data-v="customize"]').click();
   await page.locator('#main [data-act="ptab"][data-v="specialists"]').click();
@@ -137,6 +212,8 @@ async function patterns(page) {
 }
 
 (async () => {
+  await new Promise((resolve) => stub.listen(Number(STUB_PORT), "127.0.0.1", resolve));
+  await until(async () => (await fetch(`${base}/api/health`).catch(() => null)) !== null, 120000);
   const { a, b } = await setup();
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1366, height: 900 }, serviceWorkers: "block" });
@@ -150,11 +227,14 @@ async function patterns(page) {
     await newRoomRule(page, a, b);
     await roomRules(page);
     await patterns(page);
+    await working(page, b);
     check("no page errors", errors.length === 0, errors.join("; "));
   } catch (error) {
     check("the run finished", false, error.message);
   } finally {
     await browser.close();
+    letGo();
+    stub.close();
   }
   console.log(failed ? `${failed} failed` : "all checks passed");
   process.exit(failed ? 1 : 0);

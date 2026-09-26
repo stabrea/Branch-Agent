@@ -138,7 +138,7 @@ import * as savings from "./model-savings/hook.js";
 import { KeepAlive } from "./model-savings/keep-alive.js";
 // --- end R17-E ---
 import { Orchestration, PlanOnlyAnswer, orchestrationSettings, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
-import { patternNote, patternQuestion, type TeamPattern } from "./team-pattern.js"; // eng-trunk-controls
+import { patternNote, patternOfTool, patternQuestion, type TeamPattern } from "./team-pattern.js"; // eng-trunk-controls
 import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand, saveSessionPlanAct } from "./plan-act.js";
 import { heldMode, policyForMode, readConversationMode, saveConversationMode, type ConversationMode, type ConversationModeRecord } from "./conversation-mode.js"; // redesign phase 1
 import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
@@ -3050,6 +3050,8 @@ ${run.output.slice(0, 6000)}`;
     const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
     // Wave 9: two things the owner asked to be stopped for even when the rules would let them past
     // — work the agreed plan did not mention, and a command that already failed being tried again.
+    const patternNo = decision === "deny" ? null : this.patternRefusal(call, context); // eng-trunk-controls
+    if (patternNo) return { refusal: { ok: false, error: patternNo }, ...held };
     const aside = decision === "deny" ? null
       : this.offPlanQuestion(context, { label, target, readOnly }) ?? this.retriedCommandQuestion(call, args, context)
         ?? this.patternAside(call, context); // eng-trunk-controls
@@ -3107,15 +3109,31 @@ ${run.output.slice(0, 6000)}`;
   }
   /**
    * eng-trunk-controls: a multi-worker tool that works another way than the one the owner chose for how Trunks work
-   * together. The owner is asked once in this conversation; their yes lets it go ahead, and the model cannot give it.
+   * together. The owner is asked on an approval card until they answer; only their answer (`approve`) is kept, for
+   * this conversation: a yes lets that tool go ahead, a no refuses it (`patternRefusal`). The model cannot give either.
    */
   private patternAside(call: ToolCall, context: ToolContext): string | null {
     const sessionId = this.sessionOf(context);
     const question = patternQuestion(this.teamPattern(sessionId), call.name);
-    if (!question || !this.askOnce(sessionId, `pattern:${call.name}`)) return null;
+    if (!question || this.patternAnswers.has(`${sessionId}\u0000${call.name}`)) return null;
     this.store.event(context.runId, "pattern.asked", { tool: call.name });
     return question;
   }
+  /** eng-trunk-controls: the owner said no to this way of working together in this conversation. */
+  private patternRefusal(call: ToolCall, context: ToolContext): string | null {
+    const sessionId = this.sessionOf(context);
+    if (!patternQuestion(this.teamPattern(sessionId), call.name)) return null;
+    return this.patternAnswers.get(`${sessionId}\u0000${call.name}`) === "deny"
+      ? "The owner said no to working together this way in this conversation. Use the way they chose, or ask them in words." : null;
+  }
+  /** eng-trunk-controls: keeps the owner's answer to a pattern question, by conversation and tool. */
+  private notePatternAnswer(sessionId: string, tool: string, decision: "allow" | "deny"): void {
+    if (!patternOfTool(tool)) return;
+    if (this.patternAnswers.size > 500) this.patternAnswers.clear();
+    this.patternAnswers.set(`${sessionId}\u0000${tool}`, decision);
+  }
+  /** eng-trunk-controls: the owner's answers to pattern questions, `${sessionId}\0${tool}` → allow or deny. */
+  private readonly patternAnswers = new Map<string, "allow" | "deny">();
   /** eng-trunk-controls: the way Trunks work together here: the room's own choice, else the owner's default. */
   teamPattern(sessionId: string): TeamPattern {
     const room = this.roomPattern(this.modeFollows(sessionId) ?? sessionId);
@@ -3250,6 +3268,7 @@ ${run.output.slice(0, 6000)}`;
     // Wave mac3 (tool-safety): a request the safety check advised against may be allowed only this once.
     this.approvals.settleOverrule(sessionId, waiting, decision, remember, askerOf(runOrigin(this.store, waiting.runId))); // dogfood A6
     this.approvals.resolve(sessionId, waiting.fingerprint);
+    this.notePatternAnswer(sessionId, waiting.tool, decision); // eng-trunk-controls
     if (remember !== "never")
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
         fingerprint: waiting.fingerprint, label: waiting.label,
