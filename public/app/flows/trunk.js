@@ -260,14 +260,18 @@ function pickMember(el) {
   groupDlg();
 }
 
+/* The new room opens once the lists are read again, unless the owner has opened another conversation or place
+   meanwhile: a late open never takes them away from where they went. */
 async function makeRoom() {
   const name = ($("#grp-name")?.value ?? "").trim();
+  const from = [S.view, S.chat];
   try {
     const { room } = await api("trunks/rooms", { name, members: grp.trunks, rule: grp.rule });
     grp = null;
     closeDlg();
     await Promise.all([refresh(), loadRooms()]);
-    if (room?.sessionId) openChat(room.sessionId);
+    const stayed = S.view === from[0] && S.chat === from[1];
+    if (room?.sessionId && stayed) openChat(room.sessionId);
   } catch (error) { toast(error.message); }
 }
 

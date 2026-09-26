@@ -98,6 +98,8 @@ async function railAndChat(page, a) {
   check("the conversation menu offers Resume", (await item.innerText()).trim() === "Resume");
   await item.click();
   check("resume from the menu: GET /api/trunks says it is not paused", !!(await until(async () => !(await trunk(N.a)).paused)));
+  // The window reads the Trunks again after a change; the row's menu is opened once it shows the Trunk working again.
+  await until(async () => (await row.locator("b .paused").count()) === 0);
   await page.click(`#side .row[data-id="${a.chatSessionId}"]`, { button: "right" });
   await page.locator('.pop [data-act="pausetrunk"]').click();
   check("Pause from the row's own menu: GET /api/trunks says it is paused", !!(await until(async () => (await trunk(N.a)).paused === true)));
@@ -132,14 +134,18 @@ async function newRoomRule(page, a, b) {
   await dlg.locator('[data-act="grp-make"]').click();
   const made = await until(() => roomNamed(N.made));
   check("grp-make with grp-rule: GET /api/trunks has the room with rule lead", made?.rule === "lead", JSON.stringify(made && { rule: made.rule }));
+  check("grp-make opens the new room", !!(await until(async () => (await page.locator(`#side .row[data-id="${made.sessionId}"]`).getAttribute("aria-current")) === "true")));
 }
 
 async function roomRules(page) {
   const r = await roomNamed(N.room);
-  await page.click(`#side .row[data-id="${r.sessionId}"]`);
-  await page.waitForTimeout(500);
+  const row = page.locator(`#side .row[data-id="${r.sessionId}"]`);
+  await row.click();
+  check("the room's row opens that room", !!(await until(async () => (await row.getAttribute("aria-current")) === "true")));
   await page.locator('[data-act="chatmenu"]').first().click();
-  await page.locator('.pop [data-act="room-rules"]').click();
+  const item = page.locator('.pop [data-act="room-rules"]');
+  check("Room rules in its menu names that room", (await item.getAttribute("data-id")) === r.id);
+  await item.click();
   const dlg = page.locator(".dlg");
   await dlg.locator('[data-act="room-rule"][data-v="all"]').click();
   check("room-rule: GET /api/trunks has the room's rule everyone", !!(await until(async () => (await roomNamed(N.room)).rule === "all")));
