@@ -3801,7 +3801,12 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (viaRemote) { refuseUpgrade(socket); return; }
       // ---- end mac7/nodes ----
       // App lock: a locked Branch with a PIN opens no socket for a task or a program lending tools.
-      if (app.sessionLock.refusal("GET", path)) { socket.end("HTTP/1.1 423 Locked\r\nConnection: close\r\n\r\n"); return; }
+      // Asked only once the key has passed, so the answer tells nobody else that Branch is locked.
+      const refusedLocked = (): boolean => {
+        if (!app.sessionLock.refusal("GET", path)) return false;
+        socket.end("HTTP/1.1 423 Locked\r\nConnection: close\r\n\r\n");
+        return true;
+      };
       // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
       if (path === clientToolsPath) {
         // Integration review: "a program on this computer" — the paired address never lends tools.
@@ -3810,6 +3815,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
           return;
         }
+        if (refusedLocked()) return;
         serveClientToolSocket(app.interop.clients, request, socket);
         return;
       }
@@ -3820,6 +3826,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
       }
+      if (refusedLocked()) return;
       // Wave 8: the same socket also carries a live voice conversation, when the browser asks for
       // one. Nothing is opened until it does, so an ordinary task is unchanged.
       // Q254: the socket follows who is at the window, as /api/events/stream does since #339. Once the
