@@ -24,7 +24,7 @@ const refused = [];
 
 /* ---------- the stand-in Ollama ---------- */
 const TOTAL = 3 * 1024 * 1024, STEPS = 40, STEP_MS = 150;
-const ollama = { up: false, installed: false, models: [], pulls: [], chats: 0, unknown: [] };
+const ollama = { up: false, installed: false, failUnpack: false, models: [], pulls: [], chats: 0, unknown: [] };
 function reply(res, status, body) { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); }
 function pull(res, model) {
   ollama.pulls.push(model);
@@ -85,6 +85,10 @@ async function library(input) {
   }
   if (url.hostname === "github.com" && url.pathname.endsWith(`/${asset}`))
     return new Response(archive, { status: 200, headers: { "content-length": String(archive.length) } });
+  /* Ollama's library knows the large model's size, far more than this 16 GB computer holds, so the engine refuses it
+     unless asked again with force. Every other size lookup is refused, so the engine treats their size as unknown. */
+  if (url.hostname === "registry.ollama.ai" && url.pathname === "/v2/library/qwen2.5/manifests/14b")
+    return new Response(JSON.stringify({ layers: [{ mediaType: "application/vnd.ollama.image.model", size: 64 * 1024 ** 3 }] }), { status: 200 });
   refused.push(url.href);
   throw new TypeError("fetch failed (the verify script refuses every other address)");
 }
@@ -123,8 +127,16 @@ async function library(input) {
   kit.launcher.isOwn = async () => false;
   kit.launcher.start = async (id) => { if (id === "ollama") ollama.up = true; return { started: true, message: "stand-in started" }; };
   kit.launcher.exists = async () => false;
-  kit.launcher.run = async (file, args) => { ran.push([file, ...args]); if (/tar(\.exe)?$/i.test(file)) ollama.installed = true; return { stdout: "" }; };
+  kit.launcher.run = async (file, args) => {
+    ran.push([file, ...args]);
+    if (!/tar(\.exe)?$/i.test(file)) return { stdout: "" };
+    if (ollama.failUnpack) { ollama.failUnpack = false; throw Object.assign(new Error("unpack failed"), { stderr: "stand-in: the archive could not be unpacked" }); }
+    ollama.installed = true;
+    return { stdout: "" };
+  };
   kit.oneClick.deps.library = library;
+  /* Plenty of disk, so a model forced past the memory check really downloads (and can be cancelled). */
+  kit.oneClick.deps.statfs = async () => ({ bavail: 2 ** 40, bsize: 1 });
   const server = await startServer(app, { dataDir: path.join(root, "data"), port: Number(process.env.PORT || 0) });
   enginePort = new URL(server.url).port;
   const BASE = server.url.replace(/\/$/, "");
@@ -138,7 +150,12 @@ async function library(input) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   let signedIn = false;
-  page.on("console", (m) => { if (signedIn && m.type() === "error") errors.push(m.text()); });
+  /* The two refusals this run asks for on purpose (the failed install and the model too big) come back as 400s, which the
+     browser also logs as "Failed to load resource"; every other failed request or console error counts. */
+  const expected = new Set(["/api/local-models/one-button", "/api/local-models/setup"]);
+  const failed = [];
+  page.on("response", (r) => { const p = new URL(r.url()).pathname; if (signedIn && r.status() >= 400 && !(r.status() === 400 && expected.has(p))) failed.push(`${r.status()} ${p}`); });
+  page.on("console", (m) => { if (signedIn && m.type() === "error" && !/^Failed to load resource/.test(m.text())) errors.push(m.text()); });
   const shot = (name) => page.screenshot({ path: path.join(SHOTS, `${name}.png`) });
   try {
     /* Nothing starts by itself: a fresh engine has the switches off, no setup and no download. */
@@ -162,6 +179,7 @@ async function library(input) {
     await shot("zz-failure").catch(() => undefined);
   } finally {
     check("zero page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
+    check("no request failed but the two refusals asked for on purpose", failed.length === 0, failed.slice(0, 5).join(" | "));
     // Refused as if absent: LM Studio (not running here) and Ollama's size lookup (the engine then treats the size as unknown).
     check("the engine reached no address but the stand-ins", refused.filter((u) => !/^http:\/\/127\.0\.0\.1:1234\/|^https:\/\/(registry\.)?ollama\.(ai|com)\//.test(u)).length === 0, [...new Set(refused)].slice(0, 6).join(" "));
     check("the stand-in Ollama was asked nothing it does not know", ollama.unknown.length === 0, ollama.unknown.join(", "));
@@ -274,37 +292,107 @@ async function setupRun(page, call, fresh, shot) {
   await cancelRun(page, call, ".ob9", small, "setup", shot);
 }
 
+async function openFromMenu(page) {
+  await page.locator('[data-act="modelmenu2"]').click();
+  await page.locator('.pop [data-act="lp-open"]').click();
+  await page.locator(".dlg .lp .lp-hero").waitFor({ timeout: 15000 });
+  await dismissCelebration(page);
+}
+
 async function menuRun(page, call, shot) {
   await call("onboarding", { done: true });
   await page.reload();
   await page.locator('[data-act="modelmenu2"]').waitFor({ timeout: 30000 });
-  await page.locator('[data-act="modelmenu2"]').click();
-  await page.locator('.pop [data-act="lp-open"]').click();
-  await page.locator(".dlg .lp .lp-hero").waitFor({ timeout: 15000 });
+  await openFromMenu(page);
   const data = await call("local-models");
-  await dismissCelebration(page);
-  const found = await page.locator(".dlg .lp .lp-found").filter({ has: page.locator(".pill") }).count();
-  check("menu: the picker opens from the model menu and lists what is really on this computer", found >= 1 && (await page.locator(".dlg .lp-none").count()) === 0, `${found} set up`);
+  const found = await page.locator(".dlg .lp .lp-found .pill").count();
+  check("menu: the picker opens from the model menu and lists what is really on this computer", found === 1 && (await page.locator(".dlg .lp-none").count()) === 0, `${found} set up`);
   await shot("menu-1-picker");
-  const large = data.recommendations.find((r) => r.size === "large").model;
-  await cancelRun(page, call, ".dlg", large, "menu", shot);
-  const small = data.recommendations.find((r) => r.size === "small").model;
-  const before = ollama.pulls.length;
+  const size = (s) => data.recommendations.find((r) => r.size === s).model;
+  await menuInstallFails(page, call, shot, size("small"));
+  await menuForce(page, call, shot, size("large"));
+  await menuUse(page, call, shot, size("medium"));
+}
+
+/* Ollama gone and its install failing: the engine's words and its install page, then the picker carries on by itself. */
+async function menuInstallFails(page, call, shot, small) {
+  await page.locator('.dlg [data-act="dlg-close"]').click();
+  Object.assign(ollama, { installed: false, up: false, failUnpack: true });
+  await openFromMenu(page);
+  const pulls = ollama.pulls.length;
+  /* "Install it yourself" opens the engine's install page (blocked here, so nothing is fetched) and starts waiting. */
+  let asked = "";
+  await page.context().route(/ollama\.com/, (route) => { asked = route.request().url(); return route.abort(); });
   await page.locator(`.dlg [data-act="lp-pick"][data-v="${small}"]`).click();
-  const { seen, done } = await watchProgress(page, ".dlg", () => shot("menu-2-downloading"));
+  const opened = page.context().waitForEvent("page", { timeout: 10000 }).catch(() => null);
+  await page.locator('.dlg .lp-busy [data-act="lp-page"]').click();
+  const tab = await opened;
+  await page.locator('.dlg .lp-busy [data-act="lp-back"]').waitFor({ timeout: 10000 });
+  const waiting = await page.locator(".dlg .lp-busy b").textContent();
+  check("menu: Install it yourself opens the engine's install page and waits for the program", Boolean(tab) && asked.startsWith("https://ollama.com/") && /carries on by itself/.test(waiting), `${asked} / "${waiting}"`);
+  await tab?.close();
+  await page.locator('.dlg .lp-busy [data-act="lp-back"]').click();
+  await page.locator(`.dlg [data-act="lp-pick"][data-v="${small}"]`).click();
+  await page.locator('.dlg [data-act="lp-install"]').click();
+  await page.locator('.dlg .lp-busy [data-act="lp-page"]').waitFor({ timeout: 15000 });
+  const said = await page.locator(".dlg .lp-busy .lp-said").textContent();
+  const view = await call("local-models");
+  check("menu: a failed install shows the engine's own words and its install page, and downloads nothing",
+    /Branch could not install Ollama/.test(said) && ollama.pulls.length === pulls && view.installMode === "off", `"${said.slice(0, 90)}…", pulls +${ollama.pulls.length - pulls}, installMode ${view.installMode}`);
+  await shot("menu-2-install-failed-waiting");
+  ollama.installed = true; // the owner installs it by hand; nothing is clicked from here
+  const { seen, done } = await watchProgress(page, ".dlg", () => shot("menu-3-downloading"));
   const after = await call("local-models");
   const job = after.oneClick.setups.find((j) => j.label === small && j.stage === "done");
   const state = await call("state");
-  check("menu: Pick one downloads with a real bar from 0 to 100", ollama.pulls.length === before + 1 && seen.filter((s) => s.pct > 0 && s.pct < 100).length >= 3 && job?.percent === 100, `${seen.map((s) => s.pct).join(" → ")}`);
-  check("menu: it is connected and selected, and the chip shows it", state.activeModel?.presetId === job?.connectionId && /is set up and answering/.test(done), `${state.activeModel?.presetId}`);
+  check("menu: once the engine finds the program the picker carries on by itself", ollama.pulls.length === pulls + 1 && Boolean(job), `pulled ${ollama.pulls.slice(pulls).join(", ")}`);
+  check("menu: the download shows a real bar from 0 to 100", seen[0]?.pct === 0 && seen.filter((s) => s.pct > 0 && s.pct < 100).length >= 3 && job?.percent === 100, `${seen.map((s) => s.pct).join(" → ")} then engine ${job?.percent}%`);
+  check("menu: it is connected and selected for answering", state.activeModel?.presetId === job?.connectionId && /is set up and answering/.test(done), `${state.activeModel?.presetId}`);
   const hello = await helloShown(page, ".dlg");
   check("menu: a hello is answered by the stand-in runtime", /Hello from the stand-in runtime/.test(hello), hello);
-  await shot("menu-3-answering");
-  await page.locator('.dlg [data-act="dlg-close"]').click();
-  await page.waitForFunction((m) => (document.querySelector('[data-act="modelmenu2"]')?.textContent ?? "").includes(m.split(":")[0]), small, { timeout: 10000 });
-  check("menu: the composer's chip names the model now answering", true);
-  await shot("menu-4-chip");
+  await shot("menu-4-answering");
 }
+
+/* Too big for this computer: the engine's refusal and Try anyway; Cancel mid-download; Try again runs it to the end. */
+async function menuForce(page, call, shot, large) {
+  await page.locator('.dlg .lp [data-act="lp-back"]').click();
+  await page.locator(`.dlg [data-act="lp-pick"][data-v="${large}"]`).click();
+  await page.locator('.dlg [data-act="lp-force"]').waitFor({ timeout: 15000 });
+  const refusal = await page.locator(".dlg .lp .status b").textContent();
+  const none = (await call("local-models")).oneClick.setups.filter((j) => j.label === large).length;
+  check("menu: a model too big is refused in the engine's words, with Try anyway, and nothing starts", /Won.t fit/.test(refusal) && none === 0, `"${refusal}"`);
+  await shot("menu-5-too-big");
+  await page.locator('.dlg [data-act="lp-force"]').click();
+  await waitForBar(page, ".dlg", 0);
+  const forced = (await call("local-models")).oneClick.setups.find((j) => j.label === large);
+  check("menu: Try anyway starts it with the engine's force", forced?.request?.force === true && !forced.finishedAt, `${forced?.stage}`);
+  await page.locator('.dlg [data-act="lp-cancel"]').click();
+  await page.locator('.dlg [data-act="lp-retry"]').waitFor({ timeout: 15000 });
+  const stopped = (await call("local-models")).oneClick.setups.find((j) => j.id === forced.id);
+  const said = await page.locator(".dlg .lp .status b").textContent();
+  check("menu: Cancel stops the engine's download, and the picker says so in the engine's words", stopped?.stage === "stopped" && said === stopped.message, `${stopped?.stage}: "${said}"`);
+  await shot("menu-6-cancelled");
+  await page.locator('.dlg [data-act="lp-retry"]').click();
+  const { seen, done } = await watchProgress(page, ".dlg");
+  const again = (await call("local-models")).oneClick.setups.find((j) => j.label === large && j.id !== forced.id);
+  check("menu: Try again runs it again, to the end", again?.stage === "done" && again.request?.force === true && /is set up and answering/.test(done), `${again?.stage}, ${seen.map((s) => s.pct).join(" → ")}`);
+}
+
+/* A model already set up: Use this selects it at once, with nothing downloaded. */
+async function menuUse(page, call, shot, medium) {
+  await helloShown(page, ".dlg");
+  await page.locator('.dlg .lp [data-act="lp-back"]').click();
+  const pulls = ollama.pulls.length;
+  await page.locator(`.dlg .lp-found [data-act="lp-use"][data-v="${medium}"]`).click();
+  await helloShown(page, ".dlg");
+  const state = await call("state");
+  check("menu: Use this on a model already set up selects it, with nothing downloaded", /llama3-1-8b/.test(state.activeModel?.presetId ?? "") && ollama.pulls.length === pulls, `${state.activeModel?.presetId}`);
+  await page.locator('.dlg [data-act="dlg-close"]').click();
+  await page.waitForFunction((m) => (document.querySelector('[data-act="modelmenu2"]')?.textContent ?? "").includes(m.split(":")[0]), medium, { timeout: 10000 });
+  check("menu: the composer's chip names the model now answering", true);
+  await shot("menu-7-chip");
+}
+
 
 /* The same picker in Settings › Models › On this computer and the Add an account wizard's "On this computer" tab. */
 async function otherHosts(page, shot) {
