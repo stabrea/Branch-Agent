@@ -12,20 +12,34 @@ import { ScheduleSchema, nextTurn } from "./scheduler.js";
  * shape, and its answer goes through the same checks. Words about an event rather than a clock ("when a
  * receipt arrives", "after each meeting") are not a schedule, and are refused in one sentence.
  */
-export const ProposeScheduleSchema = z.object({
-  text: z.string().trim().min(1).max(2000),
-  timezone: z.string().min(1).max(64).optional(),
+/** The owner's changes on the proposal card: what to do and when, read again with its first run worked out. */
+const EditSchema = z.object({
+  prompt: z.string().trim().min(1).max(8000),
+  dailyAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
+  monthDay: z.number().int().min(1).max(31).optional(),
+  intervalMs: z.number().int().min(60_000).max(31_536_000_000).optional(),
 }).strict();
+export const ProposeScheduleSchema = z.object({
+  text: z.string().trim().min(1).max(2000).optional(),
+  edit: EditSchema.optional(),
+  timezone: z.string().min(1).max(64).optional(),
+}).strict().refine((body) => (body.text === undefined) !== (body.edit === undefined), "Send either the words or the edited schedule");
 
 export interface Recurrence { dailyAt?: string; weekdays?: number[]; monthDay?: number; intervalMs?: number }
-export interface ReadWords { prompt: string; recurrence: Recurrence }
+/** Whether the words said the time, only hinted at it ("every evening"), or said none (nine is filled in). */
+export type TimeSaid = "said" | "guessed" | "none";
+export interface ReadWords { prompt: string; recurrence: Recurrence; time: TimeSaid }
 export interface ScheduleProposal {
   /** Ready for POST /api/schedules as it is. */
   schedule: z.infer<typeof ScheduleSchema>;
   firstRunAt: string;
   /** When it comes round and when it first runs, in plain words. */
   words: string;
-  source: "words" | "model";
+  /** The same clock as a five-field cron line, for the Technical level; null for "every so often". */
+  cron: string | null;
+  time: TimeSaid;
+  source: "words" | "model" | "edit";
 }
 export type AskModel = (question: string, shape: AnswerShape) => Promise<ShapedAnswer>;
 
@@ -81,10 +95,11 @@ function bareHour(hour: number, lower: string): number {
   return hour >= 1 && hour <= 6 ? hour + 12 : hour;
 }
 
-/** With no time said: nine, or the part of the day the words name. */
-function usualTime(phrase: string): string {
+/** With no time said, the usual time for the part of the day the words name, or null when they name none. */
+function usualTime(phrase: string): string | null {
   const lower = phrase.toLowerCase();
-  return /\bafternoon\b/.test(lower) ? "14:00" : /\bevening\b/.test(lower) ? "18:00" : /\bnight(ly)?\b/.test(lower) ? "21:00" : "09:00";
+  if (/\bmorning\b/.test(lower)) return "08:00";
+  return /\bafternoon\b/.test(lower) ? "14:00" : /\bevening\b/.test(lower) ? "18:00" : /\bnight(ly)?\b/.test(lower) ? "21:00" : null;
 }
 const LEFT_OVER = /\b(morning|afternoon|evening|night|tonight|noon|midday|midnight|o'?clock|half past|quarter (past|to)|at \d|\d{1,2}\s*[ap]\.?m\b|\d{1,2}:\d{2})/i;
 
@@ -107,15 +122,24 @@ export function readScheduleWords(text: string): ReadWords | null {
   // around half six"), so it is not guessed at here.
   if (!prompt || LEFT_OVER.test(prompt)) return null;
   const interval = intervalOf(phrase);
-  if (interval !== null) return interval >= minuteMs ? { prompt, recurrence: { intervalMs: interval } } : null;
-  const dailyAt = timeOf(phrase) ?? usualTime(phrase);
+  if (interval !== null) return interval >= minuteMs ? { prompt, recurrence: { intervalMs: interval }, time: "said" } : null;
+  const said = timeOf(phrase), usual = usualTime(phrase);
+  const dailyAt = said ?? usual ?? "09:00", time: TimeSaid = said ? "said" : usual ? "guessed" : "none";
   const month = new RegExp(MONTH, "i").exec(phrase);
   if (month) {
     const day = Number(month[1] ?? month[2] ?? month[3] ?? 1);
-    return day >= 1 && day <= 31 ? { prompt, recurrence: { dailyAt, monthDay: day } } : null;
+    return day >= 1 && day <= 31 ? { prompt, recurrence: { dailyAt, monthDay: day }, time } : null;
   }
   const days = daysOf(phrase);
-  return { prompt, recurrence: days && days.length < 7 ? { dailyAt, weekdays: days } : { dailyAt } };
+  return { prompt, recurrence: days && days.length < 7 ? { dailyAt, weekdays: days } : { dailyAt }, time };
+}
+
+/** The clock as a five-field cron line (minute hour day month weekday); null for "every so often". */
+export function cronOf(r: Recurrence): string | null {
+  if (!r.dailyAt) return null;
+  const [hour, minute] = r.dailyAt.split(":").map(Number);
+  const days = r.weekdays?.join(",") === "1,2,3,4,5" ? "1-5" : r.weekdays?.join(",") ?? "*";
+  return `${minute} ${hour} ${r.monthDay ?? "*"} * ${days}`;
 }
 
 /** When it comes round, in plain words. */
@@ -147,7 +171,7 @@ export function proposalFrom(read: ReadWords, timezone: string, now: Date, sourc
   const base = { prompt: read.prompt, kind: "task" as const, timezone, ...recurrence };
   const firstRunAt = nextTurn(base as Record<string, unknown>, now);
   const schedule = ScheduleSchema.parse({ ...base, dueAt: firstRunAt });
-  return { schedule, firstRunAt, source,
+  return { schedule, firstRunAt, source, time: read.time, cron: cronOf(recurrence),
     words: `${recurrenceWords(recurrence)} (${timezone}), first on ${firstRunWords(firstRunAt, timezone)}` };
 }
 
@@ -186,19 +210,28 @@ function recurrenceFromModel(reading: z.infer<typeof ModelReadingSchema>): Recur
   return null;
 }
 
-/** Reads the words, putting them to the model only when the reader here cannot; throws `notASchedule` otherwise. */
+/**
+ * Reads the words, putting them to the model only when the reader here cannot; throws `notASchedule`
+ * otherwise. An edited schedule from the proposal card is checked and its first run worked out again.
+ */
 export async function proposeSchedule(input: unknown, deps: { now: Date; defaultTimezone: string; askModel?: AskModel }): Promise<ScheduleProposal> {
-  const { text, timezone: asked } = ProposeScheduleSchema.parse(input);
+  const { text, edit, timezone: asked } = ProposeScheduleSchema.parse(input);
   const timezone = z.string().refine((zone) => { try { new Intl.DateTimeFormat("en-US", { timeZone: zone }); return true; } catch { return false; } }, "Unknown timezone")
     .parse(asked ?? deps.defaultTimezone);
-  const read = readScheduleWords(text);
+  if (edit) {
+    const { prompt, ...when } = edit;
+    const recurrence = Object.fromEntries(Object.entries(when).filter(([, value]) => value !== undefined)) as Recurrence;
+    return proposalFrom({ prompt, recurrence, time: "said" }, timezone, deps.now, "edit");
+  }
+  const read = readScheduleWords(text!);
   if (read) return proposalFrom(read, timezone, deps.now, "words");
   if (!deps.askModel) throw new Error(notASchedule);
-  const answer = await deps.askModel(modelQuestion(text), readingShape);
+  const answer = await deps.askModel(modelQuestion(text!), readingShape);
   if (answer.status !== "resolved") throw new Error(notASchedule);
   const reading = ModelReadingSchema.safeParse(answer.value);
   const recurrence = reading.success && reading.data.isSchedule ? recurrenceFromModel(reading.data) : null;
   const prompt = reading.success ? reading.data.prompt.trim() : "";
   if (!recurrence || !prompt) throw new Error(notASchedule);
-  return proposalFrom({ prompt, recurrence }, timezone, deps.now, "model");
+  const time: TimeSaid = recurrence.intervalMs !== undefined || /^([01]\d|2[0-3]):[0-5]\d$/.test(reading.success ? reading.data.time : "") ? "guessed" : "none";
+  return proposalFrom({ prompt, recurrence, time }, timezone, deps.now, "model");
 }

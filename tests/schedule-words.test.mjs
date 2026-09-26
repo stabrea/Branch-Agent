@@ -19,7 +19,7 @@ const THURSDAY = new Date("2026-09-17T10:00:00Z");
 test("the design's clock ideas are read with no model, and its event ideas are not a schedule", () => {
   const read = (text) => readScheduleWords(text);
   assert.deepEqual(read("every weekday at 8, check my inbox for invoices"),
-    { prompt: "check my inbox for invoices", recurrence: { dailyAt: "08:00", weekdays: [1, 2, 3, 4, 5] } });
+    { prompt: "check my inbox for invoices", recurrence: { dailyAt: "08:00", weekdays: [1, 2, 3, 4, 5] }, time: "said" });
   assert.deepEqual(read("every weekday at 7:30, send me the weather, my calendar and what needs me").recurrence, { dailyAt: "07:30", weekdays: [1, 2, 3, 4, 5] });
   assert.deepEqual(read("every morning at 8, sort new mail into needs me, later and noise").recurrence, { dailyAt: "08:00" });
   assert.deepEqual(read("every Friday at 5, move files older than six months from Downloads to Downloads/Archive").recurrence, { dailyAt: "17:00", weekdays: [5] });
@@ -29,7 +29,8 @@ test("the design's clock ideas are read with no model, and its event ideas are n
   assert.deepEqual(read("every hour, check a page and tell me only what changed since last time").recurrence, { intervalMs: 3_600_000 });
   assert.deepEqual(read("every month, check my card statement and tell me if a subscription price went up").recurrence, { dailyAt: "09:00", monthDay: 1 });
   assert.deepEqual(read("every Friday at 4, summarise what my Trunks did this week").recurrence, { dailyAt: "16:00", weekdays: [5] });
-  assert.deepEqual(read("remind me to stretch every 15 minutes"), { prompt: "remind me to stretch", recurrence: { intervalMs: 900_000 } });
+  assert.deepEqual(read("remind me to stretch every 15 minutes"), { prompt: "remind me to stretch", recurrence: { intervalMs: 900_000 }, time: "said" });
+  assert.deepEqual([read("every Sunday, find photos").time, read("every evening, lock up").time, read("every morning, sort mail").recurrence.dailyAt], ["none", "guessed", "08:00"]);
   assert.deepEqual(read("on Mondays and Thursdays at 9:15 am water the plants").recurrence, { dailyAt: "09:15", weekdays: [1, 4] });
   assert.deepEqual(read("every evening, check the doors are locked").recurrence, { dailyAt: "18:00" });
   for (const event of ["when a receipt arrives by email, file it in Receipts by the month it was paid",
@@ -46,6 +47,10 @@ test("a proposal is a schedule the schedule's own schema accepts, with its first
   assert.deepEqual(schedule, { prompt: "check my inbox for invoices", kind: "task", timezone: "UTC", dailyAt: "08:00",
     weekdays: [1, 2, 3, 4, 5], dueAt: firstRunAt, daysOff: "run" });
   assert.match(words, /^Every weekday at 08:00 \(UTC\), first on Fri 18 Sept?, 08:00$/);
+  const edited = await proposeSchedule({ edit: { prompt: "Check my inbox", dailyAt: "17:30", weekdays: [2] }, timezone: "UTC" }, { now: THURSDAY, defaultTimezone: "UTC" });
+  assert.deepEqual([edited.source, edited.time, edited.cron, edited.firstRunAt], ["edit", "said", "30 17 * * 2", "2026-09-22T17:30:00.000Z"], "the card's edit is read again, first run and all");
+  await assert.rejects(proposeSchedule({ text: "every day at 9, x", edit: { prompt: "x", dailyAt: "09:00" } }, { now: THURSDAY, defaultTimezone: "UTC" }), /either the words or the edited schedule/);
+  await assert.rejects(proposeSchedule({ edit: { prompt: "x", dailyAt: "09:00", gate: {} } }, { now: THURSDAY, defaultTimezone: "UTC" }), /Unrecognized key/);
   await assert.rejects(proposeSchedule({ text: "x", timezone: "Mars/Olympus" }, { now: THURSDAY, defaultTimezone: "UTC" }), /Unknown timezone/);
   await assert.rejects(proposeSchedule({ text: "when a PDF lands in Downloads, summarise it" }, { now: THURSDAY, defaultTimezone: "UTC" }),
     new RegExp(notASchedule.slice(0, 40)));

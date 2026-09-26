@@ -52,7 +52,7 @@ test("changed steps wait for the owner's yes, then replace the steps under the s
   const still = (await api("/api/autonomy/procedures")).procedures.find((p) => p.id === procedure.id);
   assert.deepEqual(still.procedure.steps, before.procedure.steps, "nothing changes before the yes");
   const again = await api(`/api/autonomy/procedures/${procedure.id}/propose`, { steps: changed, start: { kind: "every", minutes: 60 } });
-  assert.deepEqual([again.waiting, again.said], [false, "This exact change already waits for your answer."]);
+  assert.deepEqual([again.waiting, again.id, again.said], [true, asked.id, "This exact change already waits for your answer."], "asked again, it names the question already waiting");
 
   const { entries } = await api("/api/autonomy/ledger");
   const entry = entries.find((e) => e.id === asked.id);
@@ -69,6 +69,8 @@ test("changed steps wait for the owner's yes, then replace the steps under the s
   assert.ok(after[0].nextDueAt, "a new clock start is due");
   assert.deepEqual([after[0].stats, after[0].recent, after[0].createdAt, after[0].procedure.level, after[0].procedure.name],
     [before.stats, before.recent, before.createdAt, "auto", "Release notes"], "its runs, record, level and name are kept");
+  assert.equal(after[0].version, 2);
+  assert.deepEqual(after[0].history, [{ version: 1, steps: before.procedure.steps, start: { kind: "manual" }, from: before.createdAt }], "the version before is kept");
 });
 
 test("a change asked from steps that moved since, or while it runs, is refused and keeps waiting; a no blocks only that change", async (t) => {

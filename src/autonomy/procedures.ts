@@ -61,7 +61,13 @@ export interface ProcedureState {
   recent: { at: string; outcome: Outcome; note: string }[];
   levelNote: string;
   createdAt: string;
+  /** Which version of its steps is in use (1 until a change is approved), and since when. */
+  version?: number;
+  changedAt?: string;
+  /** The versions before it, oldest first, each with the steps and start it had and when it came into use. */
+  history?: { version: number; steps: Procedure["steps"]; start: Procedure["start"]; from: string }[];
 }
+const keptVersions = 20;
 
 const prefix = "autonomy-procedure:";
 export const maxProcedures = 20;
@@ -146,7 +152,9 @@ export class SelfStarting {
       ].join("\n"),
       payload: { procedureId: id, base, change } });
     if (entry) return { waiting: true, id: entry.id, said: "Nothing about the procedure changes until you say yes to this change." };
-    return { waiting: false, said: this.deps.ledger.refused(fingerprint) ? "You already said no to this exact change." : "This exact change already waits for your answer." };
+    const already = this.deps.ledger.list("pending").find((e) => e.fingerprint === fingerprint);
+    if (already) return { waiting: true, id: already.id, said: "This exact change already waits for your answer." };
+    return { waiting: false, said: this.deps.ledger.refused(fingerprint) ? "You already said no to this exact change." : "This exact change was already answered." };
   }
 
   /**
@@ -162,7 +170,10 @@ export class SelfStarting {
       throw new Error("Its steps or start changed after this was asked, so this change no longer fits. Say no to it and propose it again.");
     const procedure = ProcedureSchema.parse({ ...state.procedure, steps: change.steps, start: change.start });
     const moved = !isDeepStrictEqual(state.procedure.start, procedure.start) && state.status === "active";
-    return this.save({ ...state, procedure, ...(moved ? { nextDueAt: nextDue(procedure.start, this.now) } : {}) });
+    // The steps it had are kept as the version before, so the owner can see them and go back to them.
+    const version = state.version ?? 1, at = this.now.toISOString();
+    const history = [...(state.history ?? []), { version, steps: state.procedure.steps, start: state.procedure.start, from: state.changedAt ?? state.createdAt }].slice(-keptVersions);
+    return this.save({ ...state, procedure, version: version + 1, changedAt: at, history, ...(moved ? { nextDueAt: nextDue(procedure.start, this.now) } : {}) });
   }
 
   /** The owner changes the level or pauses it. Raising to "auto" clears the note about going back. */
