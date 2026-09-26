@@ -58,6 +58,11 @@ export async function refresh() {
   render();
 }
 
+/* Who is using Branch now: GET /api/profiles answers `active` as the person's profile ({ id, name, … }), or null for the
+   owner, whose name is the engine's owner label. */
+export const activeId = () => E.profiles?.active?.id ?? null;
+export const personHere = () => E.profiles?.active?.name || E.profiles?.roleLabels?.owner?.label || "";
+
 /* The level control: Regular 0, Advanced 1, Technical 2. */
 export const LEVELS = { regular: 0, advanced: 1, technical: 2 };
 export const level = () => LEVELS[S.level] ?? 0;

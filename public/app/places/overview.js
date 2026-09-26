@@ -1,7 +1,7 @@
 /* Overview: status dashboard and controls. */
 
 import { esc } from "../core/dom.js";
-import { S, E } from "../core/state.js";
+import { S, E, personHere } from "../core/state.js";
 import { ic, av } from "../core/ui.js";
 import { markLive } from "../core/features.js";
 import { api } from "../core/api.js";
@@ -83,7 +83,7 @@ function controlsTile() {
 }
 
 function usersTile() {
-  const identity = E.profiles?.profiles?.find((p) => p.id === E.profiles.active)?.name || E.profiles?.roleLabels?.owner?.label || "";
+  const identity = personHere();
   return `<div class="tile"><h2>Who is using Branch</h2><div data-css="display:flex;align-items:center;gap:10px;font-size:13px"><span class="me" data-css="width:26px;height:26px;font-size:11px">${esc(identity.charAt(0))}</span><span data-css="flex:1">${esc(identity)}</span></div><div class="acts"><button class="btn sm" type="button" data-act="invite">Invite someone</button></div></div>`;
 }
 

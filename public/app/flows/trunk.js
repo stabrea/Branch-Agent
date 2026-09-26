@@ -5,7 +5,7 @@
 
 import { $, esc, onRender } from "../core/dom.js";
 import { openDlg, closeDlg, closePop, toast, ic, av, mi } from "../core/ui.js";
-import { S, E, refresh } from "../core/state.js";
+import { S, E, refresh, activeId } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on, run } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -227,7 +227,7 @@ async function newTrunk() {
 let grp = null;
 
 function groupDlg() {
-  const people = (E.profiles?.profiles ?? []).filter((p) => p.id !== E.profiles?.active), agents = grp.agents;
+  const people = (E.profiles?.profiles ?? []).filter((p) => p.id !== activeId()), agents = grp.agents;
   const chip = (act, id, label, on) => `<button type="button" class="chip6" data-act="${act}" data-k="trunks" data-v="${esc(id)}" aria-pressed="${on}">${esc(label)}</button>`;
   openDlg({ title: "New group chat", wide: true, body: `<label class="fld"><span>Name</span><input class="inp" id="grp-name" value="${esc(grp.name)}"></label>
     <div class="fld"><span>Trunks · two to six</span><span class="chips8">${E.trunks.map((t) => chip("grp-pick", t.id, t.name, grp.trunks.includes(t.id))).join("")}</span></div>
@@ -266,7 +266,7 @@ async function makeRoom() {
 }
 
 export function init() {
-  markLive(["edit", "st-tab", "st-colour", "st-shape", "st-anim", "st-shuffle", "st-save", "emo15", "pin", "rename", "rename-save", "remove", "trunk-remove-yes", "tmpl", "grp-new", "grp-pick", "grp-make", "new-trunk"]);
+  markLive(["sw:st-name", "sw:st-role", "sw:rn-name", "sw:grp-name", "edit", "st-tab", "st-colour", "st-shape", "st-anim", "st-shuffle", "st-save", "emo15", "pin", "rename", "rename-save", "remove", "trunk-remove-yes", "tmpl", "grp-new", "grp-pick", "grp-make", "new-trunk"]);
   on("new-trunk", () => newTrunk());
   on("edit", (el) => editTrunk(el.dataset.id));
   on("st-tab", (el) => { keepFields(); ed.tab = el.dataset.v; drawEditor(); });
