@@ -56,17 +56,13 @@ async function openSettings(page, id) {
   await settle(page, 1200);
 }
 
-/* 9: Practice first says the prototype's words. */
-async function practice(page, asked) {
+/* 9: the first run has no practice door any more (the owner's decision: setup is how a model is chosen). */
+async function practice(page) {
   if (!(await page.locator(".first").count())) { await page.locator('[data-act="owner"]').first().click(); await page.locator('.pop [data-act="firstrun"]').click(); }
   await page.locator(".first").waitFor();
-  for (let i = 0; i < 3 && !(await page.locator('.first [data-act="fr-way"]').count()); i++) { await page.locator('.first [data-act="fr-next"]').first().click(); await settle(page, 300); }
-  const since = Date.now();
-  await page.locator('.first [data-act="fr-way"]').click();
-  const said = await until(async () => (await page.locator(".toast").allTextContents()).find((t) => t.includes("Practice mode")));
-  check("9 practice(): says the prototype's sentence", said?.includes("Practice mode: examples only until you choose a model."), said ?? "no toast");
-  const sent = asked.find((r) => r.at >= since && r.method === "POST" && r.path === "/api/onboarding");
-  check("9 practice(): the window finished the first run with the engine first", sent?.body === JSON.stringify({ done: true }) && (await api("state")).onboarding?.done !== false, sent?.body ?? "not sent");
+  await page.locator('.first [data-act="fr-next"]').first().click(); await settle(page, 300);
+  const think = await page.locator(".first").innerText();
+  check("9 first run: How should Branch think? has no practice door", think.includes("How should Branch think?") && !/Practice/.test(think), think.slice(0, 160));
   for (let i = 0; i < 8 && (await page.locator(".first").count()); i++) {
     const out = page.locator('.first [data-act="fr-skip"], .first [data-act="welcome-x"], .first [data-act="fr-next"]').first();
     if (!(await out.count())) break;
@@ -249,7 +245,7 @@ async function lookFollows(page) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 } });
   const { page, errors, asked } = await signIn(context);
   try {
-    await practice(page, asked);
+    await practice(page);
     await gate(page, asked);
     await narrow(page);
     await household(page);

@@ -521,7 +521,7 @@ test.skip("R17-S16: the status line shows the pieces picked, and each message sh
   await page.evaluate(() => globalThis.branchComfort.refreshStatus());
   await page.waitForFunction(() => document.querySelectorAll("#conversation .message .message-time").length >= 2);
   const line = await page.locator("#comfort-status").textContent();
-  assert.match(line, /^Offline demonstration · \d+% of the room used · /);
+  assert.match(line, /^Test fixture · \d+% of the room used · /);
   const times = await page.locator("#conversation .message-time").evaluateAll((nodes) => nodes.map((node) => node.dateTime));
   assert.ok(times.every((value) => !Number.isNaN(Date.parse(value))), JSON.stringify(times));
   saveComfort(app.store, "local", "display", { statusLine: null, timestamps: false });

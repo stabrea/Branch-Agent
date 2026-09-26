@@ -312,7 +312,7 @@ async function start(): Promise<void> {
   const branch = await createBranch({
     dataDir,
     workspace,
-    presets: [defaultPreset(desktopProvider(settings), settings.summary().model || undefined)],
+    presets: desktopPresets(settings),
     chatgpt,
     bannerWindow: electronBannerWindow({
       create: (options) => new BrowserWindow(options),
@@ -456,8 +456,13 @@ function desktopProvider(settings: DesktopSettings) {
     return providerFromEnv(settings.environment());
   } catch {
     settings.reportConnectionIssue();
-    return providerFromEnv({ BRANCH_PROVIDER: "demo" });
+    return null;
   }
+}
+/** The saved connection as the one preset, or none: then every message is refused in plain words until a model is set up. */
+function desktopPresets(settings: DesktopSettings) {
+  const provider = desktopProvider(settings);
+  return provider ? [defaultPreset(provider, settings.summary().model || undefined)] : [];
 }
 
 app.setName("Branch Agent");

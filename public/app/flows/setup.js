@@ -172,8 +172,10 @@ async function load(o) {
   });
 }
 
-export async function openSetup() {
-  S.ob = { i: 0, trust: false, where: "this", pools: [], local: [], channels: [], connected: [], servers: [], gw: "off", asks: "ask", tpls: new Set(), test: null, checks: [], error: "", gwNote: "" };
+/* jump: the step "Start" goes to once the trust box is ticked; the message box's "Set up" (chat/nomodel.js) asks for the
+   Models step when no model is set up yet. */
+export async function openSetup(jump = 1) {
+  S.ob = { i: 0, jump, trust: false, where: "this", pools: [], local: [], channels: [], connected: [], servers: [], gw: "off", asks: "ask", tpls: new Set(), test: null, checks: [], error: "", gwNote: "" };
   draw();
   await load(S.ob).catch(() => {});
   draw();
@@ -282,9 +284,9 @@ async function saveGateway(v) {
 
 export function init() {
   markLive(["sw:ob-trust", "sw:ob-lang", "onboard", "ob-go", "ob-next", "ob-close", "ob-done", "ob-set", "ob-test", "ob15", "ob-tpl", "ob-gw"]);
-  on("onboard", () => openSetup());
+  on("onboard", (el) => openSetup(Number(el?.dataset?.v) || 1));
   on("ob-go", (el) => go(+el.dataset.v));
-  on("ob-next", () => go(S.ob.i + 1));
+  on("ob-next", () => go(S.ob.i === 0 ? S.ob.jump : S.ob.i + 1));
   on("ob-close", () => close());
   on("ob-done", () => finish());
   on("ob-set", (el) => { S.ob[el.dataset.k] = el.dataset.v; draw(); });

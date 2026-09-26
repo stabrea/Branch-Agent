@@ -477,7 +477,7 @@ test("R17-S21: the terminal's Settings pages carry real controls, /switch change
   const done = tui.start();
   t.after(async () => { input.write("\x04"); await done; });
   for (let i = 0; i < 20 && !tui.palette; i++) await delay(10);
-  assert.equal(tui.model().status, "Offline demonstration · no price on file", "the owner's status line (model, cost) is in the foot");
+  assert.equal(tui.model().status, "Test fixture · no price on file", "the owner's status line (model, cost) is in the foot");
   switchComfort(branch.store, "local", "statusLine", "default", english);
   assert.match(tui.model().status, / in \/ .* out · /, "as always, the line that was there");
   await tui.command("/switch vim on");

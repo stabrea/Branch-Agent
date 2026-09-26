@@ -36,7 +36,6 @@
     "test": "npm run build && node scripts/run-tests.mjs",
     "start": "npm run build && node dist/cli.js start",
     "chat": "npm run build && node dist/cli.js chat",
-    "demo": "npm run build && node dist/cli.js demo",
     "doctor": "npm run build && node dist/cli.js doctor",
     "desktop": "npm run build && electron .",
     "package:desktop": "npm run build && node scripts/dependency-notices.mjs && node scripts/package-desktop.mjs",
