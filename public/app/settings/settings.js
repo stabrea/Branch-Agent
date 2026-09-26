@@ -56,9 +56,13 @@ function open(id) {
   if (!started.has(id)) { started.add(id); return page.init?.(); }
   return page.load?.();
 }
+/* Only the latest choice is shown: a page still reading when another is picked does not pull the person back. */
+let asked = null;
 async function go(id) {
+  asked = id;
   const reading = open(id);
   if (PAGES[id]?.waitFirst) await reading;
+  if (asked !== id) return;
   S.setPage = id;
   renderNow();
 }
