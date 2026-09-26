@@ -130,16 +130,22 @@ async function makeChoices(page) {
   const look = await until("look saved", async () => { const s = await api("state"); return s.preferences?.followSystem === false && s.preferences?.appearance === "forest" ? s.preferences : null; });
   check("Make it yours: Dark and Plan first are saved (GET /api/state preferences, GET /api/conversation-mode/settings)", look);
   await next(page); // Trunks
+  // The owner's own path: the setup that opened by itself, a few steps in, and a plain reload (nothing cleared).
+  await until("the step saved", async () => (await onboarding()).step === "trunks");
+  await page.reload();
+  await ob(page).waitFor({ state: "visible", timeout: 30000 });
+  const p = await probe(page);
+  check("a plain reload mid-setup goes straight back to setup, the window never shown first", p.sawSetup && !p.shellBeforeSetup, JSON.stringify(p));
+  check("and resumes at the step it was on (Your first Trunks)", (await at(page)) === 4, String(await at(page)));
   await page.locator('.ob9 [data-act="ob-tpl"][data-i="0"]').click();
   const tplName = await page.locator('.ob9 [data-act="ob-tpl"][data-i="0"] b').innerText();
-  await next(page); // Reach (makes the Trunk)
-  const trunks = await until("the Trunk", async () => (await api("trunks")).trunks.some((t) => t.name === tplName));
-  check("Trunks: continuing makes the picked Trunk (GET /api/trunks)", trunks, tplName);
-  await shot(page, "02-halfway-reach");
+  await shot(page, "02-halfway-trunks");
   const before = await onboarding();
-  await skip(page);
+  await skip(page); // straight from the step, the pick not yet made
+  const trunks = await until("the Trunk", async () => (await api("trunks")).trunks.some((t) => t.name === tplName));
+  check("Trunks: a template picked and then Skip for now is still made (GET /api/trunks)", trunks, tplName);
   const after = await onboarding();
-  check("leaving halfway keeps the step and the steps done (GET /api/onboarding)", after.step === "reach" && ["welcome", "where", "models", "yours", "trunks"].every((id) => after.completed.includes(id)), `${after.step} · ${after.completed}`);
+  check("leaving halfway keeps the step and the steps done (GET /api/onboarding)", after.step === "trunks" && ["welcome", "where", "models", "yours", "trunks"].every((id) => after.completed.includes(id)), `${after.step} · ${after.completed}`);
   check("leaving halfway is noted as skipped, and changes nothing else", after.skipped === true && after.where === before.where && after.trust === true);
   return tplName;
 }
@@ -157,9 +163,9 @@ async function reopen(page, tplName) {
   await shot(page, "03-guide-menu");
   await page.locator('.pop [data-act="onboard-resume"]').click();
   await ob(page).waitFor();
-  check("Guide › Onboarding opens at the step left on (Reach it anywhere)", (await at(page)) === 5, String(await at(page)));
+  check("Guide › Onboarding opens at the step left on (Your first Trunks)", (await at(page)) === 4, String(await at(page)));
   const ticked = await ticks(page);
-  check("the rail ticks the steps done", [0, 1, 2, 3, 4].every((j) => ticked.includes(j)) && !ticked.includes(5), JSON.stringify(ticked));
+  check("the rail ticks the steps done", [0, 1, 2, 3].every((j) => ticked.includes(j)) && !ticked.includes(5), JSON.stringify(ticked));
   await go(page, 1);
   check("Where shows Later, as saved", (await pressedIn(page, '[data-act="ob-set"][data-v="later"]')) === "true" && (await pressedIn(page, '[data-act="ob-set"][data-v="this"]')) === "false");
   await go(page, 3);
@@ -169,12 +175,17 @@ async function reopen(page, tplName) {
   await shot(page, "04-reopened-trunks");
   // Setup was opened again and not left: a reload goes straight back to it, at the step it was on.
   check("opening setup again means it is no longer skipped (GET /api/onboarding)", (await onboarding()).skipped === false);
+  await page.reload(); // this browser's storage as it is
+  await ob(page).waitFor({ state: "visible", timeout: 30000 });
+  let p = await probe(page);
+  check("after reopening from the Guide, a plain reload goes straight into setup, the window never shown first", p.sawSetup && !p.shellBeforeSetup, JSON.stringify(p));
+  check("at the saved step", (await at(page)) === 4, String(await at(page)));
   await page.evaluate(() => { try { localStorage.clear(); } catch (error) { return error.message; } return ""; });
   await page.reload();
   await ob(page).waitFor({ state: "visible", timeout: 30000 });
-  const p = await probe(page);
-  check("reload while setup is due: straight into setup, the window never shown first", p.sawSetup && !p.shellBeforeSetup, JSON.stringify(p));
-  check("with this browser's storage cleared, setup still resumes at the saved step (the engine's)", (await at(page)) === 4, String(await at(page)));
+  p = await probe(page);
+  check("with this browser's storage cleared, a reload still goes straight into setup", p.sawSetup && !p.shellBeforeSetup, JSON.stringify(p));
+  check("and resumes at the saved step (the engine's)", (await at(page)) === 4, String(await at(page)));
   await shot(page, "05-reload-straight-to-setup");
   await skip(page);
   await guide(page);

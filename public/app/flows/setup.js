@@ -304,12 +304,16 @@ export function onboardingHint() {
 
 /* "Skip for now", Escape: everything chosen is already saved; the engine notes setup was skipped, so a reload lands in
    the window rather than back in setup (flows/flows.js). */
-function close() {
-  if (S.ob) progress(S.ob, { skipped: true });
+async function close() {
+  const o = S.ob;
+  if (!o) return;
+  if (o.i === 4 && (o.tpls.size || o.picks.size)) { // Trunks picked and not yet made are made on leaving, as Continue does
+    try { await makeTrunks(o); doneWith(o, "trunks"); } catch (error) { o.error = error.message; draw(); return; }
+  }
+  progress(o, { skipped: true });
   $(".ob9")?.remove();
   S.ob = null;
   origin.setup = false;
-  try { localStorage.setItem("branch-setup-seen", "1"); } catch { /* private window */ }
 }
 
 /* Leaving "Your first Trunks" makes each picked template a Trunk, skipping names that already exist. Picking one is

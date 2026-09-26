@@ -39,10 +39,15 @@ export function init() {
    over it the window shows only its plain background (#app.ob-due), so a reload goes straight to setup, at the step
    the person was on, with no glimpse of the window first. An automated test marks it done through the engine
    (POST /api/onboarding {done: true}) before it opens the window. */
-const legacySeen = () => { try { return !!localStorage.getItem("branch-setup-seen"); } catch (error) { return false; } }; // set by windows before setup was kept by the engine
+/* Windows from before setup was kept by the engine noted "seen" in this browser; that note counts only while the
+   engine has no record of setup at all. */
+const legacySeen = (p) => {
+  if (p.step != null || (p.completed ?? []).length || p.skipped) return false;
+  try { return !!localStorage.getItem("branch-setup-seen"); } catch (error) { return false; }
+};
 function setupDue() {
   const p = E.state?.onboarding;
-  return !!p?.mine && (!p.done || p.step != null) && !p.finishedAt && !p.skipped && p.popups !== false && !legacySeen() && !S.ob && !/(^|[#&])(open|task)=/.test(location.hash);
+  return !!p?.mine && (!p.done || p.step != null) && !p.finishedAt && !p.skipped && p.popups !== false && !legacySeen(p) && !S.ob && !/(^|[#&])(open|task)=/.test(location.hash);
 }
 function checkFirstRun() {
   if (firstRunChecked || !E.state) return;
