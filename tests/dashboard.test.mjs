@@ -45,8 +45,9 @@ test("the dashboard ships off: its page is not served and its summary refuses un
   for (const path of ["/dashboard", "/dashboard/dashboard.js", "/dashboard/dashboard.css"])
     assert.equal((await fetch(f.server.url + path)).status, 404, `${path} is served while the switch is off`);
   assert.equal((await f.call("/api/dashboard")).status, 404);
-  /* The switch card is part of the window, so it is served either way. */
-  assert.equal((await fetch(f.server.url + "/dashboard-card.js")).status, 200);
+  // Redesign: the old window's switch card (/dashboard-card.js) left with that window; the new window follows the
+  // dashboard's links itself (public/app/main.js followLink), so nothing of the dashboard is served while it is off.
+  assert.notEqual((await fetch(f.server.url + "/dashboard-card.js")).status, 200);
   assert.deepEqual(await (await f.call("/api/dashboard/settings")).json(), { mode: "off", access: "full" });
 
   const saved = await f.call("/api/dashboard/settings", f.server.token, { mode: "when-needed" });
@@ -70,15 +71,17 @@ test("every file the dashboard loads is served, and nothing it links to is missi
     for (const m of source.matchAll(/^import\s+[^"']*["'](\/[a-z0-9/-]+\.js)["']/gm)) referenced.add(m[1]);
   }
   for (const name of await readdir(DASHBOARD))
-    referenced.add(name === "index.html" ? "/dashboard" : name === "card.js" ? "/dashboard-card.js" : `/dashboard/${name}`);
+    referenced.add(name === "index.html" ? "/dashboard" : `/dashboard/${name}`);
   const missing = [];
   for (const path of referenced) {
     const response = await fetch(f.server.url + path);
     if (response.status !== 200) missing.push(`${path} → ${response.status}`);
   }
   assert.deepEqual(missing, []);
+  // Redesign: the new window's page loads one module (public/app/main.js), which follows /#open= and /#task= links.
   const index = await readFile(join(PUBLIC, "index.html"), "utf8");
-  assert.match(index, /<script src="\/dashboard-card\.js" type="module"><\/script>\s*<script src="\/layout\.js"/);
+  assert.match(index, /<script type="module" src="\/app\/main\.js"><\/script>/);
+  assert.equal(index.includes("/dashboard-card.js"), false, "the old window's card is not loaded");
 });
 
 test("the summary answers Now, Health, Spend and Activity from what Branch already keeps", async (t) => {

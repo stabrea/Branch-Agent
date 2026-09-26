@@ -500,7 +500,7 @@ async function staticFile(
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
     "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
     "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
-    // Wave mac3: the owner's dashboard and the card that switches it on. While the dashboard is off, isDashboardFile keeps
+    // Wave mac3: the owner's dashboard (the old window's card that switched it on left with that window). While it is off, isDashboardFile keeps
     // every /dashboard path unserved. Its stylesheets and modules, including its own copies of the words, the theme
     // bridge, the oak, the look and the event reader that left public/ with the old window (#291):
     "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
@@ -518,7 +518,6 @@ async function staticFile(
     "/dashboard/grove.js": ["dashboard/grove.js", "text/javascript; charset=utf-8"],
     "/dashboard/appearance.js": ["dashboard/appearance.js", "text/javascript; charset=utf-8"],
     "/dashboard/activity-feed.js": ["dashboard/activity-feed.js", "text/javascript; charset=utf-8"],
-    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
     // One theme's colours under Branch's token names; the engine reads it too (src/terminal-theme.ts, src/achievements.ts).
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
     // Wave 8: the small box a page of the owner's own can include; served only while the owner has switched it on.
