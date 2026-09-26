@@ -4,7 +4,7 @@
    What it may do (the permission switches) stays greyed: loosening a Trunk is not done from here. */
 
 import { $, esc, onRender } from "../core/dom.js";
-import { openDlg, closeDlg, closePop, toast, ic, av, mi } from "../core/ui.js";
+import { openDlg, closeDlg, closePop, toast, ic, av, mi, COLOURS, SHAPES, SHAPE_NAMES, hex, faceOf } from "../core/ui.js";
 import { S, E, refresh, activeId } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on, run } from "../core/actions.js";
@@ -12,10 +12,7 @@ import { markLive } from "../core/features.js";
 import { initPause } from "./pause.js";
 import { LOOKS17, look17 } from "../core/art17.js";
 
-export const COLOURS = ["#2F8C86", "#D8612A", "#8A5AA8", "#5E8C4A", "#4F6FA8", "#C9982E", "#B84A6B", "#56616B"];
-/* The prototype draws five shapes; the engine names seven (src/trunks/look.ts). Shape i is saved as SHAPE_NAMES[i]. */
-const SHAPES = ["50%", "58% 42% 54% 46% / 52% 56% 44% 48%", "46% 54% 42% 58% / 60% 44% 56% 40%", "62% 38% 50% 50% / 45% 55% 45% 55%", "42% 58% 58% 42% / 50% 42% 58% 50%"];
-const SHAPE_NAMES = ["circle", "pebble", "leaf", "acorn", "shield"];
+/* The prototype's colours and shapes (COLOURS, SHAPES, SHAPE_NAMES) are kept beside av() in core/ui.js. */
 /* The prototype's Bob is the engine's sway (the engine has no bob). */
 const MOTIONS = [["none", "None"], ["breathe", "Breathe"], ["sway", "Bob"]];
 const EMOJI = ["🦊", "🦉", "🐢", "🍄", "🌿", "🐝", "🦔", "🐙", "🌻", "🪴", "🐧", "🦜"];
@@ -23,10 +20,9 @@ const LOOK = { face: "pattern", letters: "", emoji: "", shuffle: 0, colour: null
 /* The prototype's jobs: name, what it does, colour, shape. */
 export const TEMPLATES = [["Inbox Manager", "Clears your inbox and drafts replies in your voice", "#4F6FA8", 0], ["Expense Manager", "Files receipts and builds monthly reports", "#D8612A", 2], ["Researcher", "Reads the web and writes short briefs with sources", "#2F8C86", 1], ["Chief of Staff", "Plans your week and chases loose ends", "#56616B", 3], ["Bug Reproduction", "Turns a bug report into exact steps", "#B84A6B", 4], ["Trip Planner", "Finds and books refundable travel", "#8A5AA8", 3]];
 
-const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v ?? "")) ? String(v).toLowerCase() : null);
 export const lookOf = (t) => ({ ...LOOK, ...(t?.look ?? {}) });
-/* What av() draws from: the engine keeps the colour as chosenColour and the emoji inside look. */
-export const face = (t) => ({ name: t?.name, color: hex(t?.chosenColour), emoji: lookOf(t).face === "emoji" ? lookOf(t).emoji : "", paused: !!t?.paused, character: t?.character ?? null });
+/* What av() draws from, the same face wherever a Trunk is drawn (core/ui.js faceOf). */
+export const face = faceOf;
 const trunkById = (id) => E.trunks.find((t) => t.id === id);
 const trunkOfChat = (sid = S.chat) => E.trunks.find((t) => t.chatSessionId === sid);
 let rooms = [];
@@ -103,7 +99,7 @@ function mayTab() {
 function drawEditor() {
   const t = trunkById(ed.id);
   if (!t) { closeDlg(); ed = null; return; }
-  const d = ed.d, prev = { name: d.name, color: d.colour, emoji: face(t).emoji, character: face(t).character };
+  const d = ed.d, prev = { name: d.name, color: d.colour, shape: d.shape, emoji: face(t).emoji, character: face(t).character };
   const tabs = [["look", "Look"], ["may", "What it may do"]].map(([k, l]) => `<button class="tab" role="tab" type="button" aria-selected="${ed.tab === k}" data-act="st-tab" data-v="${k}">${l}</button>`).join("");
   const body = ed.tab === "look" ? lookPicker(t) + emojiRow(t) + lookTab(d) : mayTab();
   openDlg({ title: `Edit ${t.name}`, wide: true,

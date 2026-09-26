@@ -10,17 +10,39 @@ export const app = () => document.getElementById("app");
 
 export const ic = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
+/* The prototype's eight Trunk colours and five shapes (prototype.html COLOURS, SHAPES). The engine names seven shapes
+   (src/trunks/look.ts); shape i is saved as SHAPE_NAMES[i]. */
+export const COLOURS = ["#2F8C86", "#D8612A", "#8A5AA8", "#5E8C4A", "#4F6FA8", "#C9982E", "#B84A6B", "#56616B"];
+export const SHAPES = ["50%", "58% 42% 54% 46% / 52% 56% 44% 48%", "46% 54% 42% 58% / 60% 44% 56% 40%", "62% 38% 50% 50% / 45% 55% 45% 55%", "42% 58% 58% 42% / 50% 42% 58% 50%"];
+export const SHAPE_NAMES = ["circle", "pebble", "leaf", "acorn", "shield"];
+export const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v ?? "")) ? String(v).toLowerCase() : null);
+/* A colour or shape left empty is the one its name gives (src/trunks/look.ts), picked from the eight colours and five
+   shapes with the prototype's own name hash (prototype.html logo, wave15). */
+const nameHash = (name) => { let h = 0; for (const ch of String(name ?? "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
+const shapeIndex = (t) => {
+  const named = SHAPE_NAMES.indexOf(t.look ? t.look.shape : t.shape);
+  if (named >= 0) return named;
+  return Number.isInteger(t.shape) && SHAPES[t.shape] ? t.shape : nameHash(t.name) % SHAPES.length;
+};
+/* What a Trunk's face is drawn from, the same everywhere: the engine keeps the colour as chosenColour and the emoji and
+   shape inside look (GET /api/trunks); a face already drawn from (color, emoji, shape) passes through. */
+export function faceOf(t) {
+  const look = t?.look ?? {};
+  const emoji = t?.look ? (look.face === "emoji" ? look.emoji || "" : "") : t?.emoji || "";
+  return { name: t?.name, color: hex(t?.chosenColour) ?? hex(t?.color) ?? COLOURS[nameHash(t?.name) % COLOURS.length].toLowerCase(),
+    shape: SHAPE_NAMES[shapeIndex(t ?? {})], emoji, paused: !!t?.paused, character: t?.character ?? null, lookStill: t?.lookStill };
+}
+
 /* A Trunk's face: its character still if it has a look, its emoji on a pebble, else the pebble with eyes. */
 export function av(trunk, size = 40) {
   if (!trunk) return "";
-  const wanted = String(trunk.color || trunk.colour || "");
-  const colour = /^#[0-9a-f]{3,8}$/i.test(wanted) ? wanted : "#2F6F5E";
-  const css = `--s:${size}px;--c:${colour}`;
-  const paused = trunk.paused ? " paused" : ""; // a paused Trunk's face is drawn grey (GET /api/trunks `paused`)
   if (trunk.kind === "main" || trunk.isBranch) return `<span class="av brand" data-css="--s:${size}px;--r:30%" aria-hidden="true"><span class="peb"></span><span class="mark mark-face"></span></span>`;
-  const still = trunk.lookStill || look17(trunk.character)?.still; // pass 17: the character the engine says it wears
+  const f = faceOf(trunk);
+  const css = `--s:${size}px;--c:${f.color};--r:${SHAPES[SHAPE_NAMES.indexOf(f.shape)]}`;
+  const paused = f.paused ? " paused" : ""; // a paused Trunk's face is drawn grey (GET /api/trunks `paused`)
+  const still = f.lookStill || look17(f.character)?.still; // pass 17: the character the engine says it wears
   if (still) return `<span class="av look12${paused}" data-css="${css}" aria-hidden="true"><img src="${esc(still)}" alt="" loading="lazy" draggable="false"></span>`;
-  if (trunk.emoji) return `<span class="av emoji15${paused}" data-css="${css}" aria-hidden="true"><span class="peb"></span><i data-css="font-size:${Math.round(size * 0.56)}px">${esc(trunk.emoji)}</i></span>`;
+  if (f.emoji) return `<span class="av emoji15${paused}" data-css="${css}" aria-hidden="true"><span class="peb"></span><i data-css="font-size:${Math.round(size * 0.56)}px">${esc(f.emoji)}</i></span>`;
   return `<span class="av${paused}" data-css="${css}" aria-hidden="true"><span class="peb"></span><span class="eye l"></span><span class="eye r"></span></span>`;
 }
 
