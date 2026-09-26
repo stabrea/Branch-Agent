@@ -23,7 +23,9 @@ const hl = (text, q) => {
   return (a ? "…" : "") + esc(s.slice(0, j)) + "<mark>" + esc(s.slice(j, j + q.length)) + "</mark>" + esc(s.slice(j + q.length)) + (i + q.length + 60 < t.length ? "…" : "");
 };
 const idOf = (s) => s.sessionId ?? s.id;
-const titleOf = (s) => s.opening || s.title || "";
+/* A Trunk's or a room's own conversation is found and shown by its name, as the list's rows are (shell.js ownName). */
+const ownName = (id) => (id ? E.trunks.find((t) => t.chatSessionId === id || (t.retiredChats ?? []).includes(id))?.name || E.rooms.find((r) => r.sessionId === id)?.name : "");
+const titleOf = (s) => ownName(idOf(s)) || s.opening || s.title || "";
 const trunkOf = (s) => E.trunks.find((t) => t.id === s.trunkId || t.id === s.trunk?.id || (t.chatSessionId && t.chatSessionId === (s.sessionId ?? s.id)));
 const day = (t) => (t ? new Date(t).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
 
