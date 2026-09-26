@@ -120,6 +120,7 @@ async function loadKnobs() {
   renderNow();
 }
 async function saveSteps(box) {
+  if (!/^\d+$/.test(box.value.trim())) { renderNow(); return; }
   try { knobs = await api("knobs", { card: "limits", values: { maxSteps: Number(box.value) } }); } catch (error) { toast(error.message); }
   renderNow();
 }
@@ -146,8 +147,9 @@ const seg = (label, opts) => `<span class="right"><span class="seg" role="group"
 const num = (label, unit) => `<span class="right num15"><input class="inp" aria-label="${label}" disabled>${unit ? `<small>${unit}</small>` : ""}</span>`;
 const steps = () => {
   const value = knobs?.values?.limits?.maxSteps;
-  return value == null ? num("Most steps in one task", "steps")
-    : `<span class="right num15"><input class="inp" id="m-steps" type="number" min="1" max="500" step="1" value="${esc(value)}" aria-label="Most steps in one task"><small>steps</small></span>`;
+  /* A plain box, as the prototype's num15; nothing is shown until the engine has said what it keeps. */
+  return value == null ? ""
+    : `<span class="right num15"><input class="inp" id="m-steps" value="${esc(value)}" aria-label="Most steps in one task"><small>steps</small></span>`;
 };
 const row = (b, right, small = "") => `<div class="ctl"><b>${b}</b>${right}<small>${small}</small></div>`;
 const sw = (id, b, small) => `<div class="ctl"><b>${b}</b><input class="sw" type="checkbox" id="${id}" aria-label="${b}" data-sw="set"><small>${small}</small></div>`;
