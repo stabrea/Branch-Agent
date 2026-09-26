@@ -142,9 +142,12 @@ async function whatsNew(page) {
   await page.locator(".settings").waitFor();
   await page.locator('[data-act="setpage"][data-v="updates"]').first().click();
   await settle(page, 800);
+  check("Updates › What's new: live", await live(page.locator('.settings [data-act="whatsnew13"]')));
   await page.locator('.settings [data-act="whatsnew13"]').click();
+  await page.locator(".dlg .new13").waitFor();
   check("Updates › What's new opens the same notes", (await page.locator(".dlg .new-row13").count()) === engine.items.length);
   await page.locator('.dlg [data-act="dlg-close"]').first().click();
+  await page.locator(".dlg").waitFor({ state: "detached" });
   await page.keyboard.press("Escape");
   await settle(page, 400);
 }
@@ -154,8 +157,10 @@ async function whatsNew(page) {
 async function flag(page) {
   await page.evaluate((id) => document.querySelector(`[data-act="chat"][data-id="${id}"]`)?.click(), SESSION);
   await settle(page, 1500);
-  const button = page.locator('.b [data-act="flag"]').first();
+  const row = page.locator(".b[data-i15]").first();
+  const button = row.locator('.msg-acts [data-act="flag"]');
   check("flag: live on a reply", await live(button));
+  await row.hover();
   await button.click();
   await page.locator("#fl-note17c").waitFor();
   check("flag: sending to the Branch team stays greyed", !(await live(page.locator("#fl-send17c"))) && !(await live(page.locator('.dlg [data-act="flgo17c"]'))));
