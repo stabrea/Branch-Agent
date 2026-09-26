@@ -106,7 +106,7 @@ test("U1 the markdown fixture renders its real structure and never becomes marku
   assert.deepEqual(shape.tableHeads, ["Thing", "What it does"]);
   assert.equal(shape.tableCells, 4);
   assert.equal(shape.link, "https://example.com/docs");
-  assert.equal(shape.linkTarget, null, "links rely on rel=noopener, not target=_blank (prototype markdown.js)");
+  assert.equal(shape.linkTarget, "_blank", "links open outside the app");
   assert.ok(shape.inlineCode.includes("branch start"), "inline code became a code element");
   assert.equal(shape.language, "javascript", "the fence's language is written out");
   assert.equal(shape.copyLabel, "Copy");
