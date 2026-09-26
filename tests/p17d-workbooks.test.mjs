@@ -15,7 +15,7 @@
  * - start(): drop `permissions: this.permissions()`       -> "the task sees only" fails (it gets every tool).
  * - permissions(): drop the LEARN_TOOLS filter             -> "the task sees only" fails.
  * - settle(): drop the sessionId check                      -> "running the checks again" fails (a finished run fails the next).
- * - save(): drop the session check                         -> "only the task started for it" fails.
+ * - save(): drop `sessionId !== book.sessionId`             -> "a task in another conversation cannot save" fails.
  * - makeSkill(): drop the `store.skills.disable` step      -> "installed switched off" fails.
  * - makeSkill(): drop the detectInjection refusal           -> "an order slipped in" fails.
  * - learnPrompt(): pass `JSON.stringify(before)` unfenced   -> "fenced as data" fails.
@@ -55,6 +55,8 @@ function learner(plan) {
     const results = request.messages.slice(lastUser).filter((m) => m.role === "tool").length;
     seen.push({ tools: (request.tools ?? []).map((t) => t.name), prompt: first, all: JSON.stringify(request.messages) });
     if (!id || plan.mode === "silent") return { content: "Done.", toolCalls: [] };
+    // plan.hold: the learning task waits here, still learning, until the test lets it go.
+    if (plan.hold && results === 0) await new Promise((resolve) => plan.hold.push(resolve));
     // plan.first: one browser step before saving (to see how the engine answers it).
     if (plan.first && results === 0) return { content: "", toolCalls: [{ id: `f${seen.length}`, name: plan.first.name, arguments: JSON.stringify(plan.first.args) }] };
     if (results > (plan.first ? 1 : 0)) return { content: "Done.", toolCalls: [] };
@@ -233,4 +235,29 @@ test("a learning task's conversation carries nothing of the owner's: no remember
   const book = await bookOf(ask, id);
   const snap = app.store.events(book.runId).find((e) => e.kind === "memory.snapshot");
   assert.deepEqual([snap.data.count, snap.data.sealed], [0, true]);
+});
+
+test("a task in another conversation cannot save a workbook that is still learning, and it is left unchanged", async (t) => {
+  const plan = { hold: [] };
+  const { app, ask } = await fixture(t, plan);
+  // Let the held task go however this ends, or closing the engine would wait on it for ever.
+  const release = () => { for (const go of plan.hold.splice(0)) go(); };
+  try {
+    const id = (await ask("/api/workbooks/learn", { what: "A held page" })).body.workbook.id;
+    await until(async () => plan.hold.length === 1);
+    const before = app.workbooks.get(id);
+    assert.equal(before.status, "learning");
+    // An ordinary task holds workbooks.write (it is not withheld), so only the conversation check stands in the way.
+    const stranger = app.store.createRun(app.runtime.owner, "another conversation");
+    assert.notEqual(stranger.sessionId, before.sessionId);
+    const context = app.runtime.context({ runId: stranger.id });
+    assert.ok(context.permissions.has("workbooks.write"), "an ordinary task holds the permission");
+    await assert.rejects(app.registry.execute("workbook.save", { workbookId: id, source: "evil.example", must: MUSTS }, context),
+      /Only the task learning this workbook can save it/);
+    const after = app.workbooks.get(id);
+    assert.deepEqual([after.status, after.must, after.source, after.updatedAt], [before.status, [], "", before.updatedAt], "the workbook is unchanged");
+    release();
+    await until(async () => (await bookOf(ask, id)).status === "ready");
+    assert.equal(app.workbooks.get(id).source, "portal.example/orders", "its own task still saves it");
+  } finally { release(); }
 });
