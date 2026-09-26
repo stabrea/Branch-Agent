@@ -105,9 +105,12 @@ test("with tips and pop-ups off, achievements are earned without a pop-up; house
   const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
   app.store.profiles.switch({ profileId: person.id, pin: "1234" });
   t.after(() => app.store.profiles.switch({ profileId: null }));
-  const theirs = (await call("onboarding")).data;
-  assert.equal(theirs.mine, false);
-  assert.deepEqual(theirs.completed, []);
+  const read = await call("onboarding");
+  assert.ok(read.status >= 400 && read.status < 500, "a household person cannot read the owner's setup record (Q261: reads fail closed)");
+  const theirs = (await call("state")).data.onboarding;
+  assert.equal(theirs.mine, false, "their window's state says setup is not theirs");
+  assert.deepEqual(theirs.completed, [], "and carries none of the owner's progress");
+  assert.equal(theirs.popups, true);
   const refused = await call("onboarding", { popups: false });
   assert.ok(refused.status >= 400 && refused.status < 500, "a household person cannot change the owner's setup");
   assert.equal(app.store.get("settings", "local", "onboarding").data.popups, true, "and the owner's switch is as it was");

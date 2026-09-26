@@ -18,7 +18,8 @@ import { noModelProviderName } from "./no-model.js";
  *   skipped     setup was left with "Skip for now" (or closed) and not opened again since: a reload does not bring it back
  *
  * Every write merges into what is saved, so no caller can wipe the rest by saving one part. Only the owner has one: a
- * household person's window reads the defaults and cannot write (setting up is the owner's, for the whole install).
+ * household person's window reads the defaults (GET /api/state) and can neither read nor write this record (setting up
+ * is the owner's, for the whole install).
  */
 const StepId = z.string().regex(/^[a-z][a-z-]{0,23}$/);
 const Where = z.enum(["this", "remote", "later"]);

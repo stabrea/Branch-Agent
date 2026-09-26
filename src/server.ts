@@ -1327,7 +1327,8 @@ async function api(
         manage: { env: process.env, platform: process.platform, version: app.version, packageRoot: packageRootHere(), print: () => undefined } },
       request.method ?? "GET", path, () => readBody(request, 4 * 1024), windowCaller(app),
     );
-  // How far setup got, and the pop-ups switch (src/onboarding.ts): read by anyone, changed by the owner only, merged.
+  // How far setup got, and the pop-ups switch (src/onboarding.ts): the owner's, merged. A household person's read is
+  // refused before this (Q261, src/household-routes.ts); their window reads the defaults in GET /api/state.
   if (request.method === "GET" && path === "/api/onboarding") return onboardingState(app);
   if (request.method === "POST" && path === "/api/onboarding") {
     if (!app.store.profiles.isOwner()) throw new HttpError(403, "Setting up Branch belongs to the owner. Switch back to the owner's profile to use it.");
