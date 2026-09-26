@@ -161,6 +161,10 @@ export class OwnMcpServers {
       source: "owner", remember: "never", askedAt: new Date().toISOString(), bytes, fingerprint, noStanding: true, noAlways: true });
     store.event(run.id, "policy.ask", { name: startTool, label, target: entry.id, remember: "never", question, bytes, fingerprint });
     store.finish(run.id, "needs_input", question);
+    // The question is written into the switch's own conversation, so "Open" shows it with its card. Written after the
+    // stop, it also means a window's "carry on" after the yes never starts a model turn here (src/server.ts settleAsked
+    // carries on only when nothing was written since the task stopped); starting the program is this class's job.
+    store.message(run.sessionId, { role: "assistant", content: question });
     const waiting: Waiting = { runId: run.id, sessionId: run.sessionId, fingerprint, question, since: Date.now(),
       timer: setInterval(() => void this.check(entry.id), this.deps.pollMs ?? 250) };
     waiting.timer.unref?.();

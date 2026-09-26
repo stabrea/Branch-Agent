@@ -1,5 +1,5 @@
 /**
- * Flag one reply ("Report a problem with this reply"): a reason and an optional note, kept on this computer against
+ * Flag one reply ("Flag this reply"): one or more reasons and an optional note, kept on this computer against
  * that one reply. Nothing is sent anywhere by keeping one. The flags can be listed and removed, and only the owner
  * asking for an export gets them out, as one document holding each flagged reply and its note and nothing else: no
  * other message of the conversation, no file and no memory.
@@ -9,17 +9,17 @@ import { z } from "zod";
 import { audit } from "./audit.js";
 import type { Store } from "./store.js";
 
-/** The four reasons the dialog offers, in its order. */
-export const flagReasons = ["wrong", "unasked", "unsafe", "other"] as const;
+/** The six reasons the dialog offers, in its order. */
+export const flagReasons = ["wrong", "ignored", "unasked", "unsafe", "unclear", "other"] as const;
 export const ReplyFlagSchema = z.object({
   sessionId: z.string().uuid(),
   messageId: z.number().int().positive(),
-  reason: z.enum(flagReasons),
+  reasons: z.array(z.enum(flagReasons)).min(1).max(flagReasons.length).transform((picked) => flagReasons.filter((r) => picked.includes(r))),
   note: z.string().trim().max(2000).default(""),
 }).strict();
 
 export interface ReplyFlag {
-  id: string; sessionId: string; messageId: number; reason: (typeof flagReasons)[number];
+  id: string; sessionId: string; messageId: number; reasons: (typeof flagReasons)[number][];
   note: string; reply: string; at: string;
 }
 const Saved = z.object({ flags: z.array(z.custom<ReplyFlag>()).max(200).default([]) }).strict();
@@ -28,7 +28,7 @@ const maxFlags = 200;
 const maxReply = 8000;
 
 /** What the owner is told when a flag is kept; the window shows these words. */
-export const keptWords = "Kept on this computer. Nothing is sent until you export it.";
+export const keptWords = "Flagged. Kept on this computer only.";
 
 const text = (content: unknown): string =>
   typeof content === "string" ? content
@@ -59,12 +59,12 @@ export class ReplyFlags {
     return { flag, said: keptWords };
   }
 
-  remove(id: string): { removed: boolean } {
+  remove(id: string): { removed: boolean; said: string } {
     const flags = this.list();
     const kept = flags.filter((flag) => flag.id !== id);
     if (kept.length === flags.length) throw new Error("There is no such flag.");
     this.save(kept);
-    return { removed: true };
+    return { removed: true, said: "Flag removed." };
   }
 
   /** The owner's export: every kept flag, each only its reply and note. Written into the record of what happened. */

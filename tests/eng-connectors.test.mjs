@@ -78,9 +78,12 @@ test("a command server is saved off, starts only after the owner's yes, and asks
   assert.ok(question && question.noStanding && question.noAlways, "only once or for the conversation may be answered");
   await assert.rejects(api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "always", fingerprint: question.fingerprint }));
 
-  await api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint });
+  // The window answers with carryOn, as its approval cards do: the yes starts the program, never a model turn.
+  const answered = await api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint, carryOn: true });
+  assert.notEqual(answered.task, "carrying-on");
   await until(() => toolsOf(app, id).length === 2);
   assert.equal((await api(url, token, "/api/mcp/servers")).servers[0].on, true);
+  assert.equal(app.store.runs(app.store.profiles.scope()).filter((run) => run.sessionId === question.sessionId).length, 1, "no other task started there");
 
   await api(url, token, `/api/mcp/servers/${id}/stop`, {});
   assert.equal(toolsOf(app, id).length, 0, "switching off takes its tools away");
@@ -89,7 +92,9 @@ test("a command server is saved off, starts only after the owner's yes, and asks
   assert.ok(again, "switching on again asks again");
   await api(url, token, "/api/policy/approve", { sessionId: again.sessionId, decision: "deny", remember: "never", fingerprint: again.fingerprint });
   await until(async () => (await api(url, token, "/api/mcp/servers")).servers[0].waiting === null);
+  await new Promise((r) => setTimeout(r, 3000)); // time enough for a start that should not happen
   assert.equal(toolsOf(app, id).length, 0, "a no starts nothing");
+  assert.equal((await api(url, token, "/api/mcp/servers")).servers[0].on, false);
 
   await api(url, token, `/api/mcp/servers/${id}/remove`, {});
   assert.deepEqual((await api(url, token, "/api/mcp/servers")).servers, []);
@@ -178,9 +183,10 @@ test("flag a reply: kept on this computer, listed, exported only by a POST, and 
   app.store.message(run.sessionId, { role: "user", content: "hello" });
   app.store.message(run.sessionId, { role: "assistant", content: "The answer is 41." });
   const [asked, replied] = app.store.sessionView(app.runtime.owner, run.sessionId).messages;
-  await assert.rejects(api(url, token, "/api/reply-flags", { sessionId: run.sessionId, messageId: asked.messageId, reason: "wrong" }), /Only a reply/);
-  const kept = await api(url, token, "/api/reply-flags", { sessionId: run.sessionId, messageId: replied.messageId, reason: "wrong", note: "It is 42." });
-  assert.match(kept.said, /Nothing is sent until you export it/);
+  await assert.rejects(api(url, token, "/api/reply-flags", { sessionId: run.sessionId, messageId: asked.messageId, reasons: ["wrong"] }), /Only a reply/);
+  const kept = await api(url, token, "/api/reply-flags", { sessionId: run.sessionId, messageId: replied.messageId, reasons: ["unsafe", "wrong", "wrong"], note: "It is 42." });
+  assert.equal(kept.said, "Flagged. Kept on this computer only.");
+  assert.deepEqual(kept.flag.reasons, ["wrong", "unsafe"], "each reason once, in the dialog's order");
   assert.equal(kept.flag.reply, "The answer is 41.", "the reply's words come from the conversation");
   const listed = await api(url, token, "/api/reply-flags");
   assert.equal(listed.flags.length, 1);
@@ -189,4 +195,13 @@ test("flag a reply: kept on this computer, listed, exported only by a POST, and 
   assert.ok(!JSON.stringify(out).includes("hello"), "no other message of the conversation goes out");
   await api(url, token, `/api/reply-flags/${kept.flag.id}/remove`, {});
   assert.deepEqual((await api(url, token, "/api/reply-flags")).flags, []);
+});
+
+test("Branch closes cleanly with a command server of the owner's still running", async (t) => {
+  const { app, url, token } = await fixture(t);
+  const { server: { id } } = await api(url, token, "/api/mcp/servers", notes);
+  await api(url, token, `/api/mcp/servers/${id}/start`, {});
+  const question = (await api(url, token, "/api/policy")).waiting.find((q) => q.tool === "mcp.start");
+  await api(url, token, "/api/policy/approve", { sessionId: question.sessionId, decision: "allow", remember: "never", fingerprint: question.fingerprint });
+  await until(() => toolsOf(app, id).length === 2);
 });
