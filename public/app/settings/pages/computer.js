@@ -1,71 +1,129 @@
-/* Settings > computer: bind computer list and Trunk-to-computer assignments from engine. */
-import { level } from "../../core/state.js";
-import { E } from "../../core/state.js";
+/* Settings › Computer & browser, 1:1 with the prototype at each level. The computers are this one and the owner's other
+   devices (GET /api/devices); the Trunks are the engine's. A switch shows the engine's own value; it is live only where a
+   route changes it (WIRES below), and a three-way feature switch reads as on unless its mode is "off", turns on as
+   "when-needed" and off as "off". Letting Trunks use the screen, approvals, sandboxes, borrowing your own browser and
+   stopping a device's lending change what Branch may do, so those stay greyed. */
+import { level, E } from "../../core/state.js";
 import { api } from "../../core/api.js";
-import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { esc, render } from "../../core/dom.js";
-import { av, toast } from "../../core/ui.js";
+import { av, toast, ic } from "../../core/ui.js";
+import { id15, sw15, btn15, code15, seg15, sec15 } from "../rows15.js";
 
-function buildTrunkRow(trunk) {
-  const id = esc(trunk.id || "");
-  const name = esc(trunk.name || "");
-  const avatar = av(trunk, 32);
+const D = { coding: null, notes: null, prs: null, devices: null };
+const onMode = (mode) => (mode ? mode !== "off" : false);
+const coding = (part) => onMode(D.coding?.modes?.[part]);
+const setCoding = (part, on) => api("coding/switch", { part, mode: on ? "when-needed" : "off" });
 
-  return `<div class="prow percomp8">${avatar}<span class="grow"><b>${name}</b><span class="chips8"><button type="button" class="chip6" data-act="comp-chip" data-id="${id}" aria-pressed="false">This computer</button></span></span><label class="max8"><small>At once</small><span class="seg"><button type="button" data-act="comp-max" data-id="${id}" data-v="1" aria-pressed="false">1</button><button type="button" data-act="comp-max" data-id="${id}" data-v="2" aria-pressed="false">2</button><button type="button" data-act="comp-max" data-id="${id}" data-v="3" aria-pressed="false">3</button><button type="button" data-act="comp-max" data-id="${id}" data-v="4" aria-pressed="false">4</button></span></label></div>`;
-}
+/* Each live switch: its current value from the engine, and the route that changes it. */
+const WIRES = {
+  [id15("Page notes and “Send to Branch”")]: [() => onMode(D.notes?.mode), (on) => api("browser/notes/settings", { mode: on ? "when-needed" : "off" })],
+  [id15("Try ideas on a branch")]: [() => coding("worktrees"), (on) => setCoding("worktrees", on)],
+  [id15("Check and format files after editing")]: [() => coding("format-on-edit"), (on) => setCoding("format-on-edit", on)],
+  [id15("Draft a pull request from a task")]: [() => onMode(D.prs?.mode), (on) => api("developer/pull-requests", { mode: on ? "when-needed" : "off" })],
+  [id15("Remember the shell")]: [() => coding("shell-snapshot"), (on) => setCoding("shell-snapshot", on)],
+  [id15("Read a file before editing it")]: [() => coding("read-first"), (on) => setCoding("read-first", on)],
+  [id15("Keep large tool outputs")]: [() => coding("large-output"), (on) => setCoding("large-output", on)],
+  [id15("Read Jupyter notebooks")]: [() => coding("notebooks"), (on) => setCoding("notebooks", on)],
+  [id15("Review checks and a checklist per task")]: [() => coding("review-checks") && coding("checklist"),
+    async (on) => { await setCoding("review-checks", on); await setCoding("checklist", on); }],
+};
+const sw = (title, sub) => sw15(title, sub, WIRES[id15(title)]?.[0]() ?? false);
 
-const BASE = `<h1>Computer &amp; browser</h1><p class="lede">The computers your Trunks may use, and the browser they work in. Which Branch you talk to is the switcher at the top of the list.</p>
-  <div class="sec"><h2>Computers they may use</h2><div class="grp8">On this PC</div><div class="comps7"><div class="comp7-card"><span class="ico-tile"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16.5V20"></path></svg></span><span class="grow"><b>This computer</b><small>Your Windows desktop</small><span class="c7-reach">Your screen, mouse and apps. It asks before an app it hasn't used, and you can take over any time.</span></span><span class="pill ok"><i></i>Ready</span></div></div>
-    <div class="acts" data-css="margin-top:10px"><button class="btn pri" type="button" data-act="comp-add"><svg class="i s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add a computer</button></div></div><div class="sec"><h2>Which Trunk uses which</h2><p class="hint" data-css="margin:0 0 8px">A Trunk can use several computers, one task on each, side by side.</p><div class="rows">`;
-
-function buildTrunksSection(trunks) {
-  if (!trunks || trunks.length === 0) {
-    return `<p class="hint">No Trunks configured yet.</p>`;
-  }
-  return trunks.map(buildTrunkRow).join("");
-}
-
-const COMPUTER_SETTINGS = `</div>
-  <div class="sec"><h2>On a computer</h2><div class="ctl"><b>See the screen and use the mouse</b><input class="sw" type="checkbox" id="c-screen" aria-label="See the screen and use the mouse" data-sw="set"><small>Needed for apps without a connection. You can always take over.</small></div><div class="ctl"><b>Ask before opening an app it hasn't used</b><input class="sw" type="checkbox" id="c-ask" aria-label="Ask before opening an app it hasn't used" data-sw="set"><small>Once per app, per Trunk.</small></div><div class="ctl"><b>Where scripts run</b><span class="right"><span class="seg" role="group" aria-label="Where scripts run"><button type="button" aria-pressed="false" data-act="seg">Sealed box</button><button type="button" aria-pressed="false" data-act="seg">This computer</button></span></span><small>A sealed box keeps scripts away from your files unless a task needs them.</small></div></div>
-  <div class="sec"><h2>The browser</h2><div class="ctl"><b>Which browser</b><span class="right"><span class="seg" role="group" aria-label="Which browser"><button type="button" aria-pressed="false" data-act="seg">Branch's own</button><button type="button" aria-pressed="false" data-act="seg">Your Chrome</button></span></span><small>Its own profile keeps your tabs and sign-ins separate.</small></div><div class="ctl"><b>Ask before a site it hasn't visited</b><input class="sw" type="checkbox" id="b-new" aria-label="Ask before a site it hasn't visited" data-sw="set"><small>You say yes once per site.</small></div><div class="ctl"><b>Open the browser full size when a task starts</b><input class="sw" type="checkbox" id="b-watch" aria-label="Open the browser full size when a task starts" data-sw="set"><small>Otherwise it stays small in the corner.</small></div></div>
-  <p class="hint">Switch to Technical (bottom left) to see file paths, ports and raw settings.</p>`;
-
-const ADVANCED_EXTRA = `<div class="sec x15-sec"><h2>Phones lent to Branch</h2><div class="rows"></div></div>
-  <div class="sec x15-sec"><h2>The browser, more</h2><div class="ctl"><b>Run the browser in a sandbox</b><span class="right"><span class="seg" role="group" aria-label="Run the browser in a sandbox"><button type="button" aria-pressed="false" data-act="seg">Off</button><button type="button" aria-pressed="false" data-act="seg">When needed</button><button type="button" aria-pressed="false" data-act="seg">On</button></span></span><small></small></div><div class="ctl"><b>Record browser tasks</b><input class="sw" type="checkbox" id="f15-record-browser-tasks" aria-label="Record browser tasks" data-sw="set"><small>A step-by-step trace you can replay.</small></div><div class="ctl"><b>Number the clickable things</b><input class="sw" type="checkbox" id="f15-number-the-clickable-things" aria-label="Number the clickable things" data-sw="set"><small>Faster and steadier on busy pages.</small></div><div class="ctl"><b>Site skills</b><span class="right"><button class="btn sm" type="button" data-act="site-skills">See the sites</button></span><small>What Branch learned about the sites you use.</small></div><div class="ctl"><b>Page notes and "Send to Branch"</b><input class="sw" type="checkbox" id="f15-page-notes-and-send-to-branch-" aria-label="Page notes and "Send to Branch"" data-sw="set"><small>A right-click in Chrome or Edge sends the page to a Trunk. Turns on when the browser extension is installed.</small></div></div><div class="sec x15-sec"><h2>Code</h2><div class="ctl"><b>Try ideas on a branch</b><input class="sw" type="checkbox" id="f15-try-ideas-on-a-branch" aria-label="Try ideas on a branch" data-sw="set"><small>A plan can be tried, compared and merged; a forked conversation gets its own copy.</small></div><div class="ctl"><b>Code map</b><input class="sw" type="checkbox" id="f15-code-map" aria-label="Code map" data-sw="set"><small>A ranked outline of a repository so a Trunk finds its way.</small></div><div class="ctl"><b>Check and format files after editing</b><input class="sw" type="checkbox" id="f15-check-and-format-files-after-editing" aria-label="Check and format files after editing" data-sw="set"><small></small></div><div class="ctl"><b>AI! and AI? comments start tasks</b><input class="sw" type="checkbox" id="f15-ai-and-ai-comments-start-tasks" aria-label="AI! and AI? comments start tasks" data-sw="set"><small>Write "AI! add tests" in a file and a Trunk picks it up. On because GitHub is connected.</small></div><div class="ctl"><b>Draft a pull request from a task</b><input class="sw" type="checkbox" id="f15-draft-a-pull-request-from-a-task" aria-label="Draft a pull request from a task" data-sw="set"><small>Never merged by Branch.</small></div><div class="ctl"><b>Remember the shell</b><input class="sw" type="checkbox" id="f15-remember-the-shell" aria-label="Remember the shell" data-sw="set"><small>PATH, aliases and functions, so commands behave as in your terminal.</small></div></div>`;
-
-const TECHNICAL_EXTRA = `<div class="sec"><h2>Technical</h2><dl class="kv"><dt>Private computer</dt><dd>Windows Sandbox</dd><dt>Browser profile</dt><dd>%APPDATA%\\Branch Agent\\browser-profile</dd><dt>Screen</dt><dd>1280 x 800, 2 frames a second while watched</dd></dl></div><div class="sec x15-sec"><h2>Phones lent to Branch</h2><div class="rows"></div></div>
-  <div class="sec x15-sec"><h2>The browser, more</h2><div class="ctl"><b>Run the browser in a sandbox</b><span class="right"><span class="seg" role="group" aria-label="Run the browser in a sandbox"><button type="button" aria-pressed="false" data-act="seg">Off</button><button type="button" aria-pressed="false" data-act="seg">When needed</button><button type="button" aria-pressed="false" data-act="seg">On</button></span></span><small></small></div><div class="ctl"><b>Record browser tasks</b><input class="sw" type="checkbox" id="f15-record-browser-tasks" aria-label="Record browser tasks" data-sw="set"><small>A step-by-step trace you can replay.</small></div><div class="ctl"><b>Number the clickable things</b><input class="sw" type="checkbox" id="f15-number-the-clickable-things" aria-label="Number the clickable things" data-sw="set"><small>Faster and steadier on busy pages.</small></div><div class="ctl"><b>Site skills</b><span class="right"><button class="btn sm" type="button" data-act="site-skills">See the sites</button></span><small>What Branch learned about the sites you use.</small></div><div class="ctl"><b>Page notes and "Send to Branch"</b><input class="sw" type="checkbox" id="f15-page-notes-and-send-to-branch-" aria-label="Page notes and "Send to Branch"" data-sw="set"><small>A right-click in Chrome or Edge sends the page to a Trunk. Turns on when the browser extension is installed.</small></div></div><div class="sec x15-sec"><h2>Code</h2><div class="ctl"><b>Try ideas on a branch</b><input class="sw" type="checkbox" id="f15-try-ideas-on-a-branch" aria-label="Try ideas on a branch" data-sw="set"><small>A plan can be tried, compared and merged; a forked conversation gets its own copy.</small></div><div class="ctl"><b>Code map</b><input class="sw" type="checkbox" id="f15-code-map" aria-label="Code map" data-sw="set"><small>A ranked outline of a repository so a Trunk finds its way.</small></div><div class="ctl"><b>Check and format files after editing</b><input class="sw" type="checkbox" id="f15-check-and-format-files-after-editing" aria-label="Check and format files after editing" data-sw="set"><small></small></div><div class="ctl"><b>AI! and AI? comments start tasks</b><input class="sw" type="checkbox" id="f15-ai-and-ai-comments-start-tasks" aria-label="AI! and AI? comments start tasks" data-sw="set"><small>Write "AI! add tests" in a file and a Trunk picks it up. On because GitHub is connected.</small></div><div class="ctl"><b>Draft a pull request from a task</b><input class="sw" type="checkbox" id="f15-draft-a-pull-request-from-a-task" aria-label="Draft a pull request from a task" data-sw="set"><small>Never merged by Branch.</small></div><div class="ctl"><b>Remember the shell</b><input class="sw" type="checkbox" id="f15-remember-the-shell" aria-label="Remember the shell" data-sw="set"><small>PATH, aliases and functions, so commands behave as in your terminal.</small></div></div><div class="sec x15-sec"><h2>On a computer, more</h2><div class="ctl"><b>Work in apps in the background</b><input class="sw" type="checkbox" id="f15-work-in-apps-in-the-background" aria-label="Work in apps in the background" data-sw="set"><small>Through the accessibility tree, without taking the screen.</small></div><div class="ctl"><b>Read Jupyter notebooks</b><input class="sw" type="checkbox" id="f15-read-jupyter-notebooks" aria-label="Read Jupyter notebooks" data-sw="set"><small>Cells, outputs and charts.</small></div><div class="ctl"><b>Review checks and a checklist per task</b><input class="sw" type="checkbox" id="f15-review-checks-and-a-checklist-per-task" aria-label="Review checks and a checklist per task" data-sw="set"><small>Checks you write run before a task says it's done; the checklist shows in the task.</small></div><div class="ctl"><b>Write AGENTS.md for a project</b><span class="right"><code class="code15">/init</code></span><small>Branch reads the project and writes its house rules.</small></div></div>`;
-
-async function loadTrunks() {
-  try {
-    // The Trunks come with the engine's state (core/state.js keeps E.trunks as the list); nothing to replace here.
-    render();
-  } catch (e) {
-    console.error("Failed to load trunks:", e);
-  }
+async function loadAll() {
+  const [c, n, p, d] = await Promise.all(["coding", "browser/notes/settings", "developer/pull-requests", "devices"]
+    .map((path) => api(path).catch((error) => { toast(error.message); return null; })));
+  Object.assign(D, { coding: c, notes: n?.settings ?? null, prs: p, devices: d });
+  render();
 }
 
 export function init() {
-  loadTrunks();
+  markLive(Object.keys(WIRES).map((id) => "sw:" + id));
+  document.addEventListener("change", async (e) => {
+    const wire = WIRES[e.target.id];
+    if (!wire) return;
+    try { await wire[1](e.target.checked); } catch (error) { toast(error.message); }
+    await loadAll();
+  });
+  loadAll();
 }
 
-export async function load() {
-  await loadTrunks();
+export async function load() { await loadAll(); }
+
+export const live = {};
+
+/* ---------- computers ---------- */
+const DESKTOP = ["win32", "darwin", "linux"];
+const PLATFORM = { win32: "Windows", darwin: "macOS", linux: "Linux", ios: "iOS", android: "Android" };
+const card = (icon, name, sub, extra = "") => `<div class="comp7-card"><span class="ico-tile">${ic(icon, "s")}</span><span class="grow"><b>${name}</b><small>${sub}</small>${extra}</span></div>`;
+
+function computers() {
+  const others = (D.devices?.devices ?? []).filter((d) => DESKTOP.includes(d.platform));
+  const mine = card("monitor", "This computer", "Your Windows desktop", `<span class="c7-reach">Your screen, mouse and apps. It asks before an app it hasn’t used, and you can take over any time.</span>`);
+  const theirs = others.length ? `<div class="grp8">Your other computers</div><div class="comps7">${others.map((d) => card("monitor", esc(d.name), esc(PLATFORM[d.platform] ?? d.platform))).join("")}</div>` : "";
+  const cloud = `<div class="grp8">In the cloud</div><div class="comps7"><div class="comp7-card off7"><span class="ico-tile">${ic("globe", "s")}</span><span class="grow"><b>KeepOak computer</b><small>Linux · in the cloud · stays on</small><span class="c7-reach">Keeps working while this PC sleeps. Hermes Agent and OpenClaw run there too.</span></span><button class="btn sm" type="button" data-act="ko-start">Connect keepoak.com</button></div></div>`;
+  return `<div class="sec"><h2>Computers they may use</h2><div class="grp8">On this PC</div><div class="comps7">${mine}</div>${theirs}${cloud}
+    <div class="acts" data-css="margin-top:10px"><button class="btn pri" type="button" data-act="comp-add">${ic("plus", "s")}Add a computer</button></div></div>`;
 }
 
-export const live = {
-};
+/* Which Trunk uses which: the engine keeps no list of computers per Trunk, nor a limit, so the chips stay greyed. */
+function trunkRow(trunk) {
+  const id = esc(trunk.id ?? trunk.name ?? "");
+  const nums = [1, 2, 3, 4].map((n) => `<button type="button" data-act="comp-max" data-id="${id}" data-v="${n}" aria-pressed="false">${n}</button>`).join("");
+  return `<div class="prow percomp8">${av(trunk, 32)}<span class="grow"><b>${esc(trunk.name ?? "")}</b><span class="chips8"><button type="button" class="chip6" data-act="comp-chip" data-id="${id}" data-v="this" aria-pressed="false">This computer</button></span></span><label class="max8"><small>At once</small><span class="seg">${nums}</span></label></div>`;
+}
+
+function whichTrunk() {
+  return `<div class="sec"><h2>Which Trunk uses which</h2><p class="hint" data-css="margin:0 0 8px">A Trunk can use several computers, one task on each, side by side.</p><div class="rows">${(E.trunks ?? []).map(trunkRow).join("")}</div></div>`;
+}
+
+const ON_A_COMPUTER = `<div class="sec"><h2>On a computer</h2><div class="ctl"><b>See the screen and use the mouse</b><input class="sw" type="checkbox" id="c-screen" aria-label="See the screen and use the mouse" data-sw="set"><small>Needed for apps without a connection. You can always take over.</small></div><div class="ctl"><b>Ask before opening an app it hasn’t used</b><input class="sw" type="checkbox" id="c-ask" aria-label="Ask before opening an app it hasn’t used" data-sw="set"><small>Once per app, per Trunk.</small></div>${seg15("Where scripts run", "A sealed box keeps scripts away from your files unless a task needs them.", [["sealed", "Sealed box"], ["this", "This computer"]], null)}</div>`;
+
+const BROWSER = `<div class="sec"><h2>The browser</h2>${seg15("Which browser", "Its own profile keeps your tabs and sign-ins separate.", [["own", "Branch’s own"], ["chrome", "Your Chrome"]], null)}<div class="ctl"><b>Ask before a site it hasn’t visited</b><input class="sw" type="checkbox" id="b-new" aria-label="Ask before a site it hasn’t visited" data-sw="set"><small>You say yes once per site.</small></div><div class="ctl"><b>Open the browser full size when a task starts</b><input class="sw" type="checkbox" id="b-watch" aria-label="Open the browser full size when a task starts" data-sw="set"><small>Otherwise it stays small in the corner.</small></div></div>`;
+
+/* Phones lent to Branch: the owner's paired phones. Stopping one takes back a pairing, so it stays greyed. */
+function phones() {
+  const list = (D.devices?.devices ?? []).filter((d) => !DESKTOP.includes(d.platform));
+  const rows = list.map((d) => `<div class="prow"><span class="ico-tile">${ic("phone", "s")}</span><span class="grow"><b>${esc(d.name)}</b><small>${esc((d.enabled ?? []).join(", "))}</small></span><button class="btn ghost sm" type="button" data-act="lend15" data-v="${esc(d.id)}">Stop lending</button></div>`).join("");
+  return `<div class="sec x15-sec"><h2>Phones lent to Branch</h2><div class="rows">${rows}</div></div>`;
+}
+
+const browserMore = () => sec15("The browser, more",
+  seg15("Run the browser in a sandbox", "", [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]], null)
+  + sw("Record browser tasks", "A step-by-step trace you can replay.")
+  + sw("Number the clickable things", "Faster and steadier on busy pages.")
+  + btn15("Site skills", "What Branch learned about the sites you use.", "See sites", "site-skills")
+  + sw("Page notes and “Send to Branch”", "A right-click in Chrome or Edge sends the page to a Trunk. Turns on when the browser extension is installed."));
+
+const code = () => sec15("Code",
+  sw("Try ideas on a branch", "A plan can be tried, compared and merged; a forked conversation gets its own copy.")
+  + sw("Code map", "A ranked outline of a repository so a Trunk finds its way.")
+  + sw("Check and format files after editing", "")
+  + sw("AI! and AI? comments start tasks", "Write “AI! add tests” in a file and a Trunk picks it up.")
+  + sw("Draft a pull request from a task", "Never merged by Branch.")
+  + sw("Remember the shell", "PATH, aliases and functions, so commands behave as in your terminal."));
+
+const codeTechnical = () => sec15("Code, technical",
+  code15("Files Branch never reads", "Like .gitignore.", ".branchignore")
+  + sw("Read a file before editing it", "Refuses an edit to a file it hasn’t read in this task.")
+  + sw("Keep large tool outputs", "Saved to a file instead of cut off.")
+  + btn15("Branch in CI", "A GitHub Action and a GitLab component.", "Copy the setup"));
+
+const computerMore = () => sec15("On a computer, more",
+  sw("Work in apps in the background", "Through the accessibility tree, without taking the screen.")
+  + sw("Read Jupyter notebooks", "Cells, outputs and charts.")
+  + sw("Review checks and a checklist per task", "Checks you write run before a task says it’s done; the checklist shows in the task.")
+  + code15("Write AGENTS.md for a project", "Branch reads the project and writes its house rules.", "/init"));
 
 export function draw() {
-  const trunks = E.trunks || [];
   const lev = level();
-  const trunkRows = buildTrunksSection(trunks);
-
-  let html = BASE + trunkRows + COMPUTER_SETTINGS;
-
-  if (lev >= 1) html += ADVANCED_EXTRA;
-  if (lev >= 2) html += TECHNICAL_EXTRA;
-
+  let html = `<h1>Computer &amp; browser</h1><p class="lede">The computers your Trunks may use, and the browser they work in. Which Branch you talk to is the switcher at the top of the list.</p>`;
+  html += computers() + whichTrunk() + ON_A_COMPUTER + BROWSER;
+  if (lev < 2) html += `<p class="hint">Switch to Technical (bottom left) to see file paths, ports and raw settings.</p>`;
+  else html += `<div class="sec"><h2>Technical</h2><dl class="kv"></dl></div>`; // the engine gives no sandbox, profile or screen facts
+  html += phones();
+  if (lev >= 1) html += browserMore() + code();
+  if (lev >= 2) html += codeTechnical();
+  if (lev >= 1) html += computerMore();
   return html;
 }
