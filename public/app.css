@@ -3537,7 +3537,6 @@ button.sb:hover,button.sb[aria-expanded="true"]{background:var(--wash17)}
 .app.rail9 .side .machine>svg{display:none}
 /* Focus mode steps the list aside entirely, its edge too */
 .app.focus .side>.resizer{visibility:hidden}
-||||||| parent of 01ee66e2 (feat(window): live stage - Branch's browser as it works, themed empty view, dock and picture in picture)
 
 /* area: live stage */
 /* The welcome card had no fill (var(--pop) is a shadow), so it read as clipped over whatever sat under it, the full-size

@@ -27,10 +27,10 @@ import { markLive, greyOut } from "../core/features.js";
 import { work, loadWork } from "./terminal.js";
 import { t } from "../../i18n.js";
 import { pickChip } from "../flows/computers17.js"; // pass 17 part D §9: the conversation's computer menu
-import { liveOf, watchLive, dockWidth, setDockWidth, resetDock } from "./stage-live.js";
+import { liveOf, watchLive } from "./stage-live.js";
+import { resizerHTML } from "../shell/resize.js"; // the dock's edge: shell/resize.js drags it and keeps its width
 import { startWith, openConversation } from "./chat.js";
 
-export { setDockWidth };
 const G = { kind: null, pip: null, dock: true, sid: null, messages: [], plan: null, at: 0, desk: null, said: "", drawn: {} };
 const SHOT = new Map(); // picture path → its bytes as a blob: address ("" while loading or after the engine refused it)
 const STOPPABLE = new Set(["running", "needs_input", "interrupted"]);
@@ -149,8 +149,8 @@ function dock(steps) {
   const plan = steps.length ? `<ul class="dk7-plan">${steps.map((s) => { const c = STEP[s.status] ?? ""; return `<li class="${c}">${ic(c === "done" ? "check" : c === "now" ? "spin" : "info", c === "now" ? "s spin" : "s")}${esc(s.title)}</li>`; }).join("")}</ul>` : "";
   const said = G.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.content && !trunkIntro(m)).slice(-3)
     .map((m) => `<div class="dk7-m ${m.role === "user" ? "me7" : ""}">${esc(String(m.content).slice(0, 180))}</div>`).join("");
-  const tell = t("window.chat.stage.tell", { name: esc(name()) }), grip = t("window.chat.stage.resize");
-  return `<aside class="st7-dock" aria-label="${t("onscreen.group.middle")}"><div class="resizer" data-resize="dock" role="separator" aria-orientation="vertical" tabindex="0" aria-label="${grip}" data-tip="${grip}"><i class="grip9"></i></div>
+  const tell = t("window.chat.stage.tell", { name: esc(name()) });
+  return `<aside class="st7-dock" aria-label="${t("onscreen.group.middle")}">${resizerHTML("dock")}
     <div class="dk7-h">${av({ kind: "main" }, 28)}<b>${esc(name())}</b></div>${plan}<div class="dk7-msgs">${said}</div>
     <form class="dk7-in" data-form="stage"><input id="st-in" autocomplete="off" placeholder="${tell}" aria-label="${tell}"><button type="submit" class="c-btn send ready" aria-label="${t("composer.send")}">${ic("up")}</button></form></aside>`;
 }
@@ -244,7 +244,6 @@ function region(id, cls, show, html) {
     applyCss(el);
     greyOut(el);
   }
-  if (id === "stage7") el.style.setProperty("--dock-w", dockWidth() + "px");
   fit(el);
 }
 
@@ -343,29 +342,11 @@ export function openStage(kind) {
   drawStage();
 }
 
-/* The dock's edge: dragged, or moved with the arrow keys; a double-click puts it back to the usual width. */
-function initDockEdge() {
-  document.addEventListener("pointerdown", (e) => {
-    const edge = e.target.closest?.('#stage7 [data-resize="dock"]');
-    if (!edge || e.button !== 0) return;
-    e.preventDefault();
-    const x0 = e.clientX, w0 = dockWidth();
-    edge.classList.add("drag");
-    const move = (ev) => setDockWidth(w0 - (ev.clientX - x0), refit);
-    const up = () => { edge.classList.remove("drag"); removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
-  });
-  document.addEventListener("dblclick", (e) => {
-    if (!e.target.closest?.('#stage7 [data-resize="dock"]')) return;
-    resetDock(refit);
-    toast(t("window.chat.stage.usual-size"));
-  });
-  document.addEventListener("keydown", (e) => {
-    if (!e.target.closest?.('#stage7 [data-resize="dock"]') || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
-    e.preventDefault();
-    setDockWidth(dockWidth() + (e.key === "ArrowLeft" ? 16 : -16), refit);
-  });
+/* The dock's width is the window's (shell/resize.js drags its edge, keeps it and sets --dock-w); it calls this so the
+   screen is fitted to the room left beside the dock. */
+export function setDockWidth() {
+  const el = document.getElementById("stage7");
+  if (el) fit(el);
 }
 
 /* Team › Live now: Watch opens that task's conversation with its browser full size. */
@@ -388,7 +369,6 @@ export function initStage() {
   on("handback", () => hold("linux-desktop/hand-back", t("window.chat.stage.handed-back")));
   on("run-watch", (el) => watchRun(el));
   onRender(drawStage);
-  initDockEdge();
   document.addEventListener("submit", (e) => {
     const form = e.target.closest?.('#stage7 form[data-form="stage"], #stage7 form[data-form="stage-open"]');
     if (!form) return;

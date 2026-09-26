@@ -97,9 +97,11 @@ export async function liveStage(deps: LiveStageDeps, sessionId: string): Promise
   // the conversation starts the next task), so its question is no longer the one that matters.
   const going = runs[0] && GOING.has(runs[0].status) ? runs[0] : null;
   const key = JSON.stringify([scope, sessionId]);
-  const now = await watching(deps, runs);
-  if (now) keep(key, now);
-  const last = kept.get(key);
+  const found = await watching(deps, runs), last = kept.get(key);
+  // A frame can fail while the page is between two addresses or its window is closing; the last one of the same
+  // window stands in for that moment rather than a blank. Only a real frame is kept.
+  const now = found && !found.frame && last?.runId === found.runId ? { ...found, frame: last.frame } : found;
+  if (found?.frame) keep(key, found);
   const browser = now ?? (last && runs.some((run) => run.id === last.runId) ? { ...last, live: false } : null);
   const doing = going ? cleaned(deps.store, runActivity(going, deps.store.events(going.id)).current) : null;
   return { runId: going?.id ?? null, status: going?.status ?? null, doing, browser };

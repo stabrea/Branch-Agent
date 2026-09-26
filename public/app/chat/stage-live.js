@@ -4,8 +4,7 @@
    the task is doing now; read about twice a second while the view shows the browser and a task is going, every few
    seconds while a task of the open conversation works (for its card in the conversation), and not at all otherwise or
    while the window is hidden. After the task ends the engine
-   keeps its last frame in memory, and that is what is shown (not live).
-   Also here: the width of the conversation docked beside the view (setDockWidth), kept in this browser only. */
+   keeps its last frame in memory, and that is what is shown (not live). */
 
 import { api } from "../core/api.js";
 import { toast } from "../core/ui.js";
@@ -52,21 +51,3 @@ export function watchLive(sid, onChange, fast) {
   if (sid && !L.busy) tick();
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden && L.want && !L.timer && !L.busy) tick(); });
-
-/* ---------- the conversation beside the view: its width ---------- */
-const DOCK_KEY = "branch-stage-dock-w", DOCK_DEFAULT = 340, DOCK_MIN = 260;
-function savedDock() {
-  try { return Number(localStorage.getItem(DOCK_KEY)) || DOCK_DEFAULT; } catch (error) { return DOCK_DEFAULT; } // storage refused: the usual width
-}
-let dockW = savedDock();
-export const dockWidth = () => dockW;
-/** The dock's width in pixels, held between 260 and 60% of the window (the prototype's pass 10a), and kept. */
-export function setDockWidth(px, refit) {
-  const most = Math.max(DOCK_MIN, Math.round((document.getElementById("app")?.clientWidth ?? 1200) * 0.6));
-  dockW = Math.min(most, Math.max(DOCK_MIN, Math.round(px)));
-  document.getElementById("stage7")?.style.setProperty("--dock-w", dockW + "px");
-  try { localStorage.setItem(DOCK_KEY, String(dockW)); } catch (error) { toast(error.message); }
-  refit?.();
-  return dockW;
-}
-export const resetDock = (refit) => setDockWidth(DOCK_DEFAULT, refit);

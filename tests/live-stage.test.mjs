@@ -102,6 +102,11 @@ test("only the owner's own conversation is answered; the last frame outlives its
   const other = await liveStage({ ...deps, profiles: { scope: () => owner, isOwner: () => false } }, run.sessionId);
   assert.deepEqual(other, { runId: null, status: null, doing: null, browser: null }, "a household person is shown nothing");
 
+  const failing = { async watch() { return { url: "https://example.org/b", title: "B", tabs: [], frame: null, borrowed: false }; } };
+  const between = await liveStage({ ...deps, browser: failing }, run.sessionId);
+  assert.equal(between.browser.url, "https://example.org/b");
+  assert.equal(between.browser.frame, now.browser.frame, "a frame that failed mid-page leaves the last real one of that window");
+
   app.store.finish(run.id, "completed", "done");
   open = false;
   const after = await liveStage(deps, run.sessionId);
