@@ -64,8 +64,8 @@ test("B14 no visible word in the new window is a raw locale key, in the conversa
   await page.locator('#side [data-act="view"][data-v="settings"]').click();
   for (const level of ["regular", "technical"]) {
     await page.locator(`[data-act="setlevel"][data-v="${level}"]`).click();
-    for (const name of await page.locator('[data-act="setpage"]').evaluateAll((els) => els.map((el) => el.dataset.v))) {
-      await page.locator(`[data-act="setpage"][data-v="${name}"]`).click();
+    for (const name of await page.locator('.set-nav [data-act="setpage"]').evaluateAll((els) => els.map((el) => el.dataset.v))) {
+      await page.locator(`.set-nav [data-act="setpage"][data-v="${name}"]`).click();
       await look(`settings › ${name} (${level})`);
     }
   }
