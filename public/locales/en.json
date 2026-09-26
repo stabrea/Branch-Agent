@@ -5530,6 +5530,7 @@
   "window.local1c.meta": "{size} download · needs {memory} of memory",
   "window.local1c.no-fit": "May not fit",
   "window.local1c.none": "No local models found on this computer yet.",
+  "window.local1c.percent": "{percent}%",
   "window.local1c.pick": "Or pick one yourself",
   "window.local1c.ready": "{name} is set up and answering.",
   "window.local1c.recommended": "Recommended",

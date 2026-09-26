@@ -57,7 +57,7 @@ export async function loadPick() {
 /* ---------- drawing ---------- */
 
 function foundRow(m) {
-  const runtime = m.runtime === "ollama" ? "Ollama" : "LM Studio";
+  const runtime = (LP.data?.oneClick?.runtimes ?? []).find((r) => r.id === m.runtime)?.name ?? "";
   const made = m.runtime === "ollama" && connectionFor(m.name);
   /* LM Studio loads its own models: Branch's setup would fetch a Hugging Face copy again, so that control stays greyed. */
   const act = m.runtime === "ollama" ? "lp-use" : "lp-use-studio";
@@ -100,37 +100,45 @@ function picker() {
   return `${best ? hero(best) : ""}<div class="lp-sub">${t("window.local1c.pick")}</div><div class="rows">${recs.map(pickRow).join("")}</div>`;
 }
 
+const percentOf = (j) => Math.max(0, Math.min(100, Math.round(j?.percent ?? 0)));
+/* The engine's bytes once it has counted some ("1 MB of 3 MB · 35%"), else its percent alone. */
+const amountOf = (j) => (j?.total && j.completed
+  ? t("window.local1c.amount", { done: bytes(j.completed), total: bytes(j.total), percent: percentOf(j) })
+  : t("window.local1c.percent", { percent: percentOf(j) }));
+
 function jobPanel() {
-  const j = LP.job;
-  const pct = Math.max(0, Math.min(100, Math.round(j?.percent ?? 0)));
-  const amount = j?.total ? t("window.local1c.amount", { done: bytes(j.completed) || "0 KB", total: bytes(j.total), percent: pct }) : `${pct}%`;
+  const j = LP.job, pct = percentOf(j);
   const said = j?.message ?? t("window.local1c.starting");
   return `<div class="lp-busy" data-job="${esc(j?.id ?? "")}"><b>${esc(t("window.local1c.setting-up", { name: LP.req?.name ?? "" }))}</b><small class="lp-said">${esc(said)}</small>
-    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><u data-css="width:${pct}%"></u></div><small class="lp-amount">${esc(amount)}</small>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><u data-css="width:${pct}%"></u></div><small class="lp-amount">${esc(amountOf(j))}</small>
     <div class="acts"><button class="btn ghost sm" type="button" data-act="lp-cancel" ${j?.id ? "" : "disabled"}>${t("first-run-steps.restore-no")}</button></div></div>`;
 }
 
+/* The engine's install page. Opening it also starts waiting, so the picker carries on by itself once the program is there. */
 const pageLink = () => {
   const page = ollamaRuntime()?.installPage ?? LP.data?.ollama?.downloadPage ?? "";
-  return /^https?:\/\//i.test(page) ? `<a class="btn ghost sm" href="${esc(page)}" target="_blank" rel="noopener">${t("window.local1c.by-hand")}</a>` : "";
+  return /^https?:\/\//i.test(page) ? `<a class="btn ghost sm" href="${esc(page)}" target="_blank" rel="noopener" data-act="lp-page">${t("window.local1c.by-hand")}</a>` : "";
 };
 
 function planPanel() {
   const p = LP.plan, i = p?.install;
   const lines = [p?.downloadNote, i?.verify, i?.after, i?.leavesBehindNote].filter(Boolean).map((x) => `<li>${esc(x)}</li>`).join("");
-  return `<div class="lp-busy"><b>${esc(t("window.local1c.install-title", { name: p?.name ?? "Ollama" }))}</b><ul class="lp-plan">${lines}</ul>
-    <div class="acts"><button class="btn pri sm" type="button" data-act="lp-install">${esc(t("window.local1c.install-go", { name: p?.name ?? "Ollama" }))}</button>${pageLink()}<button class="btn ghost sm" type="button" data-act="lp-back">${t("first-run-steps.restore-no")}</button></div></div>`;
+  return `<div class="lp-busy"><b>${esc(t("window.local1c.install-title", { name: p?.name ?? "" }))}</b><ul class="lp-plan">${lines}</ul>
+    <div class="acts"><button class="btn pri sm" type="button" data-act="lp-install">${esc(t("window.local1c.install-go", { name: p?.name ?? "" }))}</button>${pageLink()}<button class="btn ghost sm" type="button" data-act="lp-back">${t("first-run-steps.restore-no")}</button></div></div>`;
 }
 
 function waitPanel(installing) {
-  const name = ollamaRuntime()?.name ?? "Ollama";
+  const name = ollamaRuntime()?.name ?? "";
   const words = installing ? t("window.local1c.installing", { name }) : t("window.local1c.waiting", { name });
   return `<div class="lp-busy"><b>${esc(words)}</b>${LP.error ? `<small class="lp-said">${esc(LP.error)}</small>` : ""}<div class="progress lp-spin"><u></u></div>
     <div class="acts">${installing ? "" : pageLink()}<button class="btn ghost sm" type="button" data-act="lp-back">${t("window.local1c.stop-waiting")}</button></div></div>`;
 }
 
 function errorPanel() {
-  return `<div class="status"><span class="sdot bad"></span><div><b>${esc(LP.error)}</b><div class="acts lp-acts">${LP.force ? `<button class="btn sm" type="button" data-act="lp-force">${t("window.local1c.try-anyway")}</button>` : ""}<button class="btn sm" type="button" data-act="lp-retry">${t("window.local1c.retry")}</button>${pageLink()}<button class="btn ghost sm" type="button" data-act="lp-back">${t("first-run-steps.restore-no")}</button></div></div></div>`;
+  /* Too big: Try anyway (the same request with the engine's force). Anything else: Try again, and the install page only
+     while the program is missing. */
+  const next = LP.force ? `<button class="btn sm" type="button" data-act="lp-force">${t("window.local1c.try-anyway")}</button>` : `<button class="btn sm" type="button" data-act="lp-retry">${t("window.local1c.retry")}</button>`;
+  return `<div class="status"><span class="sdot bad"></span><div><b>${esc(LP.error)}</b><div class="acts lp-acts">${next}${ollamaThere() ? "" : pageLink()}<button class="btn ghost sm" type="button" data-act="lp-back">${t("first-run-steps.restore-no")}</button></div></div></div>`;
 }
 
 function donePanel() {
@@ -166,11 +174,11 @@ function paint() {
 function updateBar(box) {
   const busy = box.querySelector(".lp-busy[data-job]");
   if (LP.phase !== "job" || !busy || !LP.job?.id || busy.dataset.job !== LP.job.id) return false;
-  const pct = Math.max(0, Math.min(100, Math.round(LP.job.percent ?? 0)));
+  const pct = percentOf(LP.job);
   busy.querySelector(".progress u").style.width = `${pct}%`;
   busy.querySelector(".progress").setAttribute("aria-valuenow", String(pct));
   busy.querySelector(".lp-said").textContent = LP.job.message ?? "";
-  busy.querySelector(".lp-amount").textContent = LP.job.total ? t("window.local1c.amount", { done: bytes(LP.job.completed) || "0 KB", total: bytes(LP.job.total), percent: pct }) : `${pct}%`;
+  busy.querySelector(".lp-amount").textContent = amountOf(LP.job);
   return true;
 }
 
@@ -186,8 +194,12 @@ async function switchOn() {
   if ((LP.data?.mode ?? "off") === "off") LP.data.mode = (await api("local-models/switch", { mode: "when-needed" })).mode;
 }
 
+/* The engine refuses a model too big for this computer unless asked again with force; that one refusal offers Try anyway. */
+const tooBig = (message) => /won.t fit/i.test(message);
+
 async function begin(name, force = false) {
-  Object.assign(LP, { req: { name }, job: null, plan: null, error: "", force: false, hello: null, ready: null, phase: "starting" });
+  if (!name) return;
+  Object.assign(LP, { req: { name, force }, job: null, plan: null, error: "", force: false, hello: null, ready: null, phase: "starting" });
   paint();
   try {
     await switchOn();
@@ -195,23 +207,30 @@ async function begin(name, force = false) {
     if (made) return select(made.id, name);
     if (!ollamaThere()) return showPlan();
     await setup(name, force);
-  } catch (error) { fail(error.message, /won.t fit/i.test(error.message)); }
+  } catch (error) { fail(error.message, !force && tooBig(error.message)); }
 }
 
 async function setup(name, force) {
   const job = await api("local-models/setup", { runtime: "ollama", name, ...(force ? { force: true } : {}) });
-  if (job.needsRuntime) { LP.error = job.message; return waitForRuntime(); }
+  if (job.needsRuntime) return waitForRuntime(job.message);
   LP.job = job;
   LP.phase = "job";
   paint();
   await follow(job.id);
 }
 
-/* The engine's plan for installing the program, shown before anything is installed. */
+/* The engine's plan for installing the program, shown before anything is installed. Install is offered only when the one
+   thing in the way is the install switch, which the owner's click may turn on; under Lockdown, or for someone else's
+   profile, the engine's refusal is shown as it is and the picker waits for the program instead. */
 async function showPlan() {
   LP.plan = await api("local-models/one-button/plan", {});
-  if (LP.plan.alreadyInstalled) return setup(LP.req.name, false);
-  if (LP.plan.install?.instead) { LP.error = LP.plan.install.instead; return waitForRuntime(); }
+  if (LP.plan.alreadyInstalled) return setup(LP.req.name, LP.req.force);
+  if (LP.plan.install?.instead) return waitForRuntime(LP.plan.install.instead);
+  if (LP.plan.refusal) {
+    const locked = (await api("lockdown")).on === true;
+    const someoneElse = !!E.profiles?.active?.id;
+    if (locked || someoneElse || (LP.data?.installMode ?? "off") !== "off") return waitForRuntime(LP.plan.refusal);
+  }
   LP.phase = "plan";
   paint();
 }
@@ -230,15 +249,17 @@ async function install() {
     if (answer.needsAgreement) { LP.plan = { ...plan, install: answer.needsAgreement }; LP.phase = "plan"; toast(answer.message); paint(); return; }
     await restoreInstall(before);
     await loadPick();
-    if (!answer.job) return setup(name, false);
+    if (!answer.job) return setup(name, LP.req?.force);
     Object.assign(LP, { job: answer.job, phase: "job" });
     paint();
     await follow(answer.job.id);
   } catch (error) {
     await restoreInstall(before);
-    /* A long install outlives one request (the engine carries on): wait for the program instead of calling it failed. */
-    if (!error.status || error.status === 408) return waitForRuntime();
-    fail(error.message);
+    /* The connection dropped while the engine was still installing: keep waiting for the program. */
+    if (!error.status) return waitForRuntime("", "installing");
+    /* The engine refused or the install failed: its words, its install page, and the picker carries on once the program
+       is there, whoever installs it. */
+    return waitForRuntime(error.message);
   }
 }
 
@@ -246,18 +267,24 @@ async function restoreInstall(before) {
   if (before === "off") await api("local-models/install/switch", { mode: "off" }).catch((error) => toast(error.message));
 }
 
-/* Nothing to install with: say where to get it, then carry on by itself once the engine finds the program. */
-async function waitForRuntime() {
-  const name = LP.req?.name;
-  LP.phase = LP.phase === "installing" ? "installing" : "waiting";
+/* Nothing to install with: say why and where to get it, then carry on by itself once the engine finds the program. */
+async function waitForRuntime(said = "", phase = "waiting") {
+  const req = LP.req;
+  Object.assign(LP, { phase, error: said });
   paint();
-  while (LP.req?.name === name && (LP.phase === "waiting" || LP.phase === "installing")) {
+  while (LP.req === req && (LP.phase === "waiting" || LP.phase === "installing")) {
     await pause(3000);
     await loadPick();
-    if (ollamaThere() && LP.req?.name === name) {
-      try { return await setup(name, false); } catch (error) { return fail(error.message, /won.t fit/i.test(error.message)); }
+    if (LP.req === req && ollamaThere()) {
+      try { return await setup(req.name, req.force); } catch (error) { return fail(error.message, !req.force && tooBig(error.message)); }
     }
   }
+}
+
+/* "Install it yourself": the page opens, and the picker waits for the program from here. */
+function openPage(el) {
+  if (/^https?:\/\//i.test(el.href)) window.open(el.href, "_blank", "noopener");
+  if (LP.req && (LP.phase === "plan" || LP.phase === "error")) waitForRuntime(LP.phase === "error" ? LP.error : "");
 }
 
 /* Follows the engine's job; a finished one is connected and selected, a failed or stopped one says why. */
@@ -325,9 +352,10 @@ export function initLocalPick() {
   on("lp-use", (el) => begin(el.dataset.v));
   on("lp-cancel", () => cancel());
   on("lp-install", () => install());
-  on("lp-retry", () => begin(LP.req?.name));
+  on("lp-retry", () => begin(LP.req?.name, LP.req?.force));
   on("lp-force", () => begin(LP.req?.name, true));
   on("lp-back", () => back());
   on("lp-open", () => openLocalPicker());
-  markLive(["lp-auto", "lp-pick", "lp-use", "lp-cancel", "lp-install", "lp-retry", "lp-force", "lp-back", "lp-open"]);
+  on("lp-page", (el) => openPage(el));
+  markLive(["lp-auto", "lp-pick", "lp-use", "lp-cancel", "lp-install", "lp-retry", "lp-force", "lp-back", "lp-open", "lp-page"]);
 }

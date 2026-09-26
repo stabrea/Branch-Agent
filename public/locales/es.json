@@ -5530,6 +5530,7 @@
   "window.local1c.meta": "{size} de descarga · necesita {memory} de memoria",
   "window.local1c.no-fit": "Puede que no quepa",
   "window.local1c.none": "Aún no se han encontrado modelos locales en este ordenador.",
+  "window.local1c.percent": "{percent} %",
   "window.local1c.pick": "O elige uno tú mismo",
   "window.local1c.ready": "{name} está configurado y responde.",
   "window.local1c.recommended": "Recomendado",

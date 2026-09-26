@@ -5531,6 +5531,7 @@
   "window.local1c.meta": "{size} à télécharger · demande {memory} de mémoire",
   "window.local1c.no-fit": "Risque de ne pas tenir",
   "window.local1c.none": "Aucun modèle local trouvé sur cet ordinateur pour l’instant.",
+  "window.local1c.percent": "{percent} %",
   "window.local1c.pick": "Ou choisissez-en un vous-même",
   "window.local1c.ready": "{name} est configuré et répond.",
   "window.local1c.recommended": "Recommandé",

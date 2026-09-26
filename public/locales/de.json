@@ -5530,6 +5530,7 @@
   "window.local1c.meta": "{size} Download · braucht {memory} Arbeitsspeicher",
   "window.local1c.no-fit": "Passt vielleicht nicht",
   "window.local1c.none": "Auf diesem Computer wurden noch keine lokalen Modelle gefunden.",
+  "window.local1c.percent": "{percent} %",
   "window.local1c.pick": "Oder selbst eines auswählen",
   "window.local1c.ready": "{name} ist eingerichtet und antwortet.",
   "window.local1c.recommended": "Empfohlen",
