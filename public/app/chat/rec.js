@@ -32,10 +32,12 @@ async function readBar() {
   if (R.bar !== before) render();
 }
 
-/* Asked again each time the engine's state is read afresh (refresh()), so the bar follows first run finishing and
-   anything else that changes the engine's answer. */
+/* Asked when the window opens and again whenever a refresh of the engine's state (refresh()) shows first run done or
+   undone (GET /api/state onboarding.done), so the bar follows first run finishing without a reload. Not on every
+   refresh: in the installed app each answer asks the system whether Branch runs in the background, a process each time. */
 export function recBar() {
-  if (E.loaded && !R.asking && R.seen !== E.state) { R.seen = E.state; readBar(); }
+  const key = String(E.state?.onboarding?.done);
+  if (E.loaded && !R.asking && R.seen !== key) { R.seen = key; readBar(); }
   const id = R.bar, words = WORDS[id];
   if (!words || R.later.has(id)) return "";
   const yes = id === "updates" ? "rec" : "rec-install";

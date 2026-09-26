@@ -7,7 +7,8 @@
    Signing in: the prototype's signinTab, drawn from the owner's sign-in card (GET /api/people/settings: settings.mode,
    settings.chain, settings.sessionMinutes, waiting) and GET /api/profiles ownerPin; a profile always locks after five
    wrong PINs (src/profiles.ts maximumPinAttempts). Every control there decides who may sign in, so all stay greyed for
-   separate review; the card is read once each time the tab is opened, and only the owner may read it. */
+   separate review; the card is read when either tab is switched to or opened from Settings › People, and only the owner
+   may read it. */
 
 import { esc, render, renderNow } from "../core/dom.js";
 import { S, E } from "../core/state.js";
