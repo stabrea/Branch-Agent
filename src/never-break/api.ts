@@ -7,7 +7,7 @@ import { z } from "zod";
 import { FeatureModeSchema, optionalFields } from "../feature-switches.js";
 import type { ToolRegistry } from "../registry.js";
 import {
-  acceptProposal, discardProposal, GatewayConfigSchema, loadGatewayConfig, proposeConfig, readProposal,
+  acceptProposal, discardProposal, GatewayConfigSchema, loadGatewayConfig, proposeConfig, readChanges, readProposal, rollbackAccepted,
   saveGatewayConfig, type DryRun, type GatewayConfig,
 } from "./gateway-config.js";
 import { readState } from "./gateway-state.js";
@@ -35,6 +35,8 @@ export async function neverBreakView(dataDir: string): Promise<Record<string, un
     lastExit: state ? (state.phase === "exited" ? "clean" : "running") : "never",
     recentCrashes: state?.crashes.length ?? 0,
     proposal: await readProposal(dataDir),
+    /** The last change the owner accepted, with the timings before and after it, while it can still be rolled back. */
+    accepted: (await readChanges(dataDir)).at(-1) ?? null,
   };
 }
 
@@ -70,6 +72,12 @@ export async function neverBreakApi(dataDir: string, request: IncomingMessage, p
     return { ...(await neverBreakView(dataDir)), note: "Saved. It takes effect the next time Branch starts." };
   }
   if (path === "/api/never-break/proposal/discard") { await discardProposal(dataDir); return neverBreakView(dataDir); }
+  // The owner rolls back the last change they accepted (the journal in gateway-config.ts); timings only.
+  if (path === "/api/never-break/rollback") {
+    if (!z.object({}).strict().safeParse(await readBody(request)).success) throw new NeverBreakApiError(400, "Send an empty body to roll back.");
+    try { await rollbackAccepted(dataDir); } catch (error) { throw new NeverBreakApiError(409, (error as Error).message); }
+    return { ...(await neverBreakView(dataDir)), note: "Rolled back. It takes effect the next time Branch starts." };
+  }
   // The window asks the engine that holds the database for a copy, before it tries an update on it.
   if (path === "/api/never-break/snapshot" && snapshot) return { folder: await snapshot() };
   throw new NeverBreakApiError(404, "Not found");

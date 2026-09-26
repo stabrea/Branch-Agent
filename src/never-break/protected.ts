@@ -37,6 +37,8 @@ export const guardedDataFiles = [
 /** Files and folders in the data folder the gateway and the updater own. */
 export const gatewayDataFiles = [
   "gateway.json", "gateway.good.json", "gateway.proposed.json", "gateway-state.json",
+  // The accepted changes the owner can roll back: an assistant that could edit this could choose what a roll back puts back.
+  "gateway.changes.json",
   "running.json", "first-start.json", "update-backups", "updates", "update-watch.json",
   // Q45 leaf 0: the port the window asks for again; the assistant must not choose where the app listens.
   "local-port.json",
