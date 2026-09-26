@@ -114,6 +114,8 @@ async function act(page, name, data = {}) {
 /* The window's level (Regular, Advanced, Technical), set the way Settings sets it. */
 const setLevel = (page, level) => act(page, "setlevel", { v: level });
 const toastText = (page) => page.locator(".toast span").last().textContent({ timeout: 5000 }).catch(() => "");
+/* Whether the window shows exactly these words in its toast within a few seconds (an earlier toast may still be up). */
+const toastIs = (page, words) => until("the toast", async () => (await toastText(page)) === words, 6000).catch(() => false);
 const greyed = async (page, selector) => (await page.locator(selector).count()) > 0 && (await page.locator(selector).evaluateAll((els) => els.every((e) => e.getAttribute("aria-disabled") === "true" || e.disabled)));
 
 async function signIn(page) {
@@ -214,7 +216,7 @@ async function automations(page, s) {
   await page.waitForSelector('[data-act="pauseallb17"]', { timeout: 8000 });
   const said = await refusal("POST", "dashboard/automations", { paused: true });
   await page.click('[data-act="pauseallb17"]');
-  check("pauseallb17 with the dashboard off: the engine's refusal as it said it", said && (await toastText(page)) === said, said);
+  check("pauseallb17 with the dashboard off: the engine's refusal as it said it", said && await toastIs(page, said), said);
   await post("dashboard/settings", { mode: "on" }).catch(() => null);
   await act(page, "ptab", { place: "automations", v: "scheduled" });
   await sleep(1000);
@@ -341,7 +343,7 @@ async function managing(page) {
   }
   const off = await refusal("POST", "learn/tour", { subject: "code", of: "" });
   await page.click('[data-act="demob17"][data-k="learnfolder"]');
-  check("demob17 learnfolder, switched off: the engine's refusal as it said it", off && (await toastText(page)) === off, off);
+  check("demob17 learnfolder, switched off: the engine's refusal as it said it", off && await toastIs(page, off), off);
   await post("learn/switch", { mode: "when-needed" });
   await page.click('[data-act="demob17"][data-k="learnfolder"]');
   await page.waitForSelector(".dlg .demo-b17", { timeout: 20000, state: "attached" });
@@ -474,7 +476,7 @@ async function tools(page) {
   await act(page, "dlg-close");
   const off = await (await fetch(`${BASE}/.well-known/agent.json`, { headers: { authorization: `Bearer ${TOKEN}` } })).json();
   await page.click('[data-act="demob17"][data-k="a2acard"]');
-  const shownRefusal = await until("the refusal", async () => (await toastText(page)) === off.error, 6000).catch(() => false);
+  const shownRefusal = await toastIs(page, off.error);
   check("demob17 a2acard, sharing off: the engine's refusal as it said it", shownRefusal, off.error);
   await setLevel(page, "regular");
 }

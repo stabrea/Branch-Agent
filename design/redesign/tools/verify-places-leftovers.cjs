@@ -203,7 +203,7 @@ async function greyed(page) {
   const names = await page.locator("#main .prow b").allTextContents();
   const listed = (await get("documents")).documents.map((d) => d.name);
   check("documents list: the engine's documents (GET /api/documents)", listed.includes(doc.name) && names.length === listed.length && listed.every((n) => names.includes(n)), names.join(", "));
-  check("dv15 stays greyed (no route lists a starting point for the map)", await page.locator('[data-act="dv15"][aria-disabled="true"]').count() === 2);
+  check("dv15 is live now: the map's names come from POST /api/knowledge/graph/names (proved in verify-places17.cjs)", await page.locator('[data-act="dv15"]:not([aria-disabled="true"])').count() === 2);
   await act(page, "ptab", { place: "automations", v: "scheduled" });
   check("nl-add stays greyed (no route turns words into a schedule)", await page.locator('[data-act="nl-add"][aria-disabled="true"]').count() >= 1);
   await act(page, "ptab", { place: "customize", v: "tools" });

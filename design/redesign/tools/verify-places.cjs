@@ -351,7 +351,7 @@ async function team(page) {
   await sleep(800);
   check("invite stays greyed", await page.locator('#main [data-act="invite"][aria-disabled="true"]').count() === 1);
   await act(page, "ptab", { place: "library", v: "documents" });
-  check("dv15 stays greyed", await page.locator('[data-act="dv15"][aria-disabled="true"]').count() === 2);
+  check("dv15 is live now (proved in verify-places17.cjs)", await page.locator('[data-act="dv15"]:not([aria-disabled="true"])').count() === 2);
 }
 
 async function run() {
