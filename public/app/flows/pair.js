@@ -28,20 +28,20 @@ const spaced = (code) => `${code.slice(0, 3)} ${code.slice(3)}`;
 const loopback = (link) => /^(localhost|127\.|\[::1\])/.test(new URL(link).hostname);
 function left() {
   const s = Math.max(0, Math.round((Date.parse(P.invite?.expiresAt ?? "") - Date.now()) / 1000));
-  return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} left` : "Expired. Make a new code.";
+  return s ? t("window.flows.pair.left", { time: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` }) : t("window.flows.pair.expired");
 }
-const clock = () => `<p class="hint" data-css="margin:0">Works once and expires in 5 minutes. <span class="count12">${left()}</span></p>`;
+const clock = () => `<p class="hint" data-css="margin:0">${t("window.flows.pair.works-once")} <span class="count12">${left()}</span></p>`;
 const here = () => (loopback(P.invite.link) ? `<p class="hint" data-css="margin:0">${esc(t("pair.onlyHere"))}</p>` : "");
 
 function phoneBody() {
   const code = spaced(P.invite.code);
-  return `<div class="qr-wrap">${qr(P.invite.qr, 176)}<ol class="steps-list"><li>Open the Branch app on your phone.</li><li>Tap <b>Pair with a computer</b>.</li><li>Point the camera at this code.</li></ol></div>
-    <div class="alt12"><b>No camera?</b> Type this on the phone instead: <code>${esc(P.invite.link)}</code> and the code <code>${esc(code)}</code></div>${clock()}${here()}<p class="hint pair-wait" role="status" data-css="margin:0"></p>`;
+  return `<div class="qr-wrap">${qr(P.invite.qr, 176)}<ol class="steps-list"><li>${t("window.flows.pair.open-app")}</li><li>${t("window.flows.pair.tap", { what: `<b>${t("window.flows.pair.with-computer")}</b>` })}</li><li>${t("window.flows.pair.point")}</li></ol></div>
+    <div class="alt12"><b>${t("window.flows.pair.no-camera")}</b> ${t("window.flows.pair.type-instead", { link: `<code>${esc(P.invite.link)}</code>`, code: `<code>${esc(code)}</code>` })}</div>${clock()}${here()}<p class="hint pair-wait" role="status" data-css="margin:0"></p>`;
 }
 function computerBody(waiting) {
   const command = `branch node pair "${P.invite.link}" ${P.invite.code}`;
   return `<p data-css="margin:0">${esc(t("devices.invite.computer"))}</p><code class="ko-code">${esc(spaced(P.invite.code))}</code><code class="pair-cmd15">${esc(command)}</code>${clock()}${here()}
-    ${waiting ? `<p class="hint">${ic("spin", "s spin")} Waiting for that computer. This updates by itself.</p>` : ""}`;
+    ${waiting ? `<p class="hint">${ic("spin", "s spin")} ${t("window.flows.pair.waiting")}</p>` : ""}`;
 }
 function askBody() {
   const r = P.request;
@@ -54,20 +54,20 @@ function errorBody() {
   return `<p data-css="margin:0" role="alert">${esc(P.error)}</p>${turnOn}`;
 }
 
-const CANCEL = '<button class="btn ghost" type="button" data-act="pair-cancel">Cancel</button>';
+const CANCEL = () => `<button class="btn ghost" type="button" data-act="pair-cancel">${t("first-run-steps.restore-no")}</button>`;
 function foot() {
   if (P.request) return `<button class="btn ghost" type="button" data-act="pair-refuse">${esc(t("devices.request.refuse"))}</button><button class="btn pri" type="button" data-act="pair-letin" disabled>${esc(t("devices.request.allow"))}</button>`;
-  if (P.kind === "phone" && P.invite) return `${CANCEL}<button class="btn pri" type="button" data-act="ph-paired-dlg">The phone says it’s paired</button>`;
-  return CANCEL;
+  if (P.kind === "phone" && P.invite) return `${CANCEL()}<button class="btn pri" type="button" data-act="ph-paired-dlg">${t("window.flows.pair.phone-says")}</button>`;
+  return CANCEL();
 }
 function body() {
   if (P.request) return askBody();
   if (!P.invite) return P.error ? errorBody() : "";
   return P.kind === "phone" ? phoneBody() : computerBody(P.kind === "computer");
 }
-const TITLES = { phone: "Pair a phone", computer: "Pair another computer" };
+const TITLES = { phone: "window.flows.pair.title", computer: "window.flows.pair.title-computer" };
 function draw() {
-  P.dlg = P.frame ? P.frame({ body: body(), foot: foot() }) : openDlg({ title: TITLES[P.kind], body: body(), foot: foot() });
+  P.dlg = P.frame ? P.frame({ body: body(), foot: foot() }) : openDlg({ title: t(TITLES[P.kind]), body: body(), foot: foot() });
 }
 
 /* Stops watching. With cancel, the invitation stops working too, but only while it is still the one on offer: the
@@ -135,7 +135,7 @@ async function decide(approve) {
   closeDlg();
   for (const listener of onPaired) listener();
   if (!approve) toast(t("pair.refused"));
-  else if (PHONES.includes(r.platform)) toast("Paired. The phone is on this computer’s list of devices.");
+  else if (PHONES.includes(r.platform)) toast(t("window.flows.pair.phone-paired"));
   else toast(t("pair.paired", { name: r.name }));
 }
 

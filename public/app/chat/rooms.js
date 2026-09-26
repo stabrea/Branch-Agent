@@ -12,15 +12,16 @@
 import { esc } from "../core/dom.js";
 import { E } from "../core/state.js";
 import { api } from "../core/api.js";
+import { t } from "../../i18n.js";
 
 const R = { view: null, viewFor: null };
 
 const modeOn = (part) => (E.trunkModes?.trunks ?? "on") !== "off" && (E.trunkModes?.[part] ?? "on") !== "off";
-const trunkBy = (id, info) => E.trunks.find((t) => t.id === id) ?? info?.trunks?.find((t) => t.id === id)
-  ?? info?.room?.members?.find((t) => t.id === id) ?? (info?.trunk?.id === id ? info.trunk : null);
+const trunkBy = (id, info) => E.trunks.find((tr) => tr.id === id) ?? info?.trunks?.find((tr) => tr.id === id)
+  ?? info?.room?.members?.find((tr) => tr.id === id) ?? (info?.trunk?.id === id ? info.trunk : null);
 const byHandle = (handle, info) => {
   const h = String(handle).toLowerCase();
-  return E.trunks.find((t) => !t.hidden && t.handle === h) ?? info?.room?.members?.find((t) => t.handle === h) ?? null;
+  return E.trunks.find((tr) => !tr.hidden && tr.handle === h) ?? info?.room?.members?.find((tr) => tr.handle === h) ?? null;
 };
 
 /** The Trunks a message names with @handle, in order, each once. */
@@ -102,8 +103,8 @@ export function roomAsks(info, busy) {
     const who = trunkBy(q.memberId, info);
     const off = busy(q) ? " disabled" : "";
     const id = `data-room="${esc(info.room.id)}" data-member="${esc(q.memberId)}" data-fp="${esc(q.fingerprint || "")}"${off}`;
-    return `<div class="b"><div class="gut"></div><div>${who ? `<div class="from">${esc(who.name)}</div>` : ""}<div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.label)}</span><span class="pill work ml"><i></i>Needs you</span></div>
-      <div class="acts"><button class="btn pri" type="button" data-act="room-ask" data-v="allow" ${id}>Allow</button><button class="btn ghost" type="button" data-act="room-ask" data-v="deny" ${id}>Don’t allow</button></div></div></div></div>`;
+    return `<div class="b"><div class="gut"></div><div>${who ? `<div class="from">${esc(who.name)}</div>` : ""}<div class="card ask" id="live-ask"><div class="card-h"><span class="q">${esc(q.label)}</span><span class="pill work ml"><i></i>${t("dashboard.needs.title")}</span></div>
+      <div class="acts"><button class="btn pri" type="button" data-act="room-ask" data-v="allow" ${id}>${t("trunks.room.allow")}</button><button class="btn ghost" type="button" data-act="room-ask" data-v="deny" ${id}>${t("window.chat.ask.dont-allow")}</button></div></div></div></div>`;
   }).join("");
 }
 export async function answerRoom(el, decision) {

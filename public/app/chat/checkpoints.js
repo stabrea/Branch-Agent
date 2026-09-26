@@ -10,6 +10,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { ic, toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 /* Points put back in this window, with how many files the engine wrote back. */
 const restored = new Map();
@@ -27,8 +28,8 @@ function keptPoint(call, messages) {
 export function checkpointRows(m, messages) {
   return (m.toolCalls ?? []).map((call) => keptPoint(call, messages)).filter(Boolean).map((p) => {
     const back = restored.get(p.id);
-    const words = back == null ? p.label : `Put back: all ${back} files are where they were`;
-    const button = back == null ? `<button class="btn sm" type="button" data-act="ckpt" data-id="${esc(p.id)}">Put it all back</button>` : "";
+    const words = back == null ? p.label : t("window.chat.ckpt.put-back", { count: back });
+    const button = back == null ? `<button class="btn sm" type="button" data-act="ckpt" data-id="${esc(p.id)}">${t("window.chat.ckpt.put-all-back")}</button>` : "";
     return `<div class="b"><div class="gut"></div><div><div class="ckpt">${ic("shield", "s")}<span>${esc(words)}</span>${button}</div></div></div>`;
   }).join("");
 }

@@ -12,17 +12,17 @@ export const FIND = { on: false, q: "", i: 0, n: 0 };
 
 export function findBar() {
   if (!FIND.on) return "";
-  return `<div class="find9" role="search"><span class="find9-i">${ic("search", "s")}</span><input id="find9-q" value="${esc(FIND.q)}" placeholder="Find in this conversation" autocomplete="off" aria-label="Find in this conversation"><span id="find9-n" class="find9-n"></span><button type="button" class="icon-btn" data-act="find-step" data-v="-1" aria-label="Previous">${ic("up", "s")}</button><button type="button" class="icon-btn flip9" data-act="find-step" data-v="1" aria-label="Next">${ic("up", "s")}</button><button type="button" class="icon-btn" data-act="find-close" aria-label="Close find">${ic("x", "s")}</button></div>`;
+  return `<div class="find9" role="search"><span class="find9-i">${ic("search", "s")}</span><input id="find9-q" value="${esc(FIND.q)}" placeholder="${t("window.chat.head.find")}" autocomplete="off" aria-label="${t("window.chat.head.find")}"><span id="find9-n" class="find9-n"></span><button type="button" class="icon-btn" data-act="find-step" data-v="-1" aria-label="${t("window.chat.find.previous")}">${ic("up", "s")}</button><button type="button" class="icon-btn flip9" data-act="find-step" data-v="1" aria-label="${t("action.next")}">${ic("up", "s")}</button><button type="button" class="icon-btn" data-act="find-close" aria-label="${t("window.chat.find.close")}">${ic("x", "s")}</button></div>`;
 }
 
 function mark(thread, q) {
-  const walker = document.createTreeWalker(thread, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.parentElement.closest("button,textarea") ? 2 : t.nodeValue.toLowerCase().includes(q) ? 1 : 2) });
+  const walker = document.createTreeWalker(thread, NodeFilter.SHOW_TEXT, { acceptNode: (node) => (node.parentElement.closest("button,textarea") ? 2 : node.nodeValue.toLowerCase().includes(q) ? 1 : 2) });
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   let n = 0;
-  for (const t of nodes) {
+  for (const node of nodes) {
     const frag = document.createDocumentFragment();
-    let s = t.nodeValue, i;
+    let s = node.nodeValue, i;
     while ((i = s.toLowerCase().indexOf(q)) >= 0) {
       frag.append(s.slice(0, i));
       frag.append(Object.assign(document.createElement("mark"), { className: "hit9", textContent: s.slice(i, i + q.length) }));
@@ -30,7 +30,7 @@ function mark(thread, q) {
       n++;
     }
     frag.append(s);
-    t.replaceWith(frag);
+    node.replaceWith(frag);
   }
   return n;
 }

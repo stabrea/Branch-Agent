@@ -9,6 +9,7 @@ import { ic, openPop } from "../core/ui.js";
 import { S, E } from "../core/state.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 const keyOf = (run) => run?.model?.presetId ?? run?.model?.model ?? null;
 const nameOf = (run) => run?.model?.presetName || run?.model?.model || "";
@@ -35,10 +36,10 @@ export function droppedNote(message, messages) {
   if (cache.messages !== messages || cache.runs !== E.state?.runs) Object.assign(cache, { messages, runs: E.state?.runs, found: switches(messages) });
   const s = cache.found.get(message);
   if (!s) return "";
-  return `<div class="drop17c" role="note">${ic("spark", "s")}<span>Switched to <b>${esc(s.to)}</b>. ${esc(s.from)}’s thinking stays here for you but isn’t passed on: ${esc(s.to)} sees the messages and results, not the reasoning.</span><button type="button" class="link" data-act="dropwhy17c">Why</button></div>`;
+  return `<div class="drop17c" role="note">${ic("spark", "s")}<span>${t("window.chat.switched.note", { toBold: `<b>${esc(s.to)}</b>`, from: esc(s.from), to: esc(s.to) })}</span><button type="button" class="link" data-act="dropwhy17c">${t("flowsBoards.board.handoffWhy")}</button></div>`;
 }
 
 export function initSwitched() {
   markLive(["dropwhy17c"]);
-  on("dropwhy17c", (el) => openPop(el, '<div class="pt">Why earlier thinking isn’t passed on</div><p class="pp">A model’s private reasoning only makes sense to the model that wrote it, and some services refuse it from another. Branch keeps every message, file and tool result, so the new model picks up where things are; it starts its own thinking fresh.</p>'));
+  on("dropwhy17c", (el) => openPop(el, `<div class="pt">${t("window.chat.switched.why-title")}</div><p class="pp">${t("window.chat.switched.why-body")}</p>`));
 }

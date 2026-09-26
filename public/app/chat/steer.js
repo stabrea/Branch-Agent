@@ -11,6 +11,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { stepsOf, loadSteps, forgetSteps, liveRun } from "./timeline.js";
+import { t } from "../../i18n.js";
 
 const runsHere = () => (E.state?.runs ?? []).filter((r) => S.chat && r.sessionId === S.chat)
   .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -18,13 +19,13 @@ const runsHere = () => (E.state?.runs ?? []).filter((r) => S.chat && r.sessionId
 const working = () => liveRun() ?? runsHere().find((r) => r.status === "running");
 function name() {
   const s = E.sessions.find((x) => (x.sessionId ?? x.id) === S.chat);
-  return E.trunks.find((t) => t.id === s?.trunkId || t.id === s?.trunk?.id)?.name || E.state?.identity?.name || "";
+  return E.trunks.find((tr) => tr.id === s?.trunkId || tr.id === s?.trunk?.id)?.name || E.state?.identity?.name || "";
 }
 
 /* The chip over the message box, in its own row. */
 export function steerChip() {
   if (S.view !== "chat" || !working()) return "";
-  return `<div class="dockrow15"><button type="button" class="bgchip15 steer-b17" data-act="steerb17" aria-haspopup="menu">${ic("retry", "s")}Steer ${esc(name())}</button></div>`;
+  return `<div class="dockrow15"><button type="button" class="bgchip15 steer-b17" data-act="steerb17" aria-haspopup="menu">${ic("retry", "s")}${t("window.chat.steer.chip", { name: esc(name()) })}</button></div>`;
 }
 
 /* "You steered …": one line for each note the newest task's record holds. */
@@ -33,18 +34,18 @@ export function steeredNotes() {
   if (!run) return "";
   loadSteps(run.id);
   const notes = (stepsOf(run.id)?.steps ?? []).filter((s) => s.kind === "you");
-  return notes.map((s) => `<div class="steered-b17" role="note">${ic("retry", "s")}<span>You steered ${esc(name())}: “${esc(s.title)}”. It takes this at its next step; nothing done so far is lost.</span></div>`).join("");
+  return notes.map((s) => `<div class="steered-b17" role="note">${ic("retry", "s")}<span>${t("window.chat.steer.steered", { name: esc(name()), words: esc(s.title) })}</span></div>`).join("");
 }
 
-const pop = () => `<div class="ph">Steer ${esc(name())} while it works</div><div class="steer-pop-b17"><input class="inp" id="steer-in-b17" placeholder="Tell it what to change" aria-label="What to change" maxlength="2000"><button class="btn pri sm" type="button" data-act="steergob17">Steer now</button></div>`;
+const pop = () => `<div class="ph">${t("window.chat.steer.title", { name: esc(name()) })}</div><div class="steer-pop-b17"><input class="inp" id="steer-in-b17" placeholder="${t("window.chat.steer.placeholder")}" aria-label="${t("window.chat.steer.what")}" maxlength="2000"><button class="btn pri sm" type="button" data-act="steergob17">${t("window.chat.steer.now")}</button></div>`;
 
 async function steer() {
   const text = ($("#steer-in-b17")?.value || "").trim(), run = working();
-  if (!text) { toast("Type what to change first."); return; }
+  if (!text) { toast(t("window.chat.steer.type-first")); return; }
   if (!run) { closePop(); return; }
   try { await api(`runs/${encodeURIComponent(run.id)}/steer`, { text }); } catch (error) { toast(error.message); return; }
   closePop();
-  toast(`Steered ${name()}. It picks this up at its next step.`);
+  toast(t("window.chat.steer.done", { name: name() }));
   forgetSteps(run.id);
   await loadSteps(run.id);
   renderNow();

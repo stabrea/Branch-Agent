@@ -6,6 +6,7 @@
 import { esc, render } from "../core/dom.js";
 import { ic, toast } from "../core/ui.js";
 import { api } from "../core/api.js";
+import { t } from "../../i18n.js";
 
 const W = { sid: null, work: null, at: 0, loading: false, said: "" };
 
@@ -37,13 +38,13 @@ export async function loadWork(sid) {
 const MARK = { done: "check", practice: "check", failed: "x", refused: "x", stopped: "x", running: "spin" };
 
 function row(entry) {
-  const pill = entry.state === "waiting" ? '<span class="pill warn">Waiting for your yes</span>' : ic(MARK[entry.state] ?? "info", entry.state === "running" ? "s spin" : "s");
+  const pill = entry.state === "waiting" ? `<span class="pill warn">${t("dashboard.needs.approval")}</span>` : ic(MARK[entry.state] ?? "info", entry.state === "running" ? "s spin" : "s");
   const out = entry.output ? `<pre>${esc(entry.output)}</pre>` : "";
   return `<div class="termrow"><div class="th2"><code>$ ${esc(entry.what)}</code>${pill}</div>${out}</div>`;
 }
 
 export function terminalBody(sid) {
   const entries = work(sid)?.terminal?.entries ?? [];
-  const rows = entries.map(row).join("") || '<p class="empty">No commands in this conversation yet. Commands a Trunk runs, and what came back, show here.</p>';
-  return `<div class="term7">${rows}<div class="acts"><button class="btn sm" type="button" data-act="shell" data-v="open">Open a terminal for me</button></div></div>`;
+  const rows = entries.map(row).join("") || `<p class="empty">${t("window.chat.term.empty")}</p>`;
+  return `<div class="term7">${rows}<div class="acts"><button class="btn sm" type="button" data-act="shell" data-v="open">${t("panels.terminal.open")}</button></div></div>`;
 }

@@ -6,10 +6,20 @@
    (GET /api/look) is put back to "auto" first so it does not override that. Each pass: the setup dialog's name, Find's
    "No matches", Inbox › History › Verify (its answer read back from POST /api/safety-extras/activity/verify, the route
    the window calls), and a bad theme code's message. The English pass also checks no raw key ("window.…") is on screen.
+   (Find searches a conversation the demo model answered: since #349 an empty new conversation draws starting points.)
    rw4-language: the locale files are cached (an ETag, 304 when unchanged, no-cache so a new build comes fresh), and
    Settings › Appearance › Language is live: picking Français saves it to the engine (GET /api/look says fr) and to this
    browser, and the window redraws in French; after a reload, and in a new browser with nothing saved, it is still
    French and the select shows Français; Español cannot be picked; English again says "English." (the prototype's toast).
+   rw4-i18n-chat: the conversation and the flows (public/app/chat, public/app/flows) speak through t(). With a conversation
+   the engine's demo model answered (POST /api/run), each pass opens it, the + menu, the model and mode menus, Find, the
+   side panel, the Add an account wizard and the tour, and checks 20 of those words (visible text, aria-label, placeholder,
+   title, data-tip): in French each shows in French and its English is nowhere on the page; in English each shows in
+   English. On every surface no raw key (any key of en.json, or "window.chat…" / "window.flows…") and no unfilled {word}
+   shows. Setup's Language (the owner's addition): a new browser with nothing saved on an engine with no saved language
+   opens setup with the Language control first, listing only the languages with words on file; picking Français turns
+   Welcome French and saves it to the engine and this browser; after a reload it is still French; Settings › Appearance
+   then shows Français.
    Page errors must be zero. The engine's language is left at "auto" at the end. */
 const { chromium } = require("C:/Users/bishi/AppData/Local/Programs/Branch Agent/resources/app/node_modules/playwright");
 
@@ -40,7 +50,19 @@ async function open(browser, lang) {
   return { context, page, errors };
 }
 
-async function pass(browser, lang, W) {
+/* Closing setup brings the "New to Branch?" card a moment later (flows/first.js); dismiss it so it covers nothing. */
+async function dismissWelcome(page) {
+  await page.evaluate(() => { try { localStorage.setItem("branch-welcomed", "1"); } catch { /* checked by the clicks that follow */ } });
+  await page.waitForTimeout(1500);
+  if (await page.locator('[data-act="welcome-x"]').isVisible().catch(() => false)) await page.locator('[data-act="welcome-x"]').click();
+}
+/* A conversation the engine's demo model answered: an empty new conversation draws its starting points instead of a thread. */
+async function openConversation(page, sessionId) {
+  await page.locator(`[data-act="chat"][data-id="${sessionId}"]`).first().click();
+  await page.locator("#conversation .b").first().waitFor({ timeout: 30000 });
+}
+
+async function pass(browser, lang, W, sessionId) {
   const { context, page, errors } = await open(browser, lang);
   check(`${lang}: <html lang> is ${lang}`, (await page.evaluate(() => document.documentElement.lang)) === lang);
 
@@ -52,6 +74,8 @@ async function pass(browser, lang, W) {
   check(`${lang}: setup dialog is named "${W["window.setup.label"]}"`, (await setup.getAttribute("aria-label")) === W["window.setup.label"]);
   await page.locator('[data-act="ob-close"]').first().click();
   await page.locator("#prompt").waitFor({ timeout: 30000 });
+  await dismissWelcome(page);
+  await openConversation(page, sessionId);
 
   // Find in this conversation: words that are nowhere give "No matches".
   await page.locator('[data-act="find-open"]').first().click();
@@ -200,6 +224,147 @@ async function languageSelect(browser, W, E) {
   await fresh.context.close();
 }
 
+/* ---------- rw4-i18n-chat: the conversation and the flows ---------- */
+
+/* Twenty of the words chat/ and flows/ draw, by the surface that shows them. Each is a key the code looks up. */
+const SURFACES = {
+  conversation: ["window.chat.composer.message", "window.chat.head.find", "window.chat.composer.plus", "window.chat.composer.voice", "window.chat.more.label", "window.chat.branches.from-here", "window.chat.head.more"],
+  plus: ["window.chat.plus.attach", "window.chat.plus.temporary", "window.chat.plus.goal"],
+  model: ["window.chat.mode.which-model"],
+  mode: ["window.chat.mode.everywhere"],
+  find: ["window.chat.find.close"],
+  pane: ["window.chat.pane.timeline", "pane.close"],
+  account: ["window.flows.acct.search"],
+  tour: ["window.flows.tour.contacts", "window.flows.tour.skip"],
+  setup: ["window.flows.setup.safe", "window.flows.setup.understand"],
+};
+
+/* Everything a person can read or hear on the page: its text and the words carried in attributes. */
+const onPage = (page) => page.evaluate(() => {
+  const attrs = [...document.querySelectorAll("[aria-label],[placeholder],[title],[data-tip]")]
+    .flatMap((n) => ["aria-label", "placeholder", "title", "data-tip"].map((a) => n.getAttribute(a)).filter(Boolean));
+  return [document.body.innerText, ...attrs].join("\n");
+});
+
+/* One surface: each of its words is in the language (and, in French, its English is nowhere), and no raw key or
+   unfilled {word} shows anywhere on the page. */
+async function surface(page, name, lang, W, E) {
+  const text = await onPage(page);
+  /* Compared without case: a menu heading is drawn in capitals (text-transform), and innerText reads it so. */
+  const seen = text.toLocaleLowerCase();
+  for (const key of SURFACES[name]) {
+    const want = W[key], english = E[key];
+    check(`${lang} · ${name}: "${want}" shows`, typeof want === "string" && seen.includes(want.toLocaleLowerCase()));
+    if (lang === "fr") check(`fr · ${name}: English "${english}" is not on the page`, !seen.includes(english.toLocaleLowerCase()));
+  }
+  const lines = text.split("\n").map((s) => s.trim()).filter(Boolean);
+  const keys = new Set(Object.keys(E));
+  const raw = lines.filter((s) => keys.has(s) || /\bwindow\.(chat|flows)\.[\w.-]+/.test(s));
+  check(`${lang} · ${name}: no raw key on the page`, raw.length === 0, raw.slice(0, 5).join(", "));
+  const unfilled = lines.filter((s) => /\{[a-z]\w*\}/.test(s));
+  check(`${lang} · ${name}: no unfilled {word} on the page`, unfilled.length === 0, unfilled.slice(0, 3).join(" | "));
+}
+
+/* A control the window already handles, put on the page and pressed, as tests/redesign-approvals-exact-ui.test.mjs does:
+   the window draws #main again shortly after sign-in, which can drop it, so it is added again and retried. */
+async function press(page, act) {
+  for (let tries = 0; tries < 5; tries++) {
+    await page.evaluate((a) => {
+      if (document.querySelector("#i18n-press")) return;
+      const b = Object.assign(document.createElement("button"), { type: "button", id: "i18n-press", textContent: "·" });
+      b.dataset.act = a;
+      document.querySelector("#main").append(b);
+    }, act);
+    if (await page.locator("#i18n-press").click({ timeout: 3000 }).then(() => true, () => false)) break;
+  }
+  await page.evaluate(() => document.querySelector("#i18n-press")?.remove());
+}
+
+async function chatAndFlows(browser, lang, W, E, sessionId) {
+  const { context, page, errors } = await open(browser, lang);
+  await closeSetup(page);
+  await dismissWelcome(page);
+  await openConversation(page, sessionId);
+  await surface(page, "conversation", lang, W, E);
+
+  const menu = async (act, name) => {
+    await page.locator(`[data-act="${act}"]`).first().click();
+    await page.locator(".pop").waitFor({ timeout: 10000 });
+    await surface(page, name, lang, W, E);
+    await page.keyboard.press("Escape");
+    await page.locator(".pop").waitFor({ state: "detached", timeout: 5000 }).catch(() => null);
+  };
+  await menu("plusmenu", "plus");
+  await menu("modelmenu2", "model");
+  await menu("modemenu2", "mode");
+
+  await page.locator('[data-act="find-open"]').first().click();
+  await page.locator("#find9-q").waitFor({ timeout: 10000 });
+  await surface(page, "find", lang, W, E);
+  await page.locator("#find9-q").press("Escape");
+
+  await page.locator('[data-act="pane"][data-p="activity"]').first().click();
+  await page.locator("#pane .ptabs").waitFor({ timeout: 10000 });
+  await surface(page, "pane", lang, W, E);
+  await page.locator('#pane [data-act="pane"][data-p="close"]').click();
+
+  await press(page, "addacct");
+  await page.locator("#aa-q").waitFor({ timeout: 15000 });
+  await surface(page, "account", lang, W, E);
+  await page.locator('.dlg [data-act="dlg-close"]').first().click();
+
+  await press(page, "tour");
+  await page.locator(".tour-card b").waitFor({ timeout: 15000 });
+  await surface(page, "tour", lang, W, E);
+  await page.locator('[data-act="tour-end"]').click();
+
+  check(`${lang} · chat and flows: zero page errors`, errors.length === 0, errors.join(" | "));
+  await context.close();
+}
+
+/* The owner's addition: the first thing setup asks is the language. */
+async function setupLanguage(browser, fr, en) {
+  await api("look", { language: "auto" });
+  const { context, page, errors } = await open(browser, null);
+  const setup = page.locator(".ob9[role=dialog]");
+  await setup.waitFor({ timeout: 30000 });
+  const first = await page.evaluate(() => {
+    const body = document.querySelector(".ob9 .ob-body");
+    const el = body?.firstElementChild;
+    const select = document.querySelector("#ob-lang");
+    return { firstIsLanguage: !!el?.classList.contains("ob-lang") && el.contains(select), options: [...(select?.options ?? [])].map((o) => ({ v: o.value, t: o.textContent, off: o.disabled })), value: select?.value, label: el?.querySelector("b")?.textContent };
+  });
+  const listed = await page.evaluate(async () => (await import("/i18n.js")).LANGUAGES.map((l) => l.id));
+  check("setup: the Language control comes first, before the greeting", first.firstIsLanguage, JSON.stringify(first));
+  check(`setup: it is labelled "${en["appearance.language"]}"`, first.label === en["appearance.language"], first.label);
+  check("setup: it lists only the languages with words on file (i18n.js LANGUAGES), none greyed", JSON.stringify(first.options.map((o) => o.v)) === JSON.stringify(listed) && first.options.every((o) => !o.off), JSON.stringify(first.options));
+  check("setup: each language is named in its own words (English, Français)", first.options.map((o) => o.t).join("|") === "English|Français", first.options.map((o) => o.t).join("|"));
+  check("setup: with nothing saved it shows the language in force (English)", first.value === "en" && (await lang(page)) === "en");
+  await surface(page, "setup", "en", en, en);
+
+  await page.locator("#ob-lang").selectOption("fr");
+  await page.waitForFunction(() => document.documentElement.lang === "fr", null, { timeout: 15000 });
+  await page.locator(".ob9 h2").filter({ hasText: fr["window.flows.first.hi"] }).waitFor({ timeout: 10000 });
+  check(`setup: after Français, Welcome says "${fr["window.flows.first.hi"]}"`, (await page.locator(".ob9 h2").first().textContent())?.trim() === fr["window.flows.first.hi"]);
+  check(`setup: the dialog is named "${fr["window.setup.label"]}"`, (await setup.getAttribute("aria-label")) === fr["window.setup.label"]);
+  await surface(page, "setup", "fr", fr, en);
+  check("setup: the engine keeps it (GET /api/look language = fr)", (await api("look")).language === "fr");
+  check("setup: this browser keeps it (localStorage)", (await saved(page)) === "fr");
+
+  await page.reload();
+  await page.waitForFunction(() => document.documentElement.lang === "fr", null, { timeout: 30000 });
+  await setup.waitFor({ timeout: 30000 });
+  await page.locator(".ob9 h2").filter({ hasText: fr["window.flows.first.hi"] }).waitFor({ timeout: 10000 });
+  check("setup: after a reload it is still French, and its Language shows Français", (await page.locator("#ob-lang").inputValue()) === "fr" && (await page.locator(".ob9 h2").first().textContent())?.trim() === fr["window.flows.first.hi"]);
+  await closeSetup(page);
+  await openAppearance(page);
+  const now = await shown(page);
+  check("setup: Settings › Appearance then shows Français", now.value === "fr" && now.text === "Français", JSON.stringify(now));
+  check("setup: zero page errors", errors.length === 0, errors.join(" | "));
+  await context.close();
+  await api("look", { language: "auto" });
+}
+
 (async () => {
   const [fr, en] = await Promise.all([words("fr"), words("en")]);
   check("French words differ from English for the keys checked", ["window.setup.label", "window.find.none", "window.inbox.intact", "window.themes.not-a-code"].every((k) => fr[k] && fr[k] !== en[k]));
@@ -207,9 +372,17 @@ async function languageSelect(browser, W, E) {
   await caching();
   const browser = await chromium.launch({ headless: true });
   try {
-    await pass(browser, "fr", fr);
-    await pass(browser, "en", en);
+    /* The passes open a conversation the demo model answered (an empty new one has no thread to search). */
+    const { sessionId } = await api("run", { prompt: "Say hello for the language check." });
+    await pass(browser, "fr", fr, sessionId);
+    await pass(browser, "en", en, sessionId);
     await languageSelect(browser, fr, en);
+    await api("look", { language: "auto" });
+    const keys = Object.values(SURFACES).flat();
+    check("rw4-i18n-chat: the 20 words are in English and in French, and the French differs", keys.length === 20 && keys.every((k) => typeof en[k] === "string" && typeof fr[k] === "string" && fr[k] !== en[k]), keys.filter((k) => !(fr[k] && fr[k] !== en[k])).join(", "));
+    await chatAndFlows(browser, "fr", fr, en, sessionId);
+    await chatAndFlows(browser, "en", en, en, sessionId);
+    await setupLanguage(browser, fr, en);
   } finally {
     await browser.close();
     await api("look", { language: "auto" }).catch((error) => console.error(error.message));

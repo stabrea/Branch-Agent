@@ -11,8 +11,9 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
 import { setLockdown, initApprovals } from "./approvals.js";
+import { t } from "../../i18n.js";
 
-const PMODES = [["auto", "Auto", "Branch decides what’s safe and only asks about risky things.", "spark"], ["ask", "Ask first", "Always asks before changing files, running commands or using the internet.", "shield"], ["plan", "Plan first", "Writes a plan and waits for your OK before doing anything.", "plan"], ["full", "Full access", "Does anything on this computer without asking: files, commands, the internet.", "unlock"]];
+const PMODES = [["auto", "look.season.auto", "window.chat.mode.auto-hint", "spark"], ["ask", "mode.ask", "window.chat.mode.ask-hint", "shield"], ["plan", "mode.plan", "window.chat.mode.plan-hint", "plan"], ["full", "window.chat.mode.full", "window.chat.mode.full-hint", "unlock"]];
 const M = { sid: undefined, model: null, mode: null, at: 0, pending: null };
 
 const presets = () => E.state?.models?.presets ?? [];
@@ -38,9 +39,9 @@ export function startMode() {
 
 export function chips() {
   const m = current(), mode = modeNow(), p = PMODES.find(([id]) => id === mode);
-  const model = `<button type="button" class="chip-c" data-act="modelmenu2" data-tip="Model and how long it thinks">${logo(m.provider, m.name, 18)}<span class="lbl">${esc(m.name)}${m.reasoning ? " · " + esc(String(m.reasoning).toLowerCase()) : ""}</span>${ic("down", "s")}</button>`;
-  const label = mode === "lock" ? "Lockdown" : mode === "follow" ? M.mode?.following?.label ?? "" : p?.[1] ?? "";
-  const modeChip = `<button type="button" class="chip-c ${mode === "full" ? "full" : ""} ${mode === "lock" ? "lockd" : ""}" data-act="modemenu2" data-tip="How much it may do in this conversation (Shift+Tab)">${ic(mode === "lock" ? "lock" : p?.[3] ?? "shield")}<span class="lbl">${esc(label)}</span>${ic("down", "s")}</button>`;
+  const model = `<button type="button" class="chip-c" data-act="modelmenu2" data-tip="${t("window.chat.mode.model-tip")}">${logo(m.provider, m.name, 18)}<span class="lbl">${esc(m.name)}${m.reasoning ? " · " + esc(String(m.reasoning).toLowerCase()) : ""}</span>${ic("down", "s")}</button>`;
+  const label = mode === "lock" ? t("lockdown.label") : mode === "follow" ? M.mode?.following?.label ?? "" : p ? t(p[1]) : "";
+  const modeChip = `<button type="button" class="chip-c ${mode === "full" ? "full" : ""} ${mode === "lock" ? "lockd" : ""}" data-act="modemenu2" data-tip="${t("window.chat.mode.mode-tip")}">${ic(mode === "lock" ? "lock" : p?.[3] ?? "shield")}<span class="lbl">${esc(label)}</span>${ic("down", "s")}</button>`;
   return model + modeChip;
 }
 
@@ -74,8 +75,8 @@ function modelMenu() {
   const m = current(), preset = presets().find((x) => x.id === m.id);
   const levels = preset?.thinking?.levels ?? [];
   const rows = presets().map((x) => `<button class="mi" type="button" role="menuitemradio" aria-checked="${x.id === m.id}" data-act="pick-model" data-v="${esc(x.id)}"><span class="tick">${ic("check", "s")}</span>${logo(x.provider, x.name, 22)}<span><span class="mi-t">${esc(x.name)}</span><span class="mi-s">${esc(x.model)}</span></span></button>`).join("");
-  const think = levels.length ? `<hr><div class="row-in"><span>Thinking</span><span class="seg">${levels.map((t) => `<button type="button" data-act="pick-think" data-v="${esc(t)}" aria-pressed="${m.reasoning === t}">${esc(t[0].toUpperCase() + t.slice(1))}</button>`).join("")}</span></div><p class="pp" data-css="padding-top:6px">Thinking options depend on the model.</p>` : "";
-  return `<div class="ph">Which model answers</div>${rows}${think}${mi("setgo", "users", "Accounts and order…", "", 'data-v="accounts"')}`;
+  const think = levels.length ? `<hr><div class="row-in"><span>${t("field.thinking")}</span><span class="seg">${levels.map((lv) => `<button type="button" data-act="pick-think" data-v="${esc(lv)}" aria-pressed="${m.reasoning === lv}">${esc(lv[0].toUpperCase() + lv.slice(1))}</button>`).join("")}</span></div><p class="pp" data-css="padding-top:6px">${t("window.chat.mode.thinking-hint")}</p>` : "";
+  return `<div class="ph">${t("window.chat.mode.which-model")}</div>${rows}${think}${mi("setgo", "users", t("window.chat.mode.accounts"), "", 'data-v="accounts"')}`;
 }
 
 /* The menu offers what the conversation's model takes now: the model is read again as it opens (it may have been changed
@@ -92,9 +93,9 @@ function modeMenu() {
   const rows = PMODES.map(([id, n, d, icon], i) => {
     const choice = M.mode?.choices?.find((c) => c.mode === id);
     const blocked = choice && !choice.available ? choice.why : "";
-    return `<button class="mi pm ${id === "full" ? "dz" : ""} ${blocked ? "blocked" : ""}" type="button" role="menuitemradio" aria-checked="${!locked && cur === id}" data-act="set-mode" data-v="${id}" ${blocked || locked ? "disabled" : ""}><span class="ico">${ic(icon, "s")}</span><span><span class="mi-t">${n}</span><span class="mi-s">${esc(blocked || d)}</span></span><span class="r">${!locked && cur === id ? ic("check", "s") : `<kbd>${i + 1}</kbd>`}</span></button>`;
+    return `<button class="mi pm ${id === "full" ? "dz" : ""} ${blocked ? "blocked" : ""}" type="button" role="menuitemradio" aria-checked="${!locked && cur === id}" data-act="set-mode" data-v="${id}" ${blocked || locked ? "disabled" : ""}><span class="ico">${ic(icon, "s")}</span><span><span class="mi-t">${t(n)}</span><span class="mi-s">${esc(blocked || t(d))}</span></span><span class="r">${!locked && cur === id ? ic("check", "s") : `<kbd>${i + 1}</kbd>`}</span></button>`;
   }).join("");
-  return `<div class="pt">How much may it do in this conversation?</div>${rows}<hr><div class="row-in"><span>Applies to</span><span class="seg"><button type="button" data-act="scope" data-v="here" aria-pressed="true">This conversation</button><button type="button" data-act="scope" data-v="everywhere" aria-pressed="false">Everywhere</button></span></div><div class="row-in"><span data-css="color:var(--bad)">${ic("lock", "s")} Lockdown</span><input class="sw" type="checkbox" id="pm-lock2" data-sw="lock" ${locked ? "checked" : ""} aria-label="Lockdown"></div>`; // state: the mode it sets applies to this conversation
+  return `<div class="pt">${t("mode.question")}</div>${rows}<hr><div class="row-in"><span>${t("window.chat.mode.applies")}</span><span class="seg"><button type="button" data-act="scope" data-v="here" aria-pressed="true">${t("window.chat.mode.this-conversation")}</button><button type="button" data-act="scope" data-v="everywhere" aria-pressed="false">${t("window.chat.mode.everywhere")}</button></span></div><div class="row-in"><span data-css="color:var(--bad)">${ic("lock", "s")} ${t("lockdown.label")}</span><input class="sw" type="checkbox" id="pm-lock2" data-sw="lock" ${locked ? "checked" : ""} aria-label="${t("lockdown.label")}"></div>`; // state: the mode it sets applies to this conversation
 }
 
 function reopen(act, menu) {

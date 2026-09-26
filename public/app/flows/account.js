@@ -12,6 +12,7 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { logo } from "../core/logos.js";
+import { t } from "../../i18n.js";
 
 /* ---------- the engine's list, shared by Settings › Accounts and Models ---------- */
 export const A = { view: null, catalog: null };
@@ -36,7 +37,7 @@ function openAccountMenu(el) {
   const a = accountOf(el);
   if (!a) return;
   const ids = `data-pool="${esc(a.pool)}" data-id="${esc(a.id)}" ${ownerOnly()}`;
-  openPop(el, `<div class="pt">${esc(a.label)}</div>${mi("acct-first", "up", "Answer first", "", ids)}${mi("toast", "edit", "Rename")}${mi("toast", "users", "Which Trunks use it")}<hr>${mi("acct-out", "x", "Sign out", "", ids)}`, { right: true });
+  openPop(el, `<div class="pt">${esc(a.label)}</div>${mi("acct-first", "up", t("window.flows.acct.answer-first"), "", ids)}${mi("toast", "edit", t("accounts.action.rename"))}${mi("toast", "users", t("window.flows.acct.which-trunks"))}<hr>${mi("acct-out", "x", t("accounts.action.sign-out"), "", ids)}`, { right: true });
 }
 
 /* "Answer first" is the pool's default account (POST /api/accounts/pool { defaultAccount }). */
@@ -46,7 +47,7 @@ async function answerFirst(el) {
   if (!a) return;
   try {
     await api("accounts/pool", { pool: a.pool, defaultAccount: a.id });
-    toast(`${a.label} answers first now.`);
+    toast(t("window.flows.acct.answers-first", { name: a.label }));
   } catch (error) { toast(error.message); }
   await loadAccounts();
 }
@@ -59,13 +60,13 @@ async function signOut(el) {
   if (!a) return;
   try {
     await api("accounts/remove", { pool: a.pool, account: a.id });
-    toast(`Signed out of ${a.label}. Nothing else changed.`);
+    toast(t("window.flows.acct.signed-out", { name: a.label }));
   } catch (error) { toast(error.message); }
   await loadAccounts();
 }
 
 /* ---------- the wizard ---------- */
-const GROUPS = [["all", "All"], ["plan", "Your plan"], ["code", "Coding assistants"], ["key", "A key"], ["local", "On this computer"], ["custom", "Your own"], ["gone", "Retired"]];
+const GROUPS = [["all", "look.filter.all"], ["plan", "window.flows.acct.your-plan"], ["code", "window.flows.acct.coding"], ["key", "window.flows.acct.a-key"], ["local", "glance.local"], ["custom", "window.flows.acct.your-own"], ["gone", "terms.standing.retired"]];
 const KIND_GROUP = { chatgpt: "plan", cli: "code", "api-key": "key" };
 const W = { step: 1, pool: null, group: "all", q: "", saved: null, name: "", trunks: [], pos: "last", error: "" };
 
@@ -81,11 +82,11 @@ function serviceGroup(s) {
 /* The cards: every connection that can take another account, then every service in the catalogue that has none yet. */
 function cards() {
   const own = pools().map((p) => ({ act: "aa-prov", v: p.pool, id: p.pool, name: p.name ?? p.pool, group: KIND_GROUP[p.kind] ?? "key",
-    small: `${p.accounts.length} signed in · ${p.kind === "api-key" ? "a key" : "your plan"}`, note: "" }));
+    small: `${t("window.flows.acct.signed-in", { count: p.accounts.length })} · ${p.kind === "api-key" ? t("window.flows.acct.a-key-lower") : t("window.flows.acct.your-plan-lower")}`, note: "" }));
   const rest = (A.catalog ?? []).filter((s) => !hasPool(s)).map((s) => {
     const group = serviceGroup(s);
     const act = group === "local" ? "aa-local" : group === "gone" ? "aa-gone" : "signin";
-    const small = group === "local" ? "On this computer · nothing to paste" : group === "gone" ? (s.terms?.standing === "not-offered" ? "Not offered" : "Retired") : "Not signed in · a key";
+    const small = group === "local" ? t("window.flows.acct.local-small") : group === "gone" ? (s.terms?.standing === "not-offered" ? t("terms.standing.not-offered") : t("terms.standing.retired")) : t("window.flows.acct.not-signed-in");
     return { act, v: s.id, id: s.id, name: s.name, group, small, note: `${s.name} ${s.note ?? ""}` };
   });
   return [...own, ...rest];
@@ -101,16 +102,16 @@ function listHtml(all) {
   if (W.group !== "all") return list.length ? `<div class="provs">${list.map(card).join("")}</div>` : "";
   return GROUPS.slice(1).map(([g, l]) => {
     const items = list.filter((c) => c.group === g);
-    return items.length ? `<div class="aa-grp12"><h3>${l} <span>${items.length}</span></h3><div class="provs">${items.map(card).join("")}</div></div>` : "";
+    return items.length ? `<div class="aa-grp12"><h3>${t(l)} <span>${items.length}</span></h3><div class="provs">${items.map(card).join("")}</div></div>` : "";
   }).join("");
 }
 
 function step1() {
   const all = cards();
-  return `<p data-css="margin:0 0 10px">Which service is the new account with? ${all.length} services, and you can have several accounts with each.</p>
-    <div class="aa-top12"><label class="set-search" data-css="margin:0;flex:1">${ic("search", "s")}<input id="aa-q" value="${esc(W.q)}" placeholder="Search services" aria-label="Search services" autocomplete="off"></label></div>
-    <div class="tabs aa-tabs12">${GROUPS.map(([g, l]) => `<button class="tab" type="button" aria-selected="${W.group === g}" data-act="aa-grp" data-v="${g}">${l}</button>`).join("")}</div>
-    <div class="aa-list12">${listHtml(all) || "<p class=\"empty\">No service matches. Try “Something else that speaks OpenAI’s shape”.</p>"}</div>`;
+  return `<p data-css="margin:0 0 10px">${t("window.flows.acct.which-service", { count: all.length })}</p>
+    <div class="aa-top12"><label class="set-search" data-css="margin:0;flex:1">${ic("search", "s")}<input id="aa-q" value="${esc(W.q)}" placeholder="${t("window.flows.acct.search")}" aria-label="${t("window.flows.acct.search")}" autocomplete="off"></label></div>
+    <div class="tabs aa-tabs12">${GROUPS.map(([g, l]) => `<button class="tab" type="button" aria-selected="${W.group === g}" data-act="aa-grp" data-v="${g}">${t(l)}</button>`).join("")}</div>
+    <div class="aa-list12">${listHtml(all) || `<p class="empty">${t("window.flows.acct.no-match")}</p>`}</div>`;
 }
 
 /* A key connection: the catalogue's own note and where to get a key; the key field is empty every time it is drawn. */
@@ -119,38 +120,38 @@ function step2() {
   const service = (A.catalog ?? []).find((s) => p && (p.pool === s.id || p.pool.startsWith(s.id + "-")));
   const note = service?.note ? `<p class="hint12">${esc(service.note)}</p>` : "";
   const site = siteOf(service?.signUp);
-  const get = httpUrl(service?.signUp) && site ? `<p class="hint"><a href="${esc(service.signUp)}" target="_blank" rel="noopener">Get a key from ${esc(site)}</a></p>` : "";
-  return `${note}<label class="fld" data-css="margin-top:10px"><span>Key</span><input class="inp" id="aa-key" type="password" autocomplete="off" placeholder="Paste the key" aria-label="Key"></label>${get}${errorLine()}`;
+  const get = httpUrl(service?.signUp) && site ? `<p class="hint"><a href="${esc(service.signUp)}" target="_blank" rel="noopener">${t("window.flows.acct.get-key", { site: esc(site) })}</a></p>` : "";
+  return `${note}<label class="fld" data-css="margin-top:10px"><span>${t("addons.pipelines.key")}</span><input class="inp" id="aa-key" type="password" autocomplete="off" placeholder="${t("window.flows.acct.paste-key")}" aria-label="${t("addons.pipelines.key")}"></label>${get}${errorLine()}`;
 }
 
 const errorLine = () => (W.error ? `<p class="hint" role="alert">${esc(W.error)}</p>` : "");
-const defaultName = (p) => `${p?.name ?? W.pool} · Account ${(p?.accounts.length ?? 0) + (W.saved ? 0 : 1)}`;
+const defaultName = (p) => `${p?.name ?? W.pool} · ${t("window.flows.acct.account-n", { n: (p?.accounts.length ?? 0) + (W.saved ? 0 : 1) })}`;
 
 function step3() {
   const p = poolById(W.pool);
   const name = W.name || W.saved?.label || defaultName(p);
-  const quick = ["Personal", "Work", "Side project"].map((x) => `<button class="chip6" type="button" data-act="aa-nm" data-v="${esc(`${p?.name ?? W.pool} · ${x}`)}">${x}</button>`).join("");
+  const quick = [t("window.flows.acct.personal"), t("window.flows.acct.work"), t("window.flows.acct.side-project")].map((x) => `<button class="chip6" type="button" data-act="aa-nm" data-v="${esc(`${p?.name ?? W.pool} · ${x}`)}">${esc(x)}</button>`).join("");
   /* A sign-in is never used for a Trunk (src/trunks/accounts.ts), so for a sign-in connection the chips are greyed. */
   const keyPool = p?.kind === "api-key";
-  const who = [["anyone", "Anyone who needs it"], ...E.trunks.map((t) => [t.id, t.name])]
+  const who = [["anyone", t("window.flows.acct.anyone")], ...E.trunks.map((tr) => [tr.id, tr.name])]
     .map(([id, l]) => `<button class="chip6" type="button" data-act="aa-tr" data-v="${esc(id)}" aria-pressed="${keyPool && W.trunks.includes(id)}" ${keyPool ? "" : 'disabled aria-disabled="true"'}>${esc(l)}</button>`).join("");
-  const pos = [["first", "First"], ["last", "Last"]].map(([v, l]) => `<button type="button" data-act="aa-pos" data-v="${v}" aria-pressed="${W.pos === v}">${l}</button>`).join("");
+  const pos = [["first", t("window.flows.acct.first")], ["last", t("window.flows.acct.last")]].map(([v, l]) => `<button type="button" data-act="aa-pos" data-v="${v}" aria-pressed="${W.pos === v}">${l}</button>`).join("");
   const head = W.saved ? `<div class="prow" data-css="border:0;padding:0 0 8px">${logo(W.pool, p?.name, 36)}<span class="grow"><b>${esc(W.saved.label)}</b><small>${esc(p?.name ?? W.pool)}</small></span></div>` : "";
-  return `${head}<label class="fld"><span>Call it</span><input class="inp" id="aa-name" value="${esc(name)}" maxlength="40" autocomplete="off"></label>
-    <div class="fld"><span>Quick names</span><span class="acts" data-css="gap:6px">${quick}</span></div>
-    <div class="fld"><span>Which Trunks use it</span><span class="acts" data-css="gap:6px">${who}</span></div>
-    <div class="ctl"><b>Where it goes in the order</b><span class="right"><span class="seg" role="group" aria-label="Where it goes in the order">${pos}</span></span><small>Branch uses the first one with room left.</small></div>
-    <div class="ctl"><b>Use it when the others run low</b><input class="sw" type="checkbox" id="aa-low" aria-label="Use it when the others run low" data-sw="set"><small>Only between accounts you own and pay for, within each provider’s terms.</small></div>${errorLine()}`;
+  return `${head}<label class="fld"><span>${t("window.flows.acct.call-it")}</span><input class="inp" id="aa-name" value="${esc(name)}" maxlength="40" autocomplete="off"></label>
+    <div class="fld"><span>${t("window.flows.acct.quick-names")}</span><span class="acts" data-css="gap:6px">${quick}</span></div>
+    <div class="fld"><span>${t("window.flows.acct.which-trunks")}</span><span class="acts" data-css="gap:6px">${who}</span></div>
+    <div class="ctl"><b>${t("window.flows.acct.order")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.flows.acct.order")}">${pos}</span></span><small>${t("window.flows.acct.order-hint")}</small></div>
+    <div class="ctl"><b>${t("window.flows.acct.run-low")}</b><input class="sw" type="checkbox" id="aa-low" aria-label="${t("window.flows.acct.run-low")}" data-sw="set"><small>${t("window.flows.acct.run-low-hint")}</small></div>${errorLine()}`;
 }
 
 function draw() {
   const p = poolById(W.pool);
   const dots = `<div class="wiz-dots">${[1, 2, 3].map((i) => `<i class="${i <= W.step ? "wz" : ""}"></i>`).join("")}</div>`;
   const body = W.step === 1 ? step1() : W.step === 2 ? step2() : step3();
-  const foot = W.step === 1 ? '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button>'
-    : W.step === 2 ? '<button class="btn ghost" type="button" data-act="aa-back">Back</button><button class="btn pri" type="button" data-act="aa-key">Add key</button>'
-    : '<button class="btn ghost" type="button" data-act="aa-back">Back</button><button class="btn pri" type="button" data-act="aa-done">Add account</button>';
-  openDlg({ title: W.step === 1 ? "Add an account" : `Add a ${p?.name ?? W.pool} account`, body: dots + body, foot, wide: W.step === 1 });
+  const foot = W.step === 1 ? `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button>`
+    : W.step === 2 ? `<button class="btn ghost" type="button" data-act="aa-back">${t("action.back")}</button><button class="btn pri" type="button" data-act="aa-key">${t("window.flows.acct.add-key")}</button>`
+    : `<button class="btn ghost" type="button" data-act="aa-back">${t("action.back")}</button><button class="btn pri" type="button" data-act="aa-done">${t("window.flows.acct.add-account")}</button>`;
+  openDlg({ title: W.step === 1 ? t("window.flows.acct.add-an-account") : t("window.flows.acct.add-a", { name: p?.name ?? W.pool }), body: dots + body, foot, wide: W.step === 1 });
 }
 
 /* Step 1 draws from the engine's list and catalogue, read fresh each time the wizard opens. */
@@ -209,7 +210,7 @@ async function finish() {
     await useInTrunks(account.id);
     closeDlg();
     S.addAcct = null;
-    toast(`${label} is added. ${placed.defaultAccount === account.id ? "It answers first now." : "It’s last in the order."}`);
+    toast(placed.defaultAccount === account.id ? t("window.flows.acct.added-first", { name: label }) : t("window.flows.acct.added-last", { name: label }));
   } catch (error) { W.error = error.message; draw(); }
   await loadAccounts();
 }
@@ -226,7 +227,7 @@ async function place(id, view) {
    replaces the whole keys object, so the rest of it is carried over from the Trunk as the engine has it now). */
 async function useInTrunks(id) {
   if (poolById(W.pool)?.kind !== "api-key") return;
-  for (const trunkId of W.trunks.filter((t) => t !== "anyone")) {
+  for (const trunkId of W.trunks.filter((id) => id !== "anyone")) {
     const { trunk } = await api(`trunks/${encodeURIComponent(trunkId)}`);
     const keys = trunk?.keys ?? { copyFromOwner: true, accounts: {} };
     await api(`trunks/${encodeURIComponent(trunkId)}`, { keys: { copyFromOwner: keys.copyFromOwner, accounts: { ...keys.accounts, [W.pool]: id } } });
@@ -265,7 +266,7 @@ export function init() {
   on("aa-tr", (el) => toggleTrunk(el.dataset.v));
   on("aa-pos", (el) => { keepName(); W.pos = el.dataset.v; draw(); });
   on("aa-local", () => { closeDlg(); S.addAcct = null; S.view = "settings"; S.setPage = "local"; render(); });
-  on("aa-gone", (el) => { const s = (A.catalog ?? []).find((x) => x.id === el.dataset.v); if (s) toast(s.terms?.warning || s.note || "This service is retired. The connection stays listed with a warning and is never used."); });
+  on("aa-gone", (el) => { const s = (A.catalog ?? []).find((x) => x.id === el.dataset.v); if (s) toast(s.terms?.warning || s.note || t("window.flows.acct.retired-toast")); });
   on("acct-menu", (el) => openAccountMenu(el));
   on("acct-first", (el) => answerFirst(el));
   on("acct-out", (el) => signOut(el));

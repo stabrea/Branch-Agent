@@ -14,6 +14,7 @@ import { ICONS } from "../core/icons.js";
 import { markLive, greyOut } from "../core/features.js";
 import { binding, defaultOf, comboOf, pressed, spoken } from "../shell/keys.js";
 import { startWith } from "./chat.js";
+import { t } from "../../i18n.js";
 
 Object.assign(ICONS, { quick17c: '<path d="M13 3.5L5.5 13.5H12l-1 7 7.5-10H12z"/>' });
 
@@ -27,20 +28,20 @@ const keysWords = () => (macDefault() ? "⌥ Space" : spoken(binding("quickAsk")
 const keysKbd = () => keysWords().split(" ").filter(Boolean).map((k) => `<kbd>${esc(k)}</kbd>`).join(" ");
 const pressedQuick = (e) => (macDefault() ? comboOf(e) === "Alt+Space" : pressed(e, "quickAsk"));
 
-export const quickItem = () => mi("qa17c", "quick17c", "Quick ask", binding("quickAsk") ? `<kbd>${esc(keysWords())}</kbd>` : "");
+export const quickItem = () => mi("qa17c", "quick17c", t("window.chat.quick.title"), binding("quickAsk") ? `<kbd>${esc(keysWords())}</kbd>` : "");
 
-const who = () => [{ id: "branch", name: "Branch", kind: "main" }, ...E.trunks.filter((t) => !t.hidden)];
+const who = () => [{ id: "branch", name: "Branch", kind: "main" }, ...E.trunks.filter((tr) => !tr.hidden)];
 /* A new conversation with a Trunk needs the engine's "Choosing a Trunk to answer in any conversation" part switched on;
    until then its chip stays drawn and greyed. */
 const canPick = (c) => c.id === "branch" || (E.trunkModes?.conversations ?? "off") !== "off";
 function boxHTML() {
   if (!canPick({ id: Q.to })) Q.to = "branch";
   const chips = who().map((c) => `<button type="button" role="radio" aria-checked="${Q.to === c.id}" data-act="${canPick(c) ? "qato17c" : "qato17c-off"}" data-v="${esc(c.id)}">${av(c, 18)}<span>${esc(c.name)}</span></button>`).join("");
-  const anywhere = desktop()?.onQuickAsk ? "<small>from any app, even with Branch in the background</small>" : "<small></small>";
-  return `<div class="qa17c" role="dialog" aria-label="Quick ask"><div class="qah17c">${ic("quick17c", "s")}<b>Quick ask</b><span class="qak17c">${keysKbd()}</span>${anywhere}<button class="icon-btn" type="button" data-act="qaclose17c" aria-label="Close quick ask">${ic("x", "s")}</button></div>
-    <input id="qa-in17c" class="inp" placeholder="Ask anything…" autocomplete="off" spellcheck="false" value="${esc(Q.text)}" aria-label="Your question">
-    <div class="qato17c" role="radiogroup" aria-label="Send to"><span>To</span>${chips}</div>
-    <div class="qaf17c"><small>Starts a new conversation. Enter sends, Esc closes.</small><button class="btn pri sm" type="button" data-act="qasend17c">Start</button></div></div>`;
+  const anywhere = desktop()?.onQuickAsk ? `<small>${t("window.chat.quick.anywhere")}</small>` : "<small></small>";
+  return `<div class="qa17c" role="dialog" aria-label="${t("window.chat.quick.title")}"><div class="qah17c">${ic("quick17c", "s")}<b>${t("window.chat.quick.title")}</b><span class="qak17c">${keysKbd()}</span>${anywhere}<button class="icon-btn" type="button" data-act="qaclose17c" aria-label="${t("window.chat.quick.close")}">${ic("x", "s")}</button></div>
+    <input id="qa-in17c" class="inp" placeholder="${t("window.chat.quick.placeholder")}" autocomplete="off" spellcheck="false" value="${esc(Q.text)}" aria-label="${t("window.chat.quick.question")}">
+    <div class="qato17c" role="radiogroup" aria-label="${t("window.chat.quick.send-to")}"><span>${t("reach.trunks.to")}</span>${chips}</div>
+    <div class="qaf17c"><small>${t("window.chat.quick.hint")}</small><button class="btn pri sm" type="button" data-act="qasend17c">${t("personal.tunnel.start")}</button></div></div>`;
 }
 
 /* The box is drawn when it opens and taken away when it closes, like a dialog. */
@@ -66,14 +67,14 @@ function pickTo(el) {
 
 async function sendBox() {
   const words = ($("#qa-in17c")?.value ?? "").trim(), to = Q.to;
-  if (!words) { toast("Type a question first."); $("#qa-in17c")?.focus(); return; }
-  const trunk = to === "branch" ? null : E.trunks.find((t) => t.id === to);
+  if (!words) { toast(t("window.chat.quick.type-first")); $("#qa-in17c")?.focus(); return; }
+  const trunk = to === "branch" ? null : E.trunks.find((tr) => tr.id === to);
   let sessionId = null;
   if (trunk) {
     try { sessionId = (await api("trunks/conversations", { trunkId: trunk.id })).sessionId; } catch (error) { toast(error.message); return; }
   }
   closeBox();
-  toast(`New conversation${trunk ? ` with ${trunk.name}` : ""}, from Quick ask.`);
+  toast(trunk ? t("window.chat.quick.started-with", { name: trunk.name }) : t("window.chat.quick.started"));
   await startWith(words, sessionId);
 }
 

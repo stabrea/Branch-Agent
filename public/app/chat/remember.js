@@ -9,16 +9,17 @@ import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { toast } from "../core/ui.js";
 import { markLive } from "../core/features.js";
+import { t } from "../../i18n.js";
 
 const decided = new Map();
 const wrap = (inner) => `<div class="b"><div class="gut"></div><div>${inner}</div></div>`;
 
 function card(p) {
-  return wrap(`<div class="card" data-css="padding:12px 14px"><div class="card-h"><b>Remember this?</b><span class="pill idle ml">Memory</span></div><div class="sub">${esc(p.text)}</div><div class="acts"><button class="btn pri sm" type="button" data-act="mem" data-id="${esc(p.id)}" data-v="kept">Remember</button><button class="btn ghost sm" type="button" data-act="mem" data-id="${esc(p.id)}" data-v="forgot">Don’t</button></div></div>`);
+  return wrap(`<div class="card" data-css="padding:12px 14px"><div class="card-h"><b>${t("window.chat.mem.remember-this")}</b><span class="pill idle ml">${t("memory.movein.kind.memory")}</span></div><div class="sub">${esc(p.text)}</div><div class="acts"><button class="btn pri sm" type="button" data-act="mem" data-id="${esc(p.id)}" data-v="kept">${t("window.chat.mem.remember")}</button><button class="btn ghost sm" type="button" data-act="mem" data-id="${esc(p.id)}" data-v="forgot">${t("window.chat.mem.dont")}</button></div></div>`);
 }
 function answered(d) {
   const kept = d.status === "accepted";
-  return wrap(`<div class="decided"><span class="pill ${kept ? "done" : "idle"}"><i></i>${kept ? "Remembered" : "Not remembered"}</span><span>${esc(d.text)}</span></div>`);
+  return wrap(`<div class="decided"><span class="pill ${kept ? "done" : "idle"}"><i></i>${kept ? t("window.chat.mem.remembered") : t("window.chat.mem.not-remembered")}</span><span>${esc(d.text)}</span></div>`);
 }
 
 /* Every suggestion made by a task of this conversation: waiting ones as cards, answered ones as the engine answered. */

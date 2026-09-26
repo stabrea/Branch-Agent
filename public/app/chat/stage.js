@@ -70,22 +70,22 @@ function screen(kind) {
   if (url && kind === "computer") return `<div class="desk7"><img class="shot7" src="${esc(url)}" alt="${esc(name())}"></div>`;
   const address = kind === "browser" && url ? pageUrl() : "";
   const page = url ? `<img class="shot7" src="${esc(url)}" alt="${esc(address)}">`
-    : `<div class="dk-app blank7">${ic("globe")}<b>Nothing open</b><small>${esc(name())} hasn’t opened a page in this conversation.</small></div>`;
+    : `<div class="dk-app blank7">${ic("globe")}<b>${t("window.chat.stage.nothing-open")}</b><small>${t("window.chat.stage.no-page", { name: esc(name()) })}</small></div>`;
   const bar = address ? `<div class="dk-url">${ic("lock", "s")}${esc(address)}</div>` : "";
   return `<div class="desk7 brfull7"><div class="dk-win br7">${bar}${page}</div></div>`;
 }
 
 function top(kind, steps) {
   const run = runsHere()[0], now = steps.findIndex((s) => s.status === "working");
-  const title = kind === "browser" ? `${esc(name())}’s browser` : `${esc(name())}’s computer`;
-  const pill = working() ? `<span class="pill work"><i></i>Working${now >= 0 ? ` · step ${now + 1} of ${steps.length}` : ""}</span>` : '<span class="pill idle"><i></i>Idle</span>';
-  const ctl = run && STOPPABLE.has(run.status) ? `<button class="btn pri sm" type="button" data-act="takeover" data-id="${esc(run.id)}">Take over</button><button class="btn ghost sm" type="button" data-act="stage-stop" data-id="${esc(run.id)}">Stop</button>` : "";
-  const sw = [["computer", "monitor", "Computer"], ["browser", "globe", "Browser"]].map(([v, i, l]) => `<button type="button" data-act="stage" data-v="${v}" aria-pressed="${kind === v}">${ic(i, "s")}${l}</button>`).join("");
+  const title = kind === "browser" ? t("window.chat.stage.browser-of", { name: esc(name()) }) : t("window.chat.stage.computer-of", { name: esc(name()) });
+  const pill = working() ? `<span class="pill work"><i></i>${t("strip.status.working")}${now >= 0 ? ` · ${t("window.chat.stage.step-of", { n: now + 1, total: steps.length })}` : ""}</span>` : `<span class="pill idle"><i></i>${t("window.chat.stage.idle")}</span>`;
+  const ctl = run && STOPPABLE.has(run.status) ? `<button class="btn pri sm" type="button" data-act="takeover" data-id="${esc(run.id)}">${t("action.take-over")}</button><button class="btn ghost sm" type="button" data-act="stage-stop" data-id="${esc(run.id)}">${t("dashboard.stop")}</button>` : "";
+  const sw = [["computer", "monitor", t("strip.kind.computer")], ["browser", "globe", t("pane.browser")]].map(([v, i, l]) => `<button type="button" data-act="stage" data-v="${v}" aria-pressed="${kind === v}">${ic(i, "s")}${l}</button>`).join("");
   return `<div class="st7-top"><button class="st7-back" type="button" data-act="stage-close">${ic("back", "s")}${esc(name())}</button>
     <span class="st7-title"><b>${title}</b></span>${pill}<span class="tb-grow"></span>${ctl}
-    <span class="st7-sw" role="group" aria-label="Show">${sw}</span>
-    <button class="icon-btn" type="button" aria-label="Shrink to a small window" data-tip="Picture in picture" data-act="stage-pip">${ic("layers")}</button>
-    <button class="icon-btn" type="button" aria-label="${G.dock ? "Hide" : "Show"} the conversation" data-tip="${G.dock ? "Full screen" : "Show the conversation"}" data-act="stage-dock" aria-pressed="${G.dock}">${ic("panel")}</button></div>`;
+    <span class="st7-sw" role="group" aria-label="${t("dashboard.filter.label")}">${sw}</span>
+    <button class="icon-btn" type="button" aria-label="${t("window.chat.stage.shrink")}" data-tip="${t("window.chat.stage.pip")}" data-act="stage-pip">${ic("layers")}</button>
+    <button class="icon-btn" type="button" aria-label="${G.dock ? t("window.chat.stage.hide-conversation") : t("window.chat.stage.show-conversation")}" data-tip="${G.dock ? t("window.chat.stage.full-screen") : t("window.chat.stage.show-conversation")}" data-act="stage-dock" aria-pressed="${G.dock}">${ic("panel")}</button></div>`;
 }
 
 const STEP = { done: "done", working: "now", failed: "", waiting: "" };
@@ -93,19 +93,19 @@ function dock(steps) {
   const plan = steps.length ? `<ul class="dk7-plan">${steps.map((s) => { const c = STEP[s.status] ?? ""; return `<li class="${c}">${ic(c === "done" ? "check" : c === "now" ? "spin" : "info", c === "now" ? "s spin" : "s")}${esc(s.title)}</li>`; }).join("")}</ul>` : "";
   const said = G.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m.content).slice(-3)
     .map((m) => `<div class="dk7-m ${m.role === "user" ? "me7" : ""}">${esc(String(m.content).slice(0, 180))}</div>`).join("");
-  return `<aside class="st7-dock" aria-label="The conversation"><div class="dk7-h">${av({ kind: "main" }, 28)}<b>${esc(name())}</b></div>${plan}<div class="dk7-msgs">${said}</div></aside>`;
+  return `<aside class="st7-dock" aria-label="${t("onscreen.group.middle")}"><div class="dk7-h">${av({ kind: "main" }, 28)}<b>${esc(name())}</b></div>${plan}<div class="dk7-msgs">${said}</div></aside>`;
 }
 
 function stageHTML(kind) {
   const steps = G.plan?.steps ?? [];
   const chips = steps.map((s, i) => `<button type="button" class="st7-chip ${STEP[s.status] ?? ""}" data-act="stage-step" data-v="${i}"><em>${i + 1}</em>${esc(s.title)}</button>`).join("");
   return `${top(kind, steps)}<div class="st7-body ${G.dock ? "" : "nodock"}"><div class="st7-wrap"><div class="st7-screen"><div class="st7-scale">${screen(kind)}</div></div></div>${G.dock ? dock(steps) : ""}</div>
-    ${steps.length ? `<div class="st7-steps">${chips}<button type="button" class="st7-chip live7" data-act="stage-step" data-v="live">Now</button></div>` : ""}`;
+    ${steps.length ? `<div class="st7-steps">${chips}<button type="button" class="st7-chip live7" data-act="stage-step" data-v="live">${t("dashboard.area.now")}</button></div>` : ""}`;
 }
 
 function pipHTML() {
   const kind = G.pip.kind;
-  return `<div class="pip7-screen" data-act="stage" data-v="${kind}" role="button" aria-label="Open full size"><div class="st7-scale">${screen(kind)}</div></div><div class="pip7-bar"><span>${esc(name())}${kind === "browser" ? " · browser" : ""}</span><button type="button" data-act="stage" data-v="${kind}" aria-label="Open full size">${ic("up", "s")}</button><button type="button" data-act="pip-x" aria-label="Close the small window">${ic("x", "s")}</button></div>`;
+  return `<div class="pip7-screen" data-act="stage" data-v="${kind}" role="button" aria-label="${t("window.chat.stage.full-size")}"><div class="st7-scale">${screen(kind)}</div></div><div class="pip7-bar"><span>${esc(name())}${kind === "browser" ? ` · ${t("window.chat.stage.browser-lower")}` : ""}</span><button type="button" data-act="stage" data-v="${kind}" aria-label="${t("window.chat.stage.full-size")}">${ic("up", "s")}</button><button type="button" data-act="pip-x" aria-label="${t("window.chat.stage.close-small")}">${ic("x", "s")}</button></div>`;
 }
 
 /* The screen is drawn at 1280 × 800 and scaled to fit, as the prototype's fitStage does. */

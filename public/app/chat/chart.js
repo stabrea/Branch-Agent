@@ -13,6 +13,7 @@ import { api } from "../core/api.js";
 import { on, has } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { ic, openDlg, toast } from "../core/ui.js";
+import { t } from "../../i18n.js";
 
 const COLOURS = ["var(--ink)", "var(--accent)", "var(--ink-3)", "var(--line-2)", "var(--ink-2)", "var(--accent-ink)"];
 const TEXT = 'font-size="11.5" fill="var(--ink-2)"';
@@ -40,7 +41,7 @@ function bars(points, w) {
   const left = 96, right = 52, rowH = 30, top = 8, h = top + points.length * rowH + 26;
   const [lo, hi] = span(points);
   const x = (v) => left + ((v - lo) / (hi - lo)) * (w - left - right);
-  const ticks = [0, 1, 2, 3, 4, 5].map((i) => lo + ((hi - lo) * i) / 5).map((t) => `<line class="tick" x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${h - 20}" stroke="var(--line)"/><text x="${x(t)}" y="${h - 6}" text-anchor="middle" ${TEXT}>${esc(num(t))}</text>`).join("");
+  const ticks = [0, 1, 2, 3, 4, 5].map((i) => lo + ((hi - lo) * i) / 5).map((v) => `<line class="tick" x1="${x(v)}" x2="${x(v)}" y1="${top}" y2="${h - 20}" stroke="var(--line)"/><text x="${x(v)}" y="${h - 6}" text-anchor="middle" ${TEXT}>${esc(num(v))}</text>`).join("");
   const rows = points.map((p, i) => {
     const y = top + i * rowH + 6, a = x(Math.min(0, p.value)), b = x(Math.max(0, p.value));
     return `<text x="${left - 10}" y="${y + 13}" text-anchor="end" ${TEXT}>${esc(p.label)}</text><rect x="${a}" y="${y}" width="${Math.max(1, b - a)}" height="18" rx="4" fill="var(--line-2)"/><text class="val" x="${b + 6}" y="${y + 13}" font-size="11.5" fill="var(--ink)">${esc(num(p.value))}</text>`;
@@ -88,11 +89,11 @@ export function chartCard(source) {
   if (!chart) return "";
   const run = runOf(source);
   const save = run ? `data-act="art-save" data-run="${esc(run)}"` : 'data-act="toast"';
-  return `<div class="card art"><div class="card-h"><b>${esc(chart.title)}</b><span class="pill idle ml">Chart</span></div>
-    <p class="note">Shown in a sealed frame: it can’t run a script, reach this page or reach the internet.</p>
+  return `<div class="card art"><div class="card-h"><b>${esc(chart.title)}</b><span class="pill idle ml">${t("window.chat.art.chart")}</span></div>
+    <p class="note">${t("window.chat.art.sealed")}</p>
     ${chartSvg(chart)}
-    <div class="acts"><button class="btn sm" type="button" data-act="artbig">Open larger</button><button class="btn sm" type="button" data-act="toast">Copy code</button><button class="btn sm" type="button" ${save}>Save to Library</button></div>
-    <details><summary>${ic("chev", "s chev")}The code that drew it</summary><pre>${esc(source)}</pre></details></div>`;
+    <div class="acts"><button class="btn sm" type="button" data-act="artbig">${t("window.chat.art.larger")}</button><button class="btn sm" type="button" data-act="toast">${t("action.copy-code")}</button><button class="btn sm" type="button" ${save}>${t("window.diagram.save-to-library")}</button></div>
+    <details><summary>${ic("chev", "s chev")}${t("window.chat.art.code")}</summary><pre>${esc(source)}</pre></details></div>`;
 }
 
 /* The chart behind a button: read back from its own card's code, so nothing is kept beside the page. */
@@ -109,7 +110,7 @@ async function saveChart(el) {
   const chart = cardChart(el);
   if (!chart) return;
   try { await api("artifacts/save", { runId: el.dataset.run, name: fileName(chart.title), mediaType: "image/svg+xml", code: asFile(chart) }); } catch (error) { toast(error.message); return; }
-  toast("Saved to Library › Made for you.");
+  toast(t("window.chat.art.saved"));
 }
 
 if (!has("artbig")) {

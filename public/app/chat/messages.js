@@ -20,12 +20,13 @@ import { ic, av, mi, toast, openPop, closePop, openDlg, closeDlg } from "../core
 import { markLive } from "../core/features.js";
 import { moreButton, addMoreItem } from "./more.js";
 import { loadSteps, everyStepItem } from "./timeline.js"; // pass 17: Look inside and More gain "Every step"
+import { t } from "../../i18n.js";
 
 const M = { sid: null, pins: [], followUps: [], room: null, spend: null, commands: null, slashBox: null, slashI: 0, edit: null };
 /* What the conversation module hands over: its state, a way to send words, and a way to re-read a conversation. */
 let X = { state: () => ({ sessionId: null, messages: [] }), sendText: async () => {}, reopen: async () => {} };
 
-const plain = (t) => String(t ?? "").replace(/\s+/g, " ").trim();
+const plain = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 const sid = () => X.state().sessionId;
 const mine = () => M.sid && M.sid === sid();
 const report = (error) => { toast(error.message); return null; };
@@ -38,7 +39,7 @@ export const pinnedClass = (m) => (pinOf(m) ? " pinned15" : "");
 function pinButton(m) {
   if (!mine() || !pinnable(m)) return "";
   const held = !!pinOf(m);
-  return `<button type="button" aria-label="${held ? "Unpin" : "Pin"} this message" data-act="pin15" data-mid="${esc(m.messageId)}" aria-pressed="${held}">${ic("pin")}</button>`;
+  return `<button type="button" aria-label="${held ? t("window.chat.msg.unpin-this") : t("window.chat.msg.pin-this")}" data-act="pin15" data-mid="${esc(m.messageId)}" aria-pressed="${held}">${ic("pin")}</button>`;
 }
 
 /* The task that answered a message: this conversation's latest task started by the words just before it. */
@@ -56,12 +57,12 @@ export function msgActs(m) {
   if (!m.messageId) return "";
   /* A path is taken from a settled conversation: while its answer is pending, Branch from here waits. */
   const held = X.state().sending ? " disabled" : "";
-  const branch = `<button type="button" aria-label="Branch from here" data-act="br17c" data-mid="${esc(m.messageId)}"${held}>${ic("branch")}</button>${moreButton(m)}`; // pass 17: chat/branches.js, chat/more.js
+  const branch = `<button type="button" aria-label="${t("window.chat.branches.from-here")}" data-act="br17c" data-mid="${esc(m.messageId)}"${held}>${ic("branch")}</button>${moreButton(m)}`; // pass 17: chat/branches.js, chat/more.js
   if (m.role === "user")
-    return `<div class="msg-acts"><button type="button" aria-label="Edit" data-act="u-edit" data-mid="${esc(m.messageId)}">${ic("edit")}</button>${branch}${pinButton(m)}</div>`;
+    return `<div class="msg-acts"><button type="button" aria-label="${t("prompts.action.edit")}" data-act="u-edit" data-mid="${esc(m.messageId)}">${ic("edit")}</button>${branch}${pinButton(m)}</div>`;
   const run = runFor(m);
-  const look = run ? `<button type="button" aria-label="Look inside" data-act="inspect" data-run="${esc(run.id)}">${ic("eye")}</button>` : "";
-  return `<div class="msg-acts"><button type="button" aria-label="Copy" data-act="copy15" data-mid="${esc(m.messageId)}">${ic("copy")}</button><button type="button" aria-label="Try again" data-act="toast">${ic("retry")}</button>${look}<button type="button" aria-label="Report a problem" data-act="flag">${ic("flag")}</button>${branch}${pinButton(m)}</div>`;
+  const look = run ? `<button type="button" aria-label="${t("inspector.open")}" data-act="inspect" data-run="${esc(run.id)}">${ic("eye")}</button>` : "";
+  return `<div class="msg-acts"><button type="button" aria-label="${t("asks.examples.copy")}" data-act="copy15" data-mid="${esc(m.messageId)}">${ic("copy")}</button><button type="button" aria-label="${t("first-run-trouble.retry")}" data-act="toast">${ic("retry")}</button>${look}<button type="button" aria-label="${t("settings.card.report")}" data-act="flag">${ic("flag")}</button>${branch}${pinButton(m)}</div>`;
 }
 
 /* ---------- Copy: the message's words as they were written (its Markdown) ---------- */
@@ -74,7 +75,7 @@ async function copyMessage(el) {
   try { await navigator.clipboard.writeText(words); } catch (error) {
     if (!copyBySelection(words)) { toast(error.message); return; }
   }
-  toast("Copied.");
+  toast(t("message.copied"));
 }
 function copyBySelection(words) {
   const before = document.activeElement, box = document.createElement("textarea");
@@ -94,10 +95,10 @@ function copyBySelection(words) {
 export function pinsBar() {
   if (!mine() || !M.pins.length) return "";
   const last = M.pins[M.pins.length - 1];
-  const more = M.pins.length > 1 ? `<button type="button" class="pin-n15" data-act="pinlist15" aria-label="All pinned messages">${M.pins.length}</button>` : "";
-  return `<div class="pins15" role="region" aria-label="Pinned messages"><span class="pin-i15">${ic("pin", "s")}</span><button type="button" class="pin-t15" data-act="pinjump15" data-mid="${esc(last.sourceId)}"><b>Pinned</b> ${esc(plain(last.content).slice(0, 90))}</button>${more}</div>`;
+  const more = M.pins.length > 1 ? `<button type="button" class="pin-n15" data-act="pinlist15" aria-label="${t("window.chat.msg.all-pinned")}">${M.pins.length}</button>` : "";
+  return `<div class="pins15" role="region" aria-label="${t("window.chat.msg.pinned-messages")}"><span class="pin-i15">${ic("pin", "s")}</span><button type="button" class="pin-t15" data-act="pinjump15" data-mid="${esc(last.sourceId)}"><b>${t("window.chat.msg.pinned")}</b> ${esc(plain(last.content).slice(0, 90))}</button>${more}</div>`;
 }
-const pinsPop = () => `<div class="ph">Pinned in this conversation</div>${M.pins.map((p) => `<div class="mi pinrow15"><button type="button" class="grow" data-act="pinjump15" data-mid="${esc(p.sourceId)}"><span class="mi-t">${esc(plain(p.content).slice(0, 70))}</span></button><button type="button" class="icon-btn" aria-label="Unpin" data-act="pin15" data-mid="${esc(p.sourceId)}">${ic("x", "s")}</button></div>`).join("")}`;
+const pinsPop = () => `<div class="ph">${t("window.chat.msg.pinned-here")}</div>${M.pins.map((p) => `<div class="mi pinrow15"><button type="button" class="grow" data-act="pinjump15" data-mid="${esc(p.sourceId)}"><span class="mi-t">${esc(plain(p.content).slice(0, 70))}</span></button><button type="button" class="icon-btn" aria-label="${t("accounts.action.unpin")}" data-act="pin15" data-mid="${esc(p.sourceId)}">${ic("x", "s")}</button></div>`).join("")}`;
 
 async function loadPins(id) {
   const got = await api(`sessions/${id}/pins`).catch(report);
@@ -115,7 +116,7 @@ async function togglePin(el) {
   } catch (error) { toast(error.message); return; }
   await loadPins(id);
   renderNow();
-  toast(held ? "Unpinned." : "Pinned. It stays in front of the assistant however long this runs.");
+  toast(held ? t("settings.pins.unpinned") : t("window.chat.msg.pinned-toast"));
 }
 
 function jump(el) {
@@ -128,7 +129,7 @@ function jump(el) {
 }
 
 /* ---------- edit an earlier message and go back to just before it ---------- */
-const WHAT = [["both", "Conversation and files"], ["conversation", "Conversation only"], ["files", "Files only"]];
+const WHAT = [["both", "rewind.choice.both"], ["conversation", "rewind.choice.conversation"], ["files", "rewind.choice.files"]];
 
 async function editAt(el) {
   const id = sid(), wanted = Number(el.dataset.mid);
@@ -139,9 +140,9 @@ async function editAt(el) {
   M.edit = { sid: id, mid: wanted, what: "both" };
   const note = status.note ? `<p class="hint">${esc(status.note)}</p>` : "";
   openDlg({
-    title: "Edit and send again",
-    body: `<textarea class="inp" id="rw-text" rows="3" aria-label="Your message">${esc(m.content)}</textarea><div class="fld" data-css="margin-top:10px"><span>Go back to just before this message</span><span class="seg" role="group" aria-label="What to put back">${WHAT.map(([v, l]) => `<button type="button" data-act="rw-what" data-v="${v}" aria-pressed="${v === M.edit.what}">${l}</button>`).join("")}</span></div><p class="hint">“Undo that” puts everything back the way it was.</p>${note}`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="rw-go">Send</button>',
+    title: t("window.chat.msg.edit-title"),
+    body: `<textarea class="inp" id="rw-text" rows="3" aria-label="${t("composer.yourMessage")}">${esc(m.content)}</textarea><div class="fld" data-css="margin-top:10px"><span>${t("window.chat.msg.go-back")}</span><span class="seg" role="group" aria-label="${t("settings-kit.field.reset")}">${WHAT.map(([v, l]) => `<button type="button" data-act="rw-what" data-v="${v}" aria-pressed="${v === M.edit.what}">${t(l)}</button>`).join("")}</span></div><p class="hint">${t("window.chat.msg.undo-that")}</p>${note}`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn pri" type="button" data-act="rw-go">${t("composer.send")}</button>`,
   });
 }
 
@@ -154,7 +155,7 @@ function editWhat(el) {
 /* The engine's own note wins when the files could not all come back (no snapshot, nothing recorded). */
 function wentBack(what, files) {
   if (files && (files.method === "none" || files.note)) return files.note;
-  return what === "conversation" ? "Went back in the conversation. Files are as they were." : "Went back, files included.";
+  return what === "conversation" ? t("window.chat.msg.went-back-conv") : t("window.chat.msg.went-back-files");
 }
 
 async function editGo() {
@@ -177,11 +178,11 @@ async function undoRewind(id) {
 /* ---------- Look inside ---------- */
 function who() {
   const s = E.sessions.find((x) => (x.sessionId ?? x.id) === sid());
-  return E.trunks.find((t) => t.id === s?.trunkId || t.id === s?.trunk?.id)?.name || "Branch";
+  return E.trunks.find((tr) => tr.id === s?.trunkId || tr.id === s?.trunk?.id)?.name || "Branch";
 }
 function contextWords(n) {
   const limit = mine() ? M.room?.limit : 0;
-  return limit ? `${n.toLocaleString()} of ${limit.toLocaleString()} (${Math.round((n / limit) * 100)}%)` : n.toLocaleString();
+  return limit ? t("window.chat.msg.context-of", { n: n.toLocaleString(), limit: limit.toLocaleString(), pct: Math.round((n / limit) * 100) }) : n.toLocaleString();
 }
 
 async function inspect(el) {
@@ -191,14 +192,14 @@ async function inspect(el) {
   const rec = await api(`runs/${runId}/inspect`).catch(report);
   if (!rec) return;
   const last = rec.rounds?.at(-1);
-  const rows = [["Model", last?.model], ["Words of context", last?.promptTokens != null ? contextWords(last.promptTokens) : ""],
-    ["Time", rec.seconds != null ? `${rec.seconds} s total` : ""], ["Cost", rec.cost?.display]].filter(([, v]) => v);
+  const rows = [[t("coding.ci.model"), last?.model], [t("window.chat.msg.words"), last?.promptTokens != null ? contextWords(last.promptTokens) : ""],
+    [t("window.chat.msg.time"), rec.seconds != null ? t("window.chat.msg.seconds", { n: rec.seconds }) : ""], [t("window.chat.msg.cost"), rec.cost?.display]].filter(([, v]) => v);
   const steps = (await loadSteps(runId))?.steps?.length ?? 0;
-  if (steps) rows.push(["Steps", `${steps} in this task · model calls, tools and approvals`]);
+  if (steps) rows.push([t("window.chat.msg.steps"), t("window.chat.msg.steps-in", { count: steps })]);
   openDlg({
-    title: "Look inside",
-    body: `<p class="lede" data-css="margin:0">What went into ${esc(who())}’s last reply.</p><dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`,
-    foot: `${steps ? `<button class="btn pri" type="button" data-act="tlopen17c" data-run="${esc(runId)}">${ic("tl17c", "s")}Every step</button>` : ""}<button class="btn" type="button" data-act="toast">Copy the record</button>`,
+    title: t("inspector.open"),
+    body: `<p class="lede" data-css="margin:0">${t("window.chat.msg.went-into", { name: esc(who()) })}</p><dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`,
+    foot: `${steps ? `<button class="btn pri" type="button" data-act="tlopen17c" data-run="${esc(runId)}">${ic("tl17c", "s")}${t("recording.page.steps")}</button>` : ""}<button class="btn" type="button" data-act="toast">${t("window.chat.msg.copy-record")}</button>`,
   });
 }
 
@@ -206,7 +207,7 @@ async function inspect(el) {
 function slashItems(value) {
   const q = value.slice(1).toLowerCase();
   return (M.commands ?? []).filter((c) => c.listed !== false && c.name.startsWith(q))
-    .map((c) => ({ v: `/${c.name} `, label: `/${c.name}`, arg: c.args, d: c.saved ? `${c.english} · saved prompt` : c.english }));
+    .map((c) => ({ v: `/${c.name} `, label: `/${c.name}`, arg: c.args, d: c.saved ? `${c.english} · ${t("window.chat.msg.saved-prompt")}` : c.english }));
 }
 
 function drawSlash() {
@@ -218,7 +219,7 @@ function drawSlash() {
   const items = slashItems(value);
   if (!items.length) return;
   M.slashI = Math.min(M.slashI, items.length - 1);
-  form.insertAdjacentHTML("beforeend", `<div class="slash6" role="listbox" aria-label="Commands and saved prompts">${items.map((x, i) => `<button type="button" role="option" class="${i === M.slashI ? "sel6" : ""}" data-act="slash6-pick" data-i="${i}"><b>${esc(x.label)}</b>${x.arg ? `<code>${esc(x.arg)}</code>` : ""}<small>${esc(x.d)}</small></button>`).join("")}<span class="slash-f">The same commands work on the phone, in the terminal and in chat apps.</span></div>`);
+  form.insertAdjacentHTML("beforeend", `<div class="slash6" role="listbox" aria-label="${t("window.chat.msg.commands")}">${items.map((x, i) => `<button type="button" role="option" class="${i === M.slashI ? "sel6" : ""}" data-act="slash6-pick" data-i="${i}"><b>${esc(x.label)}</b>${x.arg ? `<code>${esc(x.arg)}</code>` : ""}<small>${esc(x.d)}</small></button>`).join("")}<span class="slash-f">${t("window.chat.msg.same-commands")}</span></div>`);
 }
 
 /* The list is read when the menu opens (the box starts with "/" again, or it is a new box after a redraw) and again after a
@@ -253,7 +254,7 @@ function pickSlash(i) {
 
 /* ---------- "@" calls a Trunk ---------- */
 const mentionOpen = () => !!document.querySelector(".pop [data-act='mention-pick']");
-const mentionPop = () => `<div class="ph">Call a Trunk</div>${E.trunks.map((t) => `<button class="mi" type="button" data-act="mention-pick" data-v="${esc(t.name)}">${av(t, 22)}<span><span class="mi-t">${esc(t.name)}</span><span class="mi-s">${esc(t.title ?? "")}</span></span></button>`).join("")}`;
+const mentionPop = () => `<div class="ph">${t("window.chat.msg.call-trunk")}</div>${E.trunks.map((tr) => `<button class="mi" type="button" data-act="mention-pick" data-v="${esc(tr.name)}">${av(tr, 22)}<span><span class="mi-t">${esc(tr.name)}</span><span class="mi-s">${esc(tr.title ?? "")}</span></span></button>`).join("")}`;
 
 /* The list opens over the box while the person keeps typing, so the box keeps focus and caret. */
 function mentionTyped(box) {
@@ -293,9 +294,9 @@ function listKeys(e) {
 /* ---------- the waiting line ---------- */
 export function queueRow() {
   if (!mine() || !M.followUps.length) return "";
-  return `<div class="dockrow15"><button type="button" class="bgchip15 q15" data-act="queue15" aria-haspopup="menu">${ic("clock", "s")}${M.followUps.length} waiting</button></div>`;
+  return `<div class="dockrow15"><button type="button" class="bgchip15 q15" data-act="queue15" aria-haspopup="menu">${ic("clock", "s")}${t("window.chat.msg.waiting", { count: M.followUps.length })}</button></div>`;
 }
-const queuePop = () => `<div class="ph">Waiting line · sent after this step</div>${M.followUps.map((f, i) => `<div class="mi qrow15"><span class="q-n15">${i + 1}</span><input class="inp" value="${esc(f.prompt)}" data-sw="q15" data-q15="${esc(f.id)}" aria-label="Queued message ${i + 1}"><button type="button" class="icon-btn" aria-label="Move up" data-act="qup15" data-id="${esc(f.id)}" ${i ? "" : "disabled"}>${ic("up", "s")}</button><button type="button" class="icon-btn" aria-label="Remove" data-act="qrm15" data-id="${esc(f.id)}">${ic("x", "s")}</button></div>`).join("") || '<p class="hint" data-css="margin:6px 10px">Nothing waiting.</p>'}`;
+const queuePop = () => `<div class="ph">${t("window.chat.msg.queue-title")}</div>${M.followUps.map((f, i) => `<div class="mi qrow15"><span class="q-n15">${i + 1}</span><input class="inp" value="${esc(f.prompt)}" data-sw="q15" data-q15="${esc(f.id)}" aria-label="${t("window.chat.msg.queued-n", { n: i + 1 })}"><button type="button" class="icon-btn" aria-label="${t("accounts.action.up")}" data-act="qup15" data-id="${esc(f.id)}" ${i ? "" : "disabled"}>${ic("up", "s")}</button><button type="button" class="icon-btn" aria-label="${t("accounts.action.remove")}" data-act="qrm15" data-id="${esc(f.id)}">${ic("x", "s")}</button></div>`).join("") || `<p class="hint" data-css="margin:6px 10px">${t("window.chat.msg.nothing-waiting")}</p>`}`;
 
 /* The every-few-seconds re-read stays quiet when it fails: the status bar already says the engine is not answering. */
 async function loadQueue(id, polling = false) {
@@ -327,7 +328,7 @@ async function moveQueued(el, how) {
 
 async function reword(input) {
   const prompt = input.value.trim();
-  if (prompt && (await changeQueue("edit", { id: input.dataset.q15, prompt }))) toast("Reworded. It goes as you wrote it now.");
+  if (prompt && (await changeQueue("edit", { id: input.dataset.q15, prompt }))) toast(t("window.chat.msg.reworded"));
 }
 
 /* ---------- Room left and spend, in the status bar ---------- */
@@ -337,21 +338,21 @@ const kilo = (n) => (n >= 1000 ? `${Math.round(n / 1000)}K` : String(n));
 
 export function statusItems() {
   const room = S.view === "chat" && mine() && M.sid === S.chat && M.room?.limit
-    ? `<button class="sb" type="button" data-act="roommenu" data-tip="How much room this conversation has left">Room left <span class="meter"><u data-css="width:${roomPct()}%"></u></span> ${roomPct()}%</button>` : "";
-  const spend = M.spend && M.spend.today != null ? `<button class="sb hide-sm" type="button" data-act="spendmenu">Today ${money(M.spend.today)}</button>` : "";
+    ? `<button class="sb" type="button" data-act="roommenu" data-tip="${t("window.chat.msg.room-tip")}">${t("window.chat.msg.room-left")} <span class="meter"><u data-css="width:${roomPct()}%"></u></span> ${roomPct()}%</button>` : "";
+  const spend = M.spend && M.spend.today != null ? `<button class="sb hide-sm" type="button" data-act="spendmenu">${t("window.chat.msg.today", { amount: money(M.spend.today) })}</button>` : "";
   return room + spend;
 }
 
 function roomPop() {
   const r = M.room, part = (n) => Math.round(((n ?? 0) / r.limit) * 100);
-  const bars = [["Conversation", r.conversation], ["Instructions", r.instructions], ["Tools", r.tools]]
+  const bars = [[t("nav.chat"), r.conversation], [t("memory.movein.kind.instructions"), r.instructions], [t("dashboard.filter.tools"), r.tools]]
     .map(([n, v]) => `<div class="brow"><span>${n}</span><span class="track"><u data-css="width:${Math.min(100, part(v) * 5)}%"></u></span><span class="v">${part(v)}%</span></div>`).join("");
-  return `<div class="pt">Room left in this conversation</div><p class="pp">${roomPct()}% of ${kilo(r.limit)} words of context is free.</p><div data-css="padding:0 10px 8px"><div class="bars">${bars}</div></div><hr>${mi("toast", "spark", "Tidy up this conversation")}`;
+  return `<div class="pt">${t("window.chat.msg.room-title")}</div><p class="pp">${t("window.chat.msg.room-free", { pct: roomPct(), limit: kilo(r.limit) })}</p><div data-css="padding:0 10px 8px"><div class="bars">${bars}</div></div><hr>${mi("toast", "spark", t("window.chat.msg.tidy"))}`;
 }
 
 function spendPop() {
-  const week = M.spend.week != null ? ` · this week ${money(M.spend.week)}` : "";
-  return `<div class="pt">Spend</div><p class="pp">Today ${money(M.spend.today)}${week}.</p><hr>${mi("setgo", "sliders", "Data &amp; usage…", "", 'data-v="usage"')}`;
+  const week = M.spend.week != null ? ` · ${t("window.chat.msg.this-week", { amount: money(M.spend.week) })}` : "";
+  return `<div class="pt">${t("dashboard.area.spend")}</div><p class="pp">${t("window.chat.msg.today", { amount: money(M.spend.today) })}${week}.</p><hr>${mi("setgo", "sliders", esc(t("window.chat.msg.data-usage")), "", 'data-v="usage"')}`;
 }
 
 /* A day's cost is known only when its tasks were priced; a day with only unpriced tasks has no amount. */

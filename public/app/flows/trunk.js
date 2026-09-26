@@ -11,20 +11,23 @@ import { on, run } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { initPause } from "./pause.js";
 import { LOOKS17, look17 } from "../core/art17.js";
+import { t } from "../../i18n.js";
 
 /* The prototype's colours and shapes (COLOURS, SHAPES, SHAPE_NAMES) are kept beside av() in core/ui.js. */
 /* The prototype's Bob is the engine's sway (the engine has no bob). */
-const MOTIONS = [["none", "None"], ["breathe", "Breathe"], ["sway", "Bob"]];
+const MOTIONS = [["none", "comfort.placeholder.none"], ["breathe", "studio.motion.breathe"], ["sway", "window.flows.trunk.bob"]];
 const EMOJI = ["🦊", "🦉", "🐢", "🍄", "🌿", "🐝", "🦔", "🐙", "🌻", "🪴", "🐧", "🦜"];
 const LOOK = { face: "pattern", letters: "", emoji: "", shuffle: 0, colour: null, shape: null, motion: "none", depth: "flat" };
-/* The prototype's jobs: name, what it does, colour, shape. */
+/* The prototype's jobs: name, what it does, colour, shape. Kept in English here, since Customize lists them too; the
+   Trunk made from one is named in the language in force, from TEMPLATE_WORDS (the same jobs, in the same order). */
+export const TEMPLATE_WORDS = [["window.flows.tmpl.inbox", "window.flows.tmpl.inbox-job"], ["window.flows.tmpl.expense", "window.flows.tmpl.expense-job"], ["window.flows.tmpl.researcher", "window.flows.tmpl.researcher-job"], ["window.flows.tmpl.chief", "window.flows.tmpl.chief-job"], ["window.flows.tmpl.bug", "window.flows.tmpl.bug-job"], ["window.flows.tmpl.trip", "window.flows.tmpl.trip-job"]];
 export const TEMPLATES = [["Inbox Manager", "Clears your inbox and drafts replies in your voice", "#4F6FA8", 0], ["Expense Manager", "Files receipts and builds monthly reports", "#D8612A", 2], ["Researcher", "Reads the web and writes short briefs with sources", "#2F8C86", 1], ["Chief of Staff", "Plans your week and chases loose ends", "#56616B", 3], ["Bug Reproduction", "Turns a bug report into exact steps", "#B84A6B", 4], ["Trip Planner", "Finds and books refundable travel", "#8A5AA8", 3]];
 
-export const lookOf = (t) => ({ ...LOOK, ...(t?.look ?? {}) });
+export const lookOf = (tr) => ({ ...LOOK, ...(tr?.look ?? {}) });
 /* What av() draws from, the same face wherever a Trunk is drawn (core/ui.js faceOf). */
 export const face = faceOf;
-const trunkById = (id) => E.trunks.find((t) => t.id === id);
-const trunkOfChat = (sid = S.chat) => E.trunks.find((t) => t.chatSessionId === sid);
+const trunkById = (id) => E.trunks.find((tr) => tr.id === id);
+const trunkOfChat = (sid = S.chat) => E.trunks.find((tr) => tr.chatSessionId === sid);
 let rooms = [];
 const roomOfChat = (sid = S.chat) => rooms.find((r) => r.sessionId === sid);
 /* The Trunk or room whose own conversation this is, for the list's row menu (shell/shell.js). */
@@ -51,41 +54,41 @@ function keepFields() {
 }
 
 function lookTab(d) {
-  const swatches = COLOURS.map((c) => `<button class="swatch" type="button" data-css="background:${c}" aria-label="Colour ${c}" aria-pressed="${hex(c) === d.colour}" data-act="st-colour" data-v="${c}"></button>`).join("");
-  const shapes = SHAPES.map((sh, i) => `<button class="shape" type="button" aria-label="Shape ${i + 1}" aria-pressed="${SHAPE_NAMES[i] === d.shape}" data-act="st-shape" data-v="${i}"><span data-css="width:26px;height:26px;background:${d.colour ?? "var(--ink-3)"};border-radius:${sh};display:block"></span></button>`).join("");
-  const moves = MOTIONS.map(([v, l]) => `<button type="button" data-act="st-anim" data-v="${v}" aria-pressed="${d.motion === v}">${l}</button>`).join("");
-  const eyes = ["Round", "Wide", "Sleepy"].map((e) => `<button type="button" data-act="st-eyes" data-v="${e.toLowerCase()}" aria-pressed="false">${e}</button>`).join("");
-  return `<div class="split" data-css="grid-template-columns:1fr 1fr"><div class="field"><label for="st-name">Name</label><input class="inp" id="st-name" value="${esc(d.name)}"></div><div class="field"><label for="st-role">What it’s for</label><input class="inp" id="st-role" value="${esc(d.title)}"></div></div>
-    <div class="field"><label>Colour</label><div class="swatches">${swatches}</div></div>
-    <div class="field"><label>Shape</label><div class="shapes">${shapes}</div></div>
-    <div class="split" data-css="grid-template-columns:1fr 1fr"><div class="field"><label for="st-photo">A photo instead of a face</label><input type="file" id="st-photo" accept="image/*" data-sw="st-photo"></div><div class="field"><label>How it moves</label><span class="seg">${moves}</span></div></div>
-    <div class="field"><label>Eyes</label><span class="seg">${eyes}</span></div>`;
+  const swatches = COLOURS.map((c) => `<button class="swatch" type="button" data-css="background:${c}" aria-label="${t("window.flows.trunk.colour-c", { c })}" aria-pressed="${hex(c) === d.colour}" data-act="st-colour" data-v="${c}"></button>`).join("");
+  const shapes = SHAPES.map((sh, i) => `<button class="shape" type="button" aria-label="${t("window.flows.trunk.shape-n", { n: i + 1 })}" aria-pressed="${SHAPE_NAMES[i] === d.shape}" data-act="st-shape" data-v="${i}"><span data-css="width:26px;height:26px;background:${d.colour ?? "var(--ink-3)"};border-radius:${sh};display:block"></span></button>`).join("");
+  const moves = MOTIONS.map(([v, l]) => `<button type="button" data-act="st-anim" data-v="${v}" aria-pressed="${d.motion === v}">${t(l)}</button>`).join("");
+  const eyes = [["round", "window.flows.trunk.round"], ["wide", "onscreen.width.wide"], ["sleepy", "window.flows.trunk.sleepy"]].map(([v, l]) => `<button type="button" data-act="st-eyes" data-v="${v}" aria-pressed="false">${t(l)}</button>`).join("");
+  return `<div class="split" data-css="grid-template-columns:1fr 1fr"><div class="field"><label for="st-name">${t("accounts.field.name")}</label><input class="inp" id="st-name" value="${esc(d.name)}"></div><div class="field"><label for="st-role">${t("window.flows.trunk.for")}</label><input class="inp" id="st-role" value="${esc(d.title)}"></div></div>
+    <div class="field"><label>${t("studio.colour")}</label><div class="swatches">${swatches}</div></div>
+    <div class="field"><label>${t("studio.shape")}</label><div class="shapes">${shapes}</div></div>
+    <div class="split" data-css="grid-template-columns:1fr 1fr"><div class="field"><label for="st-photo">${t("window.flows.trunk.photo")}</label><input type="file" id="st-photo" accept="image/*" data-sw="st-photo"></div><div class="field"><label>${t("window.flows.trunk.moves")}</label><span class="seg">${moves}</span></div></div>
+    <div class="field"><label>${t("window.flows.trunk.eyes")}</label><span class="seg">${eyes}</span></div>`;
 }
 
 /* Pass 17: the Look tab starts with the characters (core/art17.js), as the prototype's does; hovering one plays its idle
    loop. The engine keeps the choice (POST /api/trunks/{id} character; null is the classic pebble), saved at once. */
-function lookPicker(t) {
-  const cur = t.character ?? "classic";
-  const pebble = `<button type="button" class="look-c12" data-act="look-set" data-id="${esc(t.id)}" data-v="classic" aria-pressed="${cur === "classic"}"><span class="peb-demo12">${av({ ...face(t), character: null }, 56)}</span><b>Classic pebble</b></button>`;
-  const cards = LOOKS17.map((l) => `<button type="button" class="look-c12 new17e" data-act="look-set" data-id="${esc(t.id)}" data-v="${l.id}" aria-pressed="${cur === l.id}"><img src="${l.still}" alt="" loading="lazy" draggable="false" data-hov="${l.states.idle}"><b>${esc(l.name)}</b></button>`).join("");
-  return `<div class="sec"><h2>How it looks</h2><p class="hint" data-css="margin:0 0 8px">It moves by itself: thinking, searching, reading, working, waiting for you, celebrating, resting. You never pick an animation; it follows what the Trunk is doing.</p>
+function lookPicker(tr) {
+  const cur = tr.character ?? "classic";
+  const pebble = `<button type="button" class="look-c12" data-act="look-set" data-id="${esc(tr.id)}" data-v="classic" aria-pressed="${cur === "classic"}"><span class="peb-demo12">${av({ ...face(tr), character: null }, 56)}</span><b>${t("window.flows.trunk.pebble")}</b></button>`;
+  const cards = LOOKS17.map((l) => `<button type="button" class="look-c12 new17e" data-act="look-set" data-id="${esc(tr.id)}" data-v="${l.id}" aria-pressed="${cur === l.id}"><img src="${l.still}" alt="" loading="lazy" draggable="false" data-hov="${l.states.idle}"><b>${esc(l.name)}</b></button>`).join("");
+  return `<div class="sec"><h2>${t("window.flows.setup.looks")}</h2><p class="hint" data-css="margin:0 0 8px">${t("window.flows.trunk.moves-hint")}</p>
     <div class="looks12">${pebble}${cards}</div></div>`;
 }
 async function setCharacter(el) {
-  const t = trunkById(el.dataset.id), v = el.dataset.v;
-  if (!t) return;
+  const tr = trunkById(el.dataset.id), v = el.dataset.v;
+  if (!tr) return;
   if (ed) keepFields();
   try {
-    await api(`trunks/${encodeURIComponent(t.id)}`, { character: v === "classic" ? null : v });
+    await api(`trunks/${encodeURIComponent(tr.id)}`, { character: v === "classic" ? null : v });
     await refresh();
-    if (ed?.id === t.id) drawEditor();
-    toast(v === "classic" ? "Back to the classic pebble." : `${t.name} looks like ${look17(v)?.name} now.`);
+    if (ed?.id === tr.id) drawEditor();
+    toast(v === "classic" ? t("window.flows.trunk.back-pebble") : t("window.flows.trunk.looks-like", { name: tr.name, look: look17(v)?.name }));
   } catch (error) { toast(error.message); }
 }
 
-function emojiRow(t) {
-  const cur = face(t).emoji;
-  return `<div class="emo15"><b>Or an emoji face</b><div class="emo-row15" role="radiogroup" aria-label="Emoji face">${EMOJI.map((e) => `<button type="button" role="radio" aria-checked="${cur === e}" data-act="emo15" data-v="${e}">${e}</button>`).join("")}${cur ? '<button type="button" class="emo-x15" data-act="emo15" data-v="">None</button>' : ""}</div></div>`;
+function emojiRow(tr) {
+  const cur = face(tr).emoji;
+  return `<div class="emo15"><b>${t("window.flows.trunk.emoji-or")}</b><div class="emo-row15" role="radiogroup" aria-label="${t("window.flows.trunk.emoji")}">${EMOJI.map((e) => `<button type="button" role="radio" aria-checked="${cur === e}" data-act="emo15" data-v="${e}">${e}</button>`).join("")}${cur ? `<button type="button" class="emo-x15" data-act="emo15" data-v="">${t("comfort.placeholder.none")}</button>` : ""}</div></div>`;
 }
 
 const ctl = (id, title, sub) => `<div class="ctl"><b>${esc(title)}</b><input class="sw" type="checkbox" id="${id}" aria-label="${esc(title)}" data-sw="set"><small>${esc(sub)}</small></div>`;
@@ -93,44 +96,44 @@ const ctlSeg = (title, sub, opts) => `<div class="ctl"><b>${esc(title)}</b><span
 
 /* Drawn as the design has it and greyed: each of these loosens or changes what the Trunk may do. */
 function mayTab() {
-  return `<div>${ctl("tm-read", "Read files in Documents and Downloads", "Reading never changes a file.")}${ctl("tm-browse", "Use the browser", "With your saved sign-ins.")}${ctlSeg("Send email and messages", "Overrides the mode for this Trunk only.", ["Ask first", "Allowed"])}${ctlSeg("Spend money", "Never, whatever mode Branch is in.", ["Never"])}${ctlSeg("Which model", "Where this Trunk thinks.", ["This computer", "ChatGPT", "Claude"])}${ctl("tm-notes", "Keep its own notes", "Separate from other Trunks’ memory.")}</div>`;
+  return `<div>${ctl("tm-read", t("window.flows.trunk.read-files"), t("window.flows.trunk.read-hint"))}${ctl("tm-browse", t("window.flows.trunk.browser"), t("window.flows.trunk.browser-hint"))}${ctlSeg(t("window.flows.trunk.send"), t("window.flows.trunk.send-hint"), [t("mode.ask"), t("window.chat.tl.allowed")])}${ctlSeg(t("people.admin.kind.spend"), t("window.flows.trunk.spend-hint"), [t("window.flows.trunk.never")])}${ctlSeg(t("window.flows.trunk.which-model"), t("window.flows.trunk.which-model-hint"), [t("dashboard.computer.title"), "ChatGPT", "Claude"])}${ctl("tm-notes", t("window.flows.trunk.notes"), t("window.flows.trunk.notes-hint"))}</div>`;
 }
 
 function drawEditor() {
-  const t = trunkById(ed.id);
-  if (!t) { closeDlg(); ed = null; return; }
-  const d = ed.d, prev = { name: d.name, color: d.colour, shape: d.shape, emoji: face(t).emoji, character: face(t).character };
-  const tabs = [["look", "Look"], ["may", "What it may do"]].map(([k, l]) => `<button class="tab" role="tab" type="button" aria-selected="${ed.tab === k}" data-act="st-tab" data-v="${k}">${l}</button>`).join("");
-  const body = ed.tab === "look" ? lookPicker(t) + emojiRow(t) + lookTab(d) : mayTab();
-  openDlg({ title: `Edit ${t.name}`, wide: true,
-    body: `<div class="editor"><div class="big">${av(prev, 84)}<button class="btn sm" type="button" data-act="st-shuffle">Shuffle</button></div><div data-css="display:grid;gap:14px;min-width:0"><div class="tabs" data-css="margin:0" role="tablist">${tabs}</div>${body}</div></div>`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="st-save">Save</button>' });
+  const tr = trunkById(ed.id);
+  if (!tr) { closeDlg(); ed = null; return; }
+  const d = ed.d, prev = { name: d.name, color: d.colour, shape: d.shape, emoji: face(tr).emoji, character: face(tr).character };
+  const tabs = [["look", t("window.flows.trunk.look")], ["may", t("autonomy.orders.authority")]].map(([k, l]) => `<button class="tab" role="tab" type="button" aria-selected="${ed.tab === k}" data-act="st-tab" data-v="${k}">${l}</button>`).join("");
+  const body = ed.tab === "look" ? lookPicker(tr) + emojiRow(tr) + lookTab(d) : mayTab();
+  openDlg({ title: t("trunks.editing", { name: tr.name }), wide: true,
+    body: `<div class="editor"><div class="big">${av(prev, 84)}<button class="btn sm" type="button" data-act="st-shuffle">${t("studio.shuffle")}</button></div><div data-css="display:grid;gap:14px;min-width:0"><div class="tabs" data-css="margin:0" role="tablist">${tabs}</div>${body}</div></div>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn pri" type="button" data-act="st-save">${t("action.save")}</button>` });
 }
 
 function editTrunk(id) {
   closePop();
-  const t = trunkById(id);
-  if (!t) return;
-  const look = lookOf(t);
-  ed = { id, tab: "look", d: { name: t.name, title: t.title ?? "", colour: hex(t.chosenColour), shape: look.shape, motion: look.motion } };
+  const tr = trunkById(id);
+  if (!tr) return;
+  const look = lookOf(tr);
+  ed = { id, tab: "look", d: { name: tr.name, title: tr.title ?? "", colour: hex(tr.chosenColour), shape: look.shape, motion: look.motion } };
   drawEditor();
 }
 
 /* The whole look, with this editor's shape and motion (and any extra change) over what is saved. */
-function fullLook(t, change = {}) {
-  return { ...lookOf(t), shape: ed?.d.shape ?? lookOf(t).shape, motion: ed?.d.motion ?? lookOf(t).motion, ...(ed?.d.colour ? { colour: null } : {}), ...change };
+function fullLook(tr, change = {}) {
+  return { ...lookOf(tr), shape: ed?.d.shape ?? lookOf(tr).shape, motion: ed?.d.motion ?? lookOf(tr).motion, ...(ed?.d.colour ? { colour: null } : {}), ...change };
 }
 
 async function saveEditor() {
   keepFields();
-  const t = trunkById(ed.id);
-  const body = { name: ed.d.name.trim(), title: ed.d.title.trim(), look: fullLook(t), ...(ed.d.colour ? { chosenColour: ed.d.colour } : {}) };
+  const tr = trunkById(ed.id);
+  const body = { name: ed.d.name.trim(), title: ed.d.title.trim(), look: fullLook(tr), ...(ed.d.colour ? { chosenColour: ed.d.colour } : {}) };
   try {
     await api(`trunks/${encodeURIComponent(ed.id)}`, body);
     closeDlg();
     ed = null;
     await refresh();
-    toast(`${body.name} saved.`);
+    toast(t("window.flows.trunk.saved", { name: body.name }));
   } catch (error) { toast(error.message); }
 }
 
@@ -138,9 +141,9 @@ async function saveEditor() {
    so an unsaved shape or motion stays a draft. None goes back to the face made from the name. */
 async function setEmoji(v) {
   keepFields();
-  const t = trunkById(ed.id);
+  const tr = trunkById(ed.id);
   try {
-    await api(`trunks/${encodeURIComponent(ed.id)}`, { look: { ...lookOf(t), ...(v ? { face: "emoji", emoji: v } : { face: "pattern", emoji: "" }) } });
+    await api(`trunks/${encodeURIComponent(ed.id)}`, { look: { ...lookOf(tr), ...(v ? { face: "emoji", emoji: v } : { face: "pattern", emoji: "" }) } });
     await refresh();
     drawEditor();
   } catch (error) { toast(error.message); }
@@ -157,15 +160,15 @@ function shuffle() {
 
 /* The conversation menu's items for a Trunk's or a room's own conversation; "" for any other conversation. */
 export function trunkMenu() {
-  const t = trunkOfChat();
-  if (t) return mi("pin", "pin", t.pinned ? "Unpin" : "Pin to top") + mi("pausetrunk", "pause", t.paused ? "Resume" : "Pause this Trunk", "", `data-id="${esc(t.id)}"`) + mi("rename", "edit", "Rename") + mi("edit", "sliders", "Edit Trunk…", "", `data-id="${esc(t.id)}"`) + mi("teach-start", "teach", "Show it how, once");
+  const tr = trunkOfChat();
+  if (tr) return mi("pin", "pin", tr.pinned ? t("accounts.action.unpin") : t("window.flows.trunk.pin-top")) + mi("pausetrunk", "pause", tr.paused ? t("autonomy.resume") : t("window.flows.pause.this"), "", `data-id="${esc(tr.id)}"`) + mi("rename", "edit", t("accounts.action.rename")) + mi("edit", "sliders", t("window.flows.trunk.edit-trunk"), "", `data-id="${esc(tr.id)}"`) + mi("teach-start", "teach", t("window.flows.trunk.show-how"));
   const r = roomOfChat();
-  if (r) return mi("pin", "pin", r.pinned ? "Unpin" : "Pin to top") + mi("rename", "edit", "Rename room") + mi("room-rules", "sliders", "Room rules", "", `data-id="${esc(r.id)}"`);
+  if (r) return mi("pin", "pin", r.pinned ? t("accounts.action.unpin") : t("window.flows.trunk.pin-top")) + mi("rename", "edit", t("window.flows.trunk.rename-room")) + mi("room-rules", "sliders", t("window.flows.trunk.room-rules"), "", `data-id="${esc(r.id)}"`);
   return "";
 }
 export function trunkMenuEnd() {
-  const t = trunkOfChat();
-  return t ? "<hr>" + mi("remove", "trash", "Remove Trunk…", "", `data-id="${esc(t.id)}"`) : "";
+  const tr = trunkOfChat();
+  return tr ? "<hr>" + mi("remove", "trash", t("window.flows.trunk.remove-trunk"), "", `data-id="${esc(tr.id)}"`) : "";
 }
 
 async function change(kind, id, body) {
@@ -178,17 +181,17 @@ async function change(kind, id, body) {
 
 export function pinChat(sid = S.chat) {
   closePop();
-  const t = trunkOfChat(sid), r = roomOfChat(sid);
-  if (t) change("trunk", t.id, { pinned: !t.pinned });
+  const tr = trunkOfChat(sid), r = roomOfChat(sid);
+  if (tr) change("trunk", tr.id, { pinned: !tr.pinned });
   else if (r) change("room", r.id, { pinned: !r.pinned });
 }
 
 export function renameDlg(sid = S.chat) {
   closePop();
-  const t = trunkOfChat(sid), r = roomOfChat(sid), target = t ?? r;
+  const tr = trunkOfChat(sid), r = roomOfChat(sid), target = tr ?? r;
   if (!target) return;
-  openDlg({ title: t ? "Rename" : "Rename room", body: `<div class="field"><label for="rn-name">Name</label><input class="inp" id="rn-name" value="${esc(target.name)}"></div>`,
-    foot: `<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="rename-save" data-k="${t ? "trunk" : "room"}" data-id="${esc(target.id)}">Save</button>` });
+  openDlg({ title: tr ? t("accounts.action.rename") : t("window.flows.trunk.rename-room"), body: `<div class="field"><label for="rn-name">${t("accounts.field.name")}</label><input class="inp" id="rn-name" value="${esc(target.name)}"></div>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn pri" type="button" data-act="rename-save" data-k="${tr ? "trunk" : "room"}" data-id="${esc(target.id)}">${t("action.save")}</button>` });
   setTimeout(() => $("#rn-name")?.select(), 0);
 }
 
@@ -201,10 +204,10 @@ async function renameSave(el) {
 /* The engine keeps no archive: it stops the Trunk's routines and gives its conversations back, so only that is said. */
 function removeDlg(id) {
   closePop();
-  const t = trunkById(id);
-  if (!t) return;
-  openDlg({ title: `Remove ${t.name}?`, body: '<p data-css="margin:0">Its automations stop.</p>',
-    foot: `<button class="btn ghost" type="button" data-act="dlg-close">Keep ${esc(t.name)}</button><button class="btn bad" type="button" data-act="trunk-remove-yes" data-id="${esc(t.id)}">Remove</button>` });
+  const tr = trunkById(id);
+  if (!tr) return;
+  openDlg({ title: t("studio.remove.title", { name: tr.name }), body: `<p data-css="margin:0">${t("window.flows.trunk.automations-stop")}</p>`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("window.flows.trunk.keep", { name: esc(tr.name) })}</button><button class="btn bad" type="button" data-act="trunk-remove-yes" data-id="${esc(tr.id)}">${t("accounts.action.remove")}</button>` });
 }
 
 async function removeTrunk(id) {
@@ -212,20 +215,21 @@ async function removeTrunk(id) {
     await api(`trunks/${encodeURIComponent(id)}/remove`, {});
     closeDlg();
     await refresh();
-    toast("Removed.");
+    toast(t("addons.export.removed"));
   } catch (error) { toast(error.message); }
 }
 
 /* ---------- a Trunk from a job: create takes name, title and description; the look follows as an edit ---------- */
 async function fromTemplate(i) {
-  const [name, what, colour, shape] = TEMPLATES[i] ?? [];
-  if (!name) return;
+  const [, , colour, shape] = TEMPLATES[i] ?? [];
+  if (!TEMPLATE_WORDS[i]) return;
+  const [name, what] = TEMPLATE_WORDS[i].map((key) => t(key));
   try {
     const { trunk } = await api("trunks", { name, title: what, description: what });
     await api(`trunks/${encodeURIComponent(trunk.id)}`, { chosenColour: hex(colour), look: { ...LOOK, shape: SHAPE_NAMES[shape] } });
     await refresh();
     openChat(trunk.chatSessionId);
-    toast(`${name} is ready.`);
+    toast(t("window.flows.trunk.ready", { name }));
   } catch (error) { toast(error.message); }
 }
 
@@ -235,7 +239,7 @@ async function newTrunk() {
   closePop();
   try {
     let n = E.trunks.length + 1;
-    while (E.trunks.some((t) => t.name === `Trunk ${n}`)) n += 1;
+    while (E.trunks.some((tr) => tr.name === `Trunk ${n}`)) n += 1;
     const { trunk } = await api("trunks", { name: `Trunk ${n}` });
     await refresh();
     openChat(trunk.chatSessionId);
@@ -247,19 +251,19 @@ let grp = null;
 
 /* Who answers in a room (src/trunks/room-plan.ts): the engine's three rules, in the prototype's words. The engine's
    default is mentions only; a lead Trunk is the first one picked. */
-const RULES = [["mention", "Only those you @mention"], ["lead", "A lead Trunk decides"], ["all", "Everyone, every time"]];
-const ruleSeg = (act, current, id = "") => `<div class="ctl"><b>Who answers</b><span class="right"><span class="seg" role="group" aria-label="Who answers">${RULES.map(([v, l]) => `<button type="button" data-act="${act}" data-v="${v}"${id ? ` data-id="${esc(id)}"` : ""} aria-pressed="${current === v}">${l}</button>`).join("")}</span></span><small>Nobody mentioned means everyone.</small></div>`;
+const RULES = [["mention", "window.flows.trunk.rule-mention"], ["lead", "window.flows.trunk.rule-lead"], ["all", "window.flows.trunk.rule-all"]];
+const ruleSeg = (act, current, id = "") => `<div class="ctl"><b>${t("rooms.who.choose")}</b><span class="right"><span class="seg" role="group" aria-label="${t("rooms.who.choose")}">${RULES.map(([v, l]) => `<button type="button" data-act="${act}" data-v="${v}"${id ? ` data-id="${esc(id)}"` : ""} aria-pressed="${current === v}">${t(l)}</button>`).join("")}</span></span><small>${t("window.flows.trunk.nobody")}</small></div>`;
 
 function groupDlg() {
   const people = (E.profiles?.profiles ?? []).filter((p) => p.id !== activeId()), agents = grp.agents;
   const chip = (act, id, label, on) => `<button type="button" class="chip6" data-act="${act}" data-k="trunks" data-v="${esc(id)}" aria-pressed="${on}">${esc(label)}</button>`;
-  openDlg({ title: "New group chat", wide: true, body: `<label class="fld"><span>Name</span><input class="inp" id="grp-name" value="${esc(grp.name)}"></label>
-    <div class="fld"><span>Trunks · two to six</span><span class="chips8">${E.trunks.map((t) => chip("grp-pick", t.id, t.name, grp.trunks.includes(t.id))).join("")}</span></div>
-    <div class="fld"><span>People · up to eight</span><span class="chips8">${people.map((p) => chip("grp-person", p.id, p.name, false)).join("")}</span></div>
-    <div class="fld"><span>Agents on other computers</span><span class="chips8">${agents.map((a) => chip("grp-agent", a.name ?? a.id, a.name ?? a.id, false)).join("")}</span></div>
+  openDlg({ title: t("window.flows.trunk.new-group"), wide: true, body: `<label class="fld"><span>${t("accounts.field.name")}</span><input class="inp" id="grp-name" value="${esc(grp.name)}"></label>
+    <div class="fld"><span>${t("window.flows.trunk.two-six")}</span><span class="chips8">${E.trunks.map((tr) => chip("grp-pick", tr.id, tr.name, grp.trunks.includes(tr.id))).join("")}</span></div>
+    <div class="fld"><span>${t("window.flows.trunk.people-eight")}</span><span class="chips8">${people.map((p) => chip("grp-person", p.id, p.name, false)).join("")}</span></div>
+    <div class="fld"><span>${t("window.flows.trunk.agents")}</span><span class="chips8">${agents.map((a) => chip("grp-agent", a.name ?? a.id, a.name ?? a.id, false)).join("")}</span></div>
     ${ruleSeg("grp-rule", grp.rule)}
-    ${ctl("grp-talk", "Trunks may talk to each other in here", "Up to 3 rounds and 10 Trunk messages for each of yours. A Trunk can pass.")}`,
-    foot: '<button class="btn ghost" type="button" data-act="dlg-close">Cancel</button><button class="btn pri" type="button" data-act="grp-make">Start the group chat</button>' });
+    ${ctl("grp-talk", t("window.flows.trunk.talk"), t("window.flows.trunk.talk-hint"))}`,
+    foot: `<button class="btn ghost" type="button" data-act="dlg-close">${t("first-run-steps.restore-no")}</button><button class="btn pri" type="button" data-act="grp-make">${t("window.flows.trunk.start-group")}</button>` });
 }
 
 /* The agents on other computers are read once, when the dialog opens; they are drawn greyed. */
@@ -296,15 +300,15 @@ async function makeRoom() {
 /* ---------- Room rules (the room's menu): who answers, and the room's own way of working together ---------- */
 
 /* The prototype's patterns (Customize › Specialists), by the engine's names; Teams has no engine form, so it stays greyed. */
-const PATTERNS = [["one", "One at a time"], ["super", "A lead and helpers"], ["swarm", "Swarm"], ["router", "Router"], ["parallel", "In parallel"], ["teams", "Teams"]];
+const PATTERNS = [["one", "window.flows.trunk.one"], ["super", "window.flows.trunk.lead-helpers"], ["swarm", "window.flows.trunk.swarm"], ["router", "window.flows.trunk.router"], ["parallel", "window.flows.trunk.parallel"], ["teams", "window.flows.trunk.teams"]];
 function rulesDlg(id) {
   closePop();
   const r = rooms.find((x) => x.id === id);
   if (!r) return;
-  const pats = PATTERNS.map(([v, l]) => `<button type="button" data-act="${v === "teams" ? "room-pat-teams" : "room-pat"}" data-v="${v}" data-id="${esc(id)}" aria-pressed="${r.pattern === v}">${l}</button>`).join("");
-  openDlg({ title: "Room rules", body: `${ruleSeg("room-rule", r.rule ?? "mention", id)}
-    <div class="ctl"><b>How Trunks work together</b><span class="right"><span class="seg" role="group" aria-label="How Trunks work together">${pats}</span></span><small>The pattern a room or a big task uses. Branch picks one; you can choose.</small></div>`,
-    foot: '<button class="btn" type="button" data-act="dlg-close">Done</button>' });
+  const pats = PATTERNS.map(([v, l]) => `<button type="button" data-act="${v === "teams" ? "room-pat-teams" : "room-pat"}" data-v="${v}" data-id="${esc(id)}" aria-pressed="${r.pattern === v}">${t(l)}</button>`).join("");
+  openDlg({ title: t("window.flows.trunk.room-rules"), body: `${ruleSeg("room-rule", r.rule ?? "mention", id)}
+    <div class="ctl"><b>${t("window.flows.trunk.together")}</b><span class="right"><span class="seg" role="group" aria-label="${t("window.flows.trunk.together")}">${pats}</span></span><small>${t("window.flows.trunk.together-hint")}</small></div>`,
+    foot: `<button class="btn" type="button" data-act="dlg-close">${t("first-run-steps.done")}</button>` });
 }
 /* Choosing the room's pattern again gives it back to the owner's default (null). */
 async function setRule(el, field) {
