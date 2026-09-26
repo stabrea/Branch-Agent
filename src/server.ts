@@ -1447,7 +1447,9 @@ async function api(
     const waiting = new URL(request.url ?? "/", "http://local").searchParams.get("waiting") === "1";
     const staleMs = staleAfterMs(app.store, app.runtime.owner, app.runtime.reliability);
     // Dogfood B1: what a running task's model is thinking now, from memory only (never the record).
-    const activities = liveActivity(app.store, app.runtime.owner, { waiting, staleMs }).map((a) => {
+    // Redesign security review: whose tasks these are follows who is at the window. A household profile sees its own
+    // tasks only, never the owner's (their prompts and what waits for the owner), as every other read of runs does.
+    const activities = liveActivity(app.store, app.store.profiles.scope(), { waiting, staleMs }).map((a) => {
       const thinking = app.runtime.thinkingOf(a.runId);
       return { ...a, followUps: app.runtime.queued(a.sessionId).length, ...(thinking ? { thinking } : {}) };
     });
