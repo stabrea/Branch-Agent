@@ -1,5 +1,5 @@
 /* Library: memory, documents, generated files.
-   Memory: how full it is (state.memoryCapacity), a tidy-up of the engine's findings (GET /api/memory/tidy; opening it
+   Memory: each fact with where it came from (the engine's data.source) and when, as the prototype's rows are; how full it is (state.memoryCapacity), a tidy-up of the engine's findings (GET /api/memory/tidy; opening it
    stages them as suggestions with POST /api/memory/tidy, and each is applied or left through
    POST /api/memory/proposals/<id>/accept|reject), and a menu to export what is remembered (GET /api/memory/export),
    see the archive and put a fact back (GET /api/memory/archive, POST /api/memory/archive/<id>/restore).
@@ -48,7 +48,7 @@ function memoryTab(mem) {
       <b>${cap ? `${cap.count} of ${cap.maxFacts} remembered` : `${mem.length} things remembered`}</b>
       <p>Trunks suggest what to remember and you decide. Nothing here leaves this computer.</p></div>${acts}</div>`;
   html += mem.map((m, i) => `<div class="prow"><span class="ico-tile">${ic('star', 's')}</span>
-        <span class="grow"><b>${esc(m.data?.text ?? m.data?.fact ?? m.data?.content ?? "")}</b><small>${esc(m.data?.kind ?? "")}</small></span>
+        <span class="grow"><b>${esc(m.data?.text ?? m.data?.fact ?? m.data?.content ?? "")}</b><small>${esc([m.data?.source, when(m.updatedAt ?? m.createdAt)].filter(Boolean).join(" · "))}</small></span>
         <button class="btn ghost sm" type="button" data-act="forget" data-i="${i}" data-id="${esc(m.id || '')}">Forget</button></div>`).join('');
   return html;
 }
