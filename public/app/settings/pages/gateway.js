@@ -44,7 +44,7 @@ async function answerProposal(use) {
 
 export function init() {
   initMore17();
-  loadGateway();
+  const reading = loadGateway();
   on("gw-mode", (el) => {
     const next = el.dataset.v;
     api("never-break", { mode: next }).then(() => loadGateway(), (e) => toast(e.message));
@@ -57,7 +57,11 @@ export function init() {
     try { await wire[1](e.target.checked); } catch (error) { toast(error.message); }
     await loadGateway();
   });
+  return reading;
 }
+
+/* The Gateway three-way is drawn pressed from the engine's saved mode, so Settings waits for this page's read. */
+export const waitFirst = true;
 
 export async function load() {
   await loadGateway();

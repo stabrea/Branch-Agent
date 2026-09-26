@@ -44,32 +44,32 @@ export const NAV = [
   ["Care", [["usage", "Data & usage"], ["gateway", "Gateway"], ["self", "Branch itself"], ["updates", "Updates & about"], ["achievements", "Achievements"]]]
 ];
 
-/* Pages whose every read the engine refuses to anybody but the owner ("… belongs to the owner. Switch back to the owner's
-   profile …": settings-kit files, the saved sign-ins' autofill); on a household person's profile they are not listed. */
-const OWNER_ONLY = new Set(["instructions", "secrets"]);
-const household = () => E.profiles?.isOwner === false;
-const shown = (id) => !(household() && OWNER_ONLY.has(id));
-
 let searchText = "";
 
 /* A page starts (registers its actions, fetches its data) the first time it is opened after sign-in, and re-reads its
-   data each time it is opened again; nothing is fetched before the engine has accepted the window. */
+   data each time it is opened again; nothing is fetched before the engine has accepted the window. A page that draws a
+   choice from what the engine keeps (waitFirst) is shown once its read has come back, so it never shows none pressed. */
 const started = new Set();
 function open(id) {
   const page = PAGES[id];
-  if (!page || !E.loaded) return;
-  if (!started.has(id)) { started.add(id); page.init?.(); }
-  else page.load?.();
+  if (!page || !E.loaded) return undefined;
+  if (!started.has(id)) { started.add(id); return page.init?.(); }
+  return page.load?.();
+}
+async function go(id) {
+  const reading = open(id);
+  if (PAGES[id]?.waitFirst) await reading;
+  S.setPage = id;
+  renderNow();
 }
 
 export function draw() {
   const lv = level();
-  if (!shown(S.setPage)) S.setPage = "general";
   if (!started.has(S.setPage)) open(S.setPage);
   const q = searchText.trim().toLowerCase();
   const extra = [lv >= 1 ? ["advanced", "Advanced"] : null, lv >= 2 ? ["developer", "Developer"] : null].filter(Boolean);
   const groups = [...NAV, ...(extra.length ? [["More", extra]] : [])]
-    .map(([g, items]) => [g, items.filter(([id, l]) => shown(id) && (!q || l.toLowerCase().includes(q)))])
+    .map(([g, items]) => [g, items.filter(([, l]) => !q || l.toLowerCase().includes(q))])
     .filter(([, items]) => items.length);
   if ((S.setPage === "advanced" && lv < 1) || (S.setPage === "developer" && lv < 2)) S.setPage = "general";
 
@@ -110,18 +110,14 @@ export function init() {
   if (has("setpage")) return;
 
   on("setpage", (el) => {
-    S.setPage = el.dataset.v;
     closePop();
-    open(S.setPage);
-    renderNow();
+    go(el.dataset.v);
   });
 
   on("setgo", (el) => {
     S.view = "settings";
-    S.setPage = el.dataset.v;
     closePop();
-    open(S.setPage);
-    renderNow();
+    go(el.dataset.v);
   });
 
   /* The status bar's update menu: close it and open Settings › Updates & about (navigation only). The menu is drawn
