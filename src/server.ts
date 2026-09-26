@@ -998,7 +998,7 @@ async function api(
   if (handlesAccountsPath(path))
     return accountsApi(request, path, {
       service: accountsServiceFor(app.runtime.models), readBody: () => readBody(request, 16 * 1024),
-      requireOwner: (what) => app.store.profiles.requireOwner(what),
+      requireOwner: (what) => app.store.profiles.requireOwner(what), oauth: app.oauth,
     }).catch((error: unknown) => {
       throw error instanceof AccountsApiError ? new HttpError(error.status, error.message) : error;
     });

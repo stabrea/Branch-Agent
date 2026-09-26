@@ -40,6 +40,11 @@ export const ROUTES = {
   "/api/accounts/remove": "owner POST",
   "/api/accounts/session": "look",
   "/api/accounts/settings": "owner POST",
+  // The sign-ins that could be made, with no account in them: looking. Checking a program's sign-in starts the
+  // program and starting Google's sign-in opens a flow, so both are the owner's.
+  "/api/accounts/sign-ins": "look",
+  "/api/accounts/sign-ins/check": "owner POST",
+  "/api/accounts/sign-ins/gemini": "owner POST",
   "/api/accounts/switch": "owner POST",
   "/api/accounts/update": "owner POST",
   // mac7/adapt: reading what is stopped is looking; everything that fetches, installs or switches
