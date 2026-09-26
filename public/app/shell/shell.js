@@ -56,7 +56,7 @@ function waitingCount() {
 const runningIn = (id) => (E.state?.runs ?? []).some((r) => r.sessionId === id && ["running", "queued"].includes(r.status));
 
 /* The prototype's rowHtml names a Trunk's or a room's own conversation by the Trunk or room (c.name). */
-const ownName = (id) => E.trunks.find((t) => t.chatSessionId === id)?.name ?? E.rooms.find((r) => r.sessionId === id)?.name;
+const ownName = (id) => E.trunks.find((t) => t.chatSessionId === id || (t.retiredChats ?? []).includes(id))?.name ?? E.rooms.find((r) => r.sessionId === id)?.name;
 
 function row(s) {
   const id = sessionId(s);
