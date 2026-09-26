@@ -26,23 +26,30 @@ for (const width of [1440, 400]) {
     await setLevel(page, "regular");
     assert.deepEqual(await heads(), ["Voice", "Talking", "Speaking back"]);
     await setLevel(page, "advanced");
-    assert.deepEqual(await heads(), ["Voice", "Talking", "Speaking back", "Live conversations"]);
+    // The prototype's Advanced adds "Listening, more" (FINE15 voice, level 1); it has no "Live conversations" (the lead, 2026-09-26).
+    assert.deepEqual(await heads(), ["Voice", "Talking", "Speaking back", "Listening, more"]);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "the page fits the window");
     assert.deepEqual(errors, []);
   });
 }
 
-test("DG-025 Read replies aloud is kept as it is pressed, with no Save button", async (t) => {
+/* The prototype's "Answer aloud" (Never / When I talk / Always, in "Listening, more" at Advanced) is the engine's
+   read-aloud setting (the lead, 2026-09-26): Always reads every reply aloud, Never none; kept as it is pressed. */
+test("DG-025 Answer aloud is kept as it is pressed, with no Save button", async (t) => {
   const { page, errors, call } = await settingsWindow(t, { name: "voice-dg186" });
   await openSettingsPage(page, "voice");
+  await setLevel(page, "advanced");
   const col = page.locator(".set-col");
   assert.equal(await col.getByRole("button", { name: /^Save/ }).count(), 0, "no Save button");
-  const group = col.getByRole("group", { name: "Read replies aloud", exact: true });
-  await group.getByRole("button", { name: "No", exact: true, pressed: true }).waitFor();
-  await group.getByRole("button", { name: "Yes", exact: true }).click();
+  const group = col.getByRole("group", { name: "Answer aloud", exact: true });
+  await group.getByRole("button", { name: "Never", exact: true, pressed: true }).waitFor();
+  await group.getByRole("button", { name: "Always", exact: true }).click();
   for (let tries = 0; tries < 50 && (await call("/api/voice/settings")).autoReadAloud !== true; tries++) await page.waitForTimeout(100);
   assert.equal((await call("/api/voice/settings")).autoReadAloud, true);
-  await group.getByRole("button", { name: "Yes", exact: true, pressed: true }).waitFor();
+  await group.getByRole("button", { name: "Always", exact: true, pressed: true }).waitFor();
+  await group.getByRole("button", { name: "Never", exact: true }).click();
+  for (let tries = 0; tries < 50 && (await call("/api/voice/settings")).autoReadAloud !== false; tries++) await page.waitForTimeout(100);
+  assert.equal((await call("/api/voice/settings")).autoReadAloud, false);
   assert.deepEqual(errors, []);
 });
 
