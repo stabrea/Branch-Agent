@@ -26,12 +26,16 @@ export const poolById = (id) => pools().find((p) => p.pool === id);
 /* Every account in the engine's order, pool by pool, with the pool's own facts beside it. */
 export const allAccounts = () => pools().flatMap((p) => p.accounts.map((a) => ({ ...a, pool: p.pool, poolName: p.name ?? p.pool, kind: p.kind, first: p.defaultAccount === a.id })));
 const accountOf = (el) => allAccounts().find((a) => a.pool === el.dataset.pool && a.id === el.dataset.id);
+/* A household person (GET /api/profiles names them as active) may look, but every change is the owner's: the engine
+   refuses it (src/accounts/api.ts requireOwner), so those controls are drawn greyed. */
+export const household = () => !!E.profiles?.active?.id;
+export const ownerOnly = () => (household() ? 'disabled aria-disabled="true"' : "");
 
 /* ---------- the account menu (Settings › Accounts and Models › Connections) ---------- */
 function openAccountMenu(el) {
   const a = accountOf(el);
   if (!a) return;
-  const ids = `data-pool="${esc(a.pool)}" data-id="${esc(a.id)}"`;
+  const ids = `data-pool="${esc(a.pool)}" data-id="${esc(a.id)}" ${ownerOnly()}`;
   openPop(el, `<div class="pt">${esc(a.label)}</div>${mi("acct-first", "up", "Answer first", "", ids)}${mi("toast", "edit", "Rename")}${mi("toast", "users", "Which Trunks use it")}<hr>${mi("acct-out", "x", "Sign out", "", ids)}`, { right: true });
 }
 
@@ -126,8 +130,10 @@ function step3() {
   const p = poolById(W.pool);
   const name = W.name || W.saved?.label || defaultName(p);
   const quick = ["Personal", "Work", "Side project"].map((x) => `<button class="chip6" type="button" data-act="aa-nm" data-v="${esc(`${p?.name ?? W.pool} · ${x}`)}">${x}</button>`).join("");
+  /* A sign-in is never used for a Trunk (src/trunks/accounts.ts), so for a sign-in connection the chips are greyed. */
+  const keyPool = p?.kind === "api-key";
   const who = [["anyone", "Anyone who needs it"], ...E.trunks.map((t) => [t.id, t.name])]
-    .map(([id, l]) => `<button class="chip6" type="button" data-act="aa-tr" data-v="${esc(id)}" aria-pressed="${W.trunks.includes(id)}">${esc(l)}</button>`).join("");
+    .map(([id, l]) => `<button class="chip6" type="button" data-act="aa-tr" data-v="${esc(id)}" aria-pressed="${keyPool && W.trunks.includes(id)}" ${keyPool ? "" : 'disabled aria-disabled="true"'}>${esc(l)}</button>`).join("");
   const pos = [["first", "First"], ["last", "Last"]].map(([v, l]) => `<button type="button" data-act="aa-pos" data-v="${v}" aria-pressed="${W.pos === v}">${l}</button>`).join("");
   const head = W.saved ? `<div class="prow" data-css="border:0;padding:0 0 8px">${logo(W.pool, p?.name, 36)}<span class="grow"><b>${esc(W.saved.label)}</b><small>${esc(p?.name ?? W.pool)}</small></span></div>` : "";
   return `${head}<label class="fld"><span>Call it</span><input class="inp" id="aa-name" value="${esc(name)}" maxlength="40" autocomplete="off"></label>
@@ -163,6 +169,13 @@ function pick(pool) {
   draw();
 }
 
+/* Several accounts per connection ships off (src/accounts/settings.ts). Adding one from the window is asking for it, so
+   the switch goes to "when-needed" first when it is off, the way the chat-app wizard switches channel setup on.
+   POST /api/accounts/settings takes only { mode } (ModeSchema is strict); the rest of the list is kept as it is. */
+async function switchOn() {
+  if ((await api("accounts")).mode === "off") await api("accounts/settings", { mode: "when-needed" });
+}
+
 /* The key goes to the engine at once, under the account's first name; step 3 renames it if asked. */
 async function addKey() {
   const field = $("#aa-key");
@@ -170,6 +183,7 @@ async function addKey() {
   if (field) field.value = "";
   const p = poolById(W.pool);
   try {
+    await switchOn();
     const answer = await api("accounts/add", { pool: W.pool, label: defaultName(p), key: value });
     W.saved = answer.accounts?.[answer.accounts.length - 1] ?? null;
     W.step = 3;
@@ -188,7 +202,7 @@ async function finish() {
   try {
     let view;
     if (W.saved) view = W.saved.label === label ? await loadAccounts().then(() => poolById(W.pool)) : await api("accounts/update", { pool: W.pool, account: W.saved.id, label });
-    else view = await api("accounts/add", { pool: W.pool, label });
+    else { await switchOn(); view = await api("accounts/add", { pool: W.pool, label }); }
     const account = W.saved ?? view.accounts?.[view.accounts.length - 1];
     if (!account) return;
     const placed = await place(account.id, view);
@@ -211,6 +225,7 @@ async function place(id, view) {
 /* Which Trunks use it: each chosen Trunk's keys.accounts names this account for this connection (POST /api/trunks/<id>
    replaces the whole keys object, so the rest of it is carried over from the Trunk as the engine has it now). */
 async function useInTrunks(id) {
+  if (poolById(W.pool)?.kind !== "api-key") return;
   for (const trunkId of W.trunks.filter((t) => t !== "anyone")) {
     const { trunk } = await api(`trunks/${encodeURIComponent(trunkId)}`);
     const keys = trunk?.keys ?? { copyFromOwner: true, accounts: {} };
@@ -219,6 +234,7 @@ async function useInTrunks(id) {
 }
 
 function toggleTrunk(v) {
+  if (poolById(W.pool)?.kind !== "api-key") return;
   keepName();
   W.trunks = W.trunks.includes(v) ? W.trunks.filter((x) => x !== v) : [...W.trunks, v];
   draw();

@@ -2692,3 +2692,6 @@ body.pet-dock15 .dock>.petbox{position:absolute;left:calc(50% - min(430px,50% - 
 
 /* area: places and customize leftovers */
 .replay6 .rp-path{overflow-x:auto}
+
+/* area: bugfix-3 */
+.acadd-bf3 .btn{max-width:100%;min-width:0;height:auto;min-height:32px;padding-top:6px;padding-bottom:6px;white-space:normal;text-align:left}

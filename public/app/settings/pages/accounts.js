@@ -7,7 +7,7 @@ import { on } from "../../core/actions.js";
 import { markLive } from "../../core/features.js";
 import { ic, toast } from "../../core/ui.js";
 import { logo } from "../../core/logos.js";
-import { A, allAccounts, loadAccounts } from "../../flows/account.js";
+import { A, allAccounts, loadAccounts, ownerOnly } from "../../flows/account.js";
 
 /* Which accounts are ticked while "Select several" is on (window state), by pool and id; null when it is off. */
 let picked = null;
@@ -20,13 +20,13 @@ function row(a, i, list) {
   const tick = picked ? `<input type="checkbox" class="chk15" data-acc15="${esc(key(a))}" ${picked.includes(key(a)) ? "checked" : ""} aria-label="Select ${esc(a.label)}">` : "";
   const top = i === 0 || list[i - 1].pool !== a.pool;
   return `<div class="prow">${tick}${logo(a.pool, a.poolName, 32)}<span class="grow"><b>${esc(a.label)}</b><small>${esc(a.poolName)}</small></span>${a.first ? '<span class="pill ok">used next</span>' : ""}`
-    + `<button class="icon-btn" type="button" aria-label="Move up" data-act="acct-up" ${ids} ${top ? "disabled" : ""} data-css="width:28px;height:28px">${ic("up", "s")}</button>`
+    + `<button class="icon-btn" type="button" aria-label="Move up" data-act="acct-up" ${ids} ${top ? "disabled" : ownerOnly()} data-css="width:28px;height:28px">${ic("up", "s")}</button>`
     + `<button class="icon-btn" type="button" aria-label="More for ${esc(a.label)}" data-act="acct-menu" ${ids} data-css="width:28px;height:28px">${ic("more", "s")}</button></div>`;
 }
 
 function bulkBar() {
   if (!picked) return "";
-  const n = picked.length, off = n ? "" : "disabled";
+  const n = picked.length, off = n ? ownerOnly() : "disabled";
   return `<div class="bulk15" role="toolbar" aria-label="With the selected accounts"><b>${n ? `${n} selected` : "Tick the accounts"}</b><span class="grow"></span><button class="btn ghost sm" type="button" data-act="acbulk15" data-v="top" ${off}>Move to the top</button><button class="btn ghost sm" type="button" data-act="acbulk15" data-v="pause" ${off}>Pause</button><button class="btn ghost sm danger15" type="button" data-act="acbulk15" data-v="remove" ${off}>Sign out</button></div>`;
 }
 
@@ -36,10 +36,12 @@ export function draw() {
   if (lev < 1) picked = null;
   let html = `<h1>Accounts</h1><p class="lede">Your model accounts, the order Branch uses them in, which Trunks use each, and your keepoak.com account.</p>`;
   if (A.view) html += `<div class="status"><span class="sdot ${list.length ? "" : "bad"}"></span><div><b>${list.length} accounts signed in</b><p>Branch never sees your passwords. Each account is billed by its own site.</p></div></div>`;
-  const sel = lev >= 1 ? `<button type="button" class="link15 acsel15" data-act="acsel15">${picked ? "Done" : "Select several"}</button>` : "";
+  /* Every change here is the owner's (the engine refuses a household person), so on a household profile they are greyed. */
+  const mine = ownerOnly();
+  const sel = lev >= 1 ? `<button type="button" class="link15 acsel15" data-act="acsel15" ${mine}>${picked ? "Done" : "Select several"}</button>` : "";
   html += `<div class="sec"><h2${lev >= 1 ? ' class="h2row15"' : ""}>Order Branch uses them in${sel}</h2>${bulkBar()}<div class="rows">${list.map(row).join("")}</div>`;
-  html += `<div class="acts" data-css="margin-top:12px"><button class="btn pri" type="button" data-act="addacct">${ic("plus", "s")}Add an account</button>`;
-  html += (A.view?.pools ?? []).map((p) => `<button class="btn" type="button" data-act="addacct" data-v="${esc(p.pool)}">Another ${esc(p.name ?? p.pool)} account</button>`).join("");
+  html += `<div class="acts acadd-bf3" data-css="margin-top:12px"><button class="btn pri" type="button" data-act="addacct" ${mine}>${ic("plus", "s")}Add an account</button>`;
+  html += (A.view?.pools ?? []).map((p) => `<button class="btn" type="button" data-act="addacct" data-v="${esc(p.pool)}" ${mine}>Another ${esc(p.name ?? p.pool)} account</button>`).join("");
   html += `</div></div>`;
   html += `<div class="sec"><h2>When one runs out</h2>`
     + `<div class="ctl"><b>Move to the next account in the list</b><input class="sw" type="checkbox" id="ac-next" aria-label="Move to the next account in the list" data-sw="set"><small>Only between accounts you own and pay for, within each provider’s terms. No account’s allowance is shared with another person.</small></div>`
