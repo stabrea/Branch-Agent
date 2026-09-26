@@ -13,7 +13,7 @@ import { api } from "../core/api.js";
 import { on, has } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { ic, openDlg, toast } from "../core/ui.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 const COLOURS = ["var(--ink)", "var(--accent)", "var(--ink-3)", "var(--line-2)", "var(--ink-2)", "var(--accent-ink)"];
 const TEXT = 'font-size="11.5" fill="var(--ink-2)"';
@@ -30,7 +30,7 @@ export function readChart(source) {
   return { type, title: typeof spec.title === "string" ? spec.title.slice(0, 120) : "", points };
 }
 
-const num = (v) => Number(v.toFixed(2)).toLocaleString();
+const num = (v) => Number(v.toFixed(2)).toLocaleString(language());
 const span = (points) => {
   const lo = Math.min(0, ...points.map((p) => p.value)), hi = Math.max(0, ...points.map((p) => p.value));
   return [lo, hi === lo ? lo + 1 : hi];

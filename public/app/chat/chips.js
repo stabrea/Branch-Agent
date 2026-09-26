@@ -98,9 +98,11 @@ function modeMenu() {
   return `<div class="pt">${t("mode.question")}</div>${rows}<hr><div class="row-in"><span>${t("window.chat.mode.applies")}</span><span class="seg"><button type="button" data-act="scope" data-v="here" aria-pressed="true">${t("window.chat.mode.this-conversation")}</button><button type="button" data-act="scope" data-v="everywhere" aria-pressed="false">${t("window.chat.mode.everywhere")}</button></span></div><div class="row-in"><span data-css="color:var(--bad)">${ic("lock", "s")} ${t("lockdown.label")}</span><input class="sw" type="checkbox" id="pm-lock2" data-sw="lock" ${locked ? "checked" : ""} aria-label="${t("lockdown.label")}"></div>`; // state: the mode it sets applies to this conversation
 }
 
-function reopen(act, menu) {
+/* The menu is drawn again with what was just chosen only while it is still open (its rows, `row`, are showing): a menu
+   the person closed while the choice was being saved stays closed. */
+function reopen(act, menu, row) {
   const a = document.querySelector(`[data-act="${act}"]`);
-  if (a) openPop(a, menu(), { force: true });
+  if (a && document.querySelector(`#app > .pop [data-act="${row}"]`)) openPop(a, menu(), { force: true });
 }
 
 async function saveModel(change) {
@@ -111,7 +113,7 @@ async function saveModel(change) {
     M.sid = undefined;
     await loadChips();
   } catch (error) { toast(error.message); }
-  reopen("modelmenu2", modelMenu);
+  reopen("modelmenu2", modelMenu, "pick-model");
 }
 
 async function setMode(v) {
@@ -129,7 +131,7 @@ async function switchLockdown(on) {
   await setLockdown(on);
   M.sid = undefined;
   await loadChips();
-  reopen("modemenu2", modeMenu);
+  reopen("modemenu2", modeMenu, "set-mode");
 }
 
 export function initChips() {

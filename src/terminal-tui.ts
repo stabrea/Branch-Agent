@@ -506,7 +506,7 @@ export class Tui {
     if (["light", "dark", "follow"].includes(word)) saveLookMode(store, owner, word as LookMode | "follow");
     else if (word === "mode") saveLookMode(store, owner, this.mode === "follow" ? "dark" : this.mode === "dark" ? "light" : "follow");
     else if (word === "contrast") await saveLook(store, owner, { contrast: this.look.contrast === "more" ? "standard" : "more" });
-    else if (word === "language") await saveLook(store, owner, { language: this.look.language === "auto" ? "en" : this.look.language === "en" ? "fr" : "auto" });
+    else if (word === "language") await saveLook(store, owner, { language: this.look.language === "auto" ? "en" : this.look.language === "en" ? "fr" : this.look.language === "fr" ? "es" : "auto" });
     else await saveLook(store, owner, { theme: word });
     this.previewTheme = undefined;
     this.readLook(true);

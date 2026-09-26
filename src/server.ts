@@ -506,6 +506,7 @@ async function staticFile(
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
     "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
     "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
+    "/locales/es.json": ["locales/es.json", "application/json; charset=utf-8"],
     // Wave mac3: the owner's dashboard (the old window's card that switched it on left with that window). While it is off, isDashboardFile keeps
     // every /dashboard path unserved. Its stylesheets and modules, including its own copies of the words, the theme
     // bridge, the oak, the look and the event reader that left public/ with the old window (#291):

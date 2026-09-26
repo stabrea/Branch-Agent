@@ -113,7 +113,7 @@ test("a command run from the window runs inside a real run of its own, recorded 
 // Mutations: in src/playground.ts handSession, return `store.createSession(owner)` every time (new rows appear); drop
 // the busy check (the waiting task's transcript gets an "interrupted" tool result written into it). The bound-key case
 // is two layers: the app's bound-key check (SessionTokens) already refuses /api/tools/try to a key held to one
-// conversation, and the route's own `requireBoundSession` is a second one; dropping only the second stays green.
+// conversation, and the route's own `requireBoundSession` is a second one; the next test proves that one on its own.
 test("window commands never fill the side list: kept in their conversation, or one reused Terminal conversation", async (t) => {
   const f = await served(t, { shell: true });
   const { app } = f;
@@ -148,6 +148,38 @@ test("window commands never fill the side list: kept in their conversation, or o
   const refused = await f.call("POST", "/api/tools/try", bound.token, { ...command("by-bound"), confirm: true, sessionId: busy });
   assert.ok(refused.status >= 400, JSON.stringify(refused.body));
   assert.equal(await exists(join(f.workspace, "by-bound")), false);
+});
+
+// The route's own check, with the outer door stood in open: the app's bound-key check (SessionTokens.boundCheck,
+// src/people/access.ts boundDoorRefusal) is replaced for this test by one that lets POST /api/tools/try through, as it
+// lets /api/run through, so only the route's `requireBoundSession` stands between the key and conversation B.
+// Mutation: delete `if (tried.sessionId) requireBoundSession(shortLivedKeyMark().sessionId, tried.sessionId);` in
+// src/server.ts (POST /api/tools/try) → the key's command runs and its run lands in B.
+test("a key bound to conversation A cannot run a command into conversation B through the playground", async (t) => {
+  const f = await served(t, { shell: true });
+  const { app } = f;
+  const owner = app.runtime.owner;
+  // The owner allows commands outright, so the key's command is not stopped by "a key cannot confirm a question" first.
+  assert.equal((await f.call("POST", "/api/policy", undefined, { rules: [{ tool: "shell.execute", decision: "allow" }] })).status, 200);
+  const a = app.store.createSession(owner), b = app.store.createSession(owner);
+  const bound = app.sessionTokens.create(owner, { name: "bound", scope: "run", minutes: 5, sessionId: a }).token;
+  const runsIn = (sessionId) => byHandRuns(app).filter((r) => r.sessionId === sessionId);
+  // With the real door: refused before the route is reached.
+  const atDoor = await f.call("POST", "/api/tools/try", bound, { ...command("door-b"), confirm: true, sessionId: b });
+  assert.ok(atDoor.status >= 400 && atDoor.status < 500, `${atDoor.status} ${JSON.stringify(atDoor.body)}`);
+  // With the door stood in open for this one route: the route refuses it on its own.
+  const door = app.sessionTokens.boundCheck;
+  app.sessionTokens.boundCheck = (sessionId, method, path) => (method === "POST" && path === "/api/tools/try" ? null : door(sessionId, method, path));
+  const refused = await f.call("POST", "/api/tools/try", bound, { ...command("route-b"), confirm: true, sessionId: b });
+  assert.ok(refused.status >= 400 && refused.status < 500, `${refused.status} ${JSON.stringify(refused.body)}`);
+  assert.match(String(refused.body.error), /only reaches the conversation/);
+  assert.deepEqual(runsIn(b), [], "no run landed in B");
+  assert.equal(await exists(join(f.workspace, "route-b")), false, "the command did not run");
+  // Control: through the open door, the same key in its own conversation does reach the playground and runs there.
+  const own = await f.call("POST", "/api/tools/try", bound, { ...command("route-a"), confirm: true, sessionId: a });
+  assert.equal(own.body.status, "ran", JSON.stringify(own.body));
+  assert.equal(runsIn(a).length, 1, "its run is kept in A");
+  assert.deepEqual(runsIn(b), [], "and still none in B");
 });
 
 // Mutation: in src/tool-gate.ts manualVerdict, delete `if (check.decision === "ask" && key) return { ... deny ... }`.
@@ -236,6 +268,38 @@ function standInScreen(app) {
   return { screen, opened };
 }
 const ctx = (app, run, trunk) => ({ ...app.runtime.context({ runId: run.id }), ...(trunk ? { trunk } : {}) });
+
+// rw4: a stricter guard ships on. Mutation: in src/desktop-app-ask.ts, set AppAskSettingsSchema's default back to false
+// (a fresh engine reads it as off and a new app on the owner's own assistant is let through unasked). The owner's own
+// "off" is saved, so it survives a restart; mutation: have saveAppAskSettings save `{}` (the off is not kept).
+test("Ask before opening an app it hasn't used ships on, and an owner who turned it off keeps it off", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-app-ask-default-"));
+  const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
+  const open = async () => {
+    const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+    const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
+    const call = (method, path, body) => fetch(server.url + path, { method,
+      headers: { authorization: `Bearer ${server.token}`, ...(method === "GET" ? {} : { "content-type": "application/json" }) },
+      ...(method === "GET" ? {} : { body: JSON.stringify(body ?? {}) }) }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+    return { app, call, close: async () => { await server.close(); await app.close(); } };
+  };
+  let live = await open();
+  t.after(async () => { await live?.close(); await discardTemp(root); });
+  assert.deepEqual((await live.call("GET", "/api/desktop/app-ask")).body, { on: true }, "never saved: on");
+  saveDesktopSettings(live.app.store, live.app.runtime.owner, { enabled: true });
+  assert.equal((await live.call("POST", "/api/policy", { preset: "off" })).status, 200);
+  const run = live.app.store.createRun(live.app.runtime.owner, "open an app");
+  assert.equal(live.app.runtime.checkPolicy("desktop.open", { app: "notepad" }, ctx(live.app, run)).decision, "ask",
+    "with nothing saved, a new app is asked about");
+  assert.equal((await live.call("POST", "/api/desktop/app-ask", { on: false })).body.on, false);
+  assert.deepEqual((await live.call("GET", "/api/desktop/app-ask")).body, { on: false }, "the owner's off is read back");
+  await live.close();
+  live = await open();
+  assert.deepEqual((await live.call("GET", "/api/desktop/app-ask")).body, { on: false }, "and it is still off after a restart");
+  const again = live.app.store.createRun(live.app.runtime.owner, "open an app");
+  assert.equal(live.app.runtime.checkPolicy("desktop.open", { app: "notepad" }, ctx(live.app, again)).decision, "allow",
+    "switched off by the owner, nothing is held");
+});
 
 // Mutations: in src/runtime.ts checkPolicy, drop `?? newAppHold(...)` (a new app is no longer asked about);
 // in src/integrations/desktop.ts open, drop `noteAppOpened(...)` (the same app on the same Trunk asks again);

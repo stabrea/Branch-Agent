@@ -101,6 +101,30 @@ test("under Lockdown Always is refused, nothing is written, and the question kee
   assert.equal(once.body.remembered, "never");
 });
 
+/* The flow path: a saved workflow stopped on a question is carried on with POST /api/workflows/<id>/resume, whose
+   `remember` reaches Runtime.grantApproval, not Runtime.approve. Mutation: delete the unhold-approvals `lockdownActive`
+   downgrade in grantApproval (src/runtime.ts) → "always" writes a rule into Lockdown's own list, lost when it ends. */
+test("under Lockdown a workflow's Always is kept for that workflow only, and nothing is written into the rules", async (t) => {
+  const { app, call, rules } = await served(t);
+  const owner = app.runtime.owner;
+  assert.equal((await call("POST", "/api/policy", { rules: [{ tool: "files.write", decision: "ask", remember: "session" }] })).status, 200);
+  const made = app.workflows.create(owner, { name: "Writes one file",
+    steps: [{ name: "Write it", kind: "tool", tool: "files.write", args: { path: "flow-note.txt", content: "flow" } }] });
+  assert.equal((await call("POST", `/api/workflows/${made.id}/run`)).body.status, "waiting_approval");
+  const asked = app.store.get("workflows", owner, made.id).data.pendingApproval;
+  assert.match(String(asked.fingerprint ?? ""), /^[a-f0-9]{32}$/);
+  assert.equal((await call("POST", "/api/lockdown", { on: true })).status, 200);
+  const lockdownRules = rules();
+  const resumed = await call("POST", `/api/workflows/${made.id}/resume`, { remember: "always" });
+  assert.equal(resumed.status, 200, resumed.text);
+  assert.deepEqual(rules(), lockdownRules, "Lockdown's rule list is untouched while it is on");
+  assert.equal(app.runtime.approvals.answer(`workflow:${made.id}`, "files.write", asked.target, asked.fingerprint), "allow",
+    "control: the yes was given, kept for this workflow");
+  assert.equal((await call("POST", "/api/lockdown", { on: false })).status, 200);
+  assert.equal(rules().some((rule) => rule.tool === "files.write" && rule.decision === "allow"), false,
+    "no standing yes appears in the owner's own list either");
+});
+
 /* Mutation: delete `requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId)` in src/server.ts, and have
    `keyAnswerRefusal` return null → a key answers a question of a task it never started. */
 test("a short-lived key cannot answer a question of the owner's, even just now", async (t) => {

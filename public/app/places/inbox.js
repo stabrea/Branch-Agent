@@ -9,7 +9,8 @@
    "Allow all N…" (more than one waiting) answers exactly the questions and Trunk messages its confirm lists, each once,
    through the same routes as their own Allow: POST /api/policy/approve { remember: "never" } by session and fingerprint,
    and POST /api/trunks/messages/<id>/answer. It never keeps a standing yes, and it leaves out install requests, whose
-   own Allow stays greyed; anything that arrives after the confirm opened waits for its own answer.
+   own Allow stays greyed, and any question that carries no fingerprint; anything that arrives after the confirm opened
+   waits for its own answer.
    History's "Verify" walks the activity chain (POST /api/safety-extras/activity/verify) and shows what the engine found.
    "Watch again" plays a task back from its recording (GET /api/runs/<id>/recording): the engine's own frames, stepped or
    played; with recordings switched off the engine's sentence is shown. It never runs the task again. */
@@ -65,8 +66,11 @@ const waitingChanges = () => changeRequests.filter((r) => r.status === "waiting"
 
 const waitingCount = () => asks.length + E.state.trunkWaiting.length + installs.length;
 /* What Allow all may answer: the questions and the Trunk messages, never the install requests. On a household profile
-   it is not offered: GET /api/policy lists the owner's questions there too, and one yes for all of them is the owner's. */
-const allowable = () => (E.profiles?.active?.id ? 0 : asks.length + E.state.trunkWaiting.length);
+   it is not offered: GET /api/policy lists the owner's questions there too, and one yes for all of them is the owner's.
+   A question with no fingerprint is left to its own Allow: without one, a yes is not bound to the request shown. */
+const exact = (q) => /^[a-f0-9]{32}$/.test(String(q.fingerprint ?? ""));
+const exactAsks = () => asks.filter(exact);
+const allowable = () => (E.profiles?.active?.id ? 0 : exactAsks().length + E.state.trunkWaiting.length);
 function needsTab() {
   const count = allowable();
   let html = `<div class="rows">`;
@@ -269,7 +273,7 @@ async function reviewChange(id) {
 let allowing = null;
 function openAllowAll() {
   if (allowable() < 2) return;
-  allowing = { asks: asks.map((q) => ({ sessionId: q.sessionId, fingerprint: q.fingerprint, label: q.question || q.label || "" })),
+  allowing = { asks: exactAsks().map((q) => ({ sessionId: q.sessionId, fingerprint: q.fingerprint, label: q.question || q.label || "" })),
     messages: E.state.trunkWaiting.map((m) => ({ id: m.id, label: m.message })) };
   const n = allowing.asks.length + allowing.messages.length;
   if (n < 2) return;
@@ -283,8 +287,8 @@ async function allowAll() {
   closeDlg();
   if (!picked) return;
   let failed = 0;
-  for (const q of picked.asks) {
-    try { await api("policy/approve", { sessionId: q.sessionId, decision: "allow", remember: "never", ...(q.fingerprint ? { fingerprint: q.fingerprint } : {}), carryOn: true }); }
+  for (const q of picked.asks.filter(exact)) {
+    try { await api("policy/approve", { sessionId: q.sessionId, decision: "allow", remember: "never", fingerprint: q.fingerprint, carryOn: true }); }
     catch (error) { failed++; toast(error.message); }
   }
   for (const m of picked.messages) {

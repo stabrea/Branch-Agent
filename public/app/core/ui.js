@@ -2,7 +2,7 @@
    the prototype (design doc 2 and 5.3). */
 
 import { ICONS } from "./icons.js";
-import { $, esc, applyCss } from "./dom.js";
+import { $, esc, applyCss, afterDraw } from "./dom.js";
 import { greyOut } from "./features.js";
 import { look17 } from "./art17.js";
 import { t } from "../../i18n.js";
@@ -66,7 +66,7 @@ let popAnchor = null;
    button, so then the one drawn in its place (same data-act, data-v and data-id) is used. A click outside leaves the
    keyboard where the click put it, as the browser does. */
 export function closePop(opt = {}) {
-  const anchor = popAnchor, open = !!popEl;
+  const anchor = liveAnchor(), open = !!popEl;
   popEl?.remove();
   popAnchor?.setAttribute("aria-expanded", "false");
   popEl = popAnchor = null;
@@ -79,8 +79,26 @@ function openerOf(anchor) {
   const same = (el) => el.dataset.v === v && el.dataset.id === id && el.getClientRects().length > 0;
   return [...document.querySelectorAll(`[data-act="${CSS.escape(act)}"]`)].find(same) ?? null;
 }
+/* The one visible button drawn with every data-* of the old one (a message's More also by its data-mid); when several
+   match, none is taken rather than a guess. */
+function drawnInPlaceOf(anchor) {
+  const { act } = anchor.dataset;
+  if (!act) return null;
+  const key = (el) => JSON.stringify(Object.entries(el.dataset).sort());
+  const want = key(anchor);
+  const found = [...document.querySelectorAll(`[data-act="${CSS.escape(act)}"]`)].filter((el) => key(el) === want && el.getClientRects().length > 0);
+  return found.length === 1 ? found[0] : null;
+}
+/* A redraw may replace the button an open popover came from: the one drawn in its place becomes its button, so it says
+   it is open, and pressing it again closes the popover, as the prototype's does. */
+function liveAnchor() {
+  const again = popAnchor && !popAnchor.isConnected ? drawnInPlaceOf(popAnchor) : null;
+  if (again) { popAnchor = again; again.setAttribute("aria-expanded", "true"); }
+  return popAnchor;
+}
+afterDraw(() => { if (popEl) liveAnchor(); });
 export function openPop(anchor, html, opt = {}) {
-  const same = popAnchor === anchor, fresh = !popEl || (!same && !opt.force);
+  const same = liveAnchor() === anchor, fresh = !popEl || (!same && !opt.force);
   closePop();
   hideTip();
   if (same && !opt.force) return;
@@ -102,7 +120,7 @@ export function openPop(anchor, html, opt = {}) {
 }
 /* A click anywhere outside the open popover and its button closes it. */
 document.addEventListener("pointerdown", (e) => {
-  if (popEl && !popEl.contains(e.target) && !popAnchor?.contains(e.target)) closePop();
+  if (popEl && !popEl.contains(e.target) && !liveAnchor()?.contains(e.target)) closePop();
 }, true);
 
 /* A popover opened from outside the message box (the status bar's usage, tasks or version) never sits over it: when it

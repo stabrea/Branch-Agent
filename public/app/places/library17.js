@@ -28,7 +28,7 @@ import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
 import { onDemo17, demoPlace17, demoDlg17 } from "./demo17.js";
 import { list17, when17 } from "./parts17.js";
-import { t } from "../../i18n.js";
+import { t, language } from "../../i18n.js";
 
 const L = { labels: { catalog: [], labels: [] }, label: null, graph: null, names: [], kg: null, links: [], problem: "" };
 const askable = (d) => Boolean(d.filePath) && /\.(csv|tsv|json|xlsx)$/i.test(d.filePath);
@@ -53,13 +53,13 @@ const SQ = { files: [], f: null, sql: "", result: null };
 function sqlChart(columns, rows) {
   if (columns.length !== 2 || !rows.length || !rows.every((r) => typeof r[1] === "number")) return "";
   const mx = Math.max(...rows.map((r) => Math.abs(r[1]))) || 1, h = 24;
-  return `<svg class="chart-b17" viewBox="0 0 320 ${rows.length * h + 6}" role="img" aria-label="${t("window.places.library17.bar-chart-of-the-result")}">${rows.map(([l, v], i) => `<text x="0" y="${i * h + 16}">${esc(String(l).slice(0, 18))}</text><rect x="110" y="${i * h + 5}" width="${Math.max(2, (Math.abs(v) / mx) * 160).toFixed(1)}" height="14" rx="3"/><text class="v-b17" x="${(116 + (Math.abs(v) / mx) * 160).toFixed(1)}" y="${i * h + 16}">${esc(v.toLocaleString())}</text>`).join("")}</svg>`;
+  return `<svg class="chart-b17" viewBox="0 0 320 ${rows.length * h + 6}" role="img" aria-label="${t("window.places.library17.bar-chart-of-the-result")}">${rows.map(([l, v], i) => `<text x="0" y="${i * h + 16}">${esc(String(l).slice(0, 18))}</text><rect x="110" y="${i * h + 5}" width="${Math.max(2, (Math.abs(v) / mx) * 160).toFixed(1)}" height="14" rx="3"/><text class="v-b17" x="${(116 + (Math.abs(v) / mx) * 160).toFixed(1)}" y="${i * h + 16}">${esc(v.toLocaleString(language()))}</text>`).join("")}</svg>`;
 }
 function sqlResult() {
   const r = SQ.result;
   if (!r) return `<p class="hint" data-css="margin:0">${t("window.places.library17.run-it-to-see-the-table")}</p>`;
   const head = r.columns.map((c) => `<th>${esc(c)}</th>`).join("");
-  const body = r.rows.map((row) => `<tr>${row.map((v) => `<td>${esc(v === null ? "" : typeof v === "number" ? v.toLocaleString() : v)}</td>`).join("")}</tr>`).join("");
+  const body = r.rows.map((row) => `<tr>${row.map((v) => `<td>${esc(v === null ? "" : typeof v === "number" ? v.toLocaleString(language()) : v)}</td>`).join("")}</tr>`).join("");
   return `<div class="res-b17"><table class="tbl-b17"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>${sqlChart(r.columns, r.rows)}</div>`;
 }
 function drawSql() {

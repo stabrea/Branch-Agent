@@ -172,11 +172,14 @@ async function computerPage(page, api) {
   await page.locator("#c-screen").click();
   check("and back", !!(await until(async () => (await api("desktop/settings")).enabled === was)));
   const presetBefore = (await api("policy")).policy.preset;
+  // rw4: it ships on, so the switch is flipped from whatever the engine says and then put back.
+  const asking = (await api("desktop/app-ask")).on;
+  check("Ask before opening an app it hasn't used: the switch shows the engine's value", (await page.locator("#c-ask").isChecked()) === asking);
   await page.locator("#c-ask").click();
-  check("Ask before opening an app it hasn't used: GET /api/desktop/app-ask follows", !!(await until(async () => (await api("desktop/app-ask")).on === true)));
+  check("Ask before opening an app it hasn't used: GET /api/desktop/app-ask follows", !!(await until(async () => (await api("desktop/app-ask")).on === !asking)));
   check("and the approval preset is left as it was", (await api("policy")).policy.preset === presetBefore);
   await page.locator("#c-ask").click();
-  check("and off again", !!(await until(async () => (await api("desktop/app-ask")).on === false)));
+  check("and back again", !!(await until(async () => (await api("desktop/app-ask")).on === asking)));
   const wall = (await api("os-sandbox")).settings;
   await page.locator('[data-act="c-where"][data-v="sealed"]').click();
   const sealed = await until(async () => { const s = (await api("os-sandbox")).settings; return s.mode === "on" && s; });
