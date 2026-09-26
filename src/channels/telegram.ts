@@ -93,11 +93,19 @@ export class TelegramAdapter implements ChannelAdapter {
   /** P17-D §8: a refused token stops every message arriving, so it is said, not retried in silence. */
   health(): ChannelHealth { return this.refused ? { state: "needs attention", reason: this.refused } : { state: "connected" }; }
   async start(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
-    const me = userSchema.parse(await this.call("getMe", {}));
-    this.username = me.username ?? null;
+    // P17-D §8: a token revoked while Branch was closed is refused here first. It still starts, so the refusal shows
+    // in its health and it comes back by itself once the token works; any other failure stops the start as before.
+    await this.learnName().catch((error: unknown) => {
+      if ((error as { status?: unknown }).status !== 401) throw error;
+      this.refused = tokenRefused;
+    });
     this.offset = Math.max(this.offset, this.options.position?.load() ?? 0); // mac3/never-break
     this.seenThrough = Math.max(this.seenThrough, this.offset);
     this.loop = this.poll(onMessage);
+  }
+  private async learnName(): Promise<void> {
+    const me = userSchema.parse(await this.call("getMe", {}));
+    this.username = me.username ?? null;
   }
   async stop(): Promise<void> {
     this.stopping.abort();
@@ -150,7 +158,7 @@ export class TelegramAdapter implements ChannelAdapter {
         this.advance(); // Retry a failed position write before asking Telegram to acknowledge it.
         // "callback_query" has to be asked for by name, or a pressed button never arrives at all.
         const updates = z.array(updateSchema).parse(await this.call("getUpdates", { offset: this.offset, timeout: this.pollTimeout, allowed_updates: ["message", "callback_query"] }, true));
-        this.refused = null; // P17-D §8: the token works again (a new one was saved, or Telegram took it back)
+        if (this.refused) { this.refused = null; await this.learnName().catch(() => undefined); } // P17-D §8: the token works again
         for (const update of updates.sort((a, b) => a.update_id - b.update_id)) {
           // Telegram irrevocably acknowledges every lower id when getUpdates receives offset.
           // Repeated polls at the oldest unfinished id must not hand that id to the router twice.

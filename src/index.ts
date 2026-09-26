@@ -533,7 +533,8 @@ export async function createBranch(options: {
   registerWorkbookTools(registry, workbooks);
   // P17-D §4: small decisions on the owner's own connections, asked with no tools (src/decision-models.ts).
   const decisionModels = new DecisionModels(store, runtime.owner, runtime.models, async (text, shape, preset) => {
-    const run = store.createRun(runtime.owner, "Making a small decision", undefined, false, "owner");
+    // Temporary, so a decision never adds a conversation to the list.
+    const run = store.createRun(runtime.owner, "Making a small decision", undefined, true, "owner");
     let answer: ShapedAnswer | undefined;
     try {
       answer = await runtime.shaped(run, runtime.context({ runId: run.id, permissions: [], signal: AbortSignal.timeout(60_000) }), text, shape, preset);

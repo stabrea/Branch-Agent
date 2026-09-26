@@ -14,6 +14,7 @@
  * - decide: drop the `result.confidence < settings.minConfidence` re-ask -> "the task's own model decides" fails.
  * - once: drop the split (always `this.single`)              -> "a long list is split" fails.
  * - configure: drop the unknown-model refusal               -> the 400 fails.
+ * - src/index.ts: create the decision's run as not temporary  -> "never adds a conversation" fails.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -59,7 +60,7 @@ const RULES = [
 
 test("each kind is decided and checked against what was offered", async (t) => {
   const task = decider("task", RULES);
-  const { ask } = await fixture(t, task);
+  const { app, ask } = await fixture(t, task);
   const pick = await ask("/api/decisions/decide", { kind: "pick", question: "Which Trunk should answer: late fee?", options: ["Scout", "Ledger", "Ada"] });
   assert.equal(pick.status, 200, JSON.stringify(pick.body));
   assert.deepEqual([pick.body.choice, pick.body.confidence, pick.body.escalated, pick.body.model.name], ["Ledger", 0.91, false, "Task model"], "written as offered");
@@ -81,6 +82,7 @@ test("each kind is decided and checked against what was offered", async (t) => {
   assert.equal(overview.lastDay.decisions, 4, "only the decisions that were made are counted");
   assert.equal(typeof overview.lastDay.averageMs, "number");
   assert.deepEqual(overview.settings, { model: "", minConfidence: 0.75, maxList: 400 });
+  assert.deepEqual(app.store.recentSessions(app.runtime.owner, 20).sessions, [], "a decision never adds a conversation to the list");
 });
 
 test("a separate decision model less sure than the threshold hands the decision to the task's own model", async (t) => {

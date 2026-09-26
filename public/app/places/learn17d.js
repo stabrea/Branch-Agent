@@ -8,6 +8,7 @@
    Where the checks run is only Branch's own browser: a private computer is not in this build, so that choice is greyed. */
 
 import { esc, render } from "../core/dom.js";
+import { E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -28,6 +29,7 @@ export const learnItem = () => ({ id: LEARN_ID, name: "learn-this", sub: "Learn 
 export const learnTile = () => `<div class="tile wb-tile17d"><div class="th"><span class="ico-tile">${ic("book17d", "s")}</span><b>Learn an app or workflow</b></div><p>Branch reads it, writes what it must do, and proves each point on the real thing.</p><div class="acts"><button class="btn sm" type="button" data-act="t9-sel" data-v="${LEARN_ID}">Try it</button></div></div>`;
 
 async function loadBooks() {
+  if (E.profiles?.isOwner === false) return; // the owner's alone: the engine refuses anyone else
   const got = await api("workbooks").catch((error) => { toast(error.message); return null; });
   if (!got) return;
   const before = new Map(W.list.map((w) => [w.id, w.status]));

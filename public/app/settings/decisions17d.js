@@ -6,6 +6,7 @@
    The three "used for" switches stay greyed: the engine does not yet route messages, sort the Inbox or filter lists with it. */
 
 import { esc, render, $ } from "../core/dom.js";
+import { E } from "../core/state.js";
 import { api } from "../core/api.js";
 import { on } from "../core/actions.js";
 import { markLive } from "../core/features.js";
@@ -16,6 +17,7 @@ const KINDS = [["yes", "Yes or no"], ["pick", "Pick one"], ["score", "Score"], [
 const D = { data: null, kind: "pick", q: "", o: "", out: "", busy: false };
 
 async function loadDecisions() {
+  if (E.profiles?.isOwner === false) return; // the owner's alone: the engine refuses anyone else
   D.data = await api("decisions").catch((error) => { toast(error.message); return null; });
   render();
 }

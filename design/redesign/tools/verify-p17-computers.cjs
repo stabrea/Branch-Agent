@@ -1,13 +1,14 @@
 /* Pass 17 part D (§1, §2, §3, §4, §8, §9) in the real window, against a fresh engine this script starts itself:
    every control made live is clicked and its change read back through the engine's own GET route; the greyed ones
    (cloud computers, phone calls, meeting notes, the fine chat-app controls, the decision switches the engine does not
-   use yet) are checked to be greyed. Zero page errors are allowed.
+   use yet) are checked to be greyed. No page error, console error or refused request is allowed after signing in,
+   except the one refusal it asks for on purpose.
 
    What it starts, all on this computer and all thrown away afterwards:
    - a fresh data folder with two paired computers written into the device book (Tower, Linux; Laptop, macOS);
    - a stand-in model on STUB_PORT, OpenAI-shaped: a learning task gets one workbook.save call, a decision gets its JSON,
      anything else "Done."; the same server stands in for Telegram and refuses the bot token (401), as Telegram does
-     once a token is revoked;
+     once a token is revoked (every method, getMe too, so the engine starts with the token already refused);
    - the engine on PORT (never 3210), pointed at that model and at that Telegram through BRANCH_INTEGRATIONS.
    Run:  PORT=3391 STUB_PORT=33910 node design/redesign/tools/verify-p17-computers.cjs */
 const http = require("node:http");
@@ -61,8 +62,6 @@ const stub = http.createServer((req, res) => {
   req.on("data", (c) => { raw += c; });
   req.on("end", () => {
     if (req.url.startsWith("/tg/")) {
-      const method = req.url.split("/").pop();
-      if (method === "getMe") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, result: { id: 7, is_bot: true, username: "stand_in_bot" } })); return; }
       res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: false, error_code: 401, description: "Unauthorized" })); return;
     }
     const body = JSON.parse(raw || "{}");
@@ -326,11 +325,21 @@ async function main() {
     const trunk = (await api("trunks", { name: `Mapper ${RUN}` })).trunk;
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
     page.on("pageerror", (e) => errors.push(e.message));
+    // A console error that is only a refused request is judged by the request below; anything else counts.
+    page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) errors.push(m.text()); });
+    // Every refused request after signing in counts, except the one refusal this script asks for on purpose (At once 4).
+    let signedIn = false;
+    page.on("response", (r) => {
+      if (!signedIn || r.status() < 400) return;
+      if (r.status() === 400 && r.request().method() === "POST" && r.url().endsWith("/computers")) return;
+      errors.push(`${r.status()} ${r.request().method()} ${r.url()}`);
+    });
     await page.goto(BASE + "/");
     await page.getByLabel("Session token").fill(TOKEN);
     await page.getByRole("button", { name: "Connect" }).click();
     await page.waitForSelector("#side .machine");
     await settle(page, 1500);
+    signedIn = true;
     await settingsComputer(page, trunk);
     await itsComputers(page, trunk);
     await conversationComputer(page, trunk);
@@ -338,7 +347,7 @@ async function main() {
     await decisions(page);
     await learn(page);
     await chatApps(page);
-    check("no page errors", errors.length === 0, errors.join(" | "));
+    check("no page errors, console errors or refused requests", errors.length === 0, errors.join(" | "));
   } finally {
     await browser.close();
     engine.kill();

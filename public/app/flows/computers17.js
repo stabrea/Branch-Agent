@@ -43,6 +43,7 @@ async function loadView(id) {
 }
 /** Reads the computers and every Trunk's list again (Settings › Computer, the Trunk editor). */
 export async function loadAll() {
+  if (E.profiles?.isOwner === false) return; // the owner's computers: the engine refuses anyone else
   await loadDevices();
   await Promise.all(E.trunks.map((t) => loadView(t.id)));
   changed();
